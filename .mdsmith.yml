@@ -1,0 +1,82 @@
+front-matter: true
+
+rules:
+  line-length:
+    max: 80
+    exclude:
+      - code-blocks
+      - tables
+      - urls
+  heading-style:
+    style: atx
+  heading-increment: true
+  first-line-heading:
+    level: 1
+  empty-section-body:
+    min-level: 2
+    max-level: 6
+    allow-marker: allow-empty-section
+  no-duplicate-headings: true
+  no-trailing-spaces: true
+  no-hard-tabs: true
+  no-multiple-blanks:
+    max: 1
+  single-trailing-newline: true
+  fenced-code-style:
+    style: backtick
+  fenced-code-language: true
+  no-bare-urls: true
+  blank-line-around-headings: true
+  blank-line-around-lists: true
+  blank-line-around-fenced-code: true
+  list-indent:
+    spaces: 2
+  table-format:
+    pad: 1
+  catalog:
+    pad: 1
+  no-trailing-punctuation-in-heading: true
+  no-emphasis-as-heading: true
+  cross-file-reference-integrity:
+    strict: true
+  # Plan ids are the minute-precision UTC creation time, so two
+  # machines can allocate one without coordinating. Uniqueness is
+  # what makes `frit` able to key a plan as host:repo:id.
+  unique-frontmatter:
+    field: id
+    include:
+      - "plan/*.md"
+    exclude:
+      - "plan/proto.md"
+
+kinds:
+  proto:
+    # proto.md leads with directives and placeholder headings rather
+    # than real content; the structural rules step aside for it.
+    rules:
+      first-line-heading: false
+      heading-increment: false
+      blank-line-around-headings: false
+      no-duplicate-headings: false
+      no-emphasis-as-heading: false
+      cross-file-reference-integrity: false
+      paragraph-readability: false
+      paragraph-structure: false
+  plan:
+    path-pattern: "plan/{proto.md,[0-9][0-9]*_*.md}"
+    rules:
+      required-structure:
+        schema: plan/proto.md
+
+# Order matters: proto applies first so plan/proto.md also picks up
+# the plan kind, whose required-structure.schema points back at the
+# file itself. That marks it as its own schema, which is what stops
+# MDS020 firing on the <?require?> inside it.
+kind-assignment:
+  - glob: ["**/proto.md"]
+    kinds: [proto]
+  - glob: ["plan/*.md"]
+    kinds: [plan]
+
+ignore:
+  - ".github/**"

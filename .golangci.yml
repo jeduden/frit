@@ -1,0 +1,34 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - funlen
+    - gocognit
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - lll
+    - prealloc
+    - revive
+  settings:
+    lll:
+      line-length: 120
+      tab-width: 4
+    funlen:
+      lines: 60
+      statements: 40
+    gocognit:
+      min-complexity: 30
+    revive:
+      rules:
+        - name: exported
+        - name: var-naming
+        - name: blank-imports
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -1,0 +1,7 @@
+/frit
+*.test
+*.prof
+coverage.out
+cover.out
+/.tmp/
+.claude/worktrees/
