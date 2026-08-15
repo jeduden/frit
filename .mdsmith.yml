@@ -78,5 +78,21 @@ kind-assignment:
   - glob: ["plan/*.md"]
     kinds: [plan]
 
+overrides:
+  # Research notes are a record of how a decision was reached, not
+  # reference prose. They carry long quoted tables, survey matrices and
+  # links to tools that may move, so the structural and readability
+  # rules that target docs step aside — same override mdsmith applies
+  # to its own docs/research/**.
+  - glob: ["docs/research/**"]
+    rules:
+      first-line-heading: false
+      heading-increment: false
+      paragraph-readability: false
+      paragraph-structure: false
+      max-file-length: false
+      cross-file-reference-integrity: false
+      required-structure: false
+
 ignore:
   - ".github/**"
