@@ -102,6 +102,31 @@ Join worktrees to holds, and holds to plans. Then report the two
 questions nothing answers today. Which held plans have no
 worktree? Which worktrees have no hold and no commit?
 
+A **hold** is a claim on a plan, and frit recognises one by
+matching ref names against configured patterns. It does not
+infer a hold by scanning ref names for a known plan id. A hold
+is something a repository declares, not something frit guesses:
+inference misreads counter-style ids, where `v0.69` and
+`issue-100` look exactly like a claim on plan 69 or 100.
+
+Two consequences to design for.
+
+Patterns are a **list** per repository, not one. Conventions
+decorate the id freely — one repository here uses four shapes at
+once (`claude/plan-25-x`, `codex/plan-64`, `owner/plan-66-slug`,
+`plan-152-slug`), and another matches its own canonical
+`plan/<id>-<slug>` on only 68 of the 139 refs that carry an id.
+A single pattern would see half the lanes.
+
+Unmatched lanes are **invisible by design**, not a bug. A repo
+that declares no pattern reports no holds, and that is the
+honest answer for a repo with no convention.
+
+Independently of patterns, a hold must exclude refs already
+merged into the default branch. A landed plan's branch still
+exists, so without that scan finished work reports as actively
+held.
+
 ## Phase 5: the JSON contract
 
 Give every command a `--json` form, and pin the shape with a
@@ -150,6 +175,8 @@ Tier is per phase, set by the most demanding ingredient.
       local, remote-tracking and tag refs
 - [x] Plans are indexed as `host:repo:id`, parsing each distinct
       blob once and preferring the default branch's version
+- [ ] Holds are matched by configured ref patterns, excluding
+      refs already merged into the default branch
 - [ ] Orphaned and stale lanes are reported
 - [ ] Every command has a `--json` form
 - [x] All tests pass: `go test ./...`
