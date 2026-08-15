@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -172,35 +172,30 @@ func TestEnvironmentBeatsConfigFile(t *testing.T) {
 }
 
 func TestRefNamesEveryWorktreeState(t *testing.T) {
-	assert.Equal(t, "main", ref(gitwt.Worktree{Branch: "main"}))
-	assert.Equal(t, "(bare)", ref(gitwt.Worktree{Bare: true}))
+	assert.Equal(t, "main", ref(report.Worktree{Branch: "main"}))
+	assert.Equal(t, "(bare)", ref(report.Worktree{Bare: true}))
 	assert.Equal(t, "(detached)",
-		ref(gitwt.Worktree{Detached: true}))
-	assert.Equal(t, "(unknown)", ref(gitwt.Worktree{}))
+		ref(report.Worktree{Detached: true}))
+	assert.Equal(t, "(unknown)", ref(report.Worktree{}))
 }
 
 func TestNoteFlagsOnlyLanesWorthASecondLook(t *testing.T) {
-	live := gitwt.Worktree{Branch: "main", Head: sha('a')}
+	live := report.Worktree{Branch: "main", HasCommit: true}
 	assert.Empty(t, note(live))
-	assert.Empty(t, note(gitwt.Worktree{Bare: true}))
+	assert.Empty(t, note(report.Worktree{Bare: true}))
 
 	assert.Equal(t, "no commit",
-		note(gitwt.Worktree{Branch: "wip", Head: sha('0')}))
+		note(report.Worktree{Branch: "wip"}))
 	assert.Equal(t, "prunable",
-		note(gitwt.Worktree{Head: sha('b'), Prunable: true}))
+		note(report.Worktree{HasCommit: true, Prunable: true}))
 	assert.Equal(t, "locked",
-		note(gitwt.Worktree{Head: sha('c'), Locked: true}))
+		note(report.Worktree{HasCommit: true, Locked: true}))
 }
 
 func TestPluralAgreesWithItsCount(t *testing.T) {
 	assert.Equal(t, "1 worktree", plural(1, "worktree"))
 	assert.Equal(t, "0 worktrees", plural(0, "worktree"))
 	assert.Equal(t, "2 worktrees", plural(2, "worktree"))
-}
-
-// sha builds a 40-character object name out of one repeated byte.
-func sha(c byte) string {
-	return string(bytes.Repeat([]byte{c}, 40))
 }
 
 // writeConfig writes a config file into the current directory.

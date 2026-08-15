@@ -25,6 +25,7 @@ import (
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/repocfg"
+	"github.com/jeduden/frit/internal/report"
 )
 
 // version is stamped at build time with -ldflags.
@@ -41,6 +42,10 @@ Settings resolve flag first, then $FRIT_* in the environment, then
 // invocation.
 type cli struct {
 	Root string `help:"Directory to walk for repositories." env:"FRIT_ROOT" default:"." type:"path"`
+
+	// JSON is global rather than per command because every command
+	// answers it, and an agent should not have to remember which ones.
+	JSON bool `help:"Emit the report as JSON instead of a table."`
 
 	Config kong.ConfigFlag `help:"Load configuration from a file." placeholder:"PATH"`
 
@@ -89,50 +94,58 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
-	found := false
+	doc := report.NewOrphans(c.Root)
 	for _, repo := range repos {
 		built, err := repoLanes(repo, rt)
 		if err != nil {
-			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
-				repo.Name, err)
+			// One unreadable repository must not blind the rest.
+			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		report := lanes.Find(built, repo.Worktrees)
-		if !report.Any() {
-			continue
-		}
-		found = true
-		printOrphans(tw, repo.Name, report)
+		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
 	}
-	_ = tw.Flush()
 
-	if !found {
-		_, _ = fmt.Fprintln(rt.stdout, "no orphaned lanes")
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
 	}
+	printOrphans(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
 
 	return nil
 }
 
-// printOrphans writes one repository's orphan block. The three kinds
-// stay labelled rather than merged into a count, because each calls
-// for a different response.
-func printOrphans(
-	tw io.Writer, name string, report lanes.Orphans,
-) {
-	_, _ = fmt.Fprintf(tw, "%s\t\t\n", name)
+// printOrphans writes a block per repository with something wrong.
+// The three kinds stay labelled rather than merged into a count,
+// because each calls for a different response. A repository in good
+// order is left out entirely; --json lists it with empty sets.
+func printOrphans(out io.Writer, doc *report.OrphansDoc) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	found := false
 
-	for _, lane := range report.Unstaffed {
-		_, _ = fmt.Fprintf(tw, "  claimed, no checkout\tplan %d\t%s\n",
-			lane.PlanID, lane.Holds[0].Branch)
+	for _, repo := range doc.Repos {
+		if !repo.Any() {
+			continue
+		}
+		found = true
+		_, _ = fmt.Fprintf(tw, "%s\t\t\n", repo.Name)
+
+		for _, lane := range repo.Unstaffed {
+			_, _ = fmt.Fprintf(tw, "  claimed, no checkout\tplan %d\t%s\n",
+				lane.PlanID, lane.Holds[0].Branch)
+		}
+		for _, wt := range repo.Empty {
+			_, _ = fmt.Fprintf(tw, "  never started\t%s\t%s\n",
+				wt.Name, wt.Branch)
+		}
+		for _, wt := range repo.Prunable {
+			_, _ = fmt.Fprintf(tw, "  prunable\t%s\t%s\n",
+				wt.Name, wt.PruneReason)
+		}
 	}
-	for _, wt := range report.Empty {
-		_, _ = fmt.Fprintf(tw, "  never started\t%s\t%s\n",
-			wt.Name(), wt.Branch)
-	}
-	for _, wt := range report.Prunable {
-		_, _ = fmt.Fprintf(tw, "  prunable\t%s\t%s\n",
-			wt.Name(), wt.PruneReason)
+	_ = tw.Flush()
+
+	if !found {
+		_, _ = fmt.Fprintln(out, "no orphaned lanes")
 	}
 }
 
@@ -150,35 +163,49 @@ func (s *staleCmd) Run(c *cli, rt *runtime) error {
 	cutoff := time.Duration(s.Days) * 24 * time.Hour
 	now := time.Now()
 
-	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
-	found := false
+	doc := report.NewStale(c.Root, s.Days)
 	for _, repo := range repos {
 		times, err := gitobj.RefTimes(repo.Path, rt.git)
 		if err != nil {
-			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
-				repo.Name, err)
+			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		aged := lanes.Stale(repo.Worktrees, times, now, cutoff)
-		if len(aged) == 0 {
+		doc.AddRepo(repo.Name,
+			lanes.Stale(repo.Worktrees, times, now, cutoff))
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printStale(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printStale writes the idle checkouts, oldest first within each
+// repository, and says so plainly when there are none.
+func printStale(out io.Writer, doc *report.StaleDoc) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	found := false
+
+	for _, repo := range doc.Repos {
+		if len(repo.Stale) == 0 {
 			continue
 		}
 		found = true
 		_, _ = fmt.Fprintf(tw, "%s\t\t\n", repo.Name)
-		for _, a := range aged {
+		for _, aged := range repo.Stale {
 			_, _ = fmt.Fprintf(tw, "  %dd\t%s\t%s\n",
-				int(a.Age.Hours()/24), a.Worktree.Name(),
-				a.Worktree.Branch)
+				aged.AgeDays, aged.Worktree.Name, aged.Worktree.Branch)
 		}
 	}
 	_ = tw.Flush()
 
 	if !found {
-		_, _ = fmt.Fprintf(rt.stdout,
-			"no worktree idle longer than %d days\n", s.Days)
+		_, _ = fmt.Fprintf(out,
+			"no worktree idle longer than %d days\n", doc.Days)
 	}
-
-	return nil
 }
 
 type initCmd struct {
@@ -187,10 +214,14 @@ type initCmd struct {
 }
 
 // Run writes a per-repository config carrying frit's defaults.
-func (i *initCmd) Run(rt *runtime) error {
+func (i *initCmd) Run(c *cli, rt *runtime) error {
 	path, err := repocfg.Init(i.Dir, i.Force)
 	if err != nil {
 		return err
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, report.Init(path))
 	}
 	_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", path)
 
@@ -220,7 +251,12 @@ func (r *reposCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	printRepos(rt.stdout, repos)
+
+	doc := report.Repos(c.Root, repos)
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printRepos(rt.stdout, doc)
 
 	return nil
 }
@@ -258,12 +294,11 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 		host = "localhost"
 	}
 
-	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
+	doc := report.NewPlans(c.Root, host)
 	for _, repo := range repos {
 		dir, err := p.planDir(repo.Path)
 		if err != nil {
-			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
-				repo.Name, err)
+			doc.AddProblem(repo.Name, err)
 			continue
 		}
 
@@ -271,45 +306,56 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 			rt.git, rt.gitPipe)
 		if err != nil {
 			// One unreadable repository must not blind the rest.
-			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
-				repo.Name, err)
+			doc.AddProblem(repo.Name, err)
 			continue
 		}
 
 		entries, problems := index.Build(host, repo.Name,
 			gitobj.DefaultRef(repo.Path, rt.git), files)
 		for _, problem := range problems {
-			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
-				repo.Name, problem)
+			doc.AddProblem(repo.Name, problem)
 		}
-		printPlans(tw, repo.Name, entries, p.Detail)
+		doc.AddRepo(repo.Name, entries)
 	}
-	_ = tw.Flush()
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printPlans(rt.stdout, doc, p.Detail)
+	printProblems(rt.stderr, doc.Problems)
 
 	return nil
 }
 
-// printPlans writes one repository's plan summary, and optionally
-// every plan with its status, tier and reach.
-func printPlans(
-	tw io.Writer, name string, entries []index.Entry, detail bool,
-) {
-	counts := map[string]int{}
-	for _, e := range entries {
-		counts[e.Primary().Plan.Status]++
-	}
+// printPlans writes one line per repository, and with detail every
+// plan under it. --json is not affected by --detail: a person is
+// shown a summary by default, a consumer always gets the whole index.
+func printPlans(out io.Writer, doc *report.PlansDoc, detail bool) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 
-	_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", name,
-		plural(len(entries), "plan"), statusBar(counts))
-	if !detail {
-		return
+	for _, repo := range doc.Repos {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", repo.Name,
+			plural(len(repo.Plans), "plan"), statusBar(repo.Counts()))
+		if !detail {
+			continue
+		}
+		for _, p := range repo.Plans {
+			_, _ = fmt.Fprintf(tw, "  %d %s\t%s\t%s\n",
+				p.ID, p.Status, p.Title, plural(p.RefCount, "ref"))
+		}
 	}
+	_ = tw.Flush()
+}
 
-	for _, e := range entries {
-		v := e.Primary()
-		_, _ = fmt.Fprintf(tw, "  %d %s\t%s\t%s\n",
-			e.Key.ID, v.Plan.Status, v.Plan.Title,
-			plural(e.RefCount(), "ref"))
+// printProblems reports the repositories that could not be read.
+//
+// They are written after the table rather than interleaved with it,
+// because stdout is what a pipe keeps and a failure must not land in
+// the middle of it. Under --json they are not printed at all: the
+// document carries them, and it is then the whole report.
+func printProblems(errw io.Writer, problems []report.Problem) {
+	for _, p := range problems {
+		_, _ = fmt.Fprintf(errw, "frit: %s: %s\n", p.Repo, p.Message)
 	}
 }
 
@@ -337,7 +383,10 @@ func statusBar(counts map[string]int) string {
 type versionCmd struct{}
 
 // Run prints the build version.
-func (v *versionCmd) Run(rt *runtime) error {
+func (v *versionCmd) Run(c *cli, rt *runtime) error {
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, report.Version(version))
+	}
 	_, _ = fmt.Fprintln(rt.stdout, version)
 
 	return nil
@@ -433,19 +482,19 @@ func envResolver(getenv func(string) string) kong.Resolver {
 }
 
 // printRepos renders the repository listing as an aligned table.
-func printRepos(out io.Writer, repos []discover.Repo) {
-	if len(repos) == 0 {
+func printRepos(out io.Writer, doc report.ReposDoc) {
+	if len(doc.Repos) == 0 {
 		_, _ = fmt.Fprintln(out, "no git repositories found")
 		return
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, repo := range repos {
+	for _, repo := range doc.Repos {
 		_, _ = fmt.Fprintf(tw, "%s\t\t%s\n",
 			repo.Name, plural(len(repo.Worktrees), "worktree"))
 		for _, wt := range repo.Worktrees {
 			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n",
-				wt.Name(), ref(wt), note(wt))
+				wt.Name, ref(wt), note(wt))
 		}
 	}
 	_ = tw.Flush()
@@ -462,7 +511,7 @@ func plural(n int, noun string) string {
 }
 
 // ref is what the worktree is on, in the form a person recognises.
-func ref(wt gitwt.Worktree) string {
+func ref(wt report.Worktree) string {
 	switch {
 	case wt.Bare:
 		return "(bare)"
@@ -477,11 +526,11 @@ func ref(wt gitwt.Worktree) string {
 
 // note flags the states that make a lane worth a second look. An
 // empty note is the ordinary case.
-func note(wt gitwt.Worktree) string {
+func note(wt report.Worktree) string {
 	switch {
 	case wt.Bare:
 		return ""
-	case !wt.HasCommit():
+	case !wt.HasCommit:
 		return "no commit"
 	case wt.Prunable:
 		return "prunable"
