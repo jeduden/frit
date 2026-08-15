@@ -75,8 +75,8 @@ fewer than the refs.
 
 Measured on this machine: the whole fleet in 1.7 seconds. It
 found 319 plan files across mdsmith's 987 refs against 171 in
-its working tree, and one atlas plan that exists on a ref and
-nowhere in the checkout.
+its working tree, and one plan that exists on a ref and
+nowhere in any checkout.
 
 ## Phase 3: plans parsed through mdsmith
 
@@ -92,7 +92,7 @@ across repositories.
 One plan can exist in several versions at once. Rank them so
 the copy on the default branch wins, because the status flip
 rides the commit that lands the work. Ranking by how many refs
-carry a version is wrong, and measurably so: atlas's old lanes
+carry a version is wrong, and measurably so: old lanes
 outnumber the default branch and report 98 plans done where
 the branch itself says 106.
 

@@ -13,9 +13,10 @@ import (
 // Key identifies a plan across the whole fleet.
 //
 // The host and repository are part of the key because plan ids are
-// only unique within a repository: atlas allocates timestamps
-// (2608142306) while mdsmith allocates counters (100), so an id
-// alone would collide the moment both are indexed.
+// only unique within a repository. One repository here allocates
+// minute-precision timestamps (2608142306) and another a simple
+// counter (100), so an id alone collides the moment both are
+// indexed.
 type Key struct {
 	Host string
 	Repo string
@@ -50,12 +51,12 @@ type Entry struct {
 // refs carry, then the lowest object id for a stable tie-break.
 //
 // Preferring the default branch over the majority is not arbitrary.
-// Measured on this machine, atlas's plans appear on 391 refs, most
-// of them old lanes that were branched before the work finished and
-// never updated again. Counting refs therefore reports a plan as
-// unstarted long after it merged — 98 done where the default branch
-// says 106. The status is flipped by the commit that lands the work,
-// so the branch that work lands on is the one telling the truth.
+// Measured on a real repository, its plans appear on 391 refs, most
+// of them old lanes branched before the work finished and never
+// updated again. Counting refs therefore reports a plan as unstarted
+// long after it merged — 98 done where the default branch says 106.
+// The status is flipped by the commit that lands the work, so the
+// branch that work lands on is the one telling the truth.
 func (e Entry) Primary() Version {
 	return e.Versions[0]
 }

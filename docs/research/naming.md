@@ -2,7 +2,7 @@
 summary: >-
   Where the name frit comes from — a glassmaking term for material that
   is fused, quenched and ground before it is melted into the work — and
-  why it is a sibling of atlas rather than a coincidence.
+  why the obvious alternatives were unavailable.
 ---
 # The name
 
@@ -29,18 +29,6 @@ follows cheaper — which is what a frit is for.
 The read-only posture falls out of the same image. Frit sits in the
 batch. It is not the furnace.
 
-## Why it is a sibling of atlas
-
-The name is not merely craft-adjacent to [atlas][atlas], the sibling
-project. Atlas is *made by fritting*.
-
-Cobalt glass is *"also known as 'atlas' when ground as a pigment"*:
-cobalt oxide is smelted with quartz and potassium carbonate, the melt is
-quenched in water to shatter it, and the pieces are ground to a coarse
-blue powder. Fused, quenched, granulated — the same three steps, on the
-same bench. The two names come out of one process rather than one
-vocabulary.
-
 ## Why not something more obvious
 
 Every evocative word for *watching a fleet* has been claimed by an agent
@@ -50,18 +38,14 @@ orchestrator in the last two years. Checked and rejected for collision:
 agents"*), [bosun][bosun] (tmux-native agent orchestrator), and four
 separate projects named *babysitter*.
 
-Glassmaking was unclaimed because nobody in this space was looking
-there, and because the vocabulary was already ours.
+Glassmaking was unclaimed, because nobody in this space was looking
+there.
 
 ## Sources
 
 - [Frit][frit] — Wikipedia, for the definition and the fritting process
-- [Cobalt glass][atlas] — Wikipedia, for atlas as ground cobalt glass
-- [Atlas][cameo] — MFA CAMEO, conservation-side description
 
 [frit]: https://en.wikipedia.org/wiki/Frit
-[atlas]: https://en.wikipedia.org/wiki/Cobalt_glass
-[cameo]: https://cameo.mfa.org/wiki/Atlas
 [muster]: https://github.com/giantswarm/muster
 [weft]: https://github.com/weftlabs/weft-cli
 [orrery]: https://github.com/CaseyHaralson/orrery

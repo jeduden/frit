@@ -28,9 +28,9 @@ func Refs(dir string, run gitwt.Runner) ([]Ref, error) {
 // DefaultRef names the ref whose copy of a file is authoritative.
 //
 // It is emphatically not HEAD. A main worktree is routinely parked
-// on a feature branch — the machine this was written for has atlas's
-// on ci/runner-speed — so HEAD names whatever was last checked out,
-// not the branch work lands on.
+// on a feature branch, so HEAD names whatever was last checked out
+// rather than the branch work lands on. That is the common case on
+// the machines this targets, not a corner case.
 //
 // The cascade asks, in order: what does the remote call its default
 // branch, then the conventional names, then HEAD as a last resort.

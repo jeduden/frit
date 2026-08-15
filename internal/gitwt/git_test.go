@@ -31,7 +31,7 @@ func TestListAsksGitForPorcelainAndParsesIt(t *testing.T) {
 	assert.Equal(t,
 		[]string{"/repo", "worktree", "list", "--porcelain"}, got)
 	require.Len(t, wts, 6)
-	assert.Equal(t, "ci/runner-speed", wts[0].Branch)
+	assert.Equal(t, "feature/fast-path", wts[0].Branch)
 }
 
 func TestListPropagatesGitFailure(t *testing.T) {

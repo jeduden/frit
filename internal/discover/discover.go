@@ -44,7 +44,7 @@ var skipDirs = map[string]bool{
 
 // Repos finds every git repository under root.
 //
-// Grouping is by git common directory, so the many `atlas-*`
+// Grouping is by git common directory, so the many sibling
 // worktrees of one repository collapse into a single Repo rather
 // than appearing as dozens of unrelated checkouts. A candidate that
 // git refuses to answer for is skipped rather than failing the walk:

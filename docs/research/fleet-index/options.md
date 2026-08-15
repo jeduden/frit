@@ -12,14 +12,14 @@ extend mdsmith, build a dedicated tool, or adopt something existing.
 
 ## mdsmith does not know what a plan is
 
-The worry behind extending mdsmith was that it would hard-code the atlas
-plan convention into a general-purpose linter. Checking the source, that
-concern does not apply. mdsmith contains no reference to `depends-on`,
+The worry behind extending mdsmith was that it would hard-code one
+repository's plan convention into a general-purpose linter. Checking
+the source, that concern does not apply. mdsmith has no `depends-on`,
 no plan status vocabulary, and no task semantics of any kind. The whole
 convention is declared in per-repo config:
 
 ```yaml
-# atlas/.mdsmith.yml — the entire definition of "a plan"
+# .mdsmith.yml — the entire definition of "a plan"
 kinds:
   plan:
     path-pattern: "plan/{proto.md,[0-9][0-9]*_*.md}"
@@ -149,7 +149,7 @@ hosts.
   the status that would drive it.
 - **Backlog.md's zero-config default.** Point it at a folder and it
   works. The index should degrade to branch-and-agent view for
-  repositories with no `plan/` directory, exactly as repo-c requires.
+  repositories with no `plan/` directory, as one here requires.
 - **Nobody's read-only mode.** Every surveyed tool is a controller. A
   board that can be handed to an agent with no risk of it spawning work
   is unusual, and cheap to preserve if it is a constraint from day one.

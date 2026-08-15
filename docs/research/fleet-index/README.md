@@ -15,7 +15,7 @@ problem and none of them knew about the others.
 - **herdr** knows which agent is doing what, but only on one host and
   only by working directory.
 - **plan-lane** knows who holds which plan, and moves lanes between
-  machines, but only inside `atlas`.
+  machines, but only inside the one repository it ships in.
 - **mdsmith** knows how markdown files relate to each other, but only
   within one checkout.
 

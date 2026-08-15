@@ -9,27 +9,27 @@ summary: >-
 
 ## What the ground truth looked like
 
-Measured on `workstation`, 2026-08-15. These numbers set the scale the
-index has to handle and show where the convention is consistent enough
-to rely on.
+Measured on one workstation, 2026-08-15. Repositories are anonymised;
+these numbers set the scale the index has to handle and show where the
+convention is consistent enough to rely on.
 
-| Repo               | Plans | Worktrees | Remote refs | Convention |
-| ------------------ | ----- | --------- | ----------- | ---------- |
-| atlas              | 152   | 80        | 313         | full       |
-| mdsmith            | 171   | 7         | 899         | full       |
-| repo-c           | 0     | 3         | —           | partial    |
-| repo-d | 0     | 1         | —           | none       |
+| Repo | Plans | Worktrees | Remote refs | Convention |
+| ---- | ----- | --------- | ----------- | ---------- |
+| A    | 152   | 80        | 313         | full       |
+| B    | 171   | 7         | 899         | full       |
+| C    | 0     | 3         | —           | partial    |
+| D    | 0     | 1         | —           | none       |
 
 Plan front matter is stable across both adopting repositories — `id`,
-`title`, `status`, `summary`, `model`, `depends-on` — and 105 of atlas's
+`title`, `status`, `summary`, `model`, `depends-on` — and 105 of A's
 152 plans declare dependencies, so there is a real DAG to walk rather
 than a flat list. Status is a four-value vocabulary already in use:
 🔲 not started, 🔳 in progress, ✅ done, ⛔ superseded.
 
 Two traps showed up immediately.
 
-**Ids collide.** atlas allocates minute-precision timestamps
-(`2608142306`); mdsmith allocates counters (`100`). A fleet-wide key must
+**Ids collide.** A allocates minute-precision timestamps
+(`2608142306`); B allocates counters (`100`). A fleet-wide key must
 be `host:repo:id`, never `id` alone.
 
 **Adoption is uneven.** Two of four repositories have no `plan/`
@@ -79,8 +79,8 @@ ref count:
 4. One `cat-file --batch` for all blobs.
 
 Measured: the whole fleet in about one second. It found 319 plan files
-across mdsmith's 987 refs against 171 in its working tree, and a atlas
-plan that exists on a ref and nowhere in the checkout. That visibility
+across B's 987 refs against 171 in its working tree, and a plan in A
+that exists on a ref and nowhere in the checkout. That visibility
 is the point of the index.
 
 > **Superseded detail.** This note originally proposed feeding those
@@ -97,23 +97,23 @@ One plan can exist in several versions at once: the copy on its own
 lane, the copy on the default branch, and stale copies on old branches.
 
 The first ranking rule tried was "whichever version the most refs
-carry". Run against atlas that reports 98 plans done where the working
-tree says 106. The 391 refs are mostly old lanes branched before the
+carry". Run against A that reports 98 plans done where the working
+tree says 106. Its 391 refs are mostly old lanes branched before the
 work finished and never updated again, so the majority is stale by
 construction.
 
 The status flip rides the commit that lands the work, so the branch work
 lands on is authoritative. Finding it deliberately does not use `HEAD`:
-atlas's main worktree is parked on `ci/runner-speed`, so `HEAD` names
+A's main worktree is parked on a feature branch, so `HEAD` names
 whatever was last checked out. The cascade asks `origin/HEAD`, then
 `main`, then `master`, then `HEAD` as a last resort.
 
 ## Multi-host: git is already the bus
 
-The repositories here point at two forges: GitHub (`origin`) and a
-self-hosted Gitea at `ssh://git@forge.example:222` (`dudennl`). In atlas
-the self-hosted remote carries 192 branches against origin's 121, so the
-private forge is where coordination actually happens. plan-lane's
+The repositories here point at two forges: GitHub and a self-hosted
+Gitea. In A the self-hosted remote carries 192 branches against
+GitHub's 121, so the private forge is where coordination actually
+happens. plan-lane's
 `handoff` and `adopt` already move a lane between machines through it,
 with no daemon and no central service.
 
@@ -239,7 +239,7 @@ order, because typing a ten-digit timestamp is its own friction:
   than guessing. The `plan-phase` skill already accepts "enough of the
   title to resolve it".
 - **Nothing at all** — inferred from context. Standing in
-  `atlas-shader-unit-tests`, `frit next` means "the next phase of the
+  `proj-shader-unit-tests`, `frit next` means "the next phase of the
   plan this worktree is working". That is the cwd join run backwards.
 
 Phase numbers get the same treatment: `--phase` is optional and defaults
@@ -269,9 +269,9 @@ to the first phase not at ✅, the rule `plan-phase` already follows.
 ## Build order
 
 1. **A dedicated repo consuming mdsmith** — see [options.md](options.md).
-2. **Index before display.** Get the walk correct across atlas and
-   mdsmith, the two repositories with full convention, and let repo-c
-   exercise the degraded path.
+2. **Index before display.** Get the walk correct across the two
+   repositories with full convention, and let one with no `plan/`
+   directory exercise the degraded path.
 3. **Ship orphan detection early.** It needs only git, pays for itself
    against 80 worktrees, and validates the index without herdr.
 4. **Join to herdr last.** It is the smallest piece — one socket call,

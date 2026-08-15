@@ -39,8 +39,8 @@ The fleet root is typed once, not on every invocation. Settings
 resolve most-specific first:
 
 ```sh
-frit repos --root ~/git/jeduden     # 1. the command line
-export FRIT_ROOT=~/git/jeduden      # 2. the environment
+frit repos --root ~/git     # 1. the command line
+export FRIT_ROOT=~/git      # 2. the environment
 ```
 
 ```yaml

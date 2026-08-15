@@ -35,10 +35,10 @@ func TestKeyIsHostRepoAndID(t *testing.T) {
 
 func TestKeySeparatesCollidingIDsAcrossRepos(t *testing.T) {
 	a := Key{Host: "h", Repo: "atlas", ID: 100}
-	b := Key{Host: "h", Repo: "mdsmith", ID: 100}
+	b := Key{Host: "h", Repo: "beta", ID: 100}
 
 	assert.NotEqual(t, a.String(), b.String(),
-		"mdsmith counts from 1, atlas uses timestamps; both reach 100")
+		"one repo counts from 1, another uses timestamps; both hit 100")
 }
 
 func TestBuildGroupsOneplanAcrossManyRefs(t *testing.T) {
@@ -66,7 +66,7 @@ func TestBuildKeepsDistinctVersionsApart(t *testing.T) {
 		{Ref: "refs/heads/y", Path: "plan/a.md", OID: "bbb", Content: edited},
 	}
 
-	got, problems := Build("h", "mdsmith", "", files)
+	got, problems := Build("h", "beta", "", files)
 
 	require.Empty(t, problems)
 	require.Len(t, got, 1)

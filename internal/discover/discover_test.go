@@ -14,8 +14,8 @@ import (
 func TestReposGroupsLinkedWorktreesUnderOneRepo(t *testing.T) {
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
-	// A linked worktree laid out as a sibling, the way the machine
-	// this targets actually stores them (atlas-<slug>).
+	// A linked worktree laid out as a sibling, the way the machines
+	// this targets actually store them (<repo>-<slug>).
 	git(t, repo, "worktree", "add", "-q", "-b", "plan/2608142306",
 		filepath.Join(root, "atlas-fleet-index"))
 

@@ -51,7 +51,7 @@ func (w Worktree) HasCommit() bool {
 }
 
 // Name is the worktree directory's basename, which is how lanes are
-// referred to conversationally ("atlas-shader-unit-tests").
+// referred to conversationally ("proj-shader-unit-tests").
 func (w Worktree) Name() string {
 	return filepath.Base(w.Path)
 }
