@@ -1,0 +1,36 @@
+version: 2
+
+# Pinning every action by SHA is what makes a workflow reproducible,
+# and it is also what makes it go stale silently: a pin never asks to
+# be updated. This is the thing that asks.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    # One pull request for all of them. Six action pins bumped
+    # separately is six reviews of the same kind of diff.
+    groups:
+      actions:
+        patterns: ["*"]
+    # The mdsmith action is deliberately not grouped in: its version
+    # must move with the library in go.mod, so that bump is a decision
+    # rather than a merge. See the CI and Release section of
+    # CLAUDE.md.
+    ignore:
+      - dependency-name: "jeduden/mdsmith"
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+
+  # Dev tools build from their own modfile, so they update on their
+  # own schedule and never constrain consumers of this module.
+  - package-ecosystem: "gomod"
+    directory: "/tools"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
