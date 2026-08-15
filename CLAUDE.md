@@ -9,6 +9,7 @@ agents, written in Go.
 
 - [Plan template; see PLAN.md for status, plans live in plan/](plan/proto.md)
 - [Why frit exists — the research](docs/research/fleet-index/README.md)
+- [Where the name comes from](docs/research/naming.md)
 
 Research notes record how a decision was reached, including the wrong
 turns, and are dated rather than kept current. When one has been
