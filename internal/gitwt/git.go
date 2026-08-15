@@ -40,6 +40,39 @@ func Exec(dir string, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// PipeRunner runs a git subcommand with stdin attached and returns
+// its stdout.
+//
+// The batch plumbing (`cat-file --batch`, `--batch-check`) reads its
+// request list from stdin, which is the whole point of it: one
+// process answers thousands of lookups. Runner cannot express that,
+// so it gets its own type rather than growing an unused parameter on
+// every ordinary call.
+type PipeRunner func(dir string, stdin []byte, args ...string) ([]byte, error)
+
+// ExecPipe is the PipeRunner that shells out to git.
+func ExecPipe(dir string, stdin []byte, args ...string) ([]byte, error) {
+	full := append([]string{"-C", dir}, args...)
+	cmd := exec.Command("git", full...)
+	cmd.Stdin = bytes.NewReader(stdin)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			return nil, fmt.Errorf("git %s: %w",
+				strings.Join(args, " "), err)
+		}
+		return nil, fmt.Errorf("git %s: %w: %s",
+			strings.Join(args, " "), err, msg)
+	}
+
+	return stdout.Bytes(), nil
+}
+
 // List returns every worktree of the repository containing dir.
 //
 // The answer covers the whole repository, not just dir, so calling it

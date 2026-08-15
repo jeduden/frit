@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"text/tabwriter"
 
 	"github.com/alecthomas/kong"
@@ -17,6 +18,7 @@ import (
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/plans"
 )
 
 // version is stamped at build time with -ldflags.
@@ -37,6 +39,7 @@ type cli struct {
 	Config kong.ConfigFlag `help:"Load configuration from a file." placeholder:"PATH"`
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
+	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
 
@@ -44,9 +47,10 @@ type cli struct {
 // write, and how to reach git. Both are injected so tests never
 // touch the real streams and can fake git.
 type runtime struct {
-	stdout io.Writer
-	stderr io.Writer
-	git    gitwt.Runner
+	stdout  io.Writer
+	stderr  io.Writer
+	git     gitwt.Runner
+	gitPipe gitwt.PipeRunner
 }
 
 // exitCode unwinds kong's os.Exit call so run can return it instead.
@@ -65,6 +69,65 @@ func (r *reposCmd) Run(c *cli, rt *runtime) error {
 	printRepos(rt.stdout, repos)
 
 	return nil
+}
+
+type plansCmd struct {
+	Dir    string `help:"Directory holding plan files." default:"plan" env:"FRIT_PLAN_DIR"`
+	Detail bool   `help:"List every plan file, not just a count." short:"d"`
+}
+
+// Run reads plan files off every ref of every repository under the
+// root. Nothing is checked out.
+func (p *plansCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+
+	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
+	for _, repo := range repos {
+		files, err := plans.Collect(repo.Path, p.Dir,
+			rt.git, rt.gitPipe)
+		if err != nil {
+			// One unreadable repository must not blind the rest.
+			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
+				repo.Name, err)
+			continue
+		}
+		printPlans(tw, repo.Name, files, p.Detail)
+	}
+	_ = tw.Flush()
+
+	return nil
+}
+
+// printPlans writes one repository's plan summary, and optionally
+// every distinct plan file with how many refs carry it.
+func printPlans(
+	tw io.Writer, name string, files []plans.File, detail bool,
+) {
+	byPath := map[string]int{}
+	refs := map[string]bool{}
+	for _, f := range files {
+		byPath[f.Path]++
+		refs[f.Ref] = true
+	}
+
+	_, _ = fmt.Fprintf(tw, "%s\t%s\ton %s\n", name,
+		plural(len(byPath), "plan"), plural(len(refs), "ref"))
+	if !detail {
+		return
+	}
+
+	paths := make([]string, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t\n",
+			path, plural(byPath[path], "ref"))
+	}
 }
 
 type versionCmd struct{}
@@ -96,7 +159,12 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	}()
 
 	var c cli
-	rt := &runtime{stdout: stdout, stderr: stderr, git: gitwt.Exec}
+	rt := &runtime{
+		stdout:  stdout,
+		stderr:  stderr,
+		git:     gitwt.Exec,
+		gitPipe: gitwt.ExecPipe,
+	}
 
 	parser, err := newParser(&c, stdout, stderr)
 	if err != nil {

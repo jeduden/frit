@@ -25,6 +25,14 @@ frit resolves a plan to a lane and a model tier, hands the pane to
 the agent that already runs there, and steps back. It renders no
 text input, and it never reads a transcript back.
 
+## Commands
+
+```sh
+frit repos              # every repository and its worktrees
+frit plans              # plan files found on every ref
+frit plans --detail     # ...and which refs carry each one
+```
+
 ## Configuration
 
 The fleet root is typed once, not on every invocation. Settings

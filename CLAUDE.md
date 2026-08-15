@@ -71,6 +71,7 @@ dependency trees never constrain consumers of this module.
 - `go tool -modfile=tools/go.mod golangci-lint run` — lint
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
+- `go run ./cmd/frit plans` — read plan files off every ref
 
 ## Project Layout
 
