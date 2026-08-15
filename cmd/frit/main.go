@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/alecthomas/kong"
@@ -17,7 +17,10 @@ import (
 
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/index"
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 )
 
@@ -77,11 +80,16 @@ type plansCmd struct {
 }
 
 // Run reads plan files off every ref of every repository under the
-// root. Nothing is checked out.
+// root and indexes them. Nothing is checked out.
 func (p *plansCmd) Run(c *cli, rt *runtime) error {
 	repos, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
+	}
+
+	host, err := os.Hostname()
+	if err != nil {
+		host = "localhost"
 	}
 
 	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
@@ -94,7 +102,14 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 				repo.Name, err)
 			continue
 		}
-		printPlans(tw, repo.Name, files, p.Detail)
+
+		entries, problems := index.Build(host, repo.Name,
+			gitobj.DefaultRef(repo.Path, rt.git), files)
+		for _, problem := range problems {
+			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
+				repo.Name, problem)
+		}
+		printPlans(tw, repo.Name, entries, p.Detail)
 	}
 	_ = tw.Flush()
 
@@ -102,32 +117,48 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 }
 
 // printPlans writes one repository's plan summary, and optionally
-// every distinct plan file with how many refs carry it.
+// every plan with its status, tier and reach.
 func printPlans(
-	tw io.Writer, name string, files []plans.File, detail bool,
+	tw io.Writer, name string, entries []index.Entry, detail bool,
 ) {
-	byPath := map[string]int{}
-	refs := map[string]bool{}
-	for _, f := range files {
-		byPath[f.Path]++
-		refs[f.Ref] = true
+	counts := map[string]int{}
+	for _, e := range entries {
+		counts[e.Primary().Plan.Status]++
 	}
 
-	_, _ = fmt.Fprintf(tw, "%s\t%s\ton %s\n", name,
-		plural(len(byPath), "plan"), plural(len(refs), "ref"))
+	_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", name,
+		plural(len(entries), "plan"), statusBar(counts))
 	if !detail {
 		return
 	}
 
-	paths := make([]string, 0, len(byPath))
-	for path := range byPath {
-		paths = append(paths, path)
+	for _, e := range entries {
+		v := e.Primary()
+		_, _ = fmt.Fprintf(tw, "  %d %s\t%s\t%s\n",
+			e.Key.ID, v.Plan.Status, v.Plan.Title,
+			plural(e.RefCount(), "ref"))
 	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\t\n",
-			path, plural(byPath[path], "ref"))
+}
+
+// statusBar renders the lifecycle breakdown in a fixed order, so two
+// repositories' lines stay comparable at a glance.
+func statusBar(counts map[string]int) string {
+	order := []string{
+		planmeta.StatusInProgress,
+		planmeta.StatusNotStarted,
+		planmeta.StatusDone,
+		planmeta.StatusSuperseded,
 	}
+
+	parts := make([]string, 0, len(order))
+	for _, status := range order {
+		if counts[status] > 0 {
+			parts = append(parts,
+				fmt.Sprintf("%s %d", status, counts[status]))
+		}
+	}
+
+	return strings.Join(parts, "  ")
 }
 
 type versionCmd struct{}

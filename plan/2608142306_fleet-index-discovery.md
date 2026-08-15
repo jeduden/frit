@@ -80,9 +80,21 @@ nowhere in the checkout.
 
 ## Phase 3: plans parsed through mdsmith
 
-Feed the collected blobs to `mdsmith extract` for typed front
-matter. Key the index as `host:repo:id`. Never key on `id`
-alone: ids collide across repositories.
+Import mdsmith's `pkg/markdown` and split front matter in
+process. A subprocess per file would be thousands of forks for
+one walk, and the public parser is the same code mdsmith lints
+with, so the two never disagree about where front matter ends.
+
+Parse each distinct blob once, not once per ref. Key the index
+as `host:repo:id`; never on `id` alone, because ids collide
+across repositories.
+
+One plan can exist in several versions at once. Rank them so
+the copy on the default branch wins, because the status flip
+rides the commit that lands the work. Ranking by how many refs
+carry a version is wrong, and measurably so: atlas's old lanes
+outnumber the default branch and report 98 plans done where
+the branch itself says 106.
 
 ## Phase 4: orphans and stale lanes
 
@@ -104,7 +116,7 @@ Tier is per phase, set by the most demanding ingredient.
 | -------------------- | ------ | --------- | ----------------------------------------------------------------- |
 | 1 worktree porcelain | sonnet | sonnet    | parser unit tests over detached, no-commit, bare and locked cases |
 | 2 blobs, no checkout | opus   | sonnet    | integration test builds a real repo, reads a plan off a branch    |
-| 3 mdsmith extract    | sonnet | sonnet    | id collision test across two repos sharing an id                  |
+| 3 mdsmith library    | sonnet | sonnet    | id collision test across two repos sharing an id                  |
 | 4 orphans and stale  | opus   | sonnet    | fixture repo with a held plan and no worktree, and the inverse    |
 | 5 JSON contract      | haiku  | sonnet    | golden-file test over the emitted shape                           |
 
@@ -123,7 +135,7 @@ Tier is per phase, set by the most demanding ingredient.
 2. Discover git repositories under a root directory
 3. Expose both through `frit repos`, with tests
 4. Enumerate refs and stream plan blobs per repository
-5. Build the plan index through `mdsmith extract`
+5. Build the plan index through mdsmith's `pkg/markdown`
 6. Report orphaned and stale lanes
 7. Add the `--json` contract and pin it with a golden test
 
@@ -136,8 +148,10 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] `frit repos` prints each repository and its worktrees
 - [x] Plan blobs are read from refs with no checkout, covering
       local, remote-tracking and tag refs
-- [ ] Plans are indexed as `host:repo:id`
+- [x] Plans are indexed as `host:repo:id`, parsing each distinct
+      blob once and preferring the default branch's version
 - [ ] Orphaned and stale lanes are reported
 - [ ] Every command has a `--json` form
 - [x] All tests pass: `go test ./...`
 - [x] `go vet ./...` is clean
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

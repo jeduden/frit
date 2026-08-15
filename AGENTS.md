@@ -26,9 +26,16 @@ agents, written in Go.
 frit consumes rather than reimplements. Three tools already own a
 layer of this problem, and frit is the join between them:
 
-- **mdsmith** owns markdown. Plans are parsed, queried and
-  link-resolved through its CLI (`extract`, `query`, `deps`), never
-  by hand-rolled front-matter parsing here.
+- **mdsmith** owns markdown, and is imported as a library, not run
+  as a subprocess. `pkg/markdown` splits front matter from body and
+  hands back the AST, so frit and mdsmith always agree on where a
+  document's front matter ends — including the awkward cases, like a
+  block scalar containing a line of three dashes. A subprocess per
+  file would be thousands of forks for one walk.
+  What the public API does *not* expose is `extract`'s CUE schema
+  projection and the `deps` link graph; both live in `internal/`.
+  If frit needs link-following later, that is the moment to ask for
+  them to be promoted, not to hand-roll a second parser.
 - **herdr** owns panes, worktrees and prompts. frit reads its socket
   API for live agent state and hands panes back to it for anything
   interactive.

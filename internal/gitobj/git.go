@@ -25,6 +25,41 @@ func Refs(dir string, run gitwt.Runner) ([]Ref, error) {
 	return ParseRefs(out), nil
 }
 
+// DefaultRef names the ref whose copy of a file is authoritative.
+//
+// It is emphatically not HEAD. A main worktree is routinely parked
+// on a feature branch — the machine this was written for has atlas's
+// on ci/runner-speed — so HEAD names whatever was last checked out,
+// not the branch work lands on.
+//
+// The cascade asks, in order: what does the remote call its default
+// branch, then the conventional names, then HEAD as a last resort.
+// An empty answer is legitimate and means "no branch is special".
+func DefaultRef(dir string, run gitwt.Runner) string {
+	if out, err := run(dir, "symbolic-ref", "--quiet",
+		"refs/remotes/origin/HEAD"); err == nil {
+		if ref := strings.TrimSpace(string(out)); ref != "" {
+			return ref
+		}
+	}
+
+	for _, candidate := range []string{
+		"refs/heads/main", "refs/heads/master",
+	} {
+		if _, err := run(dir, "rev-parse", "--verify", "--quiet",
+			candidate); err == nil {
+			return candidate
+		}
+	}
+
+	if out, err := run(dir, "symbolic-ref", "--quiet",
+		"HEAD"); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+
+	return ""
+}
+
 // TreeOIDs resolves <ref>:<subdir> for every ref in one git process.
 //
 // The answer is a map from ref name to the tree object holding that
