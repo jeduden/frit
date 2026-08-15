@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "command": "repos",
+  "root": "/fleet",
+  "repos": [
+    {
+      "name": "atlas",
+      "path": "/fleet/atlas",
+      "worktrees": [
+        {
+          "path": "/fleet/atlas",
+          "name": "atlas",
+          "head": "a1b2c3d4",
+          "branch": "main",
+          "detached": false,
+          "bare": false,
+          "locked": false,
+          "lock_reason": "",
+          "prunable": false,
+          "prune_reason": "",
+          "has_commit": true
+        },
+        {
+          "path": "/fleet/atlas-fleet-index",
+          "name": "atlas-fleet-index",
+          "head": "e5f6a7b8",
+          "branch": "plan/2608142306-fleet-index",
+          "detached": false,
+          "bare": false,
+          "locked": true,
+          "lock_reason": "in use",
+          "prunable": false,
+          "prune_reason": "",
+          "has_commit": true
+        },
+        {
+          "path": "/fleet/atlas-empty",
+          "name": "atlas-empty",
+          "head": "0000000000000000000000000000000000000000",
+          "branch": "plan/7-y",
+          "detached": false,
+          "bare": false,
+          "locked": false,
+          "lock_reason": "",
+          "prunable": false,
+          "prune_reason": "",
+          "has_commit": false
+        }
+      ]
+    },
+    {
+      "name": "mirror.git",
+      "path": "/fleet/mirror.git",
+      "worktrees": [
+        {
+          "path": "/fleet/mirror.git",
+          "name": "mirror.git",
+          "head": "",
+          "branch": "",
+          "detached": false,
+          "bare": true,
+          "locked": false,
+          "lock_reason": "",
+          "prunable": false,
+          "prune_reason": "",
+          "has_commit": false
+        }
+      ]
+    }
+  ]
+}

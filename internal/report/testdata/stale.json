@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "command": "stale",
+  "root": "/fleet",
+  "days": 30,
+  "repos": [
+    {
+      "name": "atlas",
+      "stale": [
+        {
+          "worktree": {
+            "path": "/fleet/atlas-fleet-index",
+            "name": "atlas-fleet-index",
+            "head": "e5f6a7b8",
+            "branch": "plan/2608142306-fleet-index",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": true
+          },
+          "age_days": 41,
+          "age_seconds": 3585600
+        }
+      ]
+    },
+    {
+      "name": "fresh",
+      "stale": []
+    }
+  ],
+  "problems": []
+}

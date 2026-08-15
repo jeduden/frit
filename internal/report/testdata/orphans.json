@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "command": "orphans",
+  "root": "/fleet",
+  "repos": [
+    {
+      "name": "atlas",
+      "unstaffed": [
+        {
+          "plan_id": 42,
+          "holds": [
+            {
+              "ref": "refs/heads/plan/42-x",
+              "branch": "plan/42-x"
+            }
+          ]
+        }
+      ],
+      "empty": [
+        {
+          "path": "/fleet/atlas-empty",
+          "name": "atlas-empty",
+          "head": "0000000000000000000000000000000000000000",
+          "branch": "plan/7-y",
+          "detached": false,
+          "bare": false,
+          "locked": false,
+          "lock_reason": "",
+          "prunable": false,
+          "prune_reason": "",
+          "has_commit": false
+        }
+      ],
+      "prunable": [
+        {
+          "path": "/fleet/atlas-gone",
+          "name": "atlas-gone",
+          "head": "a1b2c3",
+          "branch": "",
+          "detached": false,
+          "bare": false,
+          "locked": false,
+          "lock_reason": "",
+          "prunable": true,
+          "prune_reason": "gitdir file points to non-existent location",
+          "has_commit": true
+        }
+      ]
+    },
+    {
+      "name": "clean",
+      "unstaffed": [],
+      "empty": [],
+      "prunable": []
+    }
+  ],
+  "problems": [
+    {
+      "repo": "broken",
+      "message": "no such worktree"
+    }
+  ]
+}

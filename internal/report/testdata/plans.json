@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "command": "plans",
+  "root": "/fleet",
+  "host": "forge",
+  "repos": [
+    {
+      "name": "atlas",
+      "plans": [
+        {
+          "key": "forge:atlas:2608142306",
+          "id": 2608142306,
+          "status": "🔳",
+          "title": "The fleet index",
+          "summary": "Walk a root for repositories",
+          "model": "opus",
+          "depends_on": [
+            6
+          ],
+          "path": "plan/2608142306_fleet-index.md",
+          "refs": [
+            "refs/heads/main"
+          ],
+          "ref_count": 3,
+          "versions": 2
+        },
+        {
+          "key": "forge:atlas:7",
+          "id": 7,
+          "status": "✅",
+          "title": "The fleet index",
+          "summary": "Walk a root for repositories",
+          "model": "opus",
+          "depends_on": [
+            6
+          ],
+          "path": "plan/2608142306_fleet-index.md",
+          "refs": [
+            "refs/heads/main"
+          ],
+          "ref_count": 3,
+          "versions": 2
+        }
+      ]
+    },
+    {
+      "name": "quiet",
+      "plans": []
+    }
+  ],
+  "problems": [
+    {
+      "repo": "broken",
+      "message": "plan/bad.md: no front matter"
+    }
+  ]
+}
