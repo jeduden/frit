@@ -36,6 +36,21 @@ frit stale --days 21    # worktrees whose branch has not moved
 frit init               # write .frit.yml with frit's defaults
 ```
 
+## JSON
+
+Every command takes `--json` and answers with a document instead of a
+table, because agents read this tool as much as people do. Both come
+from one model, so they never disagree.
+
+```sh
+frit orphans --json | jq '.repos[] | select(.unstaffed | length > 0)'
+```
+
+Three rules make it something to write against. Every key is always
+present. A list is `[]` and never null. A repository frit could not
+read is carried in `problems`, not printed beside the output, so
+stdout is the whole report.
+
 ## Per-repository settings
 
 Each indexed repository describes its own conventions in a `.frit.yml`

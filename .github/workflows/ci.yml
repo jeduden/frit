@@ -1,0 +1,85 @@
+name: CI
+
+# The same gate the repository already runs locally, run again where
+# it cannot be skipped. Nothing here is new policy: CLAUDE.md's build
+# commands are the source, and a job that drifts from them is the bug.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No job here pushes, and a checkout that leaves a token in
+          # .git/config hands one to every later step.
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      # The suite builds real repositories with real worktrees, so the
+      # runner's git is part of what is under test. Print it: a failure
+      # that only reproduces on one git version is otherwise a mystery.
+      - name: Show the git version under test
+        run: git --version
+      - run: go test ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          # tools/go.mod, not go.mod: dev tools build from the
+          # alternate modfile so their dependency trees never
+          # constrain consumers of this module.
+          go-version-file: tools/go.mod
+          # setup-go keys its module cache on the root go.sum alone,
+          # while golangci-lint builds from tools/go.sum and
+          # type-checks the repository against go.sum. Hash both, or
+          # the tool's whole dependency tree downloads again on every
+          # run.
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: go tool -modfile=tools/go.mod golangci-lint run
+
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # Pinned to the same mdsmith version go.mod imports, so the
+      # linter and the library frit parses plans with are one release.
+      # Bump both together.
+      - uses: jeduden/mdsmith@2ab4b2949e9420b2eb73f4239091fd647c4b5e80 # v0.54.0
+        with:
+          version: v0.54.0
+          args: check .
+
+  # Workflows are the newest attack surface in this repository and the
+  # only part of it not covered by go vet. zizmor reads them for the
+  # mistakes that matter here — an unpinned action, a token left in a
+  # checkout, an input interpolated into a shell.
+  workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: pip install zizmor==1.6.0
+      - run: zizmor .

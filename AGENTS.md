@@ -146,6 +146,36 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit orphans` — claims and checkouts that disagree
 - `go run ./cmd/frit orphans --json` — the same report for an agent
 
+## CI and Release
+
+Both workflows live in `.github/workflows` and every action in them
+is pinned by commit SHA with the version in a trailing comment.
+
+[ci.yml](.github/workflows/ci.yml) runs the gate this file already
+describes — build, vet, test, golangci-lint, `mdsmith check .` — on
+every push and pull request to `main`, plus zizmor over the workflows
+themselves. It is the local gate run where it cannot be skipped, so a
+job that drifts from the Build & Test commands above is the bug.
+
+The markdown job pins the mdsmith action to the same version `go.mod`
+imports. Bump the two together, or frit lints with one release and
+parses plans with another.
+
+[release.yml](.github/workflows/release.yml) is run from the Actions
+"Run workflow" button with a version like `v0.1.0`. A pushed tag is
+deliberately not the trigger: a tag is public the moment it exists,
+so a failed build would leave one pointing at binaries nobody can
+download. Instead the version is validated and the suite run first,
+five platform binaries are built with `-X main.version=$VERSION`
+stamped in, and the release job creates the tag only once they exist.
+
+Each binary carries a build-provenance attestation, so a download can
+be checked against the repository rather than trusted:
+
+```sh
+gh attestation verify frit-linux-amd64 -R jeduden/frit
+```
+
 ## Project Layout
 
 Follows the standard Go project layout:

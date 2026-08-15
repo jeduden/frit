@@ -1,0 +1,162 @@
+name: Release
+
+# Run from the Actions "Run workflow" button with a version like
+# v0.1.0. The tag is not the trigger: a pushed tag is public the
+# moment it exists, so a failed build leaves a tag pointing at
+# binaries nobody can download. Here the version is validated and the
+# suite is run first, and the release job creates the tag itself once
+# the binaries exist.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v0.1.0 (must start with v)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+
+# One release at a time, and never cancelled: stopping a run between
+# the tag and the upload would leave a tag with no release on it.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Everything that can say no, before anything is built. The version
+  # is read through the environment rather than interpolated into the
+  # shell, so a crafted input cannot inject commands.
+  preflight:
+    runs-on: ubuntu-latest
+    if: github.repository == 'jeduden/frit'
+    steps:
+      - name: Validate the version
+        run: |
+          if ! printf '%s' "$VERSION" |
+            grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::version must look like v0.1.0, got: $VERSION"
+            exit 1
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+          # Caching is off in this workflow. A cache is writable by any
+          # branch, and a release must not build from something a
+          # branch could have poisoned.
+          cache: false
+      - run: go vet ./...
+      # CI already ran this on main, but a release can be dispatched
+      # from any ref. Run it again against the ref actually being
+      # released, because that is the artefact.
+      - run: go test ./...
+
+  build:
+    needs: preflight
+    runs-on: ubuntu-latest
+    strategy:
+      # One platform failing is not a reason to lose the evidence from
+      # the others.
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          # frit reads os.Hostname and walks the filesystem; neither
+          # needs cgo. Disabling it keeps the native linux build off
+          # glibc's resolver, so one binary runs on musl and on older
+          # distributions alike.
+          CGO_ENABLED: "0"
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          bin="frit-${GOOS}-${GOARCH}${ext}"
+          # -X main.version is the whole reason `frit version` prints
+          # anything but "dev"; -trimpath keeps the runner's paths out
+          # of the binary.
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "$bin" ./cmd/frit
+          echo "bin=$bin" >> "$GITHUB_ENV"
+      - name: Check the binary reports the version it was stamped with
+        # Only the runner's own platform can be executed here; the
+        # cross-compiled binaries are checked by whoever downloads
+        # them, against the checksums below.
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          got="$(./"$bin" version)"
+          test "$got" = "$VERSION" || {
+            echo "::error::binary reports $got, expected $VERSION"
+            exit 1
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frit-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.bin }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.repository == 'jeduden/frit'
+    permissions:
+      # contents to create the tag and the release, and the OIDC pair
+      # to attest what was built. Nothing else is granted, and only
+      # this job holds them.
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # Every artefact is named frit-<os>-<arch>, so merging them
+          # into one directory gives exactly the release's assets and
+          # nothing else.
+          pattern: frit-*
+          merge-multiple: true
+      - name: Create checksums
+        run: sha256sum frit-* > checksums.txt
+      - name: Attest the binaries
+        # Ties each file's SHA-256 back to this workflow run, so a
+        # download can be verified against the repository rather than
+        # trusted:
+        #   gh attestation verify frit-linux-amd64 -R jeduden/frit
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: frit-*
+      - name: Publish the release
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          # The tag is created here, on the ref this run was
+          # dispatched from, and only now that the binaries exist.
+          tag_name: ${{ env.VERSION }}
+          name: ${{ env.VERSION }}
+          generate_release_notes: true
+          files: |
+            frit-*
+            checksums.txt
