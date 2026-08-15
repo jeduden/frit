@@ -238,3 +238,69 @@ func git(t *testing.T, dir string, args ...string) {
 	out, err := exec.Command("git", full...).CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, string(out))
 }
+
+func TestInitWritesAConfigIntoARepository(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"init", repo}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), ".frit.yml")
+	body, err := os.ReadFile(filepath.Join(repo, ".frit.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "plan/{id}-*")
+}
+
+func TestInitRefusesToClobberWithoutForce(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"init", repo}, &out, &errb))
+
+	out.Reset()
+	errb.Reset()
+	code := run([]string{"init", repo}, &out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "already exists")
+}
+
+func TestInitForceOverwrites(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"init", repo}, &out, &errb))
+
+	code := run([]string{"init", repo, "--force"}, &out, &errb)
+
+	assert.Equal(t, 0, code, errb.String())
+}
+
+// TestPlansHonoursEachRepositorysPlanDir is the payoff of per-repo
+// config: a repository that keeps plans somewhere else is indexed
+// correctly with no flag at all.
+func TestPlansHonoursEachRepositorysPlanDir(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(repo, "docs", "plans"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "docs", "plans", "a.md"),
+		[]byte("---\nid: 7\ntitle: Elsewhere\nstatus: \"🔳\"\n---\n# E\n"),
+		0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan in an unusual place")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, ".frit.yml"),
+		[]byte("plan-dir: docs/plans\n"), 0o600))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"plans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "1 plan")
+}

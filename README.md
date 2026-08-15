@@ -31,6 +31,22 @@ text input, and it never reads a transcript back.
 frit repos              # every repository and its worktrees
 frit plans              # plan files found on every ref
 frit plans --detail     # ...and which refs carry each one
+frit init               # write .frit.yml with frit's defaults
+```
+
+## Per-repository settings
+
+Each indexed repository describes its own conventions in a `.frit.yml`
+committed beside its plans, so they travel with the project. `frit
+init` writes it; a repository without one gets the defaults.
+
+```yaml
+plan-dir: plan
+
+# Ref names that count as a claim on a plan. {id} is the plan id,
+# * stops at a slash, ** does not. List every shape in use.
+holds:
+  - "plan/{id}-*"
 ```
 
 ## Configuration

@@ -161,8 +161,9 @@ Tier is per phase, set by the most demanding ingredient.
 3. Expose both through `frit repos`, with tests
 4. Enumerate refs and stream plan blobs per repository
 5. Build the plan index through mdsmith's `pkg/markdown`
-6. Report orphaned and stale lanes
-7. Add the `--json` contract and pin it with a golden test
+6. Read per-repo `.frit.yml`; ship `frit init` to write it
+7. Report orphaned and stale lanes
+8. Add the `--json` contract and pin it with a golden test
 
 ## Acceptance Criteria
 
@@ -175,8 +176,9 @@ Tier is per phase, set by the most demanding ingredient.
       local, remote-tracking and tag refs
 - [x] Plans are indexed as `host:repo:id`, parsing each distinct
       blob once and preferring the default branch's version
-- [ ] Holds are matched by configured ref patterns, excluding
-      refs already merged into the default branch
+- [x] Hold patterns are configured per repository in `.frit.yml`,
+      as a list, with `frit init` writing the defaults
+- [ ] Holds exclude refs already merged into the default branch
 - [ ] Orphaned and stale lanes are reported
 - [ ] Every command has a `--json` form
 - [x] All tests pass: `go test ./...`

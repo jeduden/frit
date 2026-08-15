@@ -61,7 +61,22 @@ When implementing work tracked by `plan/`:
 
 ## Configuration
 
-Every setting resolves from four places, most specific first:
+There are two kinds of setting, and they are deliberately different.
+
+**Per-repository settings** live in a `.frit.yml` committed inside
+each repository frit indexes — `plan-dir` and the `holds` patterns.
+They describe that project's conventions, so they travel with it
+rather than living on one machine. `frit init` writes the file with
+every default present and commented. A repository with no file gets
+the defaults, so the canonical convention needs no config at all.
+
+Hold patterns are a **list**, because conventions decorate the plan id
+freely and one pattern would see only a fraction of a repository's
+lanes. A ref matching no pattern is simply not a hold; that is the
+honest answer, not a gap.
+
+**frit's own settings** — `--root` and friends — resolve from four
+places, most specific first:
 
 1. the command line (`--root`)
 2. the environment (`FRIT_ROOT`)

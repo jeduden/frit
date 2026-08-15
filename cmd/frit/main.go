@@ -22,6 +22,7 @@ import (
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
+	"github.com/jeduden/frit/internal/repocfg"
 )
 
 // version is stamped at build time with -ldflags.
@@ -43,7 +44,24 @@ type cli struct {
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
+	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
+}
+
+type initCmd struct {
+	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to write .frit.yml into."`
+	Force bool   `short:"f" help:"Overwrite an existing .frit.yml."`
+}
+
+// Run writes a per-repository config carrying frit's defaults.
+func (i *initCmd) Run(rt *runtime) error {
+	path, err := repocfg.Init(i.Dir, i.Force)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", path)
+
+	return nil
 }
 
 // runtime carries what commands need to do their work: where to
@@ -75,8 +93,23 @@ func (r *reposCmd) Run(c *cli, rt *runtime) error {
 }
 
 type plansCmd struct {
-	Dir    string `help:"Directory holding plan files." default:"plan" env:"FRIT_PLAN_DIR"`
+	Dir    string `help:"Override the plan directory; the default is each repository's .frit.yml." env:"FRIT_PLAN_DIR"`
 	Detail bool   `help:"List every plan file, not just a count." short:"d"`
+}
+
+// planDir answers where one repository keeps its plans: the override
+// when given, otherwise whatever that repository declares for itself.
+func (p *plansCmd) planDir(repoPath string) (string, error) {
+	if p.Dir != "" {
+		return p.Dir, nil
+	}
+
+	cfg, err := repocfg.Load(repoPath)
+	if err != nil {
+		return "", err
+	}
+
+	return cfg.PlanDir, nil
 }
 
 // Run reads plan files off every ref of every repository under the
@@ -94,7 +127,14 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 
 	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
 	for _, repo := range repos {
-		files, err := plans.Collect(repo.Path, p.Dir,
+		dir, err := p.planDir(repo.Path)
+		if err != nil {
+			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
+				repo.Name, err)
+			continue
+		}
+
+		files, err := plans.Collect(repo.Path, dir,
 			rt.git, rt.gitPipe)
 		if err != nil {
 			// One unreadable repository must not blind the rest.

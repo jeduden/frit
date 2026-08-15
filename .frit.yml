@@ -1,0 +1,32 @@
+# frit settings for this repository.
+#
+# frit reads this file from the repository it indexes, so a project's
+# conventions travel with the project rather than living on one
+# machine. Every value below is frit's default; delete a key to keep
+# the default, or change it to override.
+
+# Where plan files live, relative to the repository root.
+plan-dir: plan
+
+# Ref names that count as a claim on a plan — a "hold".
+#
+#   {id}  the plan id, one run of digits (required, exactly once)
+#   *     any run of characters except a slash
+#   **    any run of characters, slashes included
+#
+# Patterns match the branch name with any remote prefix stripped, so
+# one entry covers a local branch and its copy on every remote. The
+# match is anchored, so backup/plan/123-x is not a claim on plan 123.
+# The first pattern that matches wins.
+#
+# List every shape the project actually uses — conventions decorate
+# the id freely, and a ref matching no pattern is simply not a hold:
+#
+#   holds:
+#     - "plan/{id}-*"
+#     - "*/plan-{id}-*"
+#     - "plan-{id}-*"
+#
+# An empty list says this repository has no claims at all.
+holds:
+  - "plan/{id}-*"
