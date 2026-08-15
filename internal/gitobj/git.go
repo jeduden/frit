@@ -1,6 +1,7 @@
 package gitobj
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/jeduden/frit/internal/gitwt"
@@ -58,6 +59,65 @@ func DefaultRef(dir string, run gitwt.Runner) string {
 	}
 
 	return ""
+}
+
+// MergedRefs returns every ref already merged into `into`.
+//
+// Without this, hold detection reports finished work as an active
+// claim: landing a plan does not delete its branch, so the ref that
+// once meant "I am working this" still exists and still matches the
+// pattern. An empty `into` yields an empty set rather than an error —
+// a repository with no default branch has nothing to be merged into.
+func MergedRefs(
+	dir, into string, run gitwt.Runner,
+) (map[string]bool, error) {
+	if into == "" {
+		return map[string]bool{}, nil
+	}
+
+	out, err := run(dir, "for-each-ref", "--merged", into,
+		"--format=%(refname)")
+	if err != nil {
+		return nil, err
+	}
+
+	merged := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			merged[name] = true
+		}
+	}
+
+	return merged, nil
+}
+
+// RefTimes returns each ref's commit time as a Unix timestamp.
+//
+// One process answers for every ref, which is what makes an age report
+// over hundreds of lanes cheap.
+func RefTimes(dir string, run gitwt.Runner) (map[string]int64, error) {
+	out, err := run(dir, "for-each-ref",
+		"--format=%(refname) %(committerdate:unix)")
+	if err != nil {
+		return nil, err
+	}
+
+	times := map[string]int64{}
+	for _, line := range strings.Split(string(out), "\n") {
+		name, stamp, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || name == "" {
+			continue
+		}
+		secs, err := strconv.ParseInt(strings.TrimSpace(stamp), 10, 64)
+		if err != nil {
+			// A tag object with no committerdate reports empty; it is
+			// not a lane, so skipping it is correct.
+			continue
+		}
+		times[name] = secs
+	}
+
+	return times, nil
 }
 
 // TreeOIDs resolves <ref>:<subdir> for every ref in one git process.

@@ -150,3 +150,28 @@ func sprintInt(n int) string {
 
 	return string(digits)
 }
+
+func TestBranchStripsTheRemoteSoOnePatternCoversBoth(t *testing.T) {
+	local, ok := Ref{Name: "refs/heads/plan/42-x"}.Branch()
+	require.True(t, ok)
+	assert.Equal(t, "plan/42-x", local)
+
+	remote, ok := Ref{Name: "refs/remotes/origin/plan/42-x"}.Branch()
+	require.True(t, ok)
+	assert.Equal(t, "plan/42-x", remote,
+		"a claim pushed to a shared forge is the same claim")
+	assert.Equal(t, local, remote)
+}
+
+func TestBranchRejectsWhatIsNotALane(t *testing.T) {
+	for _, name := range []string{
+		"refs/tags/v1.0.0",
+		"refs/remotes/origin/HEAD",
+		"refs/notes/commits",
+		"refs/stash",
+		"refs/remotes/origin",
+	} {
+		_, ok := Ref{Name: name}.Branch()
+		assert.False(t, ok, name)
+	}
+}

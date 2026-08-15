@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -20,6 +21,7 @@ import (
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/index"
+	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/repocfg"
@@ -44,8 +46,139 @@ type cli struct {
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
+	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
+	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
+}
+
+// repoLanes joins one repository's claims to its checkouts, reading
+// that repository's own hold patterns.
+func repoLanes(
+	repo discover.Repo, rt *runtime,
+) ([]lanes.Lane, error) {
+	cfg, err := repocfg.Load(repo.Path)
+	if err != nil {
+		return nil, err
+	}
+	holds, err := cfg.Compiled()
+	if err != nil {
+		return nil, err
+	}
+
+	refs, err := gitobj.Refs(repo.Path, rt.git)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := gitobj.MergedRefs(repo.Path,
+		gitobj.DefaultRef(repo.Path, rt.git), rt.git)
+	if err != nil {
+		return nil, err
+	}
+
+	return lanes.Build(repo.Worktrees, refs, merged, holds), nil
+}
+
+type orphansCmd struct{}
+
+// Run reports what is claimed but unstaffed, prepared but unstarted,
+// or already gone.
+func (o *orphansCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+
+	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
+	found := false
+	for _, repo := range repos {
+		built, err := repoLanes(repo, rt)
+		if err != nil {
+			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
+				repo.Name, err)
+			continue
+		}
+		report := lanes.Find(built, repo.Worktrees)
+		if !report.Any() {
+			continue
+		}
+		found = true
+		printOrphans(tw, repo.Name, report)
+	}
+	_ = tw.Flush()
+
+	if !found {
+		_, _ = fmt.Fprintln(rt.stdout, "no orphaned lanes")
+	}
+
+	return nil
+}
+
+// printOrphans writes one repository's orphan block. The three kinds
+// stay labelled rather than merged into a count, because each calls
+// for a different response.
+func printOrphans(
+	tw io.Writer, name string, report lanes.Orphans,
+) {
+	_, _ = fmt.Fprintf(tw, "%s\t\t\n", name)
+
+	for _, lane := range report.Unstaffed {
+		_, _ = fmt.Fprintf(tw, "  claimed, no checkout\tplan %d\t%s\n",
+			lane.PlanID, lane.Holds[0].Branch)
+	}
+	for _, wt := range report.Empty {
+		_, _ = fmt.Fprintf(tw, "  never started\t%s\t%s\n",
+			wt.Name(), wt.Branch)
+	}
+	for _, wt := range report.Prunable {
+		_, _ = fmt.Fprintf(tw, "  prunable\t%s\t%s\n",
+			wt.Name(), wt.PruneReason)
+	}
+}
+
+type staleCmd struct {
+	Days int `default:"30" help:"Report worktrees untouched for this many days."`
+}
+
+// Run reports worktrees whose branch tip has not moved for a while.
+func (s *staleCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+
+	cutoff := time.Duration(s.Days) * 24 * time.Hour
+	now := time.Now()
+
+	tw := tabwriter.NewWriter(rt.stdout, 0, 0, 2, ' ', 0)
+	found := false
+	for _, repo := range repos {
+		times, err := gitobj.RefTimes(repo.Path, rt.git)
+		if err != nil {
+			_, _ = fmt.Fprintf(rt.stderr, "frit: %s: %v\n",
+				repo.Name, err)
+			continue
+		}
+		aged := lanes.Stale(repo.Worktrees, times, now, cutoff)
+		if len(aged) == 0 {
+			continue
+		}
+		found = true
+		_, _ = fmt.Fprintf(tw, "%s\t\t\n", repo.Name)
+		for _, a := range aged {
+			_, _ = fmt.Fprintf(tw, "  %dd\t%s\t%s\n",
+				int(a.Age.Hours()/24), a.Worktree.Name(),
+				a.Worktree.Branch)
+		}
+	}
+	_ = tw.Flush()
+
+	if !found {
+		_, _ = fmt.Fprintf(rt.stdout,
+			"no worktree idle longer than %d days\n", s.Days)
+	}
+
+	return nil
 }
 
 type initCmd struct {

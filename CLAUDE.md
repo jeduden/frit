@@ -35,7 +35,10 @@ layer of this problem, and frit is the join between them:
   API for live agent state and hands panes back to it for anything
   interactive.
 - **plan-lane** owns claims. A hold is a ref name, so frit reads
-  holds with `git ls-remote` and delegates every mutation.
+  holds out of the ref list and delegates every mutation. Which
+  names count is declared per repository in its `.frit.yml`, never
+  inferred from a plan id, and refs merged into the default branch
+  are excluded so landed work does not read as an active claim.
 
 The rule that keeps those boundaries honest: frit indexes and
 displays. It never edits a plan, never spawns an agent it does not
@@ -101,6 +104,7 @@ dependency trees never constrain consumers of this module.
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
 - `go run ./cmd/frit plans` — read plan files off every ref
+- `go run ./cmd/frit orphans` — claims and checkouts that disagree
 
 ## Project Layout
 

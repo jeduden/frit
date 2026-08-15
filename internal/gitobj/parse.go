@@ -41,6 +41,38 @@ func (r Ref) Short() string {
 	return r.Name
 }
 
+// Branch is the branch name with any remote prefix removed, and
+// reports whether this ref names a branch at all.
+//
+// A local branch and its copy on every remote answer the same name, so
+// one hold pattern covers both — which is what a claim pushed to a
+// shared forge looks like from here.
+//
+// A tag answers false. Tags are immutable markers, not lanes: a tag
+// that happened to be named like a claim would otherwise read as work
+// in progress forever.
+func (r Ref) Branch() (string, bool) {
+	if name, ok := strings.CutPrefix(r.Name, "refs/heads/"); ok {
+		return name, true
+	}
+
+	if rest, ok := strings.CutPrefix(r.Name, "refs/remotes/"); ok {
+		// refs/remotes/<remote>/<branch> — drop the remote.
+		_, branch, found := strings.Cut(rest, "/")
+		if !found || branch == "" {
+			return "", false
+		}
+		// refs/remotes/<remote>/HEAD is a symbolic pointer, not work.
+		if branch == "HEAD" {
+			return "", false
+		}
+
+		return branch, true
+	}
+
+	return "", false
+}
+
 // ParseRefs reads `git for-each-ref --format=%(objectname) %(refname)`.
 //
 // Malformed lines are skipped rather than failing the walk: one

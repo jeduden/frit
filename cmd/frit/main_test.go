@@ -304,3 +304,116 @@ func TestPlansHonoursEachRepositorysPlanDir(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "1 plan")
 }
+
+// claimBranch commits one file on a branch named for a plan and
+// returns to main, leaving the branch unmerged and with no worktree.
+func claimBranch(t *testing.T, repo, branch string) {
+	t.Helper()
+	git(t, repo, "checkout", "-q", "-b", branch)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "work on "+branch)
+	git(t, repo, "checkout", "-q", "main")
+}
+
+func TestOrphansReportsAClaimWithNoCheckout(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed, no checkout")
+	assert.Contains(t, out.String(), "2608142306")
+}
+
+// TestOrphansIgnoresAMergedClaim is the merged-ref filter end to end:
+// finished work must not read as an abandoned claim.
+func TestOrphansIgnoresAMergedClaim(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land",
+		"plan/2608142306-fleet-index")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no orphaned lanes")
+}
+
+func TestOrphansReportsAWorktreeThatNeverStarted(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	// --orphan gives an unborn branch, which is how a worktree ends
+	// up with an all-zero HEAD: prepared, never worked.
+	git(t, repo, "worktree", "add", "-q", "--orphan", "-b",
+		"plan/42-empty", filepath.Join(root, "atlas-empty"))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-empty")
+}
+
+func TestOrphansIsQuietOnAHealthyRepository(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no orphaned lanes")
+}
+
+func TestOrphansHonoursARepositoryWithNoHoldPatterns(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: []\n"), 0o600))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no orphaned lanes",
+		"a repo declaring no pattern reports no claims")
+}
+
+func TestStaleIsQuietWhenEverythingIsFresh(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"stale", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no worktree idle longer than 30")
+}
+
+func TestStaleReportsAnOldWorktree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	// Everything committed just now is older than zero days.
+	code := run([]string{"stale", "--root", root, "--days", "0"},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas")
+}

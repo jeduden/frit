@@ -127,6 +127,21 @@ merged into the default branch. A landed plan's branch still
 exists, so without that scan finished work reports as actively
 held.
 
+Report three kinds separately rather than as one count. A
+claimed lane with no checkout means work was taken and dropped;
+a worktree with no commit means a lane was prepared and never
+started; a prunable one means the checkout is already gone.
+They call for different responses.
+
+Measured on this machine: 10 lanes prepared and never started,
+and zero claims without a checkout. That zero was checked
+against an independent count of unmerged claim branches rather
+than taken on trust.
+
+Measure staleness from the branch tip, not the directory mtime.
+Builds, greps and editors touch a directory. None of them mean
+work happened.
+
 ## Phase 5: the JSON contract
 
 Give every command a `--json` form, and pin the shape with a
@@ -178,8 +193,8 @@ Tier is per phase, set by the most demanding ingredient.
       blob once and preferring the default branch's version
 - [x] Hold patterns are configured per repository in `.frit.yml`,
       as a list, with `frit init` writing the defaults
-- [ ] Holds exclude refs already merged into the default branch
-- [ ] Orphaned and stale lanes are reported
+- [x] Holds exclude refs already merged into the default branch
+- [x] Orphaned and stale lanes are reported
 - [ ] Every command has a `--json` form
 - [x] All tests pass: `go test ./...`
 - [x] `go vet ./...` is clean

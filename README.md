@@ -31,6 +31,8 @@ text input, and it never reads a transcript back.
 frit repos              # every repository and its worktrees
 frit plans              # plan files found on every ref
 frit plans --detail     # ...and which refs carry each one
+frit orphans            # claims and checkouts that no longer add up
+frit stale --days 21    # worktrees whose branch has not moved
 frit init               # write .frit.yml with frit's defaults
 ```
 
