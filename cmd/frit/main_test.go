@@ -12,45 +12,69 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunWithNoArgsIsAUsageError(t *testing.T) {
+// isolate points config discovery at an empty working directory and
+// clears the environment frit reads, so a test only sees the inputs
+// it sets itself. Without it a developer's own ~/.config/frit would
+// leak into the result.
+func isolate(t *testing.T) {
+	t.Helper()
+	t.Setenv("FRIT_ROOT", "")
+	t.Setenv("FRIT_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+}
+
+// rootWith builds a root directory holding one repository of the
+// given name, and returns the root.
+func rootWith(t *testing.T, repo string) string {
+	t.Helper()
+	root := t.TempDir()
+	initRepo(t, root, repo)
+
+	return root
+}
+
+func TestNoCommandIsAUsageError(t *testing.T) {
+	isolate(t)
 	var out, errb bytes.Buffer
 
 	code := run(nil, &out, &errb)
 
 	assert.Equal(t, 2, code)
-	assert.Contains(t, errb.String(), "usage:")
-	assert.Empty(t, out.String())
+	assert.Contains(t, errb.String(), "frit")
 }
 
-func TestRunRejectsAnUnknownCommand(t *testing.T) {
+func TestUnknownCommandIsAUsageError(t *testing.T) {
+	isolate(t)
 	var out, errb bytes.Buffer
 
 	code := run([]string{"summon"}, &out, &errb)
 
 	assert.Equal(t, 2, code)
-	assert.Contains(t, errb.String(), `unknown command "summon"`)
 }
 
-func TestRunPrintsVersion(t *testing.T) {
+func TestHelpExitsZeroAndListsCommands(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"--help"}, &out, &errb)
+
+	assert.Equal(t, 0, code)
+	assert.Contains(t, out.String(), "repos")
+}
+
+func TestVersionPrintsTheBuildVersion(t *testing.T) {
+	isolate(t)
 	var out, errb bytes.Buffer
 
 	code := run([]string{"version"}, &out, &errb)
 
-	assert.Equal(t, 0, code)
+	require.Equal(t, 0, code, errb.String())
 	assert.Equal(t, "dev\n", out.String())
 }
 
-func TestRunPrintsHelpToStdout(t *testing.T) {
-	var out, errb bytes.Buffer
-
-	code := run([]string{"help"}, &out, &errb)
-
-	assert.Equal(t, 0, code)
-	assert.Contains(t, out.String(), "frit repos")
-	assert.Empty(t, errb.String())
-}
-
 func TestReposListsRepositoriesAndWorktrees(t *testing.T) {
+	isolate(t)
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
 	git(t, repo, "worktree", "add", "-q", "-b", "plan/2608142306",
@@ -61,22 +85,23 @@ func TestReposListsRepositoriesAndWorktrees(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
-	assert.Contains(t, got, "atlas")
 	assert.Contains(t, got, "2 worktrees")
 	assert.Contains(t, got, "plan/2608142306")
 	assert.Contains(t, got, "atlas-fleet-index")
 }
 
 func TestReposReportsAnEmptyRootPlainly(t *testing.T) {
+	isolate(t)
 	var out, errb bytes.Buffer
 
 	code := run([]string{"repos", "--root", t.TempDir()}, &out, &errb)
 
-	require.Equal(t, 0, code)
+	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "no git repositories found")
 }
 
 func TestReposFailsOnAMissingRoot(t *testing.T) {
+	isolate(t)
 	missing := filepath.Join(t.TempDir(), "absent")
 	var out, errb bytes.Buffer
 
@@ -86,12 +111,64 @@ func TestReposFailsOnAMissingRoot(t *testing.T) {
 	assert.Contains(t, errb.String(), "frit:")
 }
 
-func TestReposRejectsAnUnknownFlag(t *testing.T) {
+func TestRootComesFromTheEnvironment(t *testing.T) {
+	isolate(t)
+	t.Setenv("FRIT_ROOT", rootWith(t, "from-env"))
 	var out, errb bytes.Buffer
 
-	code := run([]string{"repos", "--nope"}, &out, &errb)
+	code := run([]string{"repos"}, &out, &errb)
 
-	assert.Equal(t, 2, code)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-env")
+}
+
+func TestRootComesFromARepoLocalConfigFile(t *testing.T) {
+	isolate(t)
+	writeConfig(t, ".frit.yml", rootWith(t, "from-config"))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-config")
+}
+
+func TestRootComesFromAnExplicitConfigFlag(t *testing.T) {
+	isolate(t)
+	path := filepath.Join(t.TempDir(), "explicit.yml")
+	writeConfigAt(t, path, rootWith(t, "from-explicit"))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos", "--config", path}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-explicit")
+}
+
+func TestFlagBeatsEnvironment(t *testing.T) {
+	isolate(t)
+	t.Setenv("FRIT_ROOT", rootWith(t, "from-env"))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos", "--root", rootWith(t, "from-flag")},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-flag")
+	assert.NotContains(t, out.String(), "from-env")
+}
+
+func TestEnvironmentBeatsConfigFile(t *testing.T) {
+	isolate(t)
+	writeConfig(t, ".frit.yml", rootWith(t, "from-config"))
+	t.Setenv("FRIT_ROOT", rootWith(t, "from-env"))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-env")
+	assert.NotContains(t, out.String(), "from-config")
 }
 
 func TestRefNamesEveryWorktreeState(t *testing.T) {
@@ -115,9 +192,27 @@ func TestNoteFlagsOnlyLanesWorthASecondLook(t *testing.T) {
 		note(gitwt.Worktree{Head: sha('c'), Locked: true}))
 }
 
+func TestPluralAgreesWithItsCount(t *testing.T) {
+	assert.Equal(t, "1 worktree", plural(1, "worktree"))
+	assert.Equal(t, "0 worktrees", plural(0, "worktree"))
+	assert.Equal(t, "2 worktrees", plural(2, "worktree"))
+}
+
 // sha builds a 40-character object name out of one repeated byte.
 func sha(c byte) string {
 	return string(bytes.Repeat([]byte{c}, 40))
+}
+
+// writeConfig writes a config file into the current directory.
+func writeConfig(t *testing.T, name, root string) {
+	t.Helper()
+	writeConfigAt(t, name, root)
+}
+
+func writeConfigAt(t *testing.T, path, root string) {
+	t.Helper()
+	body := "root: " + root + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 }
 
 func initRepo(t *testing.T, parent, name string) string {
@@ -142,10 +237,4 @@ func git(t *testing.T, dir string, args ...string) {
 		args...)
 	out, err := exec.Command("git", full...).CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, string(out))
-}
-
-func TestPluralAgreesWithItsCount(t *testing.T) {
-	assert.Equal(t, "1 worktree", plural(1, "worktree"))
-	assert.Equal(t, "0 worktrees", plural(0, "worktree"))
-	assert.Equal(t, "2 worktrees", plural(2, "worktree"))
 }

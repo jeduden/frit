@@ -76,4 +76,4 @@ it matters.
 - [ ] Criterion described as observable behavior
 - [ ] Another criterion
 - [ ] All tests pass: `go test ./...`
-- [ ] `go vet ./...` is clean
+- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean

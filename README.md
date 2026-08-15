@@ -25,6 +25,22 @@ frit resolves a plan to a lane and a model tier, hands the pane to
 the agent that already runs there, and steps back. It renders no
 text input, and it never reads a transcript back.
 
+## Configuration
+
+The fleet root is typed once, not on every invocation. Settings
+resolve most-specific first:
+
+```sh
+frit repos --root ~/git/jeduden     # 1. the command line
+export FRIT_ROOT=~/git/jeduden      # 2. the environment
+```
+
+```yaml
+# 3. .frit.yml beside the work, or $FRIT_CONFIG
+# 4. $XDG_CONFIG_HOME/frit/config.yml
+root: /home/you/git
+```
+
 ## Status
 
 Early. See [PLAN.md](PLAN.md) for what is planned and what has

@@ -57,14 +57,31 @@ When implementing work tracked by `plan/`:
 - If implementation deviates, update plan text to match
 - Run `mdsmith fix PLAN.md` after editing front matter
 
+## Configuration
+
+Every setting resolves from four places, most specific first:
+
+1. the command line (`--root`)
+2. the environment (`FRIT_ROOT`)
+3. `.frit.yml` beside the work, or `$FRIT_CONFIG`
+4. the user config, `$XDG_CONFIG_HOME/frit/config.yml`
+
+kong's own `env:` tag sits *beneath* its config resolver, which
+would let a stale file outrank the environment. `envResolver` in
+[cmd/frit/main.go](cmd/frit/main.go) restores the expected order and
+is pinned by a precedence test — do not remove it.
+
 ## Build & Test Commands
 
-Requires Go 1.25+.
+Requires Go 1.25+. Dev tools build from `tools/go.mod` so their
+dependency trees never constrain consumers of this module.
 
 - `go build ./...` — build all packages
 - `go test ./...` — run all tests
 - `go test -run TestName ./...` — run a specific test
 - `go vet ./...` — run go vet
+- `go tool -modfile=tools/go.mod golangci-lint run` — lint
+- `go mod tidy -modfile=tools/go.mod` — tidy the tools module
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
 
 ## Project Layout

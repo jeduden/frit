@@ -6,13 +6,15 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/alecthomas/kong"
+	kongyaml "github.com/alecthomas/kong-yaml"
+
+	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/gitwt"
 )
@@ -20,13 +22,59 @@ import (
 // version is stamped at build time with -ldflags.
 var version = "dev"
 
-const usage = `frit — a register of plans, worktrees, hosts and agents
+const description = `A register of plans, worktrees, hosts and agents.
 
-usage:
-  frit repos [--root <dir>]   list repositories and their worktrees
-  frit version                print the build version
-  frit help                   show this message
-`
+Settings resolve flag first, then $FRIT_* in the environment, then
+.frit.yml beside the work, then the user config file.`
+
+// cli is the whole command surface. Every flag here is readable from
+// three places — the command line, the environment, and a config
+// file — because a fleet root is typed once and then wanted by every
+// invocation.
+type cli struct {
+	Root string `help:"Directory to walk for repositories." env:"FRIT_ROOT" default:"." type:"path"`
+
+	Config kong.ConfigFlag `help:"Load configuration from a file." placeholder:"PATH"`
+
+	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
+	Version versionCmd `cmd:"" help:"Print the build version."`
+}
+
+// runtime carries what commands need to do their work: where to
+// write, and how to reach git. Both are injected so tests never
+// touch the real streams and can fake git.
+type runtime struct {
+	stdout io.Writer
+	stderr io.Writer
+	git    gitwt.Runner
+}
+
+// exitCode unwinds kong's os.Exit call so run can return it instead.
+// kong exits the process on --help and on a usage error, which would
+// take the test binary with it.
+type exitCode int
+
+type reposCmd struct{}
+
+// Run lists every repository under the configured root.
+func (r *reposCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+	printRepos(rt.stdout, repos)
+
+	return nil
+}
+
+type versionCmd struct{}
+
+// Run prints the build version.
+func (v *versionCmd) Run(rt *runtime) error {
+	_, _ = fmt.Fprintln(rt.stdout, version)
+
+	return nil
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -34,68 +82,97 @@ func main() {
 
 // run is the testable entry point. It returns the process exit code:
 // 0 on success, 1 on a runtime failure, 2 on a usage error.
-func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
+func run(args []string, stdout, stderr io.Writer) (code int) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		if c, ok := r.(exitCode); ok {
+			code = int(c)
+			return
+		}
+		panic(r)
+	}()
 
-	switch args[0] {
-	case "repos":
-		return cmdRepos(args[1:], stdout, stderr)
-	case "version":
-		fmt.Fprintln(stdout, version)
-		return 0
-	case "help", "-h", "--help":
-		fmt.Fprint(stdout, usage)
-		return 0
-	default:
-		fmt.Fprintf(stderr, "frit: unknown command %q\n\n", args[0])
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
-}
+	var c cli
+	rt := &runtime{stdout: stdout, stderr: stderr, git: gitwt.Exec}
 
-// cmdRepos walks a root and prints every repository it finds with the
-// worktrees attached to it.
-func cmdRepos(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("repos", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	root := fs.String("root", ".", "directory to walk for repositories")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-
-	abs, err := filepath.Abs(*root)
+	parser, err := newParser(&c, stdout, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "frit: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
+		return 2
+	}
+
+	ctx, err := parser.Parse(args)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
+		return 2
+	}
+
+	if err := ctx.Run(&c, rt); err != nil {
+		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
 		return 1
 	}
-
-	repos, err := discover.Repos(abs, gitwt.Exec)
-	if err != nil {
-		fmt.Fprintf(stderr, "frit: %v\n", err)
-		return 1
-	}
-
-	printRepos(stdout, repos)
 
 	return 0
+}
+
+// newParser builds the kong parser with configuration layered in.
+func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
+	workdir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	return kong.New(c,
+		kong.Name("frit"),
+		kong.Description(description),
+		kong.Writers(stdout, stderr),
+		kong.UsageOnError(),
+		// Turn kong's process exit into a panic run recovers, so the
+		// exit code survives without killing a test binary.
+		kong.Exit(func(code int) { panic(exitCode(code)) }),
+		kong.Configuration(kongyaml.Loader,
+			config.Paths(os.Getenv, workdir)...),
+		// kong's own `env:` tag is applied beneath its config
+		// resolver, so a config file would silently outrank the
+		// environment. This resolver restores the order operators
+		// expect — environment over file — and is registered after
+		// Configuration because a later resolver wins.
+		kong.Resolvers(envResolver(os.Getenv)),
+	)
+}
+
+// envResolver reads a flag's `env:` names directly, so the
+// environment outranks any configuration file.
+func envResolver(getenv func(string) string) kong.Resolver {
+	return kong.ResolverFunc(func(
+		_ *kong.Context, _ *kong.Path, flag *kong.Flag,
+	) (any, error) {
+		for _, name := range flag.Envs {
+			if v := getenv(name); v != "" {
+				return v, nil
+			}
+		}
+
+		return nil, nil
+	})
 }
 
 // printRepos renders the repository listing as an aligned table.
 func printRepos(out io.Writer, repos []discover.Repo) {
 	if len(repos) == 0 {
-		fmt.Fprintln(out, "no git repositories found")
+		_, _ = fmt.Fprintln(out, "no git repositories found")
 		return
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, repo := range repos {
-		fmt.Fprintf(tw, "%s\t\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t\t%s\n",
 			repo.Name, plural(len(repo.Worktrees), "worktree"))
 		for _, wt := range repo.Worktrees {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n",
 				wt.Name(), ref(wt), note(wt))
 		}
 	}
