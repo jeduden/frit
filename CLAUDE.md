@@ -91,6 +91,33 @@ would let a stale file outrank the environment. `envResolver` in
 [cmd/frit/main.go](cmd/frit/main.go) restores the expected order and
 is pinned by a precedence test — do not remove it.
 
+## The JSON Contract
+
+`--json` is global, so every command answers it. Both renderings
+are built from one model in [internal/report](internal/report),
+never from two printers kept in step by hand: a command gathers
+what it found into a document and then prints it as a table or
+encodes it as JSON.
+
+Three rules make that JSON something a consumer can be written
+against, and `internal/report/testdata` pins them:
+
+- every key is always present, so a field is indexed without
+  first testing for it
+- a list is `[]` and never null
+- a repository frit could not read is carried in the document.
+  Under `--json` nothing goes to stderr, because stdout is then
+  the whole report
+
+Two divergences from the table are deliberate. `--detail` decides
+how much of the plan index a person is shown, while the document
+always carries all of it; and the table drops a repository with
+nothing to report, while the document keeps it with empty sets.
+
+Re-record the golden files with `go test ./internal/report
+-update`, and read the diff before committing it. Every consumer
+of frit is written against those files.
+
 ## Build & Test Commands
 
 Requires Go 1.25+. Dev tools build from `tools/go.mod` so their
@@ -105,6 +132,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
 - `go run ./cmd/frit plans` — read plan files off every ref
 - `go run ./cmd/frit orphans` — claims and checkouts that disagree
+- `go run ./cmd/frit orphans --json` — the same report for an agent
 
 ## Project Layout
 

@@ -1,7 +1,7 @@
 ---
 id: 2608142306
 title: The fleet index — discover every repo, worktree and branch
-status: "🔳"
+status: "✅"
 summary: >-
   Build the index frit is named for: walk a root for git
   repositories, enumerate every worktree and branch, read plan
@@ -148,6 +148,31 @@ Give every command a `--json` form, and pin the shape with a
 golden test, because agents consume this tool as much as people
 do.
 
+Both renderings come out of one model in `internal/report`, not
+two printers kept in step by hand. A command gathers what it
+found into a document and renders it as a table or as JSON, so a
+fact added for one is in the other by construction.
+
+Three rules make the JSON a contract rather than a dump. Every
+key is always present, so a consumer indexes a field without
+first testing for it. A list is `[]` and never null, because
+iterating null is an error in most languages and iterating
+nothing is not. And a repository frit could not read travels
+inside the document, so a consumer reading stdout alone can tell
+a clean fleet from one that was never opened.
+
+Two divergences from the table are deliberate. `--detail`
+decides how much of the plan index a person is shown, while the
+document always carries all of it. And the table drops a
+repository with nothing to report, while the document keeps it
+with empty sets — "walked and found nothing" is an answer, and
+the table cannot give it.
+
+The golden files are built from hand-written fixtures rather
+than by walking a repository, so nothing in them moves with the
+clock, the machine, or a temporary directory's name. A diff
+there is a change to the contract and nothing else.
+
 ## Execution
 
 Tier is per phase, set by the most demanding ingredient.
@@ -195,7 +220,7 @@ Tier is per phase, set by the most demanding ingredient.
       as a list, with `frit init` writing the defaults
 - [x] Holds exclude refs already merged into the default branch
 - [x] Orphaned and stale lanes are reported
-- [ ] Every command has a `--json` form
+- [x] Every command has a `--json` form
 - [x] All tests pass: `go test ./...`
 - [x] `go vet ./...` is clean
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

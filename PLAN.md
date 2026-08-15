@@ -15,11 +15,13 @@ header: |
 row: "| {id} | {model} | [{title}]({filename}) |"
 footer: |
 
+empty: |
+
+  Nothing in progress.
+
 ?>
 
-| ID         | Model | Title                                                                                                  |
-| ---------- | ----- | ------------------------------------------------------------------------------------------------------ |
-| 2608142306 | opus  | [The fleet index — discover every repo, worktree and branch](plan/2608142306_fleet-index-discovery.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -40,5 +42,5 @@ footer: |
 
 | ID         | Status | Model | Title                                                                                                  |
 | ---------- | ------ | ----- | ------------------------------------------------------------------------------------------------------ |
-| 2608142306 | 🔳     | opus  | [The fleet index — discover every repo, worktree and branch](plan/2608142306_fleet-index-discovery.md) |
+| 2608142306 | ✅     | opus  | [The fleet index — discover every repo, worktree and branch](plan/2608142306_fleet-index-discovery.md) |
 <?/catalog?>
