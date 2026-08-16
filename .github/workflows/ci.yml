@@ -42,10 +42,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
-          # tools/go.mod, not go.mod: dev tools build from the
-          # alternate modfile so their dependency trees never
-          # constrain consumers of this module.
-          go-version-file: tools/go.mod
+          # The higher of the two floors, which today is the root
+          # module's. Toolchain selection ignores -modfile and setup-go
+          # pins GOTOOLCHAIN=local, so one installed toolchain has to
+          # satisfy both: golangci-lint is built from tools/go.mod
+          # (go 1.25.0) but type-checks a module requiring go 1.25.11,
+          # and installing the tools floor fails on exactly that.
+          go-version-file: go.mod
           # setup-go keys its module cache on the root go.sum alone,
           # while golangci-lint builds from tools/go.sum and
           # type-checks the repository against go.sum. Hash both, or
