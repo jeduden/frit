@@ -111,13 +111,13 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A plan resolves from an exact id, a slug fragment, or the cwd
-- [ ] An ambiguous selector prints candidates and exits non-zero
+- [x] A plan resolves from an exact id, a slug fragment, or the cwd
+- [x] An ambiguous selector prints candidates and exits non-zero
 - [x] `frit ready` lists plans with all dependencies ✅ that nobody holds
 - [x] A plan with one unmet dependency is withheld from `ready`
-- [ ] `frit next` returns the first phase of a plan not at ✅
-- [ ] `frit show <id> --deps` walks the upstream DAG
-- [ ] `frit pick -n N` ranks startable candidates nobody holds
+- [x] `frit next` returns the first phase of a plan not at ✅
+- [x] `frit show <id> --deps` walks the upstream DAG
+- [x] `frit pick -n N` ranks startable candidates nobody holds
 - [ ] `frit find` matches titles and summaries across every ref
 - [ ] Every new command has a `--json` form pinned by a golden test
 - [ ] All tests pass: `go test ./...`

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,6 +58,9 @@ type cli struct {
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
+	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
+	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
+	Show    showCmd    `cmd:"" help:"Show a plan and, with --deps, what blocks it."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -525,20 +529,51 @@ func hostname() string {
 }
 
 // gatherFleet reads every repository's plans and holds into the view
-// the discovery verbs share, carrying each repository's problems into
-// the document rather than to stderr.
-func gatherFleet(c *cli, rt *runtime, addProblem func(string, error)) (
-	[]discovery.Plan, error,
-) {
-	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
-	if err != nil {
-		return nil, err
+// the discovery verbs share.
+func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
+	return fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+}
+
+// problemAdder is the AddProblem every discovery document carries. The
+// commands share one loop to move a gather's problems onto whichever
+// document they are building.
+type problemAdder interface {
+	AddProblem(repo string, err error)
+}
+
+// carryProblems moves a gather's per-repository failures onto a
+// document, so a single broken checkout travels in the report rather
+// than blinding the board.
+func carryProblems(doc problemAdder, problems []fleet.Problem) {
+	for _, p := range problems {
+		doc.AddProblem(p.Repo, p.Err)
 	}
-	for _, p := range res.Problems {
-		addProblem(p.Repo, p.Err)
+}
+
+// resolveSelector turns a command's optional selector into one plan.
+//
+// A selector given on the command line is resolved by id or slug; an
+// empty one is inferred from the current directory, the cwd join run
+// backwards. An ambiguous or unknown selector returns the error
+// discovery raised, which the command surfaces and exits non-zero on.
+func resolveSelector(
+	rt *runtime, selector string, plans []discovery.Plan,
+) (discovery.Plan, error) {
+	if selector != "" {
+		return discovery.Resolve(selector, plans)
 	}
 
-	return res.Plans, nil
+	cwd, err := os.Getwd()
+	if err != nil {
+		return discovery.Plan{}, err
+	}
+	id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !ok {
+		return discovery.Plan{}, errors.New(
+			"no plan given and none inferred from the current directory")
+	}
+
+	return discovery.Resolve(strconv.FormatInt(id, 10), plans)
 }
 
 type readyCmd struct{}
@@ -546,13 +581,14 @@ type readyCmd struct{}
 // Run lists every plan startable now: not begun, held by nobody, and
 // with every dependency done, across all repositories and refs.
 func (r *readyCmd) Run(c *cli, rt *runtime) error {
-	doc := report.NewReady(c.Root, hostname())
-
-	plans, err := gatherFleet(c, rt, doc.AddProblem)
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
-	doc.SetPlans(discovery.Ready(plans))
+
+	doc := report.NewReady(c.Root, hostname())
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Ready(res.Plans))
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -561,6 +597,164 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+type pickCmd struct {
+	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+}
+
+// Run lists the startable plans ranked by how much each unblocks,
+// trimmed to the number asked for.
+func (pc *pickCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewPick(c.Root, hostname())
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Pick(res.Plans, pc.N))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, readyView(doc))
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// readyView lets pick reuse the ready table: both print a ranked list
+// of startable plans, so the rendering is shared rather than copied.
+func readyView(doc *report.PickDoc) *report.ReadyDoc {
+	return &report.ReadyDoc{Plans: doc.Plans}
+}
+
+type nextCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+}
+
+// Run reports the first phase of a plan not yet done — the phase an
+// executor would pick up — for the plan named, or the one the current
+// worktree is on.
+func (n *nextCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, n.Selector, res.Plans)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewNext(c.Root, plan)
+	carryProblems(doc, res.Problems)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printNext(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+type showCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+	Deps     bool   `help:"Walk the upstream dependency DAG."`
+}
+
+// Run shows a plan's upstream dependencies, so "what blocks this" has a
+// direct answer.
+func (s *showCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, s.Selector, res.Plans)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
+	carryProblems(doc, res.Problems)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printShow(rt.stdout, doc, s.Deps)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printNext writes the plan and the phase to pick up, the seed a
+// dispatch verb will one day type for you: a plan id, a phase number,
+// and the tier the plan asks for. A plan with no open phase says why —
+// done, or carrying no phase ledger at all.
+func printNext(out io.Writer, doc *report.NextDoc) {
+	p := doc.Plan
+	if !doc.HasPhase {
+		if p.Status == planmeta.StatusDone {
+			_, _ = fmt.Fprintf(out, "plan %d is done\n", p.ID)
+			return
+		}
+		_, _ = fmt.Fprintf(out, "%s %d  %s  (no phase ledger)\n",
+			p.Repo, p.ID, p.Title)
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %d\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title, modelLabel(p.Model))
+	_ = tw.Flush()
+}
+
+// printShow writes the dependency tree, one plan per line, indented by
+// depth, so what blocks a plan reads top to bottom. An unresolved edge
+// is marked rather than hidden.
+//
+// --deps decides how much a person is shown, the way --detail does for
+// plans: without it the root plan alone is printed, with it the whole
+// upstream walk. The document always carries the full tree, so a
+// consumer is never given less than everything.
+func printShow(out io.Writer, doc *report.ShowDoc, deps bool) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if !deps {
+		root := doc.Tree
+		root.Deps = nil
+		printDep(tw, root, 0)
+		if len(doc.Tree.Deps) > 0 {
+			_, _ = fmt.Fprintln(tw, "  (use --deps to see what blocks it)")
+		}
+	} else {
+		printDep(tw, doc.Tree, 0)
+	}
+	_ = tw.Flush()
+}
+
+// printDep writes one dependency node and recurses into its upstreams.
+func printDep(out io.Writer, node report.DepCard, depth int) {
+	indent := strings.Repeat("  ", depth)
+	if !node.Found {
+		_, _ = fmt.Fprintf(out, "%s?\t%d\t(unknown plan)\n", indent, node.ID)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%s%s\t%d\t%s\n",
+		indent, statusLabel(node.Status), node.ID, node.Title)
+	for _, child := range node.Deps {
+		printDep(out, child, depth+1)
+	}
+}
+
+// statusLabel renders a plan's status glyph, or a dash when it carries
+// none, so the column stays aligned.
+func statusLabel(status string) string {
+	if status == "" {
+		return "-"
+	}
+
+	return status
 }
 
 // printReady writes one line per startable plan, carrying the model

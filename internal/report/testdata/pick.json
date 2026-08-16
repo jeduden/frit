@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "command": "pick",
+  "root": "/fleet",
+  "host": "forge",
+  "plans": [
+    {
+      "key": "forge:atlas:2608161809",
+      "repo": "atlas",
+      "id": 2608161809,
+      "status": "🔲",
+      "title": "Discovery — what can I start",
+      "summary": "The verbs that make dispatch usable.",
+      "model": "opus",
+      "depends_on": [],
+      "path": "plan/2608161809_discovery-readiness-verbs.md",
+      "held": false
+    },
+    {
+      "key": "forge:orrery:7",
+      "repo": "orrery",
+      "id": 7,
+      "status": "🔲",
+      "title": "Shader unit tests",
+      "summary": "",
+      "model": "sonnet",
+      "depends_on": [],
+      "path": "plan/7_shader-unit-tests.md",
+      "held": false
+    }
+  ],
+  "problems": []
+}

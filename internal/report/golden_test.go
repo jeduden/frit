@@ -40,6 +40,9 @@ func TestGoldenShapes(t *testing.T) {
 		{"repos", goldenRepos()},
 		{"plans", goldenPlans()},
 		{"ready", goldenReady()},
+		{"pick", goldenPick()},
+		{"next", goldenNext()},
+		{"show", goldenShow()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -130,6 +133,70 @@ func goldenReady() *ReadyDoc {
 	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
 
 	return doc
+}
+
+// goldenPick pins the ranked-candidate shape, two startable plans in
+// the order pick ranked them.
+func goldenPick() *PickDoc {
+	doc := NewPick("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:atlas:2608161809", Repo: "atlas",
+			ID: 2608161809, Status: "🔲",
+			Title:   "Discovery — what can I start",
+			Summary: "The verbs that make dispatch usable.",
+			Model:   "opus",
+			Path:    "plan/2608161809_discovery-readiness-verbs.md",
+		},
+		{
+			Key: "forge:orrery:7", Repo: "orrery", ID: 7, Status: "🔲",
+			Title: "Shader unit tests", Model: "sonnet",
+			Path: "plan/7_shader-unit-tests.md",
+		},
+	})
+
+	return doc
+}
+
+// goldenNext pins the next-phase shape: a plan and the first phase of
+// it not done.
+func goldenNext() *NextDoc {
+	return NewNext("/fleet", discovery.Plan{
+		Key: "forge:atlas:2608161809", Repo: "atlas",
+		ID: 2608161809, Status: "🔳",
+		Title: "Discovery — what can I start", Model: "opus",
+		Path: "plan/2608161809_discovery-readiness-verbs.md",
+		Phases: []planmeta.Phase{
+			{N: 1, Title: "selectors", Status: "✅"},
+			{N: 2, Title: "ready", Status: "🔳"},
+		},
+	})
+}
+
+// goldenShow pins the dependency-walk shape, including an edge frit
+// could not resolve to a known plan.
+func goldenShow() *ShowDoc {
+	return NewShow("/fleet", discovery.DepNode{
+		Plan: discovery.Plan{
+			Key: "forge:atlas:2608161810", Repo: "atlas",
+			ID: 2608161810, Status: "🔲", Title: "The dispatch ladder",
+		},
+		Found: true,
+		Deps: []discovery.DepNode{
+			{
+				Plan: discovery.Plan{
+					Key: "forge:atlas:2608161809", Repo: "atlas",
+					ID: 2608161809, Status: "🔳",
+					Title: "Discovery — what can I start",
+				},
+				Found: true,
+			},
+			{
+				Plan:  discovery.Plan{Repo: "atlas", ID: 999},
+				Found: false,
+			},
+		},
+	})
 }
 
 func goldenOrphans() *OrphansDoc {

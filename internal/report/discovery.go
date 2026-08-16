@@ -1,6 +1,9 @@
 package report
 
-import "github.com/jeduden/frit/internal/discovery"
+import (
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/planmeta"
+)
 
 // PlanCard is one plan as the discovery listings show it. ready, pick
 // and find all answer with a list of these, so a consumer written
@@ -75,4 +78,141 @@ func (d *ReadyDoc) SetPlans(plans []discovery.Plan) {
 // AddProblem records a repository whose plans could not be read.
 func (d *ReadyDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// PickDoc is what `frit pick` found: the startable plans, ranked, and
+// trimmed to the number asked for.
+type PickDoc struct {
+	header
+	Root     string     `json:"root"`
+	Host     string     `json:"host"`
+	Plans    []PlanCard `json:"plans"`
+	Problems []Problem  `json:"problems"`
+}
+
+// NewPick opens a ranked candidate report.
+func NewPick(root, host string) *PickDoc {
+	return &PickDoc{
+		header:   newHeader("pick"),
+		Root:     root,
+		Host:     host,
+		Plans:    []PlanCard{},
+		Problems: []Problem{},
+	}
+}
+
+// SetPlans records the ranked candidates, in the order discovery gave.
+func (d *PickDoc) SetPlans(plans []discovery.Plan) {
+	d.Plans = cardsOf(plans)
+}
+
+// AddProblem records a repository whose plans could not be read.
+func (d *PickDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// PhaseCard is one phase in the wire form: its number, title and its
+// own status.
+type PhaseCard struct {
+	N      int    `json:"n"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// NextDoc is what `frit next` found: a plan and the first phase of it
+// not yet done — the phase an executor would pick up.
+//
+// HasPhase distinguishes "the next phase is this" from "there is no
+// open phase": a plan already done, or one with no phase ledger at all,
+// carries HasPhase false rather than a made-up phase zero.
+type NextDoc struct {
+	header
+	Root     string    `json:"root"`
+	Plan     PlanCard  `json:"plan"`
+	Phase    PhaseCard `json:"phase"`
+	HasPhase bool      `json:"has_phase"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewNext opens a next-phase report for one resolved plan.
+func NewNext(root string, plan discovery.Plan) *NextDoc {
+	doc := &NextDoc{
+		header:   newHeader("next"),
+		Root:     root,
+		Plan:     cardOf(plan),
+		Phase:    PhaseCard{},
+		Problems: []Problem{},
+	}
+	if phase, ok := plan.NextPhase(); ok {
+		doc.Phase = phaseCard(phase)
+		doc.HasPhase = true
+	}
+
+	return doc
+}
+
+// AddProblem records a repository whose plans could not be read.
+func (d *NextDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// phaseCard projects a phase into its wire shape.
+func phaseCard(p planmeta.Phase) PhaseCard {
+	return PhaseCard{N: p.N, Title: p.Title, Status: p.Status}
+}
+
+// DepCard is one plan in the dependency walk. Found is false for an
+// edge that resolved to no known plan, whose only sure fields are its
+// id and repository.
+type DepCard struct {
+	Key    string    `json:"key"`
+	Repo   string    `json:"repo"`
+	ID     int64     `json:"id"`
+	Status string    `json:"status"`
+	Title  string    `json:"title"`
+	Found  bool      `json:"found"`
+	Deps   []DepCard `json:"deps"`
+}
+
+// ShowDoc is what `frit show --deps` found: the upstream dependency
+// tree of one plan, so "what blocks this" has a direct answer.
+type ShowDoc struct {
+	header
+	Root     string    `json:"root"`
+	Tree     DepCard   `json:"tree"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewShow opens a dependency-walk report from a resolved tree.
+func NewShow(root string, tree discovery.DepNode) *ShowDoc {
+	return &ShowDoc{
+		header:   newHeader("show"),
+		Root:     root,
+		Tree:     depCard(tree),
+		Problems: []Problem{},
+	}
+}
+
+// AddProblem records a repository whose plans could not be read.
+func (d *ShowDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// depCard projects a dependency node and its subtree into wire shape,
+// keeping the list empty rather than null at every level.
+func depCard(n discovery.DepNode) DepCard {
+	card := DepCard{
+		Key:    n.Plan.Key,
+		Repo:   n.Plan.Repo,
+		ID:     n.Plan.ID,
+		Status: n.Plan.Status,
+		Title:  n.Plan.Title,
+		Found:  n.Found,
+		Deps:   make([]DepCard, 0, len(n.Deps)),
+	}
+	for _, child := range n.Deps {
+		card.Deps = append(card.Deps, depCard(child))
+	}
+
+	return card
 }

@@ -73,6 +73,19 @@ func slugify(title string) string {
 	return strings.Trim(s, "-")
 }
 
+// phasesBlock builds a phases: front-matter block, one entry per given
+// status, numbered from one.
+func phasesBlock(statuses ...string) string {
+	var b strings.Builder
+	b.WriteString("phases:\n")
+	for i, status := range statuses {
+		fmt.Fprintf(&b, "  - { n: %d, title: 'Phase %d', status: %q }\n",
+			i+1, i+1, status)
+	}
+
+	return b.String()
+}
+
 // TestReadyListsAPlanWithDepsDoneAndWithholdsAnUnmetOne is the flagship
 // end to end: a plan whose every dependency is ✅ is startable, and one
 // with an unmet edge is not.
@@ -141,4 +154,154 @@ func TestReadyEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(3), doc.Plans[0].ID)
 	assert.Equal(t, "atlas", doc.Plans[0].Repo)
 	assert.Equal(t, []int64{1}, doc.Plans[0].DependsOn)
+}
+
+// commitPhasedPlan writes and commits a plan carrying a phase ledger.
+func commitPhasedPlan(
+	t *testing.T, repo string, id int, status, title string,
+	statuses ...string,
+) {
+	t.Helper()
+	writePlanFile(t, repo, id, status, title, nil,
+		phasesBlock(statuses...), "")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d", id))
+}
+
+// TestNextReportsTheFirstOpenPhase is the rule end to end: next skips
+// the done phases and stops at the first still open.
+func TestNextReportsTheFirstOpenPhase(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 100, "🔳", "Layered work", "✅", "🔳", "🔲")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "100", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "phase 2")
+	assert.NotContains(t, got, "phase 1", "a done phase is skipped")
+}
+
+// TestNextInfersThePlanFromTheCwd is the third selector form: standing
+// in a worktree on a plan branch, next means the plan that worktree is
+// working, with no id typed.
+func TestNextInfersThePlanFromTheCwd(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/100-layered")
+	commitPhasedPlan(t, repo, 100, "🔳", "Layered work", "✅", "🔲")
+	t.Chdir(repo)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "phase 2")
+}
+
+func TestNextEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 100, "🔳", "Layered work", "✅", "🔳")
+	var doc report.NextDoc
+
+	emit(t, &doc, "next", "layered", "--root", root)
+
+	assert.Equal(t, "next", doc.Command)
+	assert.True(t, doc.HasPhase)
+	assert.Equal(t, 2, doc.Phase.N)
+	assert.Equal(t, int64(100), doc.Plan.ID)
+}
+
+// TestShowWalksTheUpstreamDAG: show --deps prints the whole upstream
+// chain of a plan.
+func TestShowWalksTheUpstreamDAG(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "✅", "Bedrock", nil, "")
+	commitPlan(t, repo, 2, "🔳", "Middle layer", []int{1}, "")
+	commitPlan(t, repo, 3, "🔲", "Top", []int{2}, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "3", "--deps", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "Top")
+	assert.Contains(t, got, "Middle layer")
+	assert.Contains(t, got, "Bedrock")
+}
+
+func TestShowEmitsTheDependencyTree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "✅", "Bedrock", nil, "")
+	commitPlan(t, repo, 3, "🔲", "Top", []int{1}, "")
+	var doc report.ShowDoc
+
+	emit(t, &doc, "show", "3", "--deps", "--root", root)
+
+	assert.Equal(t, "show", doc.Command)
+	assert.Equal(t, int64(3), doc.Tree.ID)
+	require.Len(t, doc.Tree.Deps, 1)
+	assert.Equal(t, int64(1), doc.Tree.Deps[0].ID)
+	assert.True(t, doc.Tree.Deps[0].Found)
+}
+
+// TestSelectorAmbiguityPrintsCandidatesAndExitsNonZero is the acceptance
+// criterion for the selector: a fragment matching two plans is refused
+// with its candidates, not resolved by a guess.
+func TestSelectorAmbiguityPrintsCandidatesAndExitsNonZero(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Shared word alpha", nil, "")
+	commitPlan(t, repo, 2, "🔲", "Shared word beta", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "Shared word", "--root", root}, &out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "matches 2 plans")
+	assert.Contains(t, errb.String(), "alpha")
+	assert.Contains(t, errb.String(), "beta")
+}
+
+func TestSelectorNotFoundExitsNonZero(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Something", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "raymarch", "--root", root}, &out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "no plan matches")
+}
+
+// TestPickRanksAndTrims: the most-unblocking plan comes first, and -n
+// trims the list.
+func TestPickRanksAndTrims(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Frees nothing", nil, "")
+	commitPlan(t, repo, 2, "🔲", "Frees two downstream", nil, "")
+	commitPlan(t, repo, 3, "🔳", "Waits on two", []int{2}, "")
+	commitPlan(t, repo, 4, "🔳", "Also waits on two", []int{2}, "")
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "-n", "1", "--root", root)
+
+	require.Len(t, doc.Plans, 1)
+	assert.Equal(t, int64(2), doc.Plans[0].ID,
+		"the plan freeing the most downstream work ranks first")
 }

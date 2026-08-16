@@ -58,6 +58,13 @@ func (p Plan) Done() bool {
 	return p.Status == planmeta.StatusDone
 }
 
+// NextPhase returns the first phase not at ✅ — the phase frit next
+// points at, and the one an executor defaults to. A plan with no ledger
+// or with every phase done has no next phase and reports false.
+func (p Plan) NextPhase() (planmeta.Phase, bool) {
+	return planmeta.Plan{Phases: p.Phases}.FirstOpenPhase()
+}
+
 // matchesSlug reports whether a lowered fragment appears in the plan's
 // title, its path, or any branch that carries it — the identifiers a
 // person remembers a plan by when they have forgotten its id.
