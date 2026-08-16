@@ -287,6 +287,70 @@ func TestSelectorNotFoundExitsNonZero(t *testing.T) {
 	assert.Contains(t, errb.String(), "no plan matches")
 }
 
+// TestFindMatchesAcrossBranches is the payoff of reading every ref: a
+// plan that lives only on a side branch is still found by its topic.
+func TestFindMatchesAcrossBranches(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/500-raymarch")
+	commitPlan(t, repo, 500, "🔲", "Raymarch the gas giants", nil, "")
+	git(t, repo, "checkout", "-q", "main")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "raymarch", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Raymarch the gas giants")
+}
+
+func TestFindMatchesASummary(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	path := filepath.Join(repo, "plan", "1_a.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte(
+		"---\nid: 1\ntitle: A plain title\nstatus: \"🔲\"\n"+
+			"summary: walk the signed distance field\n---\n# A\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 1")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "signed distance", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "A plain title")
+}
+
+func TestFindIsQuietOnNoMatch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Something", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "raymarch", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no plan matches")
+}
+
+func TestFindEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Raymarch the gas giants", nil, "")
+	var doc report.FindDoc
+
+	emit(t, &doc, "find", "raymarch", "--root", root)
+
+	assert.Equal(t, "find", doc.Command)
+	assert.Equal(t, "raymarch", doc.Query)
+	require.Len(t, doc.Plans, 1)
+	assert.Equal(t, int64(7), doc.Plans[0].ID)
+}
+
 // TestPickRanksAndTrims: the most-unblocking plan comes first, and -n
 // trims the list.
 func TestPickRanksAndTrims(t *testing.T) {

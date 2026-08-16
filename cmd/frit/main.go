@@ -61,6 +61,7 @@ type cli struct {
 	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
 	Show    showCmd    `cmd:"" help:"Show a plan and, with --deps, what blocks it."`
+	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -686,6 +687,49 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+type findCmd struct {
+	Query string `arg:"" help:"Text to match in plan titles and summaries."`
+}
+
+// Run searches plan titles and summaries across every repository and
+// ref for a query, for when the topic is remembered but not the id.
+func (f *findCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewFind(c.Root, hostname(), f.Query)
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Find(f.Query, res.Plans))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printFind(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printFind writes one line per match, carrying the status because find
+// answers with plans in any state, not only startable ones. A search
+// that matched nothing says so with the query, so an empty result is
+// never mistaken for a broken command.
+func printFind(out io.Writer, doc *report.FindDoc) {
+	if len(doc.Plans) == 0 {
+		_, _ = fmt.Fprintf(out, "no plan matches %q\n", doc.Query)
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, p := range doc.Plans {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
+			p.Repo, p.ID, statusLabel(p.Status), p.Title)
+	}
+	_ = tw.Flush()
 }
 
 // printNext writes the plan and the phase to pick up, the seed a

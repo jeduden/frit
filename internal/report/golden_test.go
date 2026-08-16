@@ -43,6 +43,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"pick", goldenPick()},
 		{"next", goldenNext()},
 		{"show", goldenShow()},
+		{"find", goldenFind()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -197,6 +198,23 @@ func goldenShow() *ShowDoc {
 			},
 		},
 	})
+}
+
+// goldenFind pins the search shape: the query echoed, and the matches
+// carrying every field a listing does.
+func goldenFind() *FindDoc {
+	doc := NewFind("/fleet", "forge", "raymarch")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:orrery:12", Repo: "orrery", ID: 12, Status: "✅",
+			Title:   "Raymarch the gas giants",
+			Summary: "March a ray through the volume.",
+			Model:   "opus",
+			Path:    "plan/12_raymarch-gas-giants.md",
+		},
+	})
+
+	return doc
 }
 
 func goldenOrphans() *OrphansDoc {

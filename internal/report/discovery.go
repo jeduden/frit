@@ -111,6 +111,41 @@ func (d *PickDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
+// FindDoc is what `frit find` found: the plans whose title or summary
+// matched the query, across every repository and ref. The query is
+// echoed so a consumer holding the document out of context knows what
+// was asked.
+type FindDoc struct {
+	header
+	Root     string     `json:"root"`
+	Host     string     `json:"host"`
+	Query    string     `json:"query"`
+	Plans    []PlanCard `json:"plans"`
+	Problems []Problem  `json:"problems"`
+}
+
+// NewFind opens a search report for one query.
+func NewFind(root, host, query string) *FindDoc {
+	return &FindDoc{
+		header:   newHeader("find"),
+		Root:     root,
+		Host:     host,
+		Query:    query,
+		Plans:    []PlanCard{},
+		Problems: []Problem{},
+	}
+}
+
+// SetPlans records the matches, in the order discovery gave them.
+func (d *FindDoc) SetPlans(plans []discovery.Plan) {
+	d.Plans = cardsOf(plans)
+}
+
+// AddProblem records a repository whose plans could not be read.
+func (d *FindDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
 // PhaseCard is one phase in the wire form: its number, title and its
 // own status.
 type PhaseCard struct {

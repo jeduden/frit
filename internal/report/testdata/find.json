@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "command": "find",
+  "root": "/fleet",
+  "host": "forge",
+  "query": "raymarch",
+  "plans": [
+    {
+      "key": "forge:orrery:12",
+      "repo": "orrery",
+      "id": 12,
+      "status": "✅",
+      "title": "Raymarch the gas giants",
+      "summary": "March a ray through the volume.",
+      "model": "opus",
+      "depends_on": [],
+      "path": "plan/12_raymarch-gas-giants.md",
+      "held": false
+    }
+  ],
+  "problems": []
+}
