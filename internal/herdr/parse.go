@@ -38,8 +38,6 @@ type Pane struct {
 	// root as the shell cds around, so resolving a lane from it means
 	// walking back up with git rather than trusting it directly.
 	CWD string
-	// ForegroundCWD is the working directory of the foreground process.
-	ForegroundCWD string
 	// Session is the agent session id, empty when there is no agent.
 	Session string
 	// PaneID identifies the pane within its server.
@@ -85,7 +83,6 @@ type rawPane struct {
 	Agent                 string `json:"agent"`
 	AgentStatus           string `json:"agent_status"`
 	CWD                   string `json:"cwd"`
-	ForegroundCWD         string `json:"foreground_cwd"`
 	PaneID                string `json:"pane_id"`
 	WorkspaceID           string `json:"workspace_id"`
 	TerminalTitle         string `json:"terminal_title"`
@@ -122,14 +119,13 @@ func (r rawPane) pane() Pane {
 	}
 
 	return Pane{
-		Agent:         r.Agent,
-		Status:        r.AgentStatus,
-		CWD:           r.CWD,
-		ForegroundCWD: r.ForegroundCWD,
-		Session:       session,
-		PaneID:        r.PaneID,
-		Workspace:     r.WorkspaceID,
-		Title:         r.title(),
+		Agent:     r.Agent,
+		Status:    r.AgentStatus,
+		CWD:       r.CWD,
+		Session:   session,
+		PaneID:    r.PaneID,
+		Workspace: r.WorkspaceID,
+		Title:     r.title(),
 	}
 }
 
