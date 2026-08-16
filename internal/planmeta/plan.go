@@ -37,6 +37,16 @@ type Plan struct {
 	Summary   string  `yaml:"summary"`
 	Model     string  `yaml:"model"`
 	DependsOn []int64 `yaml:"depends-on"`
+	Phases    []Phase `yaml:"phases"`
+}
+
+// Phase is one entry in a plan's phase ledger: its number, title and
+// its own status, tracked apart from the plan's so an executor can flip
+// one phase without touching the rest.
+type Phase struct {
+	N      int    `yaml:"n"`
+	Title  string `yaml:"title"`
+	Status string `yaml:"status"`
 }
 
 // The status vocabulary, as it appears in the files themselves.
@@ -58,6 +68,20 @@ func (p Plan) Done() bool { return p.Status == StatusDone }
 
 // Superseded reports a plan replaced by another.
 func (p Plan) Superseded() bool { return p.Status == StatusSuperseded }
+
+// FirstOpenPhase returns the first phase not at ✅, which is the phase
+// frit next points at and the one the plan-phase workflow defaults to.
+// A plan with no ledger, or one whose every phase is done, has no open
+// phase and reports false.
+func (p Plan) FirstOpenPhase() (Phase, bool) {
+	for _, phase := range p.Phases {
+		if phase.Status != StatusDone {
+			return phase, true
+		}
+	}
+
+	return Phase{}, false
+}
 
 // IsProto reports whether a path is the schema template rather than a
 // plan.

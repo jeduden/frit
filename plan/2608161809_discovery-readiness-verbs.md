@@ -1,7 +1,7 @@
 ---
 id: 2608161809
 title: Discovery — what can I start, and what blocks it
-status: "🔲"
+status: "🔳"
 summary: >-
   The discovery verbs that make dispatch usable: ready, pick, next,
   show --deps and find, over the dependency DAG, the holds and the
