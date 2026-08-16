@@ -5,8 +5,9 @@ status: "🔲"
 summary: >-
   Climb from a read-only board to dispatch without building a prompt
   UI, because the plan already contains the prompt. Adds open, nudge
-  and start as a dry-run-by-default ladder that composes a typed slash
-  command, hands the pane to herdr, and never reads a reply back.
+  and start, a ladder that composes a typed slash command, hands the
+  pane to herdr, and never reads a reply back. Every rung that sends
+  is dry-run until --go; open sends nothing and needs no gate.
 model: opus
 depends-on: [2608161808, 2608161809]
 ---
@@ -35,10 +36,13 @@ Execution table, so dispatch is typed — phase 8 asks for opus and gets
 opus. No general-purpose orchestrator can do this, because none of
 them reads the plan.
 
-Four herdr calls make the ladder work. All are present at protocol
-17: `worktree.create`, `agent.start`, `agent.prompt`, `agent.wait`.
-The `agent.start.args` field is the important one. The tier from the
-table maps straight onto `--model haiku|sonnet|opus`.
+The ladder is built from herdr's protocol-17 surface. `worktree.create`
+and `agent.start` stand a lane up. `agent.prompt` sends the composed
+command. Herdr's own pane focus and `--remote` attach do the handoff.
+`agent.wait` bounds `agent.start` until the agent has come up, which is
+a wait on a status, not on a reply — so it is not the forbidden
+`agent.read`. The `agent.start.args` field is the important one. The
+tier from the table maps straight onto `--model haiku|sonnet|opus`.
 
 Three rules keep this from becoming herdr, and every phase is built to
 hold them:

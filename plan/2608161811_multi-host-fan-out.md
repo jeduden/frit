@@ -46,8 +46,8 @@ run concurrently across hosts, because a serial walk pays every host's
 latency in turn.
 
 herdr already supports `--remote <ssh-target>`. So attaching to a pane
-spotted elsewhere stays a one-liner. Rung 1 of the dispatch ladder
-needs no change.
+spotted elsewhere stays a one-liner. A read-only attach needs no new
+work when the lane it points at turns out to live on another host.
 
 ## Phase 2: an unreachable host is stale, not gone
 
