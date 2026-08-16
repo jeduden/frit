@@ -85,4 +85,18 @@ jobs:
           persist-credentials: false
       - name: Install zizmor
         run: pip install zizmor==1.6.0
-      - run: zizmor .
+      - name: Run zizmor
+        env:
+          # The run-scoped token, not a stored credential: GitHub mints
+          # it when the job starts, it dies when the job ends, and the
+          # permissions block above is its whole reach. An action like
+          # checkout receives it implicitly through the github.token
+          # context; a CLI in a run step reads its own environment and
+          # gets nothing, which is why it is named here.
+          #
+          # Without it zizmor runs offline and silently skips the three
+          # audits that need the API — impostor-commit, ref-confusion
+          # and known-vulnerable-actions — which are precisely the ones
+          # that check a pinned SHA is what it claims to be.
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor .
