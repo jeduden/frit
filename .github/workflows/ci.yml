@@ -83,20 +83,27 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Install zizmor
-        run: pip install zizmor==1.6.0
+      # zizmor's own action, not a pip install. `pip install zizmor==x`
+      # resolves against PyPI at run time and verifies nothing; the
+      # action pulls ghcr.io/zizmorcore/zizmor by immutable digest,
+      # read from a version-to-digest table shipped inside the action
+      # itself, so what runs is fixed by content rather than by name.
+      #
+      # It also hands zizmor ${{ github.token }} on its own, which is
+      # what turns on the three audits that need the API —
+      # impostor-commit, ref-confusion and known-vulnerable-actions.
+      # Those are the ones that check a pinned SHA is what it claims
+      # to be, and they skip in silence without it.
       - name: Run zizmor
-        env:
-          # The run-scoped token, not a stored credential: GitHub mints
-          # it when the job starts, it dies when the job ends, and the
-          # permissions block above is its whole reach. An action like
-          # checkout receives it implicitly through the github.token
-          # context; a CLI in a run step reads its own environment and
-          # gets nothing, which is why it is named here.
-          #
-          # Without it zizmor runs offline and silently skips the three
-          # audits that need the API — impostor-commit, ref-confusion
-          # and known-vulnerable-actions — which are precisely the ones
-          # that check a pinned SHA is what it claims to be.
-          GH_TOKEN: ${{ github.token }}
-        run: zizmor .
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          # Pin the analyser too. The default is `latest`, which would
+          # resolve at run time and make the job's result depend on the
+          # day it ran. Dependabot bumps the action's SHA but not this
+          # string, so it is a hand bump.
+          version: "1.29.0"
+          # Fail the job on findings. The default files them into code
+          # scanning instead and exits clean, which is the right shape
+          # when a ruleset does the gating; here the check itself is
+          # the gate.
+          advanced-security: false
