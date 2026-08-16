@@ -150,13 +150,17 @@ jobs:
         with:
           subject-path: frit-*
       - name: Publish the release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
-        with:
-          # The tag is created here, on the ref this run was
-          # dispatched from, and only now that the binaries exist.
-          tag_name: ${{ env.VERSION }}
-          name: ${{ env.VERSION }}
-          generate_release_notes: true
-          files: |
-            frit-*
-            checksums.txt
+        # gh is already on the runner, so a third-party action holding
+        # contents: write buys nothing here. One fewer thing to trust
+        # in the only job that can write to this repository.
+        #
+        # The tag is created by this command, on the ref the run was
+        # dispatched from, and only now that the binaries exist.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$VERSION" \
+            --generate-notes \
+            frit-* checksums.txt
