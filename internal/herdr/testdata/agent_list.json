@@ -1,0 +1,55 @@
+{
+  "id": "cli:agent:list",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "agent": "claude",
+        "agent_session": {
+          "agent": "claude",
+          "kind": "id",
+          "source": "herdr:claude",
+          "value": "8e6a81ff-63e8-410c-ac6c-0036b2654549"
+        },
+        "agent_status": "working",
+        "cwd": "/home/jeduden/git/jeduden/duden.nl",
+        "foreground_cwd": "/home/jeduden/git/jeduden/duden.nl",
+        "focused": false,
+        "pane_id": "wC:p1",
+        "tab_id": "wC:t1",
+        "workspace_id": "wC",
+        "terminal_title": "◐ Resume batch handoff documentation",
+        "terminal_title_stripped": "Resume batch handoff documentation"
+      },
+      {
+        "agent_status": "idle",
+        "cwd": "/home/jeduden/scratch",
+        "foreground_cwd": "/home/jeduden/scratch",
+        "focused": false,
+        "pane_id": "wD:p1",
+        "tab_id": "wD:t1",
+        "workspace_id": "wD",
+        "terminal_title": "zsh",
+        "terminal_title_stripped": "zsh"
+      },
+      {
+        "agent": "claude",
+        "agent_session": {
+          "agent": "claude",
+          "kind": "id",
+          "source": "herdr:claude",
+          "value": "a5e3e842-0114-4ac3-893b-39c980c20f13"
+        },
+        "agent_status": "unknown",
+        "cwd": "/home/jeduden/git/jeduden/Juggluco",
+        "foreground_cwd": "/home/jeduden/git/jeduden/Juggluco",
+        "focused": true,
+        "pane_id": "wV:p1",
+        "tab_id": "wV:t1",
+        "workspace_id": "wV",
+        "terminal_title": "✳ Debug NFC read error on connect device",
+        "terminal_title_stripped": "Debug NFC read error on connect device"
+      }
+    ]
+  }
+}
