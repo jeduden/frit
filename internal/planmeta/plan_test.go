@@ -131,6 +131,22 @@ func TestFirstOpenPhaseSkipsDoneAndStopsAtTheFirstOpen(t *testing.T) {
 	assert.Equal(t, "The three skills", phase.Title)
 }
 
+// TestFirstOpenPhaseSkipsASupersededPhase: a phase replaced by another
+// is not work to pick up, so next steps over it to the first real open
+// phase rather than pointing an executor at abandoned work.
+func TestFirstOpenPhaseSkipsASupersededPhase(t *testing.T) {
+	p := Plan{Phases: []Phase{
+		{N: 1, Status: StatusDone},
+		{N: 2, Status: StatusSuperseded},
+		{N: 3, Status: StatusNotStarted},
+	}}
+
+	phase, ok := p.FirstOpenPhase()
+
+	require.True(t, ok)
+	assert.Equal(t, 3, phase.N, "a superseded phase is skipped, not returned")
+}
+
 func TestFirstOpenPhaseReportsNoneWhenEveryPhaseIsDone(t *testing.T) {
 	p := Plan{Phases: []Phase{
 		{N: 1, Status: StatusDone},

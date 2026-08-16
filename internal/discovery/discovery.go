@@ -58,6 +58,13 @@ func (p Plan) Done() bool {
 	return p.Status == planmeta.StatusDone
 }
 
+// Superseded reports a plan replaced by another. Like a done plan, it
+// is never waiting on its dependencies, so it counts as no downstream
+// work when ranking what to start.
+func (p Plan) Superseded() bool {
+	return p.Status == planmeta.StatusSuperseded
+}
+
 // NextPhase returns the first phase not at ✅ — the phase frit next
 // points at, and the one an executor defaults to. A plan with no ledger
 // or with every phase done has no next phase and reports false.

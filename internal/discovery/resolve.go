@@ -57,6 +57,23 @@ func Resolve(selector string, plans []Plan) (Plan, error) {
 	return one(selector, bySlug(selector, plans))
 }
 
+// ByRepoID resolves the one plan a repository knows by id.
+//
+// It is the target of the cwd selector, where both halves of the fleet
+// key are already known: the worktree names the repository and its
+// branch names the id. Going through the string resolver instead would
+// throw the repository away and match the id fleet-wide, so the same id
+// in another repository would read as ambiguous when it is not.
+func ByRepoID(repo string, id int64, plans []Plan) (Plan, error) {
+	for _, p := range plans {
+		if p.Repo == repo && p.ID == id {
+			return p, nil
+		}
+	}
+
+	return Plan{}, fmt.Errorf("%s:%d: %w", repo, id, ErrNotFound)
+}
+
 // withID collects every plan carrying an id, across repositories.
 func withID(id int64, plans []Plan) []Plan {
 	var out []Plan

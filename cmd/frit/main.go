@@ -459,10 +459,7 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	host, err := os.Hostname()
-	if err != nil {
-		host = "localhost"
-	}
+	host := hostname()
 
 	doc := report.NewPlans(c.Root, host)
 	for _, repo := range repos {
@@ -568,13 +565,16 @@ func resolveSelector(
 	if err != nil {
 		return discovery.Plan{}, err
 	}
-	id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
 	if !ok {
 		return discovery.Plan{}, errors.New(
 			"no plan given and none inferred from the current directory")
 	}
 
-	return discovery.Resolve(strconv.FormatInt(id, 10), plans)
+	// Both halves of the key are known here, so resolve the exact plan
+	// rather than matching the id fleet-wide, where another repository's
+	// same id would read as ambiguous.
+	return discovery.ByRepoID(repo, id, plans)
 }
 
 type readyCmd struct{}

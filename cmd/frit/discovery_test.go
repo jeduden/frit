@@ -244,6 +244,29 @@ func TestNextInfersThePlanFromTheCwd(t *testing.T) {
 	assert.Contains(t, out.String(), "phase 2")
 }
 
+// TestNextFromCwdResolvesWithinTheRepo is the cwd selector's guard
+// against a false ambiguity: two repos share plan id 100, but standing
+// in one, next resolves that repo's plan 100 rather than refusing
+// because the id also exists elsewhere.
+func TestNextFromCwdResolvesWithinTheRepo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	atlas := initRepo(t, root, "atlas")
+	git(t, atlas, "checkout", "-q", "-b", "plan/100-alpha")
+	commitPhasedPlan(t, atlas, 100, "🔳", "Atlas hundred", "✅", "🔲")
+	orrery := initRepo(t, root, "orrery")
+	commitPlan(t, orrery, 100, "🔲", "Orrery hundred", nil, "")
+	t.Chdir(atlas)
+	var doc report.NextDoc
+
+	emit(t, &doc, "next", "--root", root)
+
+	assert.Equal(t, "atlas", doc.Plan.Repo,
+		"the cwd pins the repo; the shared id is not ambiguous")
+	assert.Equal(t, int64(100), doc.Plan.ID)
+	assert.Equal(t, 2, doc.Phase.N)
+}
+
 func TestNextEmitsJSON(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()

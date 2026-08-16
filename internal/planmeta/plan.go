@@ -69,15 +69,18 @@ func (p Plan) Done() bool { return p.Status == StatusDone }
 // Superseded reports a plan replaced by another.
 func (p Plan) Superseded() bool { return p.Status == StatusSuperseded }
 
-// FirstOpenPhase returns the first phase not at ✅, which is the phase
-// frit next points at and the one the plan-phase workflow defaults to.
-// A plan with no ledger, or one whose every phase is done, has no open
-// phase and reports false.
+// FirstOpenPhase returns the first phase still to do, which is the
+// phase frit next points at and the one the plan-phase workflow
+// defaults to. Done and superseded phases are stepped over, since
+// neither is work to pick up. A plan with no ledger, or none left open,
+// reports false.
 func (p Plan) FirstOpenPhase() (Phase, bool) {
 	for _, phase := range p.Phases {
-		if phase.Status != StatusDone {
-			return phase, true
+		if phase.Status == StatusDone || phase.Status == StatusSuperseded {
+			continue
 		}
+
+		return phase, true
 	}
 
 	return Phase{}, false

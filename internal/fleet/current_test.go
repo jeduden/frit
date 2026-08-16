@@ -54,11 +54,13 @@ func TestCurrentPlanIDReadsTheLaneAWorktreeIsOn(t *testing.T) {
 	root := repoOnBranch(t, "plan/2608161809-discovery")
 	holds := planHolds(t)
 
-	id, ok := CurrentPlanID(root, gitwt.Exec,
+	repo, id, ok := CurrentPlanID(root, gitwt.Exec,
 		func(string) repocfg.Holds { return holds })
 
 	require.True(t, ok)
 	assert.Equal(t, int64(2608161809), id)
+	assert.Equal(t, filepath.Base(root), repo,
+		"the id travels with the repository that owns it")
 }
 
 // TestCurrentPlanIDWalksUpFromADriftedCWD: the id resolves from a
@@ -69,25 +71,26 @@ func TestCurrentPlanIDWalksUpFromADriftedCWD(t *testing.T) {
 	require.NoError(t, os.MkdirAll(sub, 0o750))
 	holds := planHolds(t)
 
-	id, ok := CurrentPlanID(sub, gitwt.Exec,
+	repo, id, ok := CurrentPlanID(sub, gitwt.Exec,
 		func(string) repocfg.Holds { return holds })
 
 	require.True(t, ok)
 	assert.Equal(t, int64(2608161809), id)
+	assert.Equal(t, filepath.Base(root), repo)
 }
 
 func TestCurrentPlanIDReportsNoneOffTheConvention(t *testing.T) {
 	root := repoOnBranch(t, "feature/side-quest")
 	holds := planHolds(t)
 
-	_, ok := CurrentPlanID(root, gitwt.Exec,
+	_, _, ok := CurrentPlanID(root, gitwt.Exec,
 		func(string) repocfg.Holds { return holds })
 
 	assert.False(t, ok)
 }
 
 func TestCurrentPlanIDReportsNoneOutsideAnyRepository(t *testing.T) {
-	_, ok := CurrentPlanID(t.TempDir(), gitwt.Exec,
+	_, _, ok := CurrentPlanID(t.TempDir(), gitwt.Exec,
 		func(string) repocfg.Holds { return nil })
 
 	assert.False(t, ok)

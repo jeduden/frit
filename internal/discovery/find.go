@@ -13,11 +13,14 @@ import "strings"
 func Find(query string, plans []Plan) []Plan {
 	needle := strings.ToLower(strings.TrimSpace(query))
 
+	// A blank query is not a wildcard, and matching against it would
+	// walk every plan for nothing.
 	out := make([]Plan, 0)
+	if needle == "" {
+		return out
+	}
+
 	for _, p := range plans {
-		if needle == "" {
-			continue
-		}
 		if strings.Contains(strings.ToLower(p.Title), needle) ||
 			strings.Contains(strings.ToLower(p.Summary), needle) {
 			out = append(out, p)

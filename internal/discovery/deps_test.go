@@ -95,13 +95,13 @@ func TestDependenciesResolvesWithinTheRepository(t *testing.T) {
 }
 
 // TestPickRanksTheMostUnblockingFirst: the plan that frees the most
-// downstream work comes first, and -n trims the list.
+// waiting work comes first, and -n trims the list.
 func TestPickRanksTheMostUnblockingFirst(t *testing.T) {
 	plans := []Plan{
 		p("atlas", 1, no), // nothing waits on 1
-		p("atlas", 2, no), // 3 and 4 wait on 2
-		p("atlas", 3, done, 2),
-		p("atlas", 4, done, 2),
+		p("atlas", 2, no), // 3 and 4 wait on 2, both still open
+		p("atlas", 3, wip, 2),
+		p("atlas", 4, no, 2),
 	}
 
 	got := Pick(plans, 0)
@@ -109,6 +109,26 @@ func TestPickRanksTheMostUnblockingFirst(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(2), got[0].ID, "the most unblocking is first")
 	assert.Equal(t, int64(1), got[1].ID)
+}
+
+// TestPickDoesNotCountFinishedDependents: a plan whose dependents are
+// all done frees no waiting work, so it must not outrank one with a
+// genuinely blocked dependent.
+func TestPickDoesNotCountFinishedDependents(t *testing.T) {
+	plans := []Plan{
+		p("atlas", 1, no), // 3 waits on 1 and is still open
+		p("atlas", 2, no), // 4 and 5 wait on 2 but are already done
+		p("atlas", 3, no, 1),
+		p("atlas", 4, done, 2),
+		p("atlas", 5, done, 2),
+	}
+
+	got := Pick(plans, 0)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, int64(1), got[0].ID,
+		"one waiting dependent outranks two finished ones")
+	assert.Equal(t, int64(2), got[1].ID)
 }
 
 func TestPickHonoursN(t *testing.T) {
