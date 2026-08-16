@@ -73,6 +73,47 @@ func slugify(title string) string {
 	return strings.Trim(s, "-")
 }
 
+// TestDiscoveryCarriesABrokenRepoAsAProblem is the JSON contract for
+// the discovery verbs: a repository frit could not read travels in the
+// document, nothing is written beside it, and the readable plans still
+// come back.
+func TestDiscoveryCarriesABrokenRepoAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	good := initRepo(t, root, "atlas")
+	commitPlan(t, good, 1, "🔲", "Readable", nil, "")
+	broken := initRepo(t, root, "busted")
+	require.NoError(t, os.WriteFile(filepath.Join(broken, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+	var doc report.ReadyDoc
+
+	stderr := emit(t, &doc, "ready", "--root", root)
+
+	assert.Empty(t, stderr, "under --json nothing goes to stderr")
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "busted", doc.Problems[0].Repo)
+	assert.NotEmpty(t, doc.Problems[0].Message)
+	require.Len(t, doc.Plans, 1, "the readable repo is still answered")
+	assert.Equal(t, int64(1), doc.Plans[0].ID)
+}
+
+// TestDiscoveryProblemGoesToStderrInTheTable is the same failure in the
+// other rendering: the table stays on stdout, the failure beside it.
+func TestDiscoveryProblemGoesToStderrInTheTable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	broken := initRepo(t, root, "busted")
+	require.NoError(t, os.WriteFile(filepath.Join(broken, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "anything", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code)
+	assert.Contains(t, out.String(), "no plan matches")
+	assert.Contains(t, errb.String(), "frit: busted:")
+}
+
 // phasesBlock builds a phases: front-matter block, one entry per given
 // status, numbered from one.
 func phasesBlock(statuses ...string) string {
