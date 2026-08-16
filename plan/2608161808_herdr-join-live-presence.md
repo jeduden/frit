@@ -1,7 +1,7 @@
 ---
 id: 2608161808
 title: The herdr join — which lane has an agent, live
-status: "🔲"
+status: "🔳"
 summary: >-
   Join the index to herdr's live pane state so the board knows which
   lane is being worked right now, and by what. Adds the who command,
