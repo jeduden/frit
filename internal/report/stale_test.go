@@ -12,7 +12,7 @@ import (
 )
 
 func TestStaleReportsAgeInBothUnits(t *testing.T) {
-	doc := NewStale("/fleet", 30)
+	doc := NewStale("/fleet", 30, false)
 	doc.AddRepo("atlas", []lanes.Aged{{
 		Worktree: gitwt.Worktree{
 			Path:   "/fleet/atlas-lane",
@@ -20,7 +20,7 @@ func TestStaleReportsAgeInBothUnits(t *testing.T) {
 			Head:   "a1b2c3",
 		},
 		Age: 41*24*time.Hour + 12*time.Hour,
-	}})
+	}}, nil)
 
 	assert.Equal(t, Schema, doc.Schema)
 	assert.Equal(t, "stale", doc.Command)
@@ -37,9 +37,32 @@ func TestStaleReportsAgeInBothUnits(t *testing.T) {
 	assert.Equal(t, int64(3585600), aged.AgeSeconds)
 }
 
+// TestStaleMarksLiveApartFromAbandoned is the payoff of the herdr
+// join: two idle branches, one with an agent still on it, come back
+// told apart.
+func TestStaleMarksLiveApartFromAbandoned(t *testing.T) {
+	doc := NewStale("/fleet", 30, true)
+	doc.AddRepo("atlas", []lanes.Aged{
+		{
+			Worktree: gitwt.Worktree{Path: "/fleet/atlas-live"},
+			Age:      40 * 24 * time.Hour,
+		},
+		{
+			Worktree: gitwt.Worktree{Path: "/fleet/atlas-cold"},
+			Age:      40 * 24 * time.Hour,
+		},
+	}, map[string]bool{"/fleet/atlas-live": true})
+
+	require.True(t, doc.Presence)
+	require.Len(t, doc.Repos[0].Stale, 2)
+	assert.True(t, doc.Repos[0].Stale[0].HasAgent,
+		"a worktree with a live agent is not abandoned")
+	assert.False(t, doc.Repos[0].Stale[1].HasAgent)
+}
+
 func TestStaleKeepsFreshRepositories(t *testing.T) {
-	doc := NewStale("/fleet", 30)
-	doc.AddRepo("fresh", nil)
+	doc := NewStale("/fleet", 30, false)
+	doc.AddRepo("fresh", nil, nil)
 	doc.AddProblem("broken", errors.New("cannot read refs"))
 
 	require.Len(t, doc.Repos, 1)
@@ -50,7 +73,7 @@ func TestStaleKeepsFreshRepositories(t *testing.T) {
 }
 
 func TestStaleEmitsListsNeverNull(t *testing.T) {
-	doc := NewStale("/fleet", 7)
+	doc := NewStale("/fleet", 7, false)
 
 	assert.NotNil(t, doc.Repos)
 	assert.NotNil(t, doc.Problems)

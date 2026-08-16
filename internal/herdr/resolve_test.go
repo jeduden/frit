@@ -166,6 +166,30 @@ func TestJoinResolvesEachPaneToItsPlan(t *testing.T) {
 		"a pane off the convention is kept, not dropped")
 }
 
+// TestLiveRootsCollectsOnlyStaffedResolvableRoots is what makes stale
+// agent-aware: only a pane with an agent that resolves to a root
+// contributes, and each root appears once however many panes sit in it.
+func TestLiveRootsCollectsOnlyStaffedResolvableRoots(t *testing.T) {
+	git := fakeJoinGit(
+		map[string]string{
+			"/fleet/atlas/a": "/fleet/atlas",
+			"/fleet/atlas/b": "/fleet/atlas",
+			"/fleet/bare":    "/fleet/bare",
+			"/no/repo":       "", // resolves, but rev-parse will error
+		},
+		map[string]string{},
+	)
+
+	roots := LiveRoots([]Pane{
+		{Agent: "claude", CWD: "/fleet/atlas/a"},
+		{Agent: "pi", CWD: "/fleet/atlas/b"},
+		{Agent: "", CWD: "/fleet/bare"}, // bare pane, no agent
+		{Agent: "claude", CWD: "/no/repo"},
+	}, git)
+
+	assert.Equal(t, map[string]bool{"/fleet/atlas": true}, roots)
+}
+
 // TestJoinKeepsAPaneInNoRepository carries an agent working somewhere
 // git knows nothing about, root and all left empty.
 func TestJoinKeepsAPaneInNoRepository(t *testing.T) {

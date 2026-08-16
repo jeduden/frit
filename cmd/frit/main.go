@@ -167,7 +167,13 @@ func (s *staleCmd) Run(c *cli, rt *runtime) error {
 	cutoff := time.Duration(s.Days) * 24 * time.Hour
 	now := time.Now()
 
-	doc := report.NewStale(c.Root, s.Days)
+	// Live presence sharpens staleness: a branch that has not moved but
+	// still has an agent in its worktree is being worked, not abandoned.
+	// It is read once for the whole fleet, and an unreachable socket
+	// leaves the git answer standing rather than failing the report.
+	live, presence := livePresence(rt)
+
+	doc := report.NewStale(c.Root, s.Days, presence)
 	for _, repo := range repos {
 		times, err := gitobj.RefTimes(repo.Path, rt.git)
 		if err != nil {
@@ -175,7 +181,7 @@ func (s *staleCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 		doc.AddRepo(repo.Name,
-			lanes.Stale(repo.Worktrees, times, now, cutoff))
+			lanes.Stale(repo.Worktrees, times, now, cutoff), live)
 	}
 
 	if c.JSON {
@@ -189,6 +195,11 @@ func (s *staleCmd) Run(c *cli, rt *runtime) error {
 
 // printStale writes the idle checkouts, oldest first within each
 // repository, and says so plainly when there are none.
+//
+// With live presence known, each lane is marked abandoned or live, so
+// a branch that has not moved but still has an agent is not mistaken
+// for dropped work. With presence unknown the column is left blank
+// rather than guessing.
 func printStale(out io.Writer, doc *report.StaleDoc) {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	found := false
@@ -198,10 +209,11 @@ func printStale(out io.Writer, doc *report.StaleDoc) {
 			continue
 		}
 		found = true
-		_, _ = fmt.Fprintf(tw, "%s\t\t\n", repo.Name)
+		_, _ = fmt.Fprintf(tw, "%s\t\t\t\n", repo.Name)
 		for _, aged := range repo.Stale {
-			_, _ = fmt.Fprintf(tw, "  %dd\t%s\t%s\n",
-				aged.AgeDays, aged.Worktree.Name, aged.Worktree.Branch)
+			_, _ = fmt.Fprintf(tw, "  %dd\t%s\t%s\t%s\n",
+				aged.AgeDays, aged.Worktree.Name, aged.Worktree.Branch,
+				staleState(doc.Presence, aged.HasAgent))
 		}
 	}
 	_ = tw.Flush()
@@ -210,6 +222,33 @@ func printStale(out io.Writer, doc *report.StaleDoc) {
 		_, _ = fmt.Fprintf(out,
 			"no worktree idle longer than %d days\n", doc.Days)
 	}
+}
+
+// staleState labels an idle checkout once presence is known: an agent
+// on it means live, none means abandoned. With presence unknown the
+// label is empty, because calling a lane abandoned on a socket we
+// never reached would be a false negative dressed as a fact.
+func staleState(presence, hasAgent bool) string {
+	switch {
+	case !presence:
+		return ""
+	case hasAgent:
+		return "live"
+	default:
+		return "abandoned"
+	}
+}
+
+// livePresence reads the fleet's live agent roots from herdr. A failing
+// or missing socket yields an empty set and false, which every reader
+// treats as "presence unknown" rather than "no agents".
+func livePresence(rt *runtime) (map[string]bool, bool) {
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return nil, false
+	}
+
+	return herdr.LiveRoots(panes, rt.git), true
 }
 
 type whoCmd struct{}

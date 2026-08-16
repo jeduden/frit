@@ -117,16 +117,26 @@ func goldenOrphans() *OrphansDoc {
 }
 
 func goldenStale() *StaleDoc {
-	doc := NewStale("/fleet", 30)
-	doc.AddRepo("atlas", []lanes.Aged{{
-		Worktree: gitwt.Worktree{
-			Path:   "/fleet/atlas-fleet-index",
-			Branch: "plan/2608142306-fleet-index",
-			Head:   "e5f6a7b8",
+	doc := NewStale("/fleet", 30, true)
+	doc.AddRepo("atlas", []lanes.Aged{
+		{
+			Worktree: gitwt.Worktree{
+				Path:   "/fleet/atlas-fleet-index",
+				Branch: "plan/2608142306-fleet-index",
+				Head:   "e5f6a7b8",
+			},
+			Age: 41*24*time.Hour + 12*time.Hour,
 		},
-		Age: 41*24*time.Hour + 12*time.Hour,
-	}})
-	doc.AddRepo("fresh", nil)
+		{
+			Worktree: gitwt.Worktree{
+				Path:   "/fleet/atlas-herdr-join",
+				Branch: "plan/2608161808-herdr-join",
+				Head:   "c0ffee11",
+			},
+			Age: 33 * 24 * time.Hour,
+		},
+	}, map[string]bool{"/fleet/atlas-herdr-join": true})
+	doc.AddRepo("fresh", nil, nil)
 
 	return doc
 }

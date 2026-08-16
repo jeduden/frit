@@ -105,7 +105,7 @@ Tier is per phase, set by the most demanding ingredient.
 1. [x] Parse `herdr agent list` per-pane JSON into typed records
 2. [x] Resolve a pane to a plan through the cwd join, tolerating drift
 3. [x] Ship `frit who` with an honest unknown state
-4. [ ] Make `stale` distinguish an abandoned lane from a live one
+4. [x] Make `stale` distinguish an abandoned lane from a live one
 5. [ ] Give `who` a `--json` form, pinned by a golden test
 
 ## Acceptance Criteria
@@ -116,8 +116,8 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A pane that resolves to no plan is reported, not dropped
 - [x] `frit who` lists every live lane, its agent, and its status
 - [x] An `unknown` agent is never reported as idle
-- [ ] `stale` separates a lane with a live agent from an abandoned one
-- [ ] A missing herdr socket leaves the git-only board working
+- [x] `stale` separates a lane with a live agent from an abandoned one
+- [x] A missing herdr socket leaves the git-only board working
 - [ ] `frit who` has a `--json` form pinned by a golden test
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean

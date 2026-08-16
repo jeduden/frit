@@ -93,6 +93,27 @@ func Join(
 	return lanes
 }
 
+// LiveRoots returns the set of worktree roots that have an agent on
+// them right now.
+//
+// It is what sharpens staleness: a branch that has not moved but still
+// has an agent in its worktree is being worked, not abandoned. A pane
+// with no agent, or one git cannot resolve to a root, contributes
+// nothing, and a root with several panes appears once.
+func LiveRoots(panes []Pane, run gitwt.Runner) map[string]bool {
+	roots := map[string]bool{}
+	for _, p := range panes {
+		if !p.HasAgent() {
+			continue
+		}
+		if site := Resolve(p.CWD, run); site.Root != "" {
+			roots[site.Root] = true
+		}
+	}
+
+	return roots
+}
+
 // matchPlan reads the plan id a site's branch claims, loading and
 // caching the root's hold patterns on first sight.
 func matchPlan(
