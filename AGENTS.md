@@ -146,6 +146,21 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit orphans` — claims and checkouts that disagree
 - `go run ./cmd/frit orphans --json` — the same report for an agent
 - `go run ./cmd/frit who` — which lane has a live agent on it, from herdr
+- `go run ./cmd/frit ready` — plans startable now: deps done, nobody holds
+- `go run ./cmd/frit pick -n 5` — the same, ranked by how much each unblocks
+- `go run ./cmd/frit next <id>` — the first phase of a plan not yet done
+- `go run ./cmd/frit show <id>` — what blocks a plan; `--all` for every dep
+- `go run ./cmd/frit find <text>` — search plan titles and summaries
+
+The discovery verbs are `ready`, `pick`, `next`, `show` and `find`.
+Each takes a plan three ways: an exact id, a slug fragment matched
+against titles and branches, or nothing at all. The empty form is
+inferred from the worktree the command runs in.
+
+They read the fleet index [internal/fleet](internal/fleet) builds, and
+reason over it in [internal/discovery](internal/discovery). That
+package is pure. The DAG walk, the readiness rule and the selector are
+tested against an in-memory fleet with no repository on disk.
 
 ## CI and Release
 

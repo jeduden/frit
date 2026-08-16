@@ -1,10 +1,10 @@
 ---
 id: 2608161809
 title: Discovery — what can I start, and what blocks it
-status: "🔲"
+status: "✅"
 summary: >-
   The discovery verbs that make dispatch usable: ready, pick, next,
-  show --deps and find, over the dependency DAG, the holds and the
+  show and find, over the dependency DAG, the holds and the
   status ledger. Plans are named by selector, not by a ten-digit id.
   Read-only throughout.
 model: opus
@@ -70,8 +70,10 @@ Three verbs read the same graph from different angles.
 - `frit next` — the first phase of a plan not yet at ✅, defaulting to
   the plan the current worktree is on. The rule the `plan-phase` skill
   already follows.
-- `frit show <id> --deps` — the upstream DAG walk for one plan, so
-  "what blocks this" has a direct answer.
+- `frit show <id>` — the upstream DAG walk for one plan, so "what
+  blocks this" has a direct answer. Blockers show by default — the
+  unfinished upstreams — because a done dependency blocks nothing;
+  `--all` (aliased `--deps`) keeps every edge, done ones included.
 - `frit pick -n 5` — ranked startable candidates nobody holds, for
   when `ready` returns more than a person wants to read.
 
@@ -105,20 +107,20 @@ Tier is per phase, set by the most demanding ingredient.
 
 1. Build the plan selector: id, slug fragment, cwd inference
 2. Ship `frit ready` over the dependency DAG, holds and status
-3. Ship `frit next`, `frit show --deps` and `frit pick`
+3. Ship `frit next`, `frit show` and `frit pick`
 4. Ship `frit find` searching titles and summaries across refs
 5. Give every new command a `--json` form, pinned by golden tests
 
 ## Acceptance Criteria
 
-- [ ] A plan resolves from an exact id, a slug fragment, or the cwd
-- [ ] An ambiguous selector prints candidates and exits non-zero
-- [ ] `frit ready` lists plans with all dependencies ✅ that nobody holds
-- [ ] A plan with one unmet dependency is withheld from `ready`
-- [ ] `frit next` returns the first phase of a plan not at ✅
-- [ ] `frit show <id> --deps` walks the upstream DAG
-- [ ] `frit pick -n N` ranks startable candidates nobody holds
-- [ ] `frit find` matches titles and summaries across every ref
-- [ ] Every new command has a `--json` form pinned by a golden test
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] A plan resolves from an exact id, a slug fragment, or the cwd
+- [x] An ambiguous selector prints candidates and exits non-zero
+- [x] `frit ready` lists plans with all dependencies ✅ that nobody holds
+- [x] A plan with one unmet dependency is withheld from `ready`
+- [x] `frit next` returns the first phase of a plan not at ✅
+- [x] `frit show <id>` walks the upstream DAG: blockers, `--all` for every edge
+- [x] `frit pick -n N` ranks startable candidates nobody holds
+- [x] `frit find` matches titles and summaries across every ref
+- [x] Every new command has a `--json` form pinned by a golden test
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

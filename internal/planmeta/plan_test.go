@@ -82,6 +82,88 @@ func TestParseRejectsMalformedYAML(t *testing.T) {
 	require.Error(t, err)
 }
 
+const phasedPlan = `---
+id: 2607232057
+title: Plans get first-class phases
+status: "🔳"
+phases:
+  - { n: 1, title: 'Schema', status: "✅" }
+  - { n: 2, title: 'The catalog', status: "✅" }
+  - { n: 3, title: 'The three skills', status: "🔳" }
+  - { n: 4, title: 'Docs', status: "🔲" }
+---
+# Plans get first-class phases
+
+## Goal
+
+First-class phases.
+`
+
+func TestParseReadsThePhaseLedger(t *testing.T) {
+	got, err := Parse([]byte(phasedPlan))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 4)
+	assert.Equal(t, 1, got.Phases[0].N)
+	assert.Equal(t, "Schema", got.Phases[0].Title)
+	assert.Equal(t, "✅", got.Phases[0].Status)
+	assert.Equal(t, "🔲", got.Phases[3].Status)
+}
+
+func TestParseDefaultsAMissingPhaseLedgerToEmpty(t *testing.T) {
+	got, err := Parse([]byte(realPlan))
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Phases)
+}
+
+// TestFirstOpenPhaseSkipsDoneAndStopsAtTheFirstOpen is the rule frit
+// next follows: the first phase not at ✅, whatever open status it
+// carries.
+func TestFirstOpenPhaseSkipsDoneAndStopsAtTheFirstOpen(t *testing.T) {
+	got, err := Parse([]byte(phasedPlan))
+	require.NoError(t, err)
+
+	phase, ok := got.FirstOpenPhase()
+
+	require.True(t, ok)
+	assert.Equal(t, 3, phase.N)
+	assert.Equal(t, "The three skills", phase.Title)
+}
+
+// TestFirstOpenPhaseSkipsASupersededPhase: a phase replaced by another
+// is not work to pick up, so next steps over it to the first real open
+// phase rather than pointing an executor at abandoned work.
+func TestFirstOpenPhaseSkipsASupersededPhase(t *testing.T) {
+	p := Plan{Phases: []Phase{
+		{N: 1, Status: StatusDone},
+		{N: 2, Status: StatusSuperseded},
+		{N: 3, Status: StatusNotStarted},
+	}}
+
+	phase, ok := p.FirstOpenPhase()
+
+	require.True(t, ok)
+	assert.Equal(t, 3, phase.N, "a superseded phase is skipped, not returned")
+}
+
+func TestFirstOpenPhaseReportsNoneWhenEveryPhaseIsDone(t *testing.T) {
+	p := Plan{Phases: []Phase{
+		{N: 1, Status: StatusDone},
+		{N: 2, Status: StatusDone},
+	}}
+
+	_, ok := p.FirstOpenPhase()
+
+	assert.False(t, ok, "all phases done means no open phase")
+}
+
+func TestFirstOpenPhaseReportsNoneForaPlanWithNoLedger(t *testing.T) {
+	_, ok := Plan{}.FirstOpenPhase()
+
+	assert.False(t, ok)
+}
+
 func TestStatusHelpersNameTheLifecycle(t *testing.T) {
 	assert.True(t, Plan{Status: "🔳"}.InProgress())
 	assert.True(t, Plan{Status: "✅"}.Done())

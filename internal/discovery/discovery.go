@@ -1,0 +1,92 @@
+// Package discovery answers the questions asked before dispatching:
+// what can I start, what next, where is that plan, what blocks this.
+//
+// It is pure. Every function here works over an in-memory slice of
+// plans that a caller has already gathered from git, so the DAG walk,
+// the readiness rule and the selector are all testable against a
+// hand-built fleet with no repository on disk. Gathering that slice is
+// the caller's job; deciding what it means is this package's.
+package discovery
+
+import (
+	"strings"
+
+	"github.com/jeduden/frit/internal/planmeta"
+)
+
+// Plan is one plan as discovery sees it: its identity, its lifecycle,
+// the plans it waits on, and whether a lane already holds it.
+//
+// It is a flattened view of the fleet index — the authoritative version
+// of each plan, keyed across host, repo and id — carrying only what the
+// discovery verbs read.
+type Plan struct {
+	// Key is the canonical host:repo:id identity across the fleet.
+	Key string
+	// Repo is the repository the plan lives in. Dependencies resolve
+	// within a repository, since a plan id is only unique there.
+	Repo string
+	// ID is the plan id, unique within its repository.
+	ID int64
+	// Status is the four-value lifecycle emoji.
+	Status string
+	// Title and Summary are the human description, and what find reads.
+	Title   string
+	Summary string
+	// Model is the tier the plan asks for.
+	Model string
+	// DependsOn is the plan ids this plan waits on, within its repo.
+	DependsOn []int64
+	// Phases is the phase ledger, if the plan carries one.
+	Phases []planmeta.Phase
+	// Path is the repository-relative plan file path.
+	Path string
+	// Branches are the short branch names that carry or claim the plan,
+	// matched by the slug form of a selector.
+	Branches []string
+	// Held reports whether a lane currently claims this plan.
+	Held bool
+}
+
+// NotStarted reports a plan nobody has begun.
+func (p Plan) NotStarted() bool {
+	return p.Status == planmeta.StatusNotStarted
+}
+
+// Done reports a completed plan.
+func (p Plan) Done() bool {
+	return p.Status == planmeta.StatusDone
+}
+
+// Superseded reports a plan replaced by another. Like a done plan, it
+// is never waiting on its dependencies, so it counts as no downstream
+// work when ranking what to start.
+func (p Plan) Superseded() bool {
+	return p.Status == planmeta.StatusSuperseded
+}
+
+// NextPhase returns the first phase not at ✅ — the phase frit next
+// points at, and the one an executor defaults to. A plan with no ledger
+// or with every phase done has no next phase and reports false.
+func (p Plan) NextPhase() (planmeta.Phase, bool) {
+	return planmeta.Plan{Phases: p.Phases}.FirstOpenPhase()
+}
+
+// matchesSlug reports whether a lowered fragment appears in the plan's
+// title, its path, or any branch that carries it — the identifiers a
+// person remembers a plan by when they have forgotten its id.
+func (p Plan) matchesSlug(fragment string) bool {
+	if strings.Contains(strings.ToLower(p.Title), fragment) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(p.Path), fragment) {
+		return true
+	}
+	for _, b := range p.Branches {
+		if strings.Contains(strings.ToLower(b), fragment) {
+			return true
+		}
+	}
+
+	return false
+}

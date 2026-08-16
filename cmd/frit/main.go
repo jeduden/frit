@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
@@ -54,6 +57,11 @@ type cli struct {
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
+	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
+	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
+	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
+	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
+	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -451,10 +459,7 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	host, err := os.Hostname()
-	if err != nil {
-		host = "localhost"
-	}
+	host := hostname()
 
 	doc := report.NewPlans(c.Root, host)
 	for _, repo := range repos {
@@ -507,6 +512,354 @@ func printPlans(out io.Writer, doc *report.PlansDoc, detail bool) {
 		}
 	}
 	_ = tw.Flush()
+}
+
+// hostname names the machine this run reads, falling back to a stable
+// label so a plan key is well formed even when the hostname is
+// unreadable.
+func hostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return "localhost"
+	}
+
+	return host
+}
+
+// gatherFleet reads every repository's plans and holds into the view
+// the discovery verbs share.
+func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
+	return fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+}
+
+// problemAdder is the AddProblem every discovery document carries. The
+// commands share one loop to move a gather's problems onto whichever
+// document they are building.
+type problemAdder interface {
+	AddProblem(repo string, err error)
+}
+
+// carryProblems moves a gather's per-repository failures onto a
+// document, so a single broken checkout travels in the report rather
+// than blinding the board.
+func carryProblems(doc problemAdder, problems []fleet.Problem) {
+	for _, p := range problems {
+		doc.AddProblem(p.Repo, p.Err)
+	}
+}
+
+// resolveSelector turns a command's optional selector into one plan.
+//
+// A selector given on the command line is resolved by id or slug; an
+// empty one is inferred from the current directory, the cwd join run
+// backwards. An ambiguous or unknown selector returns the error
+// discovery raised, which the command surfaces and exits non-zero on.
+func resolveSelector(
+	rt *runtime, selector string, plans []discovery.Plan,
+) (discovery.Plan, error) {
+	if selector != "" {
+		return discovery.Resolve(selector, plans)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return discovery.Plan{}, err
+	}
+	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !ok {
+		return discovery.Plan{}, errors.New(
+			"no plan given and none inferred from the current directory")
+	}
+
+	// Both halves of the key are known here, so resolve the exact plan
+	// rather than matching the id fleet-wide, where another repository's
+	// same id would read as ambiguous.
+	return discovery.ByRepoID(repo, id, plans)
+}
+
+type readyCmd struct{}
+
+// Run lists every plan startable now: not begun, held by nobody, and
+// with every dependency done, across all repositories and refs.
+func (r *readyCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewReady(c.Root, hostname())
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Ready(res.Plans))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+type pickCmd struct {
+	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+}
+
+// Run lists the startable plans ranked by how much each unblocks,
+// trimmed to the number asked for.
+func (pc *pickCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewPick(c.Root, hostname())
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Pick(res.Plans, pc.N))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, readyView(doc))
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// readyView lets pick reuse the ready table: both print a ranked list
+// of startable plans, so the rendering is shared rather than copied.
+func readyView(doc *report.PickDoc) *report.ReadyDoc {
+	return &report.ReadyDoc{Plans: doc.Plans}
+}
+
+type nextCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+}
+
+// Run reports the first phase of a plan not yet done — the phase an
+// executor would pick up — for the plan named, or the one the current
+// worktree is on.
+func (n *nextCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, n.Selector, res.Plans)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewNext(c.Root, plan)
+	carryProblems(doc, res.Problems)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printNext(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+type showCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+	All      bool   `aliases:"deps" help:"Show every dependency, including the done ones, not just blockers."`
+}
+
+// Run shows a plan and its upstream dependencies, so "what blocks this"
+// has a direct answer. By default only the blockers are shown — the
+// upstreams not yet done — because a finished dependency blocks
+// nothing. --all shows the whole dependency tree, done edges included.
+func (s *showCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, s.Selector, res.Plans)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
+	carryProblems(doc, res.Problems)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printShow(rt.stdout, doc, s.All)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+type findCmd struct {
+	Query string `arg:"" help:"Text to match in plan titles and summaries."`
+}
+
+// Run searches plan titles and summaries across every repository and
+// ref for a query, for when the topic is remembered but not the id.
+func (f *findCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewFind(c.Root, hostname(), f.Query)
+	carryProblems(doc, res.Problems)
+	doc.SetPlans(discovery.Find(f.Query, res.Plans))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printFind(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printFind writes one line per match, carrying the status because find
+// answers with plans in any state, not only startable ones. A search
+// that matched nothing says so with the query, so an empty result is
+// never mistaken for a broken command.
+func printFind(out io.Writer, doc *report.FindDoc) {
+	if len(doc.Plans) == 0 {
+		_, _ = fmt.Fprintf(out, "no plan matches %q\n", doc.Query)
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, p := range doc.Plans {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
+			p.Repo, p.ID, statusLabel(p.Status), p.Title)
+	}
+	_ = tw.Flush()
+}
+
+// printNext writes the plan and the phase to pick up, the seed a
+// dispatch verb will one day type for you: a plan id, a phase number,
+// and the tier the plan asks for. A plan with no open phase says why —
+// done, or carrying no phase ledger at all.
+func printNext(out io.Writer, doc *report.NextDoc) {
+	p := doc.Plan
+	if !doc.HasPhase {
+		if p.Status == planmeta.StatusDone {
+			_, _ = fmt.Fprintf(out, "plan %d is done\n", p.ID)
+			return
+		}
+		_, _ = fmt.Fprintf(out, "%s %d  %s  (no phase ledger)\n",
+			p.Repo, p.ID, p.Title)
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %d\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title, modelLabel(p.Model))
+	_ = tw.Flush()
+}
+
+// printShow writes the plan and its upstream dependencies, one plan per
+// line, indented by depth so the walk reads top to bottom. By default
+// only the blockers are shown; with all, every dependency is. When the
+// view has nothing under the root, that is said plainly rather than
+// left as a bare line.
+//
+// The document always carries the whole tree — all decides how much a
+// person is shown, never what a consumer receives, the same split as
+// plans --detail.
+func printShow(out io.Writer, doc *report.ShowDoc, all bool) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	printDep(tw, doc.Tree, 0, all)
+	if visibleDeps(doc.Tree, all) == 0 {
+		_, _ = fmt.Fprintln(tw, "  "+emptyDepsNote(all))
+	}
+	_ = tw.Flush()
+}
+
+// printDep writes one dependency node and recurses into its upstreams.
+// In the default view a satisfied upstream is pruned with its whole
+// subtree, because a done dependency blocks nothing; all keeps them.
+func printDep(out io.Writer, node report.DepCard, depth int, all bool) {
+	indent := strings.Repeat("  ", depth)
+	if !node.Found {
+		_, _ = fmt.Fprintf(out, "%s?\t%d\t(unknown plan)\n", indent, node.ID)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%s%s\t%d\t%s\n",
+		indent, statusLabel(node.Status), node.ID, node.Title)
+	for _, child := range node.Deps {
+		if !all && satisfied(child) {
+			continue
+		}
+		printDep(out, child, depth+1, all)
+	}
+}
+
+// satisfied reports whether an edge is done and so blocks nothing. An
+// unresolved edge is never satisfied: one frit cannot confirm done is
+// treated as a blocker.
+func satisfied(node report.DepCard) bool {
+	return node.Found && node.Status == planmeta.StatusDone
+}
+
+// visibleDeps counts the root's dependencies the current view will
+// print, so an empty walk can be labelled honestly.
+func visibleDeps(root report.DepCard, all bool) int {
+	n := 0
+	for _, child := range root.Deps {
+		if all || !satisfied(child) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// emptyDepsNote explains an empty walk. The default view is about
+// blockers, so an empty one means nothing blocks the plan — whether it
+// has no dependencies or every one is done. --all is about the edges
+// themselves, so an empty one means there are none.
+func emptyDepsNote(all bool) string {
+	if all {
+		return "(no dependencies)"
+	}
+
+	return "(nothing blocks it)"
+}
+
+// statusLabel renders a plan's status glyph, or a dash when it carries
+// none, so the column stays aligned.
+func statusLabel(status string) string {
+	if status == "" {
+		return "-"
+	}
+
+	return status
+}
+
+// printReady writes one line per startable plan, carrying the model
+// tier because it is what a person reaches for the plan to dispatch it.
+// A fleet with nothing startable says so plainly.
+func printReady(out io.Writer, doc *report.ReadyDoc) {
+	if len(doc.Plans) == 0 {
+		_, _ = fmt.Fprintln(out, "nothing startable")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, p := range doc.Plans {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
+			p.Repo, p.ID, modelLabel(p.Model), p.Title)
+	}
+	_ = tw.Flush()
+}
+
+// modelLabel names the tier a plan asks for, or a dash when it names
+// none, so the column stays aligned.
+func modelLabel(model string) string {
+	if model == "" {
+		return "-"
+	}
+
+	return model
 }
 
 // printProblems reports the repositories that could not be read.

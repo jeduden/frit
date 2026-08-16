@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
@@ -38,6 +39,11 @@ func TestGoldenShapes(t *testing.T) {
 	}{
 		{"repos", goldenRepos()},
 		{"plans", goldenPlans()},
+		{"ready", goldenReady()},
+		{"pick", goldenPick()},
+		{"next", goldenNext()},
+		{"show", goldenShow()},
+		{"find", goldenFind()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -105,6 +111,108 @@ func goldenPlans() *PlansDoc {
 	})
 	doc.AddRepo("quiet", nil)
 	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
+
+	return doc
+}
+
+// goldenReady pins the readiness shape: a startable plan carrying its
+// dependency edges, and a repository frit could not read travelling in
+// the same document.
+func goldenReady() *ReadyDoc {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:atlas:2608161810", Repo: "atlas",
+			ID: 2608161810, Status: "🔲",
+			Title:     "The dispatch ladder",
+			Summary:   "From a board to a seeded prompt.",
+			Model:     "opus",
+			DependsOn: []int64{2608161809},
+			Path:      "plan/2608161810_dispatch-ladder.md",
+		},
+	})
+	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
+
+	return doc
+}
+
+// goldenPick pins the ranked-candidate shape, two startable plans in
+// the order pick ranked them.
+func goldenPick() *PickDoc {
+	doc := NewPick("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:atlas:2608161809", Repo: "atlas",
+			ID: 2608161809, Status: "🔲",
+			Title:   "Discovery — what can I start",
+			Summary: "The verbs that make dispatch usable.",
+			Model:   "opus",
+			Path:    "plan/2608161809_discovery-readiness-verbs.md",
+		},
+		{
+			Key: "forge:orrery:7", Repo: "orrery", ID: 7, Status: "🔲",
+			Title: "Shader unit tests", Model: "sonnet",
+			Path: "plan/7_shader-unit-tests.md",
+		},
+	})
+
+	return doc
+}
+
+// goldenNext pins the next-phase shape: a plan and the first phase of
+// it not done.
+func goldenNext() *NextDoc {
+	return NewNext("/fleet", discovery.Plan{
+		Key: "forge:atlas:2608161809", Repo: "atlas",
+		ID: 2608161809, Status: "🔳",
+		Title: "Discovery — what can I start", Model: "opus",
+		Path: "plan/2608161809_discovery-readiness-verbs.md",
+		Phases: []planmeta.Phase{
+			{N: 1, Title: "selectors", Status: "✅"},
+			{N: 2, Title: "ready", Status: "🔳"},
+		},
+	})
+}
+
+// goldenShow pins the dependency-walk shape, including an edge frit
+// could not resolve to a known plan.
+func goldenShow() *ShowDoc {
+	return NewShow("/fleet", discovery.DepNode{
+		Plan: discovery.Plan{
+			Key: "forge:atlas:2608161810", Repo: "atlas",
+			ID: 2608161810, Status: "🔲", Title: "The dispatch ladder",
+		},
+		Found: true,
+		Deps: []discovery.DepNode{
+			{
+				Plan: discovery.Plan{
+					Key: "forge:atlas:2608161809", Repo: "atlas",
+					ID: 2608161809, Status: "🔳",
+					Title: "Discovery — what can I start",
+				},
+				Found: true,
+			},
+			{
+				Plan:  discovery.Plan{Repo: "atlas", ID: 999},
+				Found: false,
+			},
+		},
+	})
+}
+
+// goldenFind pins the search shape: the query echoed, and the matches
+// carrying every field a listing does.
+func goldenFind() *FindDoc {
+	doc := NewFind("/fleet", "forge", "raymarch")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:orrery:12", Repo: "orrery", ID: 12, Status: "✅",
+			Title:   "Raymarch the gas giants",
+			Summary: "March a ray through the volume.",
+			Model:   "opus",
+			Path:    "plan/12_raymarch-gas-giants.md",
+		},
+	})
 
 	return doc
 }
