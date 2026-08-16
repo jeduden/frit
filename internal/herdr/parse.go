@@ -46,8 +46,9 @@ type Pane struct {
 	PaneID string
 	// Workspace is the workspace the pane belongs to.
 	Workspace string
-	// Title is the human label for the pane, with any animation glyph
-	// already stripped.
+	// Title is the human label for the pane — herdr's stripped title
+	// when it sent one, which has the terminal escapes removed though
+	// it may still carry a leading status glyph herdr itself set.
 	Title string
 }
 
@@ -56,6 +57,20 @@ type Pane struct {
 // terminal.
 func (p Pane) HasAgent() bool {
 	return p.Agent != ""
+}
+
+// Presence is the pane's agent state as the board reports it, with one
+// firm rule: a status frit does not recognise is "unknown", never
+// "idle". A false idle is worse than an admitted unknown, because it
+// invites dispatch onto an occupied lane — the one mistake this whole
+// join exists to prevent.
+func (p Pane) Presence() string {
+	switch p.Status {
+	case StatusWorking, StatusIdle, StatusUnknown:
+		return p.Status
+	default:
+		return StatusUnknown
+	}
 }
 
 // envelope is the socket response wrapping the agent list.
@@ -118,9 +133,9 @@ func (r rawPane) pane() Pane {
 	}
 }
 
-// title prefers the stripped label, so the marker glyph a terminal
-// paints for animation stays out of a board's output. It falls back
-// to the raw title when no stripped form was sent.
+// title prefers herdr's stripped label — the one with terminal escape
+// sequences removed — falling back to the raw title when no stripped
+// form was sent.
 func (r rawPane) title() string {
 	if r.TerminalTitleStripped != "" {
 		return r.TerminalTitleStripped

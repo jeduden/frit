@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -20,6 +22,7 @@ import (
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/planmeta"
@@ -53,6 +56,7 @@ type cli struct {
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
+	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
@@ -208,6 +212,117 @@ func printStale(out io.Writer, doc *report.StaleDoc) {
 	}
 }
 
+type whoCmd struct{}
+
+// Run reads herdr's live panes and reports every lane with an agent on
+// it, resolved back to the plan it sits on.
+//
+// An unreachable socket is not fatal. This is the one command that
+// needs a live server, but the rest of the board is answered from git,
+// so a missing herdr travels in the document and the command still
+// exits clean rather than failing the whole read.
+func (w *whoCmd) Run(c *cli, rt *runtime) error {
+	doc := report.NewWho(c.Root)
+
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		doc.AddProblem("herdr", err)
+	} else {
+		for _, lane := range whoLanes(panes, rt.git) {
+			doc.AddLane(lane)
+		}
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printWho(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// whoLanes keeps the panes with an agent, resolves each to its lane,
+// and orders them so the board reads the same way twice: by repository,
+// then plan, then pane.
+func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
+	staffed := make([]herdr.Pane, 0, len(panes))
+	for _, p := range panes {
+		if p.HasAgent() {
+			staffed = append(staffed, p)
+		}
+	}
+
+	lanes := herdr.Join(staffed, git, holdsForRoot)
+	sort.Slice(lanes, func(i, j int) bool {
+		if lanes[i].Repo != lanes[j].Repo {
+			return lanes[i].Repo < lanes[j].Repo
+		}
+		if lanes[i].PlanID != lanes[j].PlanID {
+			return lanes[i].PlanID < lanes[j].PlanID
+		}
+
+		return lanes[i].Pane.PaneID < lanes[j].Pane.PaneID
+	})
+
+	return lanes
+}
+
+// holdsForRoot reads a worktree root's hold patterns. A root with a
+// broken or absent config yields no patterns, so its lanes resolve to
+// no plan rather than failing the whole board — the same tolerance the
+// rest of frit gives a repository it does not own.
+func holdsForRoot(root string) repocfg.Holds {
+	cfg, err := repocfg.Load(root)
+	if err != nil {
+		return nil
+	}
+	holds, err := cfg.Compiled()
+	if err != nil {
+		return nil
+	}
+
+	return holds
+}
+
+// printWho writes one line per live agent, and says so plainly when
+// there are none. A lane that resolved to no plan or no repository is
+// still listed, marked with a dash rather than hidden.
+func printWho(out io.Writer, doc *report.WhoDoc) {
+	if len(doc.Lanes) == 0 {
+		_, _ = fmt.Fprintln(out, "no live agents")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, lane := range doc.Lanes {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			repoLabel(lane.Repo), planLabel(lane.PlanID),
+			lane.Agent, lane.Status, lane.Title)
+	}
+	_ = tw.Flush()
+}
+
+// repoLabel names the repository a lane sits in, or says plainly that
+// it sits in none.
+func repoLabel(repo string) string {
+	if repo == "" {
+		return "(no repo)"
+	}
+
+	return repo
+}
+
+// planLabel names the plan a lane claims, or a dash when the branch
+// claims none.
+func planLabel(id int64) string {
+	if id == 0 {
+		return "-"
+	}
+
+	return strconv.FormatInt(id, 10)
+}
+
 type initCmd struct {
 	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to write .frit.yml into."`
 	Force bool   `short:"f" help:"Overwrite an existing .frit.yml."`
@@ -229,14 +344,22 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 }
 
 // runtime carries what commands need to do their work: where to
-// write, and how to reach git. Both are injected so tests never
-// touch the real streams and can fake git.
+// write, how to reach git, and how to reach herdr. All are injected so
+// tests never touch the real streams and can fake either subprocess.
 type runtime struct {
 	stdout  io.Writer
 	stderr  io.Writer
 	git     gitwt.Runner
 	gitPipe gitwt.PipeRunner
+	herdr   herdr.Runner
 }
+
+// herdrRunner is how commands reach a herdr server. It is a package
+// variable rather than wired straight to herdr.Exec so a test can
+// install a fake socket without a herdr on the machine — git commands
+// fake with a real temporary repository, but there is no throwaway
+// herdr server to stand up the same way.
+var herdrRunner = herdr.Exec
 
 // exitCode unwinds kong's os.Exit call so run can return it instead.
 // kong exits the process on --help and on a usage error, which would
@@ -417,6 +540,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		stderr:  stderr,
 		git:     gitwt.Exec,
 		gitPipe: gitwt.ExecPipe,
+		herdr:   herdrRunner,
 	}
 
 	parser, err := newParser(&c, stdout, stderr)

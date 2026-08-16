@@ -50,8 +50,23 @@ func TestParseAgentListReadsEveryRecordShape(t *testing.T) {
 	assert.True(t, unknown.HasAgent())
 }
 
-// TestParseAgentListPrefersTheStrippedTitle keeps the marker glyph a
-// terminal paints for animation out of the label a board shows.
+// TestPresenceNeverReportsAnUnreadableAgentAsIdle is the honest third
+// state: only a genuine idle reads as idle, and everything frit cannot
+// read reads as unknown.
+func TestPresenceNeverReportsAnUnreadableAgentAsIdle(t *testing.T) {
+	assert.Equal(t, StatusWorking,
+		Pane{Status: StatusWorking}.Presence())
+	assert.Equal(t, StatusIdle, Pane{Status: StatusIdle}.Presence())
+	assert.Equal(t, StatusUnknown,
+		Pane{Status: StatusUnknown}.Presence())
+	assert.Equal(t, StatusUnknown, Pane{Status: ""}.Presence(),
+		"a missing status is unknown, not idle")
+	assert.Equal(t, StatusUnknown, Pane{Status: "paused"}.Presence(),
+		"a status frit does not recognise is unknown, not idle")
+}
+
+// TestParseAgentListPrefersTheStrippedTitle takes herdr's stripped
+// label over the raw one when both are sent.
 func TestParseAgentListPrefersTheStrippedTitle(t *testing.T) {
 	panes, err := ParseAgentList([]byte(`{"result":{"agents":[
 		{"pane_id":"w1:p1","terminal_title":"◐ Busy",
