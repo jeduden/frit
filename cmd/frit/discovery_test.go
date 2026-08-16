@@ -218,9 +218,10 @@ func TestNextEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(100), doc.Plan.ID)
 }
 
-// TestShowWalksTheUpstreamDAG: show --deps prints the whole upstream
-// chain of a plan.
-func TestShowWalksTheUpstreamDAG(t *testing.T) {
+// TestShowByDefaultShowsOnlyBlockers: the default view walks the
+// upstream chain but prunes the done edges, because a finished
+// dependency blocks nothing.
+func TestShowByDefaultShowsOnlyBlockers(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
@@ -229,13 +230,54 @@ func TestShowWalksTheUpstreamDAG(t *testing.T) {
 	commitPlan(t, repo, 3, "🔲", "Top", []int{2}, "")
 	var out, errb bytes.Buffer
 
-	code := run([]string{"show", "3", "--deps", "--root", root}, &out, &errb)
+	code := run([]string{"show", "3", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.Contains(t, got, "Top")
 	assert.Contains(t, got, "Middle layer")
-	assert.Contains(t, got, "Bedrock")
+	assert.NotContains(t, got, "Bedrock",
+		"a done dependency blocks nothing and is pruned by default")
+}
+
+// TestShowAllShowsEveryDependency: --all (aliased --deps) keeps the
+// done edges too, the whole upstream tree.
+func TestShowAllShowsEveryDependency(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "✅", "Bedrock", nil, "")
+	commitPlan(t, repo, 2, "🔳", "Middle layer", []int{1}, "")
+	commitPlan(t, repo, 3, "🔲", "Top", []int{2}, "")
+
+	for _, flag := range []string{"--all", "--deps"} {
+		var out, errb bytes.Buffer
+		code := run([]string{"show", "3", flag, "--root", root}, &out, &errb)
+
+		require.Equal(t, 0, code, errb.String())
+		got := out.String()
+		assert.Contains(t, got, "Bedrock", "%s keeps the done edges", flag)
+		assert.Contains(t, got, "Middle layer")
+	}
+}
+
+// TestShowSaysWhenNothingBlocksAPlan: a plan whose every dependency is
+// done reads plainly, not as a bare line.
+func TestShowSaysWhenNothingBlocksAPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "✅", "Bedrock", nil, "")
+	commitPlan(t, repo, 2, "🔲", "Rests on done work", []int{1}, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "2", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "Rests on done work")
+	assert.Contains(t, got, "nothing blocks it")
+	assert.NotContains(t, got, "Bedrock")
 }
 
 func TestShowEmitsTheDependencyTree(t *testing.T) {
@@ -246,7 +288,7 @@ func TestShowEmitsTheDependencyTree(t *testing.T) {
 	commitPlan(t, repo, 3, "🔲", "Top", []int{1}, "")
 	var doc report.ShowDoc
 
-	emit(t, &doc, "show", "3", "--deps", "--root", root)
+	emit(t, &doc, "show", "3", "--root", root)
 
 	assert.Equal(t, "show", doc.Command)
 	assert.Equal(t, int64(3), doc.Tree.ID)

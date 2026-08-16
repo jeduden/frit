@@ -60,7 +60,7 @@ type cli struct {
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
 	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
-	Show    showCmd    `cmd:"" help:"Show a plan and, with --deps, what blocks it."`
+	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
@@ -662,11 +662,13 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 
 type showCmd struct {
 	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
-	Deps     bool   `help:"Walk the upstream dependency DAG."`
+	All      bool   `aliases:"deps" help:"Show every dependency, including the done ones, not just blockers."`
 }
 
-// Run shows a plan's upstream dependencies, so "what blocks this" has a
-// direct answer.
+// Run shows a plan and its upstream dependencies, so "what blocks this"
+// has a direct answer. By default only the blockers are shown — the
+// upstreams not yet done — because a finished dependency blocks
+// nothing. --all shows the whole dependency tree, done edges included.
 func (s *showCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
@@ -683,7 +685,7 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printShow(rt.stdout, doc, s.Deps)
+	printShow(rt.stdout, doc, s.All)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -754,31 +756,28 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	_ = tw.Flush()
 }
 
-// printShow writes the dependency tree, one plan per line, indented by
-// depth, so what blocks a plan reads top to bottom. An unresolved edge
-// is marked rather than hidden.
+// printShow writes the plan and its upstream dependencies, one plan per
+// line, indented by depth so the walk reads top to bottom. By default
+// only the blockers are shown; with all, every dependency is. When the
+// view has nothing under the root, that is said plainly rather than
+// left as a bare line.
 //
-// --deps decides how much a person is shown, the way --detail does for
-// plans: without it the root plan alone is printed, with it the whole
-// upstream walk. The document always carries the full tree, so a
-// consumer is never given less than everything.
-func printShow(out io.Writer, doc *report.ShowDoc, deps bool) {
+// The document always carries the whole tree — all decides how much a
+// person is shown, never what a consumer receives, the same split as
+// plans --detail.
+func printShow(out io.Writer, doc *report.ShowDoc, all bool) {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if !deps {
-		root := doc.Tree
-		root.Deps = nil
-		printDep(tw, root, 0)
-		if len(doc.Tree.Deps) > 0 {
-			_, _ = fmt.Fprintln(tw, "  (use --deps to see what blocks it)")
-		}
-	} else {
-		printDep(tw, doc.Tree, 0)
+	printDep(tw, doc.Tree, 0, all)
+	if visibleDeps(doc.Tree, all) == 0 {
+		_, _ = fmt.Fprintln(tw, "  "+emptyDepsNote(all))
 	}
 	_ = tw.Flush()
 }
 
 // printDep writes one dependency node and recurses into its upstreams.
-func printDep(out io.Writer, node report.DepCard, depth int) {
+// In the default view a satisfied upstream is pruned with its whole
+// subtree, because a done dependency blocks nothing; all keeps them.
+func printDep(out io.Writer, node report.DepCard, depth int, all bool) {
 	indent := strings.Repeat("  ", depth)
 	if !node.Found {
 		_, _ = fmt.Fprintf(out, "%s?\t%d\t(unknown plan)\n", indent, node.ID)
@@ -787,8 +786,43 @@ func printDep(out io.Writer, node report.DepCard, depth int) {
 	_, _ = fmt.Fprintf(out, "%s%s\t%d\t%s\n",
 		indent, statusLabel(node.Status), node.ID, node.Title)
 	for _, child := range node.Deps {
-		printDep(out, child, depth+1)
+		if !all && satisfied(child) {
+			continue
+		}
+		printDep(out, child, depth+1, all)
 	}
+}
+
+// satisfied reports whether an edge is done and so blocks nothing. An
+// unresolved edge is never satisfied: one frit cannot confirm done is
+// treated as a blocker.
+func satisfied(node report.DepCard) bool {
+	return node.Found && node.Status == planmeta.StatusDone
+}
+
+// visibleDeps counts the root's dependencies the current view will
+// print, so an empty walk can be labelled honestly.
+func visibleDeps(root report.DepCard, all bool) int {
+	n := 0
+	for _, child := range root.Deps {
+		if all || !satisfied(child) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// emptyDepsNote explains an empty walk. The default view is about
+// blockers, so an empty one means nothing blocks the plan — whether it
+// has no dependencies or every one is done. --all is about the edges
+// themselves, so an empty one means there are none.
+func emptyDepsNote(all bool) string {
+	if all {
+		return "(no dependencies)"
+	}
+
+	return "(nothing blocks it)"
 }
 
 // statusLabel renders a plan's status glyph, or a dash when it carries

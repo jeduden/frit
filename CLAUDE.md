@@ -137,7 +137,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit ready` — plans startable now: deps done, nobody holds
 - `go run ./cmd/frit pick -n 5` — the same, ranked by how much each unblocks
 - `go run ./cmd/frit next <id>` — the first phase of a plan not yet done
-- `go run ./cmd/frit show <id> --deps` — the upstream DAG, what blocks a plan
+- `go run ./cmd/frit show <id>` — what blocks a plan; `--all` for every dep
 - `go run ./cmd/frit find <text>` — search plan titles and summaries
 
 The discovery verbs are `ready`, `pick`, `next`, `show` and `find`.
