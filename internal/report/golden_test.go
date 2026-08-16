@@ -11,6 +11,7 @@ import (
 
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/planmeta"
@@ -39,6 +40,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"plans", goldenPlans()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
+		{"who", goldenWho()},
 		{"init", Init("/fleet/atlas/.frit.yml")},
 		{"version", Version("1.2.3")},
 	}
@@ -112,6 +114,33 @@ func goldenOrphans() *OrphansDoc {
 	doc.AddRepo("atlas", found())
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
+
+	return doc
+}
+
+// goldenWho pins the two shapes a live board must carry: an
+// integrated agent resolved to its plan, and an agent frit cannot read
+// working outside the convention — kept with an unknown status, no
+// plan and no repository rather than dropped or called idle.
+func goldenWho() *WhoDoc {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "claude", Status: herdr.StatusWorking,
+			Workspace: "wC", Session: "8e6a81ff-63e8-410c-ac6c",
+			PaneID: "wC:p1", Title: "Land the herdr join",
+		},
+		Root:   "/fleet/atlas",
+		Repo:   "atlas",
+		Branch: "plan/2608161808-herdr-join",
+		PlanID: 2608161808,
+	})
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "pi", Status: herdr.StatusUnknown,
+			Workspace: "wP", PaneID: "wP:p2", Title: "off the record",
+		},
+	})
 
 	return doc
 }

@@ -1,7 +1,7 @@
 ---
 id: 2608161808
 title: The herdr join — which lane has an agent, live
-status: "🔳"
+status: "✅"
 summary: >-
   Join the index to herdr's live pane state so the board knows which
   lane is being worked right now, and by what. Adds the who command,
@@ -106,7 +106,7 @@ Tier is per phase, set by the most demanding ingredient.
 2. [x] Resolve a pane to a plan through the cwd join, tolerating drift
 3. [x] Ship `frit who` with an honest unknown state
 4. [x] Make `stale` distinguish an abandoned lane from a live one
-5. [ ] Give `who` a `--json` form, pinned by a golden test
+5. [x] Give `who` a `--json` form, pinned by a golden test
 
 ## Acceptance Criteria
 
@@ -118,6 +118,6 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] An `unknown` agent is never reported as idle
 - [x] `stale` separates a lane with a live agent from an abandoned one
 - [x] A missing herdr socket leaves the git-only board working
-- [ ] `frit who` has a `--json` form pinned by a golden test
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `frit who` has a `--json` form pinned by a golden test
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -133,6 +133,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit plans` — read plan files off every ref
 - `go run ./cmd/frit orphans` — claims and checkouts that disagree
 - `go run ./cmd/frit orphans --json` — the same report for an agent
+- `go run ./cmd/frit who` — which lane has a live agent on it, from herdr
 
 ## CI and Release
 

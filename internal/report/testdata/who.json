@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "command": "who",
+  "root": "/fleet",
+  "lanes": [
+    {
+      "agent": "claude",
+      "status": "working",
+      "repo": "atlas",
+      "root": "/fleet/atlas",
+      "branch": "plan/2608161808-herdr-join",
+      "plan_id": 2608161808,
+      "workspace": "wC",
+      "session": "8e6a81ff-63e8-410c-ac6c",
+      "pane": "wC:p1",
+      "title": "Land the herdr join"
+    },
+    {
+      "agent": "pi",
+      "status": "unknown",
+      "repo": "",
+      "root": "",
+      "branch": "",
+      "plan_id": 0,
+      "workspace": "wP",
+      "session": "",
+      "pane": "wP:p2",
+      "title": "off the record"
+    }
+  ],
+  "problems": []
+}
