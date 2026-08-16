@@ -113,8 +113,8 @@ Tier is per phase, set by the most demanding ingredient.
 
 - [ ] A plan resolves from an exact id, a slug fragment, or the cwd
 - [ ] An ambiguous selector prints candidates and exits non-zero
-- [ ] `frit ready` lists plans with all dependencies ✅ that nobody holds
-- [ ] A plan with one unmet dependency is withheld from `ready`
+- [x] `frit ready` lists plans with all dependencies ✅ that nobody holds
+- [x] A plan with one unmet dependency is withheld from `ready`
 - [ ] `frit next` returns the first phase of a plan not at ✅
 - [ ] `frit show <id> --deps` walks the upstream DAG
 - [ ] `frit pick -n N` ranks startable candidates nobody holds

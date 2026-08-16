@@ -20,6 +20,8 @@ import (
 
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
@@ -54,6 +56,7 @@ type cli struct {
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
+	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -507,6 +510,84 @@ func printPlans(out io.Writer, doc *report.PlansDoc, detail bool) {
 		}
 	}
 	_ = tw.Flush()
+}
+
+// hostname names the machine this run reads, falling back to a stable
+// label so a plan key is well formed even when the hostname is
+// unreadable.
+func hostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return "localhost"
+	}
+
+	return host
+}
+
+// gatherFleet reads every repository's plans and holds into the view
+// the discovery verbs share, carrying each repository's problems into
+// the document rather than to stderr.
+func gatherFleet(c *cli, rt *runtime, addProblem func(string, error)) (
+	[]discovery.Plan, error,
+) {
+	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range res.Problems {
+		addProblem(p.Repo, p.Err)
+	}
+
+	return res.Plans, nil
+}
+
+type readyCmd struct{}
+
+// Run lists every plan startable now: not begun, held by nobody, and
+// with every dependency done, across all repositories and refs.
+func (r *readyCmd) Run(c *cli, rt *runtime) error {
+	doc := report.NewReady(c.Root, hostname())
+
+	plans, err := gatherFleet(c, rt, doc.AddProblem)
+	if err != nil {
+		return err
+	}
+	doc.SetPlans(discovery.Ready(plans))
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printReady writes one line per startable plan, carrying the model
+// tier because it is what a person reaches for the plan to dispatch it.
+// A fleet with nothing startable says so plainly.
+func printReady(out io.Writer, doc *report.ReadyDoc) {
+	if len(doc.Plans) == 0 {
+		_, _ = fmt.Fprintln(out, "nothing startable")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, p := range doc.Plans {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
+			p.Repo, p.ID, modelLabel(p.Model), p.Title)
+	}
+	_ = tw.Flush()
+}
+
+// modelLabel names the tier a plan asks for, or a dash when it names
+// none, so the column stays aligned.
+func modelLabel(model string) string {
+	if model == "" {
+		return "-"
+	}
+
+	return model
 }
 
 // printProblems reports the repositories that could not be read.

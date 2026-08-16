@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
@@ -38,6 +39,7 @@ func TestGoldenShapes(t *testing.T) {
 	}{
 		{"repos", goldenRepos()},
 		{"plans", goldenPlans()},
+		{"ready", goldenReady()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -104,6 +106,27 @@ func goldenPlans() *PlansDoc {
 		entry(7, planmeta.StatusDone),
 	})
 	doc.AddRepo("quiet", nil)
+	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
+
+	return doc
+}
+
+// goldenReady pins the readiness shape: a startable plan carrying its
+// dependency edges, and a repository frit could not read travelling in
+// the same document.
+func goldenReady() *ReadyDoc {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{
+		{
+			Key: "forge:atlas:2608161810", Repo: "atlas",
+			ID: 2608161810, Status: "🔲",
+			Title:     "The dispatch ladder",
+			Summary:   "From a board to a seeded prompt.",
+			Model:     "opus",
+			DependsOn: []int64{2608161809},
+			Path:      "plan/2608161810_dispatch-ladder.md",
+		},
+	})
 	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
 
 	return doc

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "command": "ready",
+  "root": "/fleet",
+  "host": "forge",
+  "plans": [
+    {
+      "key": "forge:atlas:2608161810",
+      "repo": "atlas",
+      "id": 2608161810,
+      "status": "🔲",
+      "title": "The dispatch ladder",
+      "summary": "From a board to a seeded prompt.",
+      "model": "opus",
+      "depends_on": [
+        2608161809
+      ],
+      "path": "plan/2608161810_dispatch-ladder.md",
+      "held": false
+    }
+  ],
+  "problems": [
+    {
+      "repo": "broken",
+      "message": "plan/bad.md: no front matter"
+    }
+  ]
+}
