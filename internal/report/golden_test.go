@@ -11,6 +11,7 @@ import (
 
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/planmeta"
@@ -39,6 +40,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"plans", goldenPlans()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
+		{"who", goldenWho()},
 		{"init", Init("/fleet/atlas/.frit.yml")},
 		{"version", Version("1.2.3")},
 	}
@@ -116,17 +118,54 @@ func goldenOrphans() *OrphansDoc {
 	return doc
 }
 
-func goldenStale() *StaleDoc {
-	doc := NewStale("/fleet", 30)
-	doc.AddRepo("atlas", []lanes.Aged{{
-		Worktree: gitwt.Worktree{
-			Path:   "/fleet/atlas-fleet-index",
-			Branch: "plan/2608142306-fleet-index",
-			Head:   "e5f6a7b8",
+// goldenWho pins the two shapes a live board must carry: an
+// integrated agent resolved to its plan, and an agent frit cannot read
+// working outside the convention — kept with an unknown status, no
+// plan and no repository rather than dropped or called idle.
+func goldenWho() *WhoDoc {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "claude", Status: herdr.StatusWorking,
+			Workspace: "wC", Session: "8e6a81ff-63e8-410c-ac6c",
+			PaneID: "wC:p1", Title: "Land the herdr join",
 		},
-		Age: 41*24*time.Hour + 12*time.Hour,
-	}})
-	doc.AddRepo("fresh", nil)
+		Root:   "/fleet/atlas",
+		Repo:   "atlas",
+		Branch: "plan/2608161808-herdr-join",
+		PlanID: 2608161808,
+	})
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "pi", Status: herdr.StatusUnknown,
+			Workspace: "wP", PaneID: "wP:p2", Title: "off the record",
+		},
+	})
+
+	return doc
+}
+
+func goldenStale() *StaleDoc {
+	doc := NewStale("/fleet", 30, true)
+	doc.AddRepo("atlas", []lanes.Aged{
+		{
+			Worktree: gitwt.Worktree{
+				Path:   "/fleet/atlas-fleet-index",
+				Branch: "plan/2608142306-fleet-index",
+				Head:   "e5f6a7b8",
+			},
+			Age: 41*24*time.Hour + 12*time.Hour,
+		},
+		{
+			Worktree: gitwt.Worktree{
+				Path:   "/fleet/atlas-herdr-join",
+				Branch: "plan/2608161808-herdr-join",
+				Head:   "c0ffee11",
+			},
+			Age: 33 * 24 * time.Hour,
+		},
+	}, map[string]bool{"/fleet/atlas-herdr-join": true})
+	doc.AddRepo("fresh", nil, nil)
 
 	return doc
 }

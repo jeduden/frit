@@ -3,6 +3,7 @@
   "command": "stale",
   "root": "/fleet",
   "days": 30,
+  "presence": true,
   "repos": [
     {
       "name": "atlas",
@@ -22,7 +23,26 @@
             "has_commit": true
           },
           "age_days": 41,
-          "age_seconds": 3585600
+          "age_seconds": 3585600,
+          "has_agent": false
+        },
+        {
+          "worktree": {
+            "path": "/fleet/atlas-herdr-join",
+            "name": "atlas-herdr-join",
+            "head": "c0ffee11",
+            "branch": "plan/2608161808-herdr-join",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": true
+          },
+          "age_days": 33,
+          "age_seconds": 2851200,
+          "has_agent": true
         }
       ]
     },
