@@ -225,7 +225,8 @@ func TestBoardShowsUnfinishedWithHolderAndAgent(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.Contains(t, got, "Underway")
-	assert.Contains(t, got, "plan/100-underway", "the holding lane")
+	assert.Contains(t, got, "underway",
+		"the holding lane, its redundant plan/<id>- prefix trimmed")
 	assert.Contains(t, got, "claude", "the agent on that lane")
 	assert.Contains(t, got, "working")
 }
