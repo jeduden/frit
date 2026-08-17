@@ -86,6 +86,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
+	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`

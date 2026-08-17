@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "command": "start",
+  "root": "/fleet",
+  "plan": {
+    "repo": "atlas",
+    "id": 2608161810,
+    "title": "The dispatch ladder"
+  },
+  "phase": "3",
+  "tier": "opus",
+  "kind": "claude",
+  "branch": "plan/2608161810-dispatch-ladder",
+  "base": "refs/remotes/origin/main",
+  "lane": "/fleet/atlas-dispatch-ladder",
+  "prompt": "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
+  "go": false,
+  "started": false,
+  "refused": "",
+  "problems": []
+}

@@ -48,6 +48,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"open", goldenOpen()},
 		{"nudge", goldenNudge()},
 		{"claim", goldenClaim()},
+		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -278,6 +279,20 @@ func goldenClaim() *ClaimDoc {
 	doc.Minted("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
 
 	return doc
+}
+
+// goldenStart pins the escalation shape: the claim, worktree, agent tier
+// and typed prompt start composed, with a note folded into the prompt and
+// nothing spawned because --go was not given.
+func goldenStart() *StartDoc {
+	return NewStart("/fleet", "atlas", 2608161810, "The dispatch ladder",
+		StartPlan{
+			Phase: "3", Tier: "opus", Kind: "claude",
+			Branch: "plan/2608161810-dispatch-ladder",
+			Base:   "refs/remotes/origin/main",
+			Lane:   "/fleet/atlas-dispatch-ladder",
+			Prompt: "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
+		}, false)
 }
 
 func goldenOrphans() *OrphansDoc {

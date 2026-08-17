@@ -173,3 +173,74 @@ func (d *ClaimDoc) Refuse(reason string) { d.Refused = reason }
 func (d *ClaimDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// StartDoc is the full escalation `frit start` composes: the claim it
+// would mint, the worktree and agent herdr would stand up, the tier the
+// plan declares, and the typed prompt it would send.
+//
+// Rung three is dry-run by default like the rungs below it, and its
+// document reports the whole plan whether or not it ran, so the escalation
+// stays auditable before anything is spawned. Every mutation is delegated
+// — frit mints the claim and hands the worktree, the agent and the pane
+// to herdr — and no reply is ever read back.
+type StartDoc struct {
+	header
+	Root string       `json:"root"`
+	Plan DispatchPlan `json:"plan"`
+	// Phase and Tier come from the plan; Kind is the agent herdr starts.
+	Phase string `json:"phase"`
+	Tier  string `json:"tier"`
+	Kind  string `json:"kind"`
+	// Branch is the hold the claim mints; Base is the ref it is dated
+	// against; Lane is the worktree path herdr would check it out into.
+	Branch string `json:"branch"`
+	Base   string `json:"base"`
+	Lane   string `json:"lane"`
+	// Prompt is the whole composed slash command, the note folded in.
+	Prompt string `json:"prompt"`
+	// Go is whether --go was given; Started is whether the escalation ran.
+	// They differ while the herdr handshake is still being verified: --go
+	// is accepted but executes nothing yet.
+	Go      bool `json:"go"`
+	Started bool `json:"started"`
+	// Refused is why the escalation was withheld — a plan not startable —
+	// empty when start was free to proceed.
+	Refused  string    `json:"refused"`
+	Problems []Problem `json:"problems"`
+}
+
+// StartPlan carries the composed escalation into a StartDoc, so the
+// constructor stays one call rather than a long positional list.
+type StartPlan struct {
+	Phase, Tier, Kind, Branch, Base, Lane, Prompt string
+}
+
+// NewStart opens an escalation report for a resolved plan and the
+// composition start would run.
+func NewStart(
+	root string, repo string, id int64, title string,
+	sp StartPlan, wantGo bool,
+) *StartDoc {
+	return &StartDoc{
+		header:   newHeader("start"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Phase:    sp.Phase,
+		Tier:     sp.Tier,
+		Kind:     sp.Kind,
+		Branch:   sp.Branch,
+		Base:     sp.Base,
+		Lane:     sp.Lane,
+		Prompt:   sp.Prompt,
+		Go:       wantGo,
+		Problems: []Problem{},
+	}
+}
+
+// Refuse records why the escalation was withheld, leaving Started false.
+func (d *StartDoc) Refuse(reason string) { d.Refused = reason }
+
+// AddProblem records a repository frit could not read.
+func (d *StartDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
