@@ -345,6 +345,25 @@ func TestNudgeRefusesWhenNoLiveLane(t *testing.T) {
 	assert.Contains(t, out.String(), "no live lane")
 }
 
+// TestNudgeSaysHerdrUnreachable: with the socket down, nudge refuses on
+// presence being unknown, not on an absent lane it never looked for.
+func TestNudgeSaysHerdrUnreachable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--phase", "2", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "herdr unreachable")
+	assert.NotContains(t, out.String(), "no live lane")
+}
+
 // TestNudgeTierComesFromThePlan: the tier shown is the plan's declared
 // model, never a flag — dispatch is typed, not chosen.
 func TestNudgeTierComesFromThePlan(t *testing.T) {

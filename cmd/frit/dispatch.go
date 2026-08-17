@@ -155,9 +155,12 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 
 	lane, found, herdrErr := liveLaneFor(plan, rt)
 	if herdrErr != nil {
+		// A socket frit could not reach is not "nobody is working it": it
+		// is presence unknown, so refuse on that rather than on an absent
+		// lane frit never actually looked for.
 		doc.AddProblem("herdr", herdrErr)
-	}
-	if err := nudgeSend(rt, n, doc, plan, lane, found, prompt); err != nil {
+		doc.Refuse("herdr unreachable")
+	} else if err := nudgeSend(rt, n, doc, plan, lane, found, prompt); err != nil {
 		return err
 	}
 

@@ -6,11 +6,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
-	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
@@ -59,6 +59,18 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 		return fmt.Errorf("plan %d has no open phase; pass --phase", plan.ID)
 	}
 
+	// Refuse before reading the repository off disk: a plan already held
+	// or blocked needs no base, worktree path or git subprocess.
+	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
+		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
+			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
+			s.Go)
+		carryProblems(doc, res.Problems, c.All)
+		doc.Refuse(reason)
+
+		return renderStart(c, rt, doc)
+	}
+
 	sc, err := startResolve(c, rt, plan)
 	if err != nil {
 		return err
@@ -66,11 +78,6 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	sp := composeStart(plan, phase, s.Note, sc)
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, s.Go)
 	carryProblems(doc, res.Problems, c.All)
-
-	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
-		doc.Refuse(reason)
-		return renderStart(c, rt, doc)
-	}
 
 	if s.Go {
 		if err := startExecute(rt, doc, plan, sp, sc, s.Edit); err != nil {
@@ -92,21 +99,14 @@ type startContext struct {
 
 // startResolve reads the repository path, its config, and the base ref —
 // the inputs both the composition and the execution need, read once and
-// shared.
+// shared. It reads the lease's base through the same helper claim does,
+// so the two never disagree on where a lease is dated from.
 func startResolve(
 	c *cli, rt *runtime, plan discovery.Plan,
 ) (startContext, error) {
-	repoPath, err := repoPathFor(c.Root, plan.Repo, rt.git)
+	repoPath, cfg, base, err := repoBaseFor(c.Root, plan.Repo, rt.git)
 	if err != nil {
 		return startContext{}, err
-	}
-	cfg, err := repocfg.Load(repoPath)
-	if err != nil {
-		return startContext{}, err
-	}
-	base := cfg.Base
-	if base == "" {
-		base = gitobj.DefaultRef(repoPath, rt.git)
 	}
 
 	return startContext{repoPath: repoPath, cfg: cfg, base: base}, nil
@@ -141,6 +141,22 @@ func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
 	sp report.StartPlan, sc startContext, edit bool,
 ) error {
+	// Amend the prompt before minting anything: an editor that fails to
+	// launch, or a prompt left empty, must abort with no claim pushed and
+	// no lane half-built. git aborts an empty commit message the same way.
+	text := sp.Prompt
+	if edit {
+		edited, err := openEditor(text)
+		if err != nil {
+			return err
+		}
+		text = edited
+		if strings.TrimSpace(text) == "" {
+			return errors.New("the edited prompt is empty; nothing was started")
+		}
+		doc.Prompt = text
+	}
+
 	if _, err := claim.Mint(sc.repoPath, claim.Options{
 		Branch:   sp.Branch,
 		Base:     sp.Base,
@@ -158,18 +174,13 @@ func startExecute(
 		return err
 	}
 
-	text := sp.Prompt
-	if edit {
-		edited, err := openEditor(text)
-		if err != nil {
-			return err
-		}
-		text = edited
-		doc.Prompt = text
-	}
-
 	pane, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
+		// The claim was pushed but nothing stood behind it. Unwind it, so a
+		// failed handoff does not leave a hold that reads as an abandoned
+		// lane; the delete is best-effort beneath the handoff's own error.
+		_ = claim.Release(sc.repoPath, sp.Branch, sc.cfg.Remote, rt.git)
+
 		return err
 	}
 	doc.MarkStarted(pane)
@@ -225,9 +236,19 @@ var openEditor = editInEditor
 // returns the edited contents. It is the git-commit-message pattern: a
 // prefilled template to amend, not an empty box.
 func editInEditor(prompt string) (string, error) {
-	editor := os.Getenv("EDITOR")
+	// $VISUAL wins over $EDITOR, the shell convention, and both may carry
+	// flags — "code --wait", "emacsclient -c" — so the value is split into
+	// a command and its arguments rather than treated as one binary name.
+	editor := os.Getenv("VISUAL")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
 	if editor == "" {
 		editor = "vi"
+	}
+	fields := strings.Fields(editor)
+	if len(fields) == 0 {
+		return "", errors.New("no editor set")
 	}
 
 	f, err := os.CreateTemp("", "frit-prompt-*.md")
@@ -244,7 +265,8 @@ func editInEditor(prompt string) (string, error) {
 		return "", err
 	}
 
-	cmd := exec.Command(editor, f.Name())
+	args := append(fields[1:], f.Name())
+	cmd := exec.Command(fields[0], args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("editor: %w", err)

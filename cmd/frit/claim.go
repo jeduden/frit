@@ -63,17 +63,9 @@ func mintClaim(
 	c *cli, rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, branch string,
 ) error {
-	repoPath, err := repoPathFor(c.Root, plan.Repo, rt.git)
+	repoPath, cfg, base, err := repoBaseFor(c.Root, plan.Repo, rt.git)
 	if err != nil {
 		return err
-	}
-	cfg, err := repocfg.Load(repoPath)
-	if err != nil {
-		return err
-	}
-	base := cfg.Base
-	if base == "" {
-		base = gitobj.DefaultRef(repoPath, rt.git)
 	}
 
 	minted, err := claim.Mint(repoPath, claim.Options{
@@ -140,6 +132,31 @@ func repoPathFor(
 	}
 
 	return "", fmt.Errorf("no repository named %s under %s", name, root)
+}
+
+// repoBaseFor resolves the inputs a lease needs before it is minted: the
+// repository path, its config, and the base ref the lease is dated
+// against. The base is the config's when set, otherwise the ref cascade's,
+// so a repository on the convention needs no base in its config. Both
+// claim and start read the lease's base through here, so the rule lives
+// in one place.
+func repoBaseFor(
+	root, name string, run gitwt.Runner,
+) (repoPath string, cfg repocfg.Config, base string, err error) {
+	repoPath, err = repoPathFor(root, name, run)
+	if err != nil {
+		return "", repocfg.Config{}, "", err
+	}
+	cfg, err = repocfg.Load(repoPath)
+	if err != nil {
+		return "", repocfg.Config{}, "", err
+	}
+	base = cfg.Base
+	if base == "" {
+		base = gitobj.DefaultRef(repoPath, run)
+	}
+
+	return repoPath, cfg, base, nil
 }
 
 // defaultLanePath is where the lane's worktree lives by convention: a

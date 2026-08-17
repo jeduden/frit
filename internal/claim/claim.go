@@ -93,16 +93,51 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 	if _, err := run(repoDir, "push",
 		"--force-with-lease="+ref+":",
 		opts.Remote, marker+":"+ref); err != nil {
-		// Roll the local ref back even though we are returning an error,
-		// so the next attempt does not trip over a stale claim.
+		// Roll the local ref back either way, so the claim is
+		// all-or-nothing and the next attempt starts clean.
 		_, _ = run(repoDir, "update-ref", "-d", ref)
 
+		// Only a ref that already exists is a lost race. A push that
+		// failed for any other reason — an unreachable or missing remote,
+		// a rejecting hook — is a real fault, and must not read as another
+		// machine getting there first.
+		if isRaceRejection(err) {
+			return Result{}, fmt.Errorf(
+				"%w for plan %d: the claim ref already exists",
+				ErrLostRace, opts.PlanID)
+		}
+
 		return Result{}, fmt.Errorf(
-			"%w for plan %d: the claim ref already exists",
-			ErrLostRace, opts.PlanID)
+			"push claim for plan %d: %w", opts.PlanID, err)
 	}
 
 	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
+}
+
+// isRaceRejection reports whether a failed push was the remote refusing a
+// ref that already exists — the lost race — rather than a fault like an
+// unreachable or missing remote. The lease rejection prints "[rejected]"
+// with a "stale info" reason; a connection or lookup fault does not, so
+// the two are told apart by that signature rather than collapsed.
+func isRaceRejection(err error) bool {
+	msg := err.Error()
+
+	return strings.Contains(msg, "[rejected]") ||
+		strings.Contains(msg, "stale info") ||
+		strings.Contains(msg, "already exists")
+}
+
+// Release drops a claim: the local ref and its copy on the remote. It is
+// the unwind for a claim that was minted but could not be stood up — a
+// worktree or agent that failed to come up behind it — so a half-built
+// lane does not read as an abandoned hold. It is best-effort on the local
+// side and reports the remote delete, which is the one that matters.
+func Release(repoDir, branch, remote string, run gitwt.Runner) error {
+	ref := "refs/heads/" + branch
+	_, _ = run(repoDir, "update-ref", "-d", ref)
+	_, err := run(repoDir, "push", "--quiet", remote, "--delete", ref)
+
+	return err
 }
 
 // markerMessage builds the lease's commit body.

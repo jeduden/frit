@@ -1,6 +1,7 @@
 package claim
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,16 @@ func gitCmd(t *testing.T, dir string, args ...string) string {
 	require.NoError(t, err, "git %v: %s", args, out)
 
 	return strings.TrimSpace(string(out))
+}
+
+// gitCapture runs git in dir and returns its output and error, for
+// asserting on a ref that should or should not exist.
+func gitCapture(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	out, err := exec.Command("git", full...).CombinedOutput()
+
+	return strings.TrimSpace(string(out)), err
 }
 
 // originAndClone builds a bare origin.git with a working clone that has
@@ -138,6 +149,44 @@ func TestMintLosesTheRaceAndRollsBack(t *testing.T) {
 		"rev-parse", "--verify", "-q", "refs/heads/plan/7-shader-unit")
 	require.Error(t, verify.Run(),
 		"the local ref was rolled back after losing the race")
+}
+
+// TestMintReportsANonRaceFailure: a push that fails for a reason other
+// than a pre-existing ref is a real fault, not a lost race, and the local
+// ref is still rolled back.
+func TestMintReportsANonRaceFailure(t *testing.T) {
+	work := originAndClone(t)
+	opts := sampleOptions()
+	opts.Remote = "no-such-remote" // never configured, so the push faults
+
+	_, err := Mint(work, opts, gitwt.Exec)
+
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrLostRace),
+		"an unreachable remote is not another machine winning the race")
+
+	_, refErr := gitCapture(t, work,
+		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
+	assert.Error(t, refErr, "the local ref was rolled back")
+}
+
+// TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
+// locally or on the remote for a lane that never stood up.
+func TestReleaseDropsTheClaim(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Mint(work, sampleOptions(), gitwt.Exec)
+	require.NoError(t, err)
+
+	require.NoError(t,
+		Release(work, "plan/7-shader-unit", "origin", gitwt.Exec))
+
+	_, localErr := gitCapture(t, work,
+		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
+	assert.Error(t, localErr, "the local ref is gone")
+	remote, err := gitCapture(t, work,
+		"ls-remote", "origin", "refs/heads/plan/7-shader-unit")
+	require.NoError(t, err)
+	assert.Empty(t, remote, "the remote ref is gone")
 }
 
 // TestMarkerMessage pins the exact commit body, including the empty-Lane

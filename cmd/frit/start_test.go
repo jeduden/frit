@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/frit/internal/herdr"
@@ -147,4 +149,45 @@ func TestStartEditAmendsThePrompt(t *testing.T) {
 	assert.True(t,
 		rec.verb("agent", "prompt", "wZ:p1", "/plan-phase 7 3\n\namended"),
 		"the edited prompt is what is sent")
+}
+
+// TestStartEditEmptyAbortsBeforeAnythingRuns: an editor that leaves the
+// prompt empty aborts with no claim pushed and no lane stood up, the way
+// git aborts an empty commit message.
+func TestStartEditEmptyAbortsBeforeAnythingRuns(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	prev := openEditor
+	openEditor = func(string) (string, error) { return "   \n", nil }
+	t.Cleanup(func() { openEditor = prev })
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go", "--edit",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "an empty prompt aborts")
+	assert.Contains(t, errb.String(), "empty")
+	assert.False(t, rec.verb("worktree", "create"), "nothing was spawned")
+	_, err := gitCapture(t, repo,
+		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
+	assert.Error(t, err, "no claim was pushed")
+}
+
+// TestEditInEditorRunsAMultiWordEditor: a $EDITOR carrying a flag still
+// launches, so the value is split into a command and its arguments rather
+// than treated as one binary name.
+func TestEditInEditorRunsAMultiWordEditor(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "ed.sh")
+	require.NoError(t, os.WriteFile(script,
+		[]byte("#!/bin/sh\nprintf ' amended' >> \"$1\"\n"), 0o600))
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "sh "+script)
+
+	got, err := editInEditor("/plan-phase 7 3")
+
+	require.NoError(t, err)
+	assert.Equal(t, "/plan-phase 7 3 amended", got)
 }
