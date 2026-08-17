@@ -62,6 +62,12 @@ type cli struct {
 	// show, where "show the dependencies" is how it reads.
 	All bool `aliases:"deps" help:"Show what is hidden by default: satisfied deps, and files that are not plans."`
 
+	// Width overrides the detected terminal width, for fitting a table
+	// where there is no terminal to measure — piped into a pager, or run
+	// under a harness that indents the output. Zero, the default, means
+	// detect; a positive value is used as given.
+	Width int `help:"Fit tables to this many columns (0 auto-detects the terminal)."`
+
 	Config kong.ConfigFlag `help:"Load configuration from a file." placeholder:"PATH"`
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
@@ -1257,6 +1263,13 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
 		return 2
+	}
+
+	// An explicit --width overrides detection, so a table can be fit to
+	// a terminal frit cannot see — behind a pipe, or under a harness
+	// that indents the output.
+	if c.Width > 0 {
+		rt.width = c.Width
 	}
 
 	if err := ctx.Run(&c, rt); err != nil {

@@ -78,6 +78,26 @@ func TestPrintBoardWidthZeroKeepsTheFullTitle(t *testing.T) {
 	assert.NotContains(t, buf.String(), "…")
 }
 
+// TestWidthFlagOverridesDetection: --width fits a table even with no
+// terminal to measure, and works given before the verb like any global
+// flag.
+func TestWidthFlagOverridesDetection(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔳", strings.Repeat("very long title ", 6), nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"--root", root, "--width", "50", "board"},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	line := strings.TrimRight(out.String(), "\n")
+	assert.LessOrEqual(t, textw.Width(line), 50,
+		"--width fits the table though stdout is not a terminal")
+	assert.Contains(t, line, "…")
+}
+
 func TestTerminalWidthIsZeroForANonTerminal(t *testing.T) {
 	require.Equal(t, 0, terminalWidth(&bytes.Buffer{}),
 		"a buffer is not a terminal, so no width is imposed")
