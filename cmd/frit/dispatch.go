@@ -6,6 +6,7 @@ import (
 
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 )
@@ -36,6 +37,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewOpen(c.Root, plan.Repo, plan.ID, plan.Title)
+	carryProblems(doc, res.Problems, c.All)
 
 	lane, found, herdrErr := liveLaneFor(plan, rt)
 	if herdrErr != nil {
@@ -62,6 +64,15 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 // rather than swallowing it, because open needs presence live: a
 // missing socket is why there was nothing to open, and the caller
 // carries it in the report.
+//
+// A hold branch name is repo-local — a plan id is only unique within a
+// repository, so two repositories can carry the same branch name — so a
+// live lane matches only when it sits in the plan's own repository. Its
+// repository is resolved from the lane's worktree root, not the pane's
+// linked-worktree basename, so a lane in a linked checkout still
+// resolves to the repository that owns it. Without that check, an agent
+// on an identically named branch elsewhere would be dispatched onto by
+// mistake — the one error this whole join exists to prevent.
 func liveLaneFor(
 	p discovery.Plan, rt *runtime,
 ) (herdr.Lane, bool, error) {
@@ -70,14 +81,16 @@ func liveLaneFor(
 		return herdr.Lane{}, false, err
 	}
 
-	live := map[string]herdr.Lane{}
-	for _, lane := range whoLanes(panes, rt.git) {
-		if lane.Branch != "" {
-			live[lane.Branch] = lane
-		}
-	}
+	holds := map[string]bool{}
 	for _, branch := range p.Holds {
-		if lane, ok := live[branch]; ok {
+		holds[branch] = true
+	}
+
+	for _, lane := range whoLanes(panes, rt.git) {
+		if lane.Root == "" || lane.Branch == "" || !holds[lane.Branch] {
+			continue
+		}
+		if fleet.RepoName(lane.Root, rt.git) == p.Repo {
 			return lane, true, nil
 		}
 	}
@@ -88,11 +101,13 @@ func liveLaneFor(
 // printOpen reports the pane open raised, or that no lane was live to
 // raise. A plan with no live lane is not a failure — it is the signal to
 // climb a rung, to start rather than open — so it is said plainly and
-// the command still exits clean.
+// the command still exits clean. The message does not claim nobody is
+// working the plan, because a herdr frit could not reach leaves that
+// unknown; the unreachable socket travels as a problem instead.
 func printOpen(out io.Writer, doc *report.OpenDoc) {
 	if !doc.Focused {
 		_, _ = fmt.Fprintf(out,
-			"no live lane for plan %d; nobody is working it\n", doc.Plan.ID)
+			"no live lane for plan %d to open\n", doc.Plan.ID)
 		return
 	}
 
@@ -124,13 +139,19 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 
 	phase, ok := dispatch.Phase(plan.Phases, n.Phase)
 	if !ok {
+		if len(plan.Phases) == 0 {
+			return fmt.Errorf(
+				"plan %d carries no phase ledger; pass --phase", plan.ID)
+		}
+
 		return fmt.Errorf(
-			"plan %d carries no phase ledger; pass --phase", plan.ID)
+			"plan %d has no open phase; pass --phase", plan.ID)
 	}
 	prompt := dispatch.Command(plan.ID, phase)
 
 	doc := report.NewNudge(c.Root, plan.Repo, plan.ID, plan.Title,
 		phase, plan.Model, prompt, n.Go)
+	carryProblems(doc, res.Problems, c.All)
 
 	lane, found, herdrErr := liveLaneFor(plan, rt)
 	if herdrErr != nil {

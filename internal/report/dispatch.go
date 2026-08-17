@@ -30,9 +30,9 @@ type OpenDoc struct {
 	Agent   string       `json:"agent"`
 	Status  string       `json:"status"`
 	Branch  string       `json:"branch"`
-	// Problems carries a herdr frit could not reach. Presence is the one
-	// thing open needs live, but a missing socket is reported, not
-	// crashed on.
+	// Problems carries a repository frit could not read and a herdr it
+	// could not reach. Presence is the one thing open needs live, but a
+	// missing socket, like a broken checkout, is reported, not crashed on.
 	Problems []Problem `json:"problems"`
 }
 

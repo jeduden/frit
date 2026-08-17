@@ -45,6 +45,8 @@ func TestGoldenShapes(t *testing.T) {
 		{"show", goldenShow()},
 		{"find", goldenFind()},
 		{"board", goldenBoard()},
+		{"open", goldenOpen()},
+		{"nudge", goldenNudge()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -232,6 +234,36 @@ func goldenBoard() *BoardDoc {
 		Key: "forge:orrery:7", Repo: "orrery", ID: 7,
 		Status: "🔲", Title: "Shader unit tests", Model: "sonnet",
 	}, "", "")
+
+	return doc
+}
+
+// goldenOpen pins the handoff shape: the plan open resolved and the
+// live pane it raised, carrying the branch and agent that prove the
+// right lane was focused.
+func goldenOpen() *OpenDoc {
+	doc := NewOpen("/fleet", "atlas", 2608161810, "The dispatch ladder")
+	doc.Focus(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "claude", Status: herdr.StatusWorking,
+			PaneID: "wC:p1", Title: "The dispatch ladder",
+		},
+		Root:   "/fleet/atlas-dispatch",
+		Repo:   "atlas",
+		Branch: "plan/2608161810-dispatch",
+	})
+
+	return doc
+}
+
+// goldenNudge pins the dry-run shape: the typed slash command nudge
+// composed, the tier the plan declares, and the idle lane it would land
+// in — with nothing sent, because --go was not given.
+func goldenNudge() *NudgeDoc {
+	doc := NewNudge("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "2", "opus",
+		"/plan-phase 2608161810 2", false)
+	doc.SetTarget("wC:p1")
 
 	return doc
 }

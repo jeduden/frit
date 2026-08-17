@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -162,6 +165,57 @@ func TestOpenSendsNoTextAndStartsNoAgent(t *testing.T) {
 	assert.False(t, rec.verb("agent", "prompt"), "open sends no text")
 	assert.False(t, rec.verb("agent", "start"), "open starts no agent")
 	assert.False(t, rec.verb("agent", "read"), "open never reads a reply")
+}
+
+// TestLiveLaneForRejectsASameNamedBranchInAnotherRepo is the guard on
+// repo-local ids: two repositories can carry the same hold branch name,
+// and a live agent on one must never be dispatched onto for a plan in
+// the other. The lane matches only in the plan's own repository.
+func TestLiveLaneForRejectsASameNamedBranchInAnotherRepo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	// Both repos carry plan 7 with the same title, so both derive the
+	// identical hold branch plan/7-shared-work.
+	heldPlan(t, root, "atlas", 7, "Shared work")
+	repoB := heldPlan(t, root, "borg", 7, "Shared work")
+	runner, _ := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repoB,
+		"pane_id": "wB:p1", "terminal_title_stripped": "in borg",
+	})
+	rt := &runtime{git: gitwt.Exec, herdr: runner}
+	branch := planBranch(7, "Shared work")
+
+	_, found, err := liveLaneFor(
+		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt)
+	require.NoError(t, err)
+	assert.False(t, found,
+		"a lane in another repo on the same branch is not this plan's")
+
+	laneB, foundB, err := liveLaneFor(
+		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt)
+	require.NoError(t, err)
+	require.True(t, foundB, "the lane in the plan's own repo matches")
+	assert.Equal(t, "wB:p1", laneB.Pane.PaneID)
+}
+
+// TestOpenCarriesAnUnreachableHerdr drives the socket-failure branch:
+// open needs presence live, and a herdr it cannot reach travels in the
+// document as a problem rather than crashing the command.
+func TestOpenCarriesAnUnreachableHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var doc report.OpenDoc
+
+	stderr := emit(t, &doc, "open", "7", "--root", root)
+
+	assert.Empty(t, stderr, "under --json nothing goes to stderr")
+	assert.False(t, doc.Focused)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
 
 // TestOpenReportsNoLiveLane: a plan nobody is working has no pane to

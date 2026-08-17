@@ -45,16 +45,20 @@ func CurrentPlanID(
 		return "", 0, false
 	}
 
-	return repoName(site.Root, run), id, true
+	return RepoName(site.Root, run), id, true
 }
 
-// repoName is the indexed name of the repository a worktree belongs to:
+// RepoName is the indexed name of the repository a worktree belongs to:
 // the basename of its main worktree, which is how discover keys it. A
 // linked worktree sits under its own directory, so its own basename
 // would be the lane's name, not the repository's — the main worktree,
 // always first in the list, is the one to name. If git cannot be
 // asked, the worktree's own basename is the honest fallback.
-func repoName(root string, run gitwt.Runner) string {
+//
+// It is exported because a dispatch verb resolves a live lane back to
+// its repository this way: a hold branch name is repo-local, so the
+// lane's repository must match the plan's before frit acts on it.
+func RepoName(root string, run gitwt.Runner) string {
 	worktrees, err := gitwt.List(root, run)
 	if err != nil || len(worktrees) == 0 {
 		return filepath.Base(root)
