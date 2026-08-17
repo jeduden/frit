@@ -15,9 +15,11 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
+	"golang.org/x/term"
 
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
@@ -401,12 +403,18 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 // runtime carries what commands need to do their work: where to
 // write, how to reach git, and how to reach herdr. All are injected so
 // tests never touch the real streams and can fake either subprocess.
+//
+// width is the terminal's column count when stdout is one, and zero
+// otherwise — piped, redirected, or under test. A table that trims to
+// fit reads it; zero means impose no limit, so a pipe and a golden get
+// the full, stable output rather than a width-dependent one.
 type runtime struct {
 	stdout  io.Writer
 	stderr  io.Writer
 	git     gitwt.Runner
 	gitPipe gitwt.PipeRunner
 	herdr   herdr.Runner
+	width   int
 }
 
 // herdrRunner is how commands reach a herdr server. It is a package
@@ -737,7 +745,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printBoard(rt.stdout, doc)
+	printBoard(rt.stdout, doc, rt.width)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -778,22 +786,132 @@ func agentFor(
 	return "", ""
 }
 
+// boardRow is one board line's cells, computed once so the title can be
+// trimmed against the width the other columns take.
+type boardRow struct {
+	host, repo, id, status, held, agent, title string
+}
+
 // printBoard writes one line per outstanding plan: the machine, the
 // repository, the plan, its status, who holds it, the agent on it, and
 // the title. A clear board says so plainly.
-func printBoard(out io.Writer, doc *report.BoardDoc) {
+//
+// When width is positive — stdout is a terminal — the title is trimmed
+// so each row fits, since it is the one column with no natural bound.
+// A width of zero, which is what a pipe or a redirect gives, imposes no
+// limit: the full title travels so a downstream reader gets everything.
+func printBoard(out io.Writer, doc *report.BoardDoc, width int) {
 	if len(doc.Plans) == 0 {
 		_, _ = fmt.Fprintln(out, "nothing outstanding")
 		return
 	}
 
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	rows := make([]boardRow, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
-			p.Host, p.Repo, p.ID, p.Status, heldLabel(p.Holds),
-			agentLabel(doc.Presence, p.Agent, p.AgentStatus), p.Title)
+		rows = append(rows, boardRow{
+			host:   p.Host,
+			repo:   p.Repo,
+			id:     strconv.FormatInt(p.ID, 10),
+			status: p.Status,
+			held:   heldLabel(laneShorts(p.Holds, p.ID)),
+			agent:  agentLabel(doc.Presence, p.Agent, p.AgentStatus),
+			title:  p.Title,
+		})
+	}
+
+	if width > 0 {
+		budget := titleBudget(width, rows)
+		for i := range rows {
+			rows[i].title = truncateCells(rows[i].title, budget)
+		}
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.host, r.repo, r.id, r.status, r.held, r.agent, r.title)
 	}
 	_ = tw.Flush()
+}
+
+// titleBudget is how many columns the title may take before a row spills
+// past the terminal: the width, less what every other column and the
+// gaps between them occupy. It never returns less than a readable
+// minimum, so a narrow terminal trims hard rather than to nothing.
+func titleBudget(width int, rows []boardRow) int {
+	col := func(get func(boardRow) string) int {
+		m := 0
+		for _, r := range rows {
+			if n := cellWidth(get(r)); n > m {
+				m = n
+			}
+		}
+
+		return m
+	}
+
+	// Six two-space gaps sit between the seven columns.
+	const gaps = 6 * 2
+	prefix := col(func(r boardRow) string { return r.host }) +
+		col(func(r boardRow) string { return r.repo }) +
+		col(func(r boardRow) string { return r.id }) +
+		col(func(r boardRow) string { return r.status }) +
+		col(func(r boardRow) string { return r.held }) +
+		col(func(r boardRow) string { return r.agent })
+
+	const minTitle = 8
+	if budget := width - prefix - gaps; budget > minTitle {
+		return budget
+	}
+
+	return minTitle
+}
+
+// cellWidth is the display width of a cell. It counts runes, adding a
+// column for each wide glyph — the status emoji, chiefly — so the title
+// budget is not an underestimate that lets a row spill. The 0x2100
+// cutoff keeps a narrow em dash at one column while giving the emoji and
+// CJK their two, which is enough without a full wcwidth table.
+func cellWidth(s string) int {
+	width := 0
+	for _, r := range s {
+		width++
+		if r >= 0x2100 {
+			width++
+		}
+	}
+
+	return width
+}
+
+// truncateCells caps a string to max display columns, marking a cut with
+// an ellipsis so a trimmed title reads as trimmed rather than as a
+// different title.
+func truncateCells(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	if max == 1 {
+		return "…"
+	}
+
+	return string([]rune(s)[:max-1]) + "…"
+}
+
+// laneShorts drops the redundant plan/<id>- prefix a hold branch carries,
+// since the id is already its own column. A branch on a different
+// convention is left whole rather than mangled.
+func laneShorts(holds []string, id int64) []string {
+	prefix := fmt.Sprintf("plan/%d-", id)
+	out := make([]string, len(holds))
+	for i, h := range holds {
+		out[i] = strings.TrimPrefix(h, prefix)
+	}
+
+	return out
 }
 
 // heldLabel names the lane holding a plan, or a dash when nobody does.
@@ -805,6 +923,27 @@ func heldLabel(holds []string) string {
 	}
 
 	return strings.Join(holds, ",")
+}
+
+// terminalWidth reports the column count when the writer is a terminal,
+// and zero otherwise. A bytes.Buffer under test, a pipe, or a file all
+// answer zero, which the tables read as "no limit" — so only an
+// interactive terminal ever trims output, and a golden never shifts
+// with a window.
+func terminalWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	if !term.IsTerminal(int(f.Fd())) {
+		return 0
+	}
+	width, _, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return 0
+	}
+
+	return width
 }
 
 // agentLabel names the agent on a lane and how it reads. With herdr
@@ -1065,6 +1204,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		git:     gitwt.Exec,
 		gitPipe: gitwt.ExecPipe,
 		herdr:   herdrRunner,
+		width:   terminalWidth(stdout),
 	}
 
 	parser, err := newParser(&c, stdout, stderr)
