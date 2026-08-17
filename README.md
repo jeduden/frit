@@ -81,6 +81,14 @@ frit board --sort id --reverse   # newest work first
 frit board --sort held           # claimed lanes first
 ```
 
+`frit board` shows host, repo, id, status, held, agent and title.
+`--columns` narrows that to the ones you name, in that order. Use
+`description` for the title and `lane` for who holds it.
+
+```sh
+frit board --columns id,description   # just the plan and what it is
+```
+
 ## What is hidden by default
 
 Two things are held back so the common view stays quiet, and `--all`
