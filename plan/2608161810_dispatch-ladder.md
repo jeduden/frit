@@ -1,7 +1,7 @@
 ---
 id: 2608161810
 title: The dispatch ladder — from a board to a seeded prompt
-status: "🔲"
+status: "🔳"
 summary: >-
   Climb from a read-only board to dispatch without building a prompt
   UI, because the plan already contains the prompt. Adds open, nudge
@@ -67,7 +67,11 @@ scoped to ship.
 
 `open` reads presence from the herdr join and resolves the plan
 through the discovery selector, so it is a thin composition of two
-plans already landed.
+plans already landed. Presence is read from the local socket, so `open`
+focuses a local pane; attaching to one spotted on another host over SSH
+waits on the multi-host fan-out, where remote presence first arrives. A
+plan nobody is working has no pane to raise, and `open` says so plainly
+rather than escalating on its own — that is the signal to climb a rung.
 
 ## Phase 2: nudge, rung 2
 
@@ -122,7 +126,7 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Tasks
 
-1. Ship `frit open` — rung 1, focus or attach, no text sent
+1. [x] Ship `frit open` — rung 1, focus or attach, no text sent
 2. Compose the typed slash command from a plan's next open phase
 3. Ship `frit nudge` — rung 2, dry-run by default, `--go` to send
 4. Ship `frit start` — rung 3, claim, worktree, agent, prompt, focus
@@ -131,7 +135,7 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] `frit open` focuses or attaches and sends no text
+- [x] `frit open` focuses or attaches and sends no text
 - [ ] The composed prompt is always a slash command naming plan and phase
 - [ ] The model tier is read from the Execution table, never chosen
 - [ ] `frit nudge` and `frit start` are dry-run unless `--go` is given

@@ -79,6 +79,7 @@ type cli struct {
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
+	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
