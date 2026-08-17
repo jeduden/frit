@@ -46,6 +46,9 @@ type Plan struct {
 	Branches []string
 	// Held reports whether a lane currently claims this plan.
 	Held bool
+	// Holds are the branch names that claim this plan, the lanes a
+	// holder works it on. Empty when nobody holds it.
+	Holds []string
 }
 
 // NotStarted reports a plan nobody has begun.
@@ -63,6 +66,18 @@ func (p Plan) Done() bool {
 // work when ranking what to start.
 func (p Plan) Superseded() bool {
 	return p.Status == planmeta.StatusSuperseded
+}
+
+// InProgress reports a plan currently being worked.
+func (p Plan) InProgress() bool {
+	return p.Status == planmeta.StatusInProgress
+}
+
+// Unfinished reports a plan that is still outstanding — begun or not,
+// but neither done nor superseded. It is the board's default subject:
+// the work that remains.
+func (p Plan) Unfinished() bool {
+	return p.NotStarted() || p.InProgress()
 }
 
 // NextPhase returns the first phase not at ✅ — the phase frit next

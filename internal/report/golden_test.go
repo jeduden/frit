@@ -44,6 +44,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"next", goldenNext()},
 		{"show", goldenShow()},
 		{"find", goldenFind()},
+		{"board", goldenBoard()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -213,6 +214,24 @@ func goldenFind() *FindDoc {
 			Path:    "plan/12_raymarch-gas-giants.md",
 		},
 	})
+
+	return doc
+}
+
+// goldenBoard pins the board shape: an in-progress plan held on a lane
+// with a live agent, and a not-started plan nobody holds, in the order
+// the board ranks them.
+func goldenBoard() *BoardDoc {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:2608161810", Repo: "atlas", ID: 2608161810,
+		Status: "🔳", Title: "The dispatch ladder", Model: "opus",
+		Held: true, Holds: []string{"plan/2608161810-dispatch"},
+	}, "claude", "working")
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:orrery:7", Repo: "orrery", ID: 7,
+		Status: "🔲", Title: "Shader unit tests", Model: "sonnet",
+	}, "", "")
 
 	return doc
 }

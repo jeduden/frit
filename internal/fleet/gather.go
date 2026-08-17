@@ -74,7 +74,7 @@ func Gather(
 func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner,
-) ([]index.Entry, map[int64]bool, []Problem, error) {
+) ([]index.Entry, map[int64][]string, []Problem, error) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
 		return nil, nil, nil, err
@@ -96,7 +96,7 @@ func gatherRepo(
 		})
 	}
 
-	held, err := heldIDs(repo, cfg, preferred, run)
+	held, err := heldBranches(repo, cfg, preferred, run)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -104,13 +104,15 @@ func gatherRepo(
 	return entries, held, problems, nil
 }
 
-// heldIDs is the set of plan ids a lane currently claims: the same
-// hold read the orphan report is built on, merged refs already filtered
-// out so landed work does not read as a live claim.
-func heldIDs(
+// heldBranches maps each claimed plan id to the branches that claim it:
+// the same holds the orphan report is built on, merged refs already
+// filtered out so landed work does not read as a live claim. The branch
+// names are the lanes a holder works the plan on, deduplicated so a
+// claim pushed to a remote does not read as two.
+func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
 	run gitwt.Runner,
-) (map[int64]bool, error) {
+) (map[int64][]string, error) {
 	holds, err := cfg.Compiled()
 	if err != nil {
 		return nil, err
@@ -124,10 +126,15 @@ func heldIDs(
 		return nil, err
 	}
 
-	held := map[int64]bool{}
+	held := map[int64][]string{}
 	for _, lane := range lanes.Build(repo.Worktrees, refs, merged, holds) {
-		if len(lane.Holds) > 0 {
-			held[lane.PlanID] = true
+		seen := map[string]bool{}
+		for _, h := range lane.Holds {
+			if seen[h.Branch] {
+				continue
+			}
+			seen[h.Branch] = true
+			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}
 
@@ -137,9 +144,10 @@ func heldIDs(
 // planOf projects a plan's authoritative version into the discovery
 // view, tagging it held when a lane claims its id.
 func planOf(
-	repoName string, e index.Entry, held map[int64]bool,
+	repoName string, e index.Entry, held map[int64][]string,
 ) discovery.Plan {
 	v := e.Primary()
+	holds := held[e.Key.ID]
 
 	return discovery.Plan{
 		Key:       e.Key.String(),
@@ -153,7 +161,8 @@ func planOf(
 		Phases:    v.Plan.Phases,
 		Path:      v.Path,
 		Branches:  shortBranches(e),
-		Held:      held[e.Key.ID],
+		Held:      len(holds) > 0,
+		Holds:     holds,
 	}
 }
 

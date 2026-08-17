@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -190,6 +191,116 @@ func TestNotAPlanIsAbsentFromJSONUntilAll(t *testing.T) {
 	emit(t, &all, "ready", "--all", "--root", root)
 	require.Len(t, all.Problems, 1)
 	assert.Contains(t, all.Problems[0].Message, "no front matter")
+}
+
+// TestBoardShowsUnfinishedWithHolderAndAgent is the whole point of the
+// board: an in-progress plan, the lane that holds it, the machine, and
+// the agent live on that lane.
+func TestBoardShowsUnfinishedWithHolderAndAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
+
+	// A worktree on the hold branch, one commit ahead so the claim is
+	// live rather than merged.
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-underway", wt)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(wt, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "wip")
+
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":                   "claude",
+		"agent_status":            "working",
+		"cwd":                     wt,
+		"pane_id":                 "w1:p1",
+		"terminal_title_stripped": "on it",
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "Underway")
+	assert.Contains(t, got, "plan/100-underway", "the holding lane")
+	assert.Contains(t, got, "claude", "the agent on that lane")
+	assert.Contains(t, got, "working")
+}
+
+// TestBoardWipHidesNotStarted: --wip keeps only what is under way.
+func TestBoardWipHidesNotStarted(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔳", "Moving", nil, "")
+	commitPlan(t, repo, 2, "🔲", "Not begun", nil, "")
+	withHerdr(t, herdrReturning())
+
+	var full, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"board", "--root", root}, &full, &errb))
+	assert.Contains(t, full.String(), "Not begun", "default carries both")
+
+	var wip, errb2 bytes.Buffer
+	require.Equal(t, 0,
+		run([]string{"board", "--wip", "--root", root}, &wip, &errb2))
+	assert.Contains(t, wip.String(), "Moving")
+	assert.NotContains(t, wip.String(), "Not begun", "--wip drops 🔲")
+}
+
+// TestBoardMarksAgentUnknownWithoutHerdr: a missing socket leaves the
+// git board standing with the agent column an honest unknown.
+func TestBoardMarksAgentUnknownWithoutHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔳", "Moving", nil, "")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Moving")
+	assert.Contains(t, out.String(), "?", "agent state is unknown, not absent")
+}
+
+func TestBoardIsQuietWhenNothingIsOutstanding(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "✅", "All done", nil, "")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "nothing outstanding")
+}
+
+func TestBoardEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
+	claimBranch(t, repo, "plan/100-underway")
+	withHerdr(t, herdrReturning())
+	var doc report.BoardDoc
+
+	emit(t, &doc, "board", "--root", root)
+
+	assert.Equal(t, "board", doc.Command)
+	assert.True(t, doc.Presence)
+	require.Len(t, doc.Plans, 1)
+	assert.Equal(t, int64(100), doc.Plans[0].ID)
+	assert.True(t, doc.Plans[0].Held)
+	assert.Equal(t, []string{"plan/100-underway"}, doc.Plans[0].Holds)
+	assert.NotEmpty(t, doc.Plans[0].Host)
 }
 
 // phasesBlock builds a phases: front-matter block, one entry per given
