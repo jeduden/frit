@@ -25,7 +25,25 @@ frit resolves a plan to a lane and a model tier, hands the pane to
 the agent that already runs there, and steps back. It renders no
 text input, and it never reads a transcript back.
 
+## Install
+
+From source, with Go 1.25 or newer:
+
+```sh
+go install github.com/jeduden/frit/cmd/frit@latest
+```
+
+Or download a signed binary from the
+[releases](https://github.com/jeduden/frit/releases) page and check it
+against the repository before use:
+
+```sh
+gh attestation verify frit-linux-amd64 -R jeduden/frit
+```
+
 ## Commands
+
+The board — what exists and what has gone wrong:
 
 ```sh
 frit repos              # every repository and its worktrees
@@ -33,7 +51,34 @@ frit plans              # plan files found on every ref
 frit plans --detail     # ...and which refs carry each one
 frit orphans            # claims and checkouts that no longer add up
 frit stale --days 21    # worktrees whose branch has not moved
+frit who                # which lane has a live agent on it
+```
+
+Discovery — what to start, and what stands in the way:
+
+```sh
+frit ready              # plans startable now: deps done, nobody holds
+frit pick -n 5          # ...ranked by how much each unblocks
+frit next <plan>        # the first phase of a plan not yet done
+frit show <plan>        # what blocks a plan
+frit find raymarch      # search titles and summaries across every ref
 frit init               # write .frit.yml with frit's defaults
+```
+
+A `<plan>` is an exact id, a slug fragment matched against titles and
+branches, or nothing at all — inferred from the worktree you are
+standing in.
+
+## What is hidden by default
+
+Two things are held back so the common view stays quiet, and `--all`
+brings both back. A dependency that is already done blocks nothing, so
+`show` lists only the open blockers. A file in a plan directory with no
+front matter is not a plan, so it is not reported as a problem.
+
+```sh
+frit show <plan> --all  # every dependency, done ones included
+frit ready --all        # ...and surface files that are not plans
 ```
 
 ## JSON
