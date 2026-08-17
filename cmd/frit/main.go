@@ -1,8 +1,12 @@
-// Command frit indexes plans, worktrees and agents across a fleet.
+// Command frit indexes plans, worktrees and agents across a fleet, and
+// mints the one mutation it owns: the claim.
 //
-// This binary is read-only by construction. It shells out to git to
-// read state and prints what it finds; nothing here writes to a
-// repository, claims a plan, or talks to an agent.
+// Almost everything here is read-only — it shells out to git to read
+// state and prints what it finds. The exception is the claim, an atomic
+// hold frit leases with a force-with-lease push, because a hold has to
+// be atomic and a ref push is the only atom git offers. Beyond that,
+// nothing writes to a repository, spawns an agent it does not hand
+// straight back, or reads a transcript.
 package main
 
 import (
@@ -81,6 +85,7 @@ type cli struct {
 	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
+	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`

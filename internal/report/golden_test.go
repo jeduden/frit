@@ -47,6 +47,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"board", goldenBoard()},
 		{"open", goldenOpen()},
 		{"nudge", goldenNudge()},
+		{"claim", goldenClaim()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -264,6 +265,17 @@ func goldenNudge() *NudgeDoc {
 		"The dispatch ladder", "2", "opus",
 		"/plan-phase 2608161810 2", false)
 	doc.SetTarget("wC:p1")
+
+	return doc
+}
+
+// goldenClaim pins the lease shape: the hold branch frit minted for a
+// plan and the base commit it was dated against, the branch a consumer
+// reads back to learn what it now holds.
+func goldenClaim() *ClaimDoc {
+	doc := NewClaim("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "plan/2608161810-dispatch-ladder")
+	doc.Minted("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
 
 	return doc
 }

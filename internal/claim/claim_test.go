@@ -73,6 +73,19 @@ func sampleOptions() Options {
 	}
 }
 
+// TestBranchDerivesTheHoldName: the lease branch is plan/<id>-<slug>,
+// with the slug taken from the plan file after its id prefix. A file
+// with no underscore contributes its whole stem.
+func TestBranchDerivesTheHoldName(t *testing.T) {
+	assert.Equal(t, "plan/7-shader-unit",
+		Branch(7, "plan/7_shader-unit.md"))
+	assert.Equal(t, "plan/2608161810-dispatch-ladder",
+		Branch(2608161810, "plan/2608161810_dispatch-ladder.md"))
+	assert.Equal(t, "plan/42-notes",
+		Branch(42, "docs/notes.md"),
+		"a file with no id prefix contributes its whole stem")
+}
+
 // TestMintCreatesTheLease: the claim ref is minted both locally and on
 // origin, and the Result is dated against the base commit.
 func TestMintCreatesTheLease(t *testing.T) {

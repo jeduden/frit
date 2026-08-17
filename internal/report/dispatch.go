@@ -121,3 +121,55 @@ func (d *NudgeDoc) MarkSent() { d.Sent = true }
 func (d *NudgeDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// ClaimDoc is what `frit claim` did: the hold branch it minted for a
+// plan, or the reason the plan was not claimable.
+//
+// The claim is frit's own atomic lease — an empty marker commit pushed
+// with --force-with-lease. The document reports the branch it wrote and
+// the base it dated the lease against, or, when the plan was already
+// held, blocked or lost to another machine, why nothing was minted.
+type ClaimDoc struct {
+	header
+	Root string       `json:"root"`
+	Plan DispatchPlan `json:"plan"`
+	// Branch is the hold branch the claim mints, reported even on a
+	// refusal so a reader sees the name that would have been written.
+	Branch string `json:"branch"`
+	// Base is the sha the lease was dated against, set only when minted.
+	Base string `json:"base"`
+	// Claimed is whether the lease was minted; Refused is why it was not,
+	// empty when it was. A plan already held, blocked by an unfinished
+	// dependency, or lost to another machine is refused, not leased.
+	Claimed  bool      `json:"claimed"`
+	Refused  string    `json:"refused"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewClaim opens a claim report for a resolved plan and the branch it
+// would mint.
+func NewClaim(
+	root string, repo string, id int64, title, branch string,
+) *ClaimDoc {
+	return &ClaimDoc{
+		header:   newHeader("claim"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Branch:   branch,
+		Problems: []Problem{},
+	}
+}
+
+// Minted records a lease that went through, dated against a base commit.
+func (d *ClaimDoc) Minted(baseSHA string) {
+	d.Claimed = true
+	d.Base = baseSHA
+}
+
+// Refuse records why no lease was minted, leaving Claimed false.
+func (d *ClaimDoc) Refuse(reason string) { d.Refused = reason }
+
+// AddProblem records a repository frit could not read.
+func (d *ClaimDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}

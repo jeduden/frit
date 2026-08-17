@@ -10,12 +10,19 @@
 package claim
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/jeduden/frit/internal/gitwt"
 )
+
+// ErrLostRace reports a claim that lost the push: another machine
+// already holds the ref on the remote. It is a sentinel so a caller can
+// tell the one expected, non-fatal outcome — someone got there first —
+// apart from a git fault, and report it rather than crash on it.
+var ErrLostRace = errors.New("lost the race")
 
 // Options describes the lease to mint.
 type Options struct {
@@ -33,6 +40,22 @@ type Options struct {
 type Result struct {
 	Branch  string
 	BaseSHA string
+}
+
+// Branch is the hold branch a plan is claimed on: plan/<id>-<slug>,
+// with the slug taken from the plan file name after its id prefix. It
+// is derived, never stored, so it is the same name the default hold
+// pattern reads back — a lease frit writes is a hold frit finds. A file
+// whose name carries no `<id>_` prefix contributes its whole stem, so
+// the branch is always well formed.
+func Branch(planID int64, planPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(planPath), ".md")
+	slug := stem
+	if i := strings.IndexByte(stem, '_'); i >= 0 {
+		slug = stem[i+1:]
+	}
+
+	return fmt.Sprintf("plan/%d-%s", planID, slug)
 }
 
 // Mint leases the hold branch for a plan.
@@ -75,8 +98,8 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 		_, _ = run(repoDir, "update-ref", "-d", ref)
 
 		return Result{}, fmt.Errorf(
-			"lost the race for plan %d: the claim ref already exists",
-			opts.PlanID)
+			"%w for plan %d: the claim ref already exists",
+			ErrLostRace, opts.PlanID)
 	}
 
 	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
