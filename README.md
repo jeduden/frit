@@ -71,6 +71,16 @@ A `<plan>` is an exact id, a slug fragment matched against titles and
 branches, or nothing at all — inferred from the worktree you are
 standing in.
 
+The list commands — `board`, `ready`, `pick` and `find` — take
+`--sort` to reorder by `status`, `repo`, `id` (creation time) or
+`held`, and `--reverse` to flip it. Without `--sort` each keeps its own
+order; `--reverse` alone turns that order end to end.
+
+```sh
+frit board --sort id --reverse   # newest work first
+frit board --sort held           # claimed lanes first
+```
+
 ## What is hidden by default
 
 Two things are held back so the common view stays quiet, and `--all`

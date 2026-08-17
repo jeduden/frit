@@ -610,7 +610,39 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
-type readyCmd struct{}
+// sortFlags is the shared ordering control the list commands embed, so
+// --sort and --reverse read the same on board, ready, pick and find.
+type sortFlags struct {
+	Sort    string `help:"Order by status, repo, id or held (default: the command's own order)."`
+	Reverse bool   `help:"Reverse the order."`
+}
+
+// order applies a command's sort choice to the plans it gathered. An
+// empty key keeps the command's own order, which --reverse alone still
+// turns end to end; an unrecognised key is a usage error rather than a
+// silent no-op.
+func (s sortFlags) order(plans []discovery.Plan) ([]discovery.Plan, error) {
+	if s.Sort == "" {
+		if s.Reverse {
+			discovery.Reverse(plans)
+		}
+
+		return plans, nil
+	}
+
+	key, ok := discovery.ParseSortKey(s.Sort)
+	if !ok {
+		return nil, fmt.Errorf(
+			"unknown sort %q: want status, repo, id or held", s.Sort)
+	}
+	discovery.Sort(plans, key, s.Reverse)
+
+	return plans, nil
+}
+
+type readyCmd struct {
+	sortFlags
+}
 
 // Run lists every plan startable now: not begun, held by nobody, and
 // with every dependency done, across all repositories and refs.
@@ -620,9 +652,14 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	list, err := r.order(discovery.Ready(res.Plans))
+	if err != nil {
+		return err
+	}
+
 	doc := report.NewReady(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(discovery.Ready(res.Plans))
+	doc.SetPlans(list)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -635,6 +672,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 
 type pickCmd struct {
 	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	sortFlags
 }
 
 // Run lists the startable plans ranked by how much each unblocks,
@@ -645,9 +683,14 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	list, err := pc.order(discovery.Pick(res.Plans, pc.N))
+	if err != nil {
+		return err
+	}
+
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(discovery.Pick(res.Plans, pc.N))
+	doc.SetPlans(list)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -725,6 +768,7 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 
 type boardCmd struct {
 	Wip bool `help:"Only plans in progress, not those merely not started."`
+	sortFlags
 }
 
 // Run shows the board of outstanding work: every unfinished plan, the
@@ -740,10 +784,15 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	list, err := b.order(discovery.Board(res.Plans, b.Wip))
+	if err != nil {
+		return err
+	}
+
 	live, presence := liveByBranch(rt)
 	doc := report.NewBoard(c.Root, presence)
 	carryProblems(doc, res.Problems, c.All)
-	for _, p := range discovery.Board(res.Plans, b.Wip) {
+	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status)
 	}
@@ -957,6 +1006,7 @@ func agentLabel(presence bool, agent, status string) string {
 
 type findCmd struct {
 	Query string `arg:"" help:"Text to match in plan titles and summaries."`
+	sortFlags
 }
 
 // Run searches plan titles and summaries across every repository and
@@ -967,9 +1017,14 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	list, err := f.order(discovery.Find(f.Query, res.Plans))
+	if err != nil {
+		return err
+	}
+
 	doc := report.NewFind(c.Root, hostname(), f.Query)
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(discovery.Find(f.Query, res.Plans))
+	doc.SetPlans(list)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)

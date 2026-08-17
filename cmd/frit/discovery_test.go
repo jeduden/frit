@@ -304,6 +304,61 @@ func TestBoardEmitsJSON(t *testing.T) {
 	assert.NotEmpty(t, doc.Plans[0].Host)
 }
 
+// TestBoardSortByID orders the board oldest-first, and --reverse flips
+// it, over the command instead of its default status order.
+func TestBoardSortByID(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 300, "🔳", "Newer plan", nil, "")
+	commitPlan(t, repo, 100, "🔳", "Older plan", nil, "")
+	withHerdr(t, herdrReturning())
+
+	var out, errb bytes.Buffer
+	require.Equal(t, 0,
+		run([]string{"board", "--sort", "id", "--root", root}, &out, &errb),
+		errb.String())
+	assert.Less(t, strings.Index(out.String(), "Older"),
+		strings.Index(out.String(), "Newer"), "oldest id first")
+
+	var rev, errb2 bytes.Buffer
+	require.Equal(t, 0, run(
+		[]string{"board", "--sort", "id", "--reverse", "--root", root},
+		&rev, &errb2))
+	assert.Less(t, strings.Index(rev.String(), "Newer"),
+		strings.Index(rev.String(), "Older"), "--reverse: newest first")
+}
+
+// TestFindSortByRepoGroups: --sort reaches the plan lists too.
+func TestFindSortByRepoGroups(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	atlas := initRepo(t, root, "atlas")
+	commitPlan(t, atlas, 1, "🔲", "Orbit control", nil, "")
+	orrery := initRepo(t, root, "orrery")
+	commitPlan(t, orrery, 2, "🔲", "Orbit view", nil, "")
+	var out, errb bytes.Buffer
+
+	require.Equal(t, 0, run(
+		[]string{"find", "orbit", "--sort", "repo", "--root", root},
+		&out, &errb), errb.String())
+	assert.Less(t, strings.Index(out.String(), "atlas"),
+		strings.Index(out.String(), "orrery"))
+}
+
+func TestSortRejectsAnUnknownKey(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"ready", "--sort", "bogus", "--root", root},
+		&out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "unknown sort")
+}
+
 // phasesBlock builds a phases: front-matter block, one entry per given
 // status, numbered from one.
 func phasesBlock(statuses ...string) string {
