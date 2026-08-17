@@ -9,7 +9,7 @@ summary: >-
   pane to herdr, and never reads a reply back. Every rung that sends
   is dry-run until --go; open sends nothing and needs no gate.
 model: opus
-depends-on: [2608161808, 2608161809]
+depends-on: [2608161808, 2608161809, 2608171835]
 ---
 # The dispatch ladder
 
@@ -89,11 +89,12 @@ idle agent is refused rather than interrupted.
 
 ## Phase 3: start, rung 3
 
-Ship `frit start <selector>`: the full escalation. Claim the lane
-through plan-lane, create the worktree through `worktree.create`, start
-the agent at the table's tier through `agent.start`, prompt it, and
-focus the pane. Every mutation is delegated — frit claims nothing and
-spawns nothing it does not hand straight to herdr.
+Ship `frit start <selector>`: the full escalation. Mint the claim
+through frit's own lease (the claim plan, 2608171835), create the
+worktree through `worktree.create`, start the agent at the table's tier
+through `agent.start`, prompt it, and focus the pane. frit owns the
+claim now and spawns nothing it does not hand straight to herdr — the
+worktree and the pane stay herdr's.
 
 Not every dispatch is bare, and the escape hatch is the one git
 already established for commit messages: a prefilled template, not an
@@ -112,19 +113,20 @@ UI: one is a flag, the other is your editor.
 
 Tier is per phase, set by the most demanding ingredient.
 
-| Phase           | Design | Implement | Gate that catches a wrong answer                               |
-| --------------- | ------ | --------- | -------------------------------------------------------------- |
-| 1 open, rung 1  | sonnet | sonnet    | test that open sends no text and starts no agent               |
-| 2 nudge, rung 2 | opus   | sonnet    | test that dry-run is default and the tier comes from the plan  |
-| 3 start, rung 3 | opus   | opus      | test that every mutation is delegated and agent.read is unused |
+| Phase           | Design | Implement | Gate that catches a wrong answer                                 |
+| --------------- | ------ | --------- | ---------------------------------------------------------------- |
+| 1 open, rung 1  | sonnet | sonnet    | test that open sends no text and starts no agent                 |
+| 2 nudge, rung 2 | opus   | sonnet    | test that dry-run is default and the tier comes from the plan    |
+| 3 start, rung 3 | opus   | opus      | test the pane and worktree stay herdr's and agent.read is unused |
 
 ## Non-goals
 
 - No prompt box. Sent text is always a composed slash command. Free
   prose drops to rung 1 and hands over.
 - No reading a reply. `agent.read` is never called, at any rung.
-- No reimplemented claims. Every mutation delegates to plan-lane or
-  herdr; frit owns no second registry.
+- No reimplemented pane or worktree. The worktree and the pane stay
+  herdr's; frit mints the claim (the claim plan, 2608171835) and hands
+  the checkout straight over.
 - No multi-host dispatch beyond attach. `open` may attach over SSH;
   starting a lane on another host waits for the fan-out plan.
 
@@ -143,7 +145,7 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] The composed prompt is always a slash command naming plan and phase
 - [x] The model tier is read from the plan's declared model, never chosen
 - [ ] `frit nudge` and `frit start` are dry-run unless `--go` is given
-- [ ] `frit start` delegates the claim to plan-lane and the spawn to herdr
+- [ ] `frit start` mints the claim through frit's lease, spawns through herdr
 - [ ] `agent.read` is never called by any code path
 - [ ] `--note` rides the composed prompt; `--edit` opens `$EDITOR` prefilled
 - [ ] A dry-run `--json` form prints the composition without running it
