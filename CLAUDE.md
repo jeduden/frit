@@ -139,6 +139,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit next <id>` — the first phase of a plan not yet done
 - `go run ./cmd/frit show <id>` — what blocks a plan; `--all` for every dep
 - `go run ./cmd/frit find <text>` — search plan titles and summaries
+- `go run ./cmd/frit board` — outstanding plans, who holds each, the agent
 
 The discovery verbs are `ready`, `pick`, `next`, `show` and `find`.
 Each takes a plan three ways: an exact id, a slug fragment matched

@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "command": "board",
+  "root": "/fleet",
+  "presence": true,
+  "plans": [
+    {
+      "key": "forge:atlas:2608161810",
+      "host": "forge",
+      "repo": "atlas",
+      "id": 2608161810,
+      "status": "🔳",
+      "title": "The dispatch ladder",
+      "model": "opus",
+      "held": true,
+      "holds": [
+        "plan/2608161810-dispatch"
+      ],
+      "agent": "claude",
+      "agent_status": "working"
+    },
+    {
+      "key": "forge:orrery:7",
+      "host": "forge",
+      "repo": "orrery",
+      "id": 7,
+      "status": "🔲",
+      "title": "Shader unit tests",
+      "model": "sonnet",
+      "held": false,
+      "holds": [],
+      "agent": "",
+      "agent_status": ""
+    }
+  ],
+  "problems": []
+}

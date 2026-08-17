@@ -69,6 +69,7 @@ type cli struct {
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
+	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -706,6 +707,120 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+type boardCmd struct {
+	Wip bool `help:"Only plans in progress, not those merely not started."`
+}
+
+// Run shows the board of outstanding work: every unfinished plan, the
+// lane that holds it, the machine it lives on, and the agent live on it
+// now — in-progress first. --wip narrows it to what is actually under
+// way.
+//
+// The agent half needs herdr; a missing socket leaves the git board
+// standing with the agent column marked unknown rather than failing.
+func (b *boardCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	live, presence := liveByBranch(rt)
+	doc := report.NewBoard(c.Root, presence)
+	carryProblems(doc, res.Problems, c.All)
+	for _, p := range discovery.Board(res.Plans, b.Wip) {
+		agent, status := agentFor(p, live)
+		doc.AddPlan(p, agent, status)
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printBoard(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// liveByBranch keys every staffed lane by the branch its worktree is
+// on, so a plan can find the agent working one of its hold branches. A
+// missing socket yields no map and false, which the board reads as
+// "presence unknown".
+func liveByBranch(rt *runtime) (map[string]herdr.Lane, bool) {
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return nil, false
+	}
+
+	live := map[string]herdr.Lane{}
+	for _, lane := range whoLanes(panes, rt.git) {
+		if lane.Branch != "" {
+			live[lane.Branch] = lane
+		}
+	}
+
+	return live, true
+}
+
+// agentFor finds the agent working one of a plan's hold branches, if
+// any is live. A plan nobody holds has no lane to be worked on, so it
+// reports none.
+func agentFor(
+	p discovery.Plan, live map[string]herdr.Lane,
+) (agent, status string) {
+	for _, branch := range p.Holds {
+		if lane, ok := live[branch]; ok {
+			return lane.Pane.Agent, lane.Pane.Presence()
+		}
+	}
+
+	return "", ""
+}
+
+// printBoard writes one line per outstanding plan: the machine, the
+// repository, the plan, its status, who holds it, the agent on it, and
+// the title. A clear board says so plainly.
+func printBoard(out io.Writer, doc *report.BoardDoc) {
+	if len(doc.Plans) == 0 {
+		_, _ = fmt.Fprintln(out, "nothing outstanding")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, p := range doc.Plans {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+			p.Host, p.Repo, p.ID, p.Status, heldLabel(p.Holds),
+			agentLabel(doc.Presence, p.Agent, p.AgentStatus), p.Title)
+	}
+	_ = tw.Flush()
+}
+
+// heldLabel names the lane holding a plan, or a dash when nobody does.
+// Several holds are joined, so a plan claimed on two machines' branches
+// reads as both rather than one.
+func heldLabel(holds []string) string {
+	if len(holds) == 0 {
+		return "-"
+	}
+
+	return strings.Join(holds, ",")
+}
+
+// agentLabel names the agent on a lane and how it reads. With herdr
+// unreachable the column is unknown rather than empty, since a missing
+// socket is not the same as no agent.
+func agentLabel(presence bool, agent, status string) string {
+	switch {
+	case !presence:
+		return "?"
+	case agent == "":
+		return "-"
+	case status == "":
+		return agent
+	default:
+		return agent + " (" + status + ")"
+	}
 }
 
 type findCmd struct {

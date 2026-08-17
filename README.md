@@ -52,6 +52,8 @@ frit plans --detail     # ...and which refs carry each one
 frit orphans            # claims and checkouts that no longer add up
 frit stale --days 21    # worktrees whose branch has not moved
 frit who                # which lane has a live agent on it
+frit board              # outstanding plans: status, holder, agent, machine
+frit board --wip        # ...only the ones in progress
 ```
 
 Discovery — what to start, and what stands in the way:
