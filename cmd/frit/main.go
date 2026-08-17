@@ -53,6 +53,13 @@ type cli struct {
 	// answers it, and an agent should not have to remember which ones.
 	JSON bool `help:"Emit the report as JSON instead of a table."`
 
+	// All un-hides what the default view holds back: satisfied
+	// dependencies in show, and files in a plan directory that carry no
+	// front matter and so are not plans. It is global because more than
+	// one command hides something, and --deps is kept as its name for
+	// show, where "show the dependencies" is how it reads.
+	All bool `aliases:"deps" help:"Show what is hidden by default: satisfied deps, and files that are not plans."`
+
 	Config kong.ConfigFlag `help:"Load configuration from a file." placeholder:"PATH"`
 
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
@@ -480,6 +487,12 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 		entries, problems := index.Build(host, repo.Name,
 			gitobj.DefaultRef(repo.Path, rt.git), files)
 		for _, problem := range problems {
+			// A file with no front matter is not a plan, only noise on a
+			// board that keeps notes beside its plans; hold it back unless
+			// everything was asked for.
+			if !c.All && errors.Is(problem, planmeta.ErrNoFrontMatter) {
+				continue
+			}
 			doc.AddProblem(repo.Name, problem)
 		}
 		doc.AddRepo(repo.Name, entries)
@@ -541,9 +554,14 @@ type problemAdder interface {
 
 // carryProblems moves a gather's per-repository failures onto a
 // document, so a single broken checkout travels in the report rather
-// than blinding the board.
-func carryProblems(doc problemAdder, problems []fleet.Problem) {
+// than blinding the board. A benign not-a-plan file is held back unless
+// all is set, since a plan directory routinely holds a PLAN.md and
+// notes that would otherwise drown the real failures.
+func carryProblems(doc problemAdder, problems []fleet.Problem, all bool) {
 	for _, p := range problems {
+		if p.NotPlan && !all {
+			continue
+		}
 		doc.AddProblem(p.Repo, p.Err)
 	}
 }
@@ -588,7 +606,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewReady(c.Root, hostname())
-	carryProblems(doc, res.Problems)
+	carryProblems(doc, res.Problems, c.All)
 	doc.SetPlans(discovery.Ready(res.Plans))
 
 	if c.JSON {
@@ -613,7 +631,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewPick(c.Root, hostname())
-	carryProblems(doc, res.Problems)
+	carryProblems(doc, res.Problems, c.All)
 	doc.SetPlans(discovery.Pick(res.Plans, pc.N))
 
 	if c.JSON {
@@ -649,7 +667,7 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewNext(c.Root, plan)
-	carryProblems(doc, res.Problems)
+	carryProblems(doc, res.Problems, c.All)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -662,7 +680,6 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 
 type showCmd struct {
 	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
-	All      bool   `aliases:"deps" help:"Show every dependency, including the done ones, not just blockers."`
 }
 
 // Run shows a plan and its upstream dependencies, so "what blocks this"
@@ -680,12 +697,12 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
-	carryProblems(doc, res.Problems)
+	carryProblems(doc, res.Problems, c.All)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printShow(rt.stdout, doc, s.All)
+	printShow(rt.stdout, doc, c.All)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -704,7 +721,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	doc := report.NewFind(c.Root, hostname(), f.Query)
-	carryProblems(doc, res.Problems)
+	carryProblems(doc, res.Problems, c.All)
 	doc.SetPlans(discovery.Find(f.Query, res.Plans))
 
 	if c.JSON {

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"errors"
 	"sort"
 
 	"github.com/jeduden/frit/internal/discover"
@@ -9,6 +10,7 @@ import (
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/repocfg"
 )
@@ -16,9 +18,16 @@ import (
 // Problem is one repository, or one file within it, frit could not
 // read. It travels with the result rather than ending the gather, so a
 // single broken checkout does not blind the whole board.
+//
+// NotPlan marks the benign kind: a markdown file in the plan directory
+// that carries no front matter is simply not a plan, not a fault. A
+// repository keeps a PLAN.md index and old notes beside its plans, so
+// these are common and drowning the real failures. They are hidden
+// unless a caller asks for everything.
 type Problem struct {
-	Repo string
-	Err  error
+	Repo    string
+	Err     error
+	NotPlan bool
 }
 
 // Result is a gathered fleet: every plan's authoritative version across
@@ -48,7 +57,8 @@ func Gather(
 	for _, repo := range repos {
 		entries, held, problems, err := gatherRepo(host, repo, run, pipe)
 		if err != nil {
-			res.Problems = append(res.Problems, Problem{repo.Name, err})
+			res.Problems = append(res.Problems,
+				Problem{Repo: repo.Name, Err: err})
 			continue
 		}
 		res.Problems = append(res.Problems, problems...)
@@ -79,7 +89,11 @@ func gatherRepo(
 	entries, errs := index.Build(host, repo.Name, preferred, files)
 	problems := make([]Problem, 0, len(errs))
 	for _, e := range errs {
-		problems = append(problems, Problem{repo.Name, e})
+		problems = append(problems, Problem{
+			Repo:    repo.Name,
+			Err:     e,
+			NotPlan: errors.Is(e, planmeta.ErrNoFrontMatter),
+		})
 	}
 
 	held, err := heldIDs(repo, cfg, preferred, run)
