@@ -1,7 +1,7 @@
 ---
 id: 2608161810
 title: The dispatch ladder — from a board to a seeded prompt
-status: "🔳"
+status: "✅"
 summary: >-
   Climb from a read-only board to dispatch without building a prompt
   UI, because the plan already contains the prompt. Adds open, nudge
@@ -135,19 +135,19 @@ Tier is per phase, set by the most demanding ingredient.
 1. [x] Ship `frit open` — rung 1, focus or attach, no text sent
 2. [x] Compose the typed slash command from a plan's next open phase
 3. [x] Ship `frit nudge` — rung 2, dry-run by default, `--go` to send
-4. Ship `frit start` — rung 3, claim, worktree, agent, prompt, focus
-5. Add `--note` and `--edit` as prefilled-template escape hatches
-6. Give every dispatch verb a `--json` dry-run form
+4. [x] Ship `frit start` — rung 3, claim, worktree, agent, prompt, focus
+5. [x] Add `--note` and `--edit` as prefilled-template escape hatches
+6. [x] Give every dispatch verb a `--json` dry-run form
 
 ## Acceptance Criteria
 
 - [x] `frit open` focuses or attaches and sends no text
 - [x] The composed prompt is always a slash command naming plan and phase
 - [x] The model tier is read from the plan's declared model, never chosen
-- [ ] `frit nudge` and `frit start` are dry-run unless `--go` is given
-- [ ] `frit start` mints the claim through frit's lease, spawns through herdr
-- [ ] `agent.read` is never called by any code path
-- [ ] `--note` rides the composed prompt; `--edit` opens `$EDITOR` prefilled
-- [ ] A dry-run `--json` form prints the composition without running it
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `frit nudge` and `frit start` are dry-run unless `--go` is given
+- [x] `frit start` mints the claim through frit's lease, spawns through herdr
+- [x] `agent.read` is never called by any code path
+- [x] `--note` rides the composed prompt; `--edit` opens `$EDITOR` prefilled
+- [x] A dry-run `--json` form prints the composition without running it
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

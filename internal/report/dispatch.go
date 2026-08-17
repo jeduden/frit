@@ -199,12 +199,14 @@ type StartDoc struct {
 	// Prompt is the whole composed slash command, the note folded in.
 	Prompt string `json:"prompt"`
 	// Go is whether --go was given; Started is whether the escalation ran.
-	// They differ while the herdr handshake is still being verified: --go
-	// is accepted but executes nothing yet.
+	// They differ on a refusal: --go on an unstartable plan runs nothing.
 	Go      bool `json:"go"`
 	Started bool `json:"started"`
-	// Refused is why the escalation was withheld — a plan not startable —
-	// empty when start was free to proceed.
+	// Pane is the pane herdr opened and the agent runs in, set only once
+	// the escalation has run.
+	Pane string `json:"pane"`
+	// Refused is why the escalation was withheld — a plan not startable,
+	// or a claim lost to another machine — empty when start proceeded.
 	Refused  string    `json:"refused"`
 	Problems []Problem `json:"problems"`
 }
@@ -239,6 +241,12 @@ func NewStart(
 
 // Refuse records why the escalation was withheld, leaving Started false.
 func (d *StartDoc) Refuse(reason string) { d.Refused = reason }
+
+// MarkStarted records that the escalation ran and the pane it stood up.
+func (d *StartDoc) MarkStarted(pane string) {
+	d.Started = true
+	d.Pane = pane
+}
 
 // AddProblem records a repository frit could not read.
 func (d *StartDoc) AddProblem(repo string, err error) {

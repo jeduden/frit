@@ -95,6 +95,7 @@ Dispatch — climb from the board to a running lane:
 frit open <plan>        # focus the pane the plan's lane runs in
 frit nudge <plan>       # dry-run the phase prompt; --go sends it
 frit claim <plan>       # mint frit's own atomic hold on a startable plan
+frit start <plan>       # compose the whole escalation; --go runs it
 ```
 
 `open` and `nudge` send nothing you did not compose: the text is always
@@ -102,6 +103,11 @@ the slash command `/plan-phase <id> <phase>`, and `nudge` is dry-run
 until `--go`. `claim` mints the hold as a git ref — an empty marker
 commit pushed with `--force-with-lease`, so a hold is atomic across
 machines and a lost race is caught rather than papered over.
+
+`start` is the full rung. It mints the claim, then hands the worktree,
+the agent at the plan's tier, and the pane to herdr. It is dry-run until
+`--go`. Use `--note` to add a rider to the prompt, or `--edit` to amend
+it in `$EDITOR`.
 
 ## What is hidden by default
 
