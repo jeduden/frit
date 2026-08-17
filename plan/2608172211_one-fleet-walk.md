@@ -1,7 +1,7 @@
 ---
 id: 2608172211
 title: One fleet walk — carry the repo coordinates
-status: "🔲"
+status: "✅"
 summary: >-
   Stop claim and start re-walking the fleet. The gather already
   discovers every repository, loads its config, and resolves its base
@@ -83,19 +83,19 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Tasks
 
-1. Carry each repository's path, remote and base out of the gather
-2. Populate the coordinates in the gather's existing per-repo loop
-3. Read the coordinates in `frit claim`, dropping its second walk
-4. Read the coordinates in `frit start`, dropping its second walk
-5. Delete `repoBaseFor` and `repoPathFor` once nothing re-derives
+1. [x] Carry each repository's path, remote and base out of the gather
+2. [x] Populate the coordinates in the gather's existing per-repo loop
+3. [x] Read the coordinates in `frit claim`, dropping its second walk
+4. [x] Read the coordinates in `frit start`, dropping its second walk
+5. [x] Delete `repoBaseFor` and `repoPathFor` once nothing re-derives
 
 ## Acceptance Criteria
 
-- [ ] The gather returns each repository's path, remote and base
-- [ ] The base is the config's when set, else the default-ref cascade
-- [ ] `frit claim` mints from the carried coordinates, not a second walk
-- [ ] `frit start` reads the carried coordinates too
-- [ ] `discover.Repos` is walked once per invocation, not twice
-- [ ] `discovery.Plan` gains no repository-path field
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The gather returns each repository's path, remote and base
+- [x] The base is the config's when set, else the default-ref cascade
+- [x] `frit claim` mints from the carried coordinates, not a second walk
+- [x] `frit start` reads the carried coordinates too
+- [x] `discover.Repos` is walked once per invocation, not twice
+- [x] `discovery.Plan` gains no repository-path field
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
