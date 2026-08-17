@@ -751,7 +751,7 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %d\t%s\t%s\n",
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\n",
 		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title, modelLabel(p.Model))
 	_ = tw.Flush()
 }

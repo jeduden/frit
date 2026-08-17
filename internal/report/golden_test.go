@@ -168,8 +168,8 @@ func goldenNext() *NextDoc {
 		Title: "Discovery — what can I start", Model: "opus",
 		Path: "plan/2608161809_discovery-readiness-verbs.md",
 		Phases: []planmeta.Phase{
-			{N: 1, Title: "selectors", Status: "✅"},
-			{N: 2, Title: "ready", Status: "🔳"},
+			{N: "1", Title: "selectors", Status: "✅"},
+			{N: "2", Title: "ready", Status: "🔳"},
 		},
 	})
 }

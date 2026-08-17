@@ -147,9 +147,10 @@ func (d *FindDoc) AddProblem(repo string, err error) {
 }
 
 // PhaseCard is one phase in the wire form: its number, title and its
-// own status.
+// own status. The number is a string, since a phase may be 3b as well
+// as 3.
 type PhaseCard struct {
-	N      int    `json:"n"`
+	N      string `json:"n"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
 }
@@ -193,7 +194,7 @@ func (d *NextDoc) AddProblem(repo string, err error) {
 
 // phaseCard projects a phase into its wire shape.
 func phaseCard(p planmeta.Phase) PhaseCard {
-	return PhaseCard{N: p.N, Title: p.Title, Status: p.Status}
+	return PhaseCard{N: string(p.N), Title: p.Title, Status: p.Status}
 }
 
 // DepCard is one plan in the dependency walk. Found is false for an

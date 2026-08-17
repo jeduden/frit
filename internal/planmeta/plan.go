@@ -44,9 +44,25 @@ type Plan struct {
 // its own status, tracked apart from the plan's so an executor can flip
 // one phase without touching the rest.
 type Phase struct {
-	N      int    `yaml:"n"`
-	Title  string `yaml:"title"`
-	Status string `yaml:"status"`
+	N      PhaseNumber `yaml:"n"`
+	Title  string      `yaml:"title"`
+	Status string      `yaml:"status"`
+}
+
+// PhaseNumber is a phase's position in the ledger, kept as a string
+// rather than an int because phases split: a plan may carry 3a and 3b
+// beside 1 and 2 when one sitting grows into two. A bare YAML integer
+// and a quoted token both decode to their literal text, so `n: 3` and
+// `n: '3b'` sit in the same ledger without the whole plan failing to
+// parse over the one that is not a number.
+type PhaseNumber string
+
+// UnmarshalYAML reads a phase number from whatever scalar carries it,
+// integer or string, taking the node's literal text either way.
+func (n *PhaseNumber) UnmarshalYAML(node *yaml.Node) error {
+	*n = PhaseNumber(node.Value)
+
+	return nil
 }
 
 // The status vocabulary, as it appears in the files themselves.

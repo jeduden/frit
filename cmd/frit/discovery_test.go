@@ -264,7 +264,7 @@ func TestNextFromCwdResolvesWithinTheRepo(t *testing.T) {
 	assert.Equal(t, "atlas", doc.Plan.Repo,
 		"the cwd pins the repo; the shared id is not ambiguous")
 	assert.Equal(t, int64(100), doc.Plan.ID)
-	assert.Equal(t, 2, doc.Phase.N)
+	assert.Equal(t, "2", doc.Phase.N)
 }
 
 func TestNextEmitsJSON(t *testing.T) {
@@ -278,7 +278,7 @@ func TestNextEmitsJSON(t *testing.T) {
 
 	assert.Equal(t, "next", doc.Command)
 	assert.True(t, doc.HasPhase)
-	assert.Equal(t, 2, doc.Phase.N)
+	assert.Equal(t, "2", doc.Phase.N)
 	assert.Equal(t, int64(100), doc.Plan.ID)
 }
 

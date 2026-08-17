@@ -104,10 +104,31 @@ func TestParseReadsThePhaseLedger(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, got.Phases, 4)
-	assert.Equal(t, 1, got.Phases[0].N)
+	assert.Equal(t, PhaseNumber("1"), got.Phases[0].N)
 	assert.Equal(t, "Schema", got.Phases[0].Title)
 	assert.Equal(t, "✅", got.Phases[0].Status)
 	assert.Equal(t, "🔲", got.Phases[3].Status)
+}
+
+// TestParseReadsAnAlphanumericPhaseNumber is the regression: a phase
+// split into 3a/3b carries a non-integer number, and the whole plan
+// must still parse rather than being dropped from the index over it.
+func TestParseReadsAnAlphanumericPhaseNumber(t *testing.T) {
+	src := "---\nid: 1\ntitle: Split phase\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 3, title: 'Third', status: \"✅\" }\n" +
+		"  - { n: '3b', title: 'Third, part two', status: \"🔲\" }\n" +
+		"---\n# Split\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 2)
+	assert.Equal(t, PhaseNumber("3"), got.Phases[0].N)
+	assert.Equal(t, PhaseNumber("3b"), got.Phases[1].N)
+
+	phase, ok := got.FirstOpenPhase()
+	require.True(t, ok)
+	assert.Equal(t, PhaseNumber("3b"), phase.N)
 }
 
 func TestParseDefaultsAMissingPhaseLedgerToEmpty(t *testing.T) {
@@ -127,7 +148,7 @@ func TestFirstOpenPhaseSkipsDoneAndStopsAtTheFirstOpen(t *testing.T) {
 	phase, ok := got.FirstOpenPhase()
 
 	require.True(t, ok)
-	assert.Equal(t, 3, phase.N)
+	assert.Equal(t, PhaseNumber("3"), phase.N)
 	assert.Equal(t, "The three skills", phase.Title)
 }
 
@@ -136,21 +157,22 @@ func TestFirstOpenPhaseSkipsDoneAndStopsAtTheFirstOpen(t *testing.T) {
 // phase rather than pointing an executor at abandoned work.
 func TestFirstOpenPhaseSkipsASupersededPhase(t *testing.T) {
 	p := Plan{Phases: []Phase{
-		{N: 1, Status: StatusDone},
-		{N: 2, Status: StatusSuperseded},
-		{N: 3, Status: StatusNotStarted},
+		{N: "1", Status: StatusDone},
+		{N: "2", Status: StatusSuperseded},
+		{N: "3", Status: StatusNotStarted},
 	}}
 
 	phase, ok := p.FirstOpenPhase()
 
 	require.True(t, ok)
-	assert.Equal(t, 3, phase.N, "a superseded phase is skipped, not returned")
+	assert.Equal(t, PhaseNumber("3"), phase.N,
+		"a superseded phase is skipped, not returned")
 }
 
 func TestFirstOpenPhaseReportsNoneWhenEveryPhaseIsDone(t *testing.T) {
 	p := Plan{Phases: []Phase{
-		{N: 1, Status: StatusDone},
-		{N: 2, Status: StatusDone},
+		{N: "1", Status: StatusDone},
+		{N: "2", Status: StatusDone},
 	}}
 
 	_, ok := p.FirstOpenPhase()
