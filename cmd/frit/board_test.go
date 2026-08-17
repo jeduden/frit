@@ -37,7 +37,7 @@ func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
 	longTitle := strings.Repeat("very long title ", 8)
 	var buf bytes.Buffer
 
-	printBoard(&buf, boardWith(longTitle), 80)
+	printBoard(&buf, boardWith(longTitle), 80, boardCols)
 
 	line := strings.TrimRight(buf.String(), "\n")
 	assert.LessOrEqual(t, textw.Width(line), 80, "the row fits the terminal")
@@ -58,7 +58,7 @@ func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
 	}, "", "")
 	var buf bytes.Buffer
 
-	printBoard(&buf, doc, 80)
+	printBoard(&buf, doc, 80, boardCols)
 
 	line := strings.TrimRight(buf.String(), "\n")
 	assert.LessOrEqual(t, textw.Width(line), 80,
@@ -72,7 +72,7 @@ func TestPrintBoardWidthZeroKeepsTheFullTitle(t *testing.T) {
 	longTitle := strings.Repeat("very long title ", 8)
 	var buf bytes.Buffer
 
-	printBoard(&buf, boardWith(longTitle), 0)
+	printBoard(&buf, boardWith(longTitle), 0, boardCols)
 
 	assert.Contains(t, buf.String(), strings.TrimSpace(longTitle))
 	assert.NotContains(t, buf.String(), "…")
@@ -96,6 +96,55 @@ func TestWidthFlagOverridesDetection(t *testing.T) {
 	assert.LessOrEqual(t, textw.Width(line), 50,
 		"--width fits the table though stdout is not a terminal")
 	assert.Contains(t, line, "…")
+}
+
+func TestSelectBoardColumns(t *testing.T) {
+	all, err := selectBoardColumns("")
+	require.NoError(t, err)
+	assert.Equal(t, boardCols, all, "empty is every column")
+
+	got, err := selectBoardColumns("id, description")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"id", "title"}, got,
+		"description is an alias for title, whitespace ignored")
+
+	_, err = selectBoardColumns("id,bogus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown column")
+}
+
+// TestBoardColumnsShowsOnlyWhatIsAsked: --columns id,description prints
+// the two columns and nothing else.
+func TestBoardColumnsShowsOnlyWhatIsAsked(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "The description here", nil, "")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--columns", "id,description", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "100")
+	assert.Contains(t, got, "The description here")
+	assert.NotContains(t, got, "🔳", "the status column was not asked for")
+	assert.NotContains(t, got, "atlas", "nor the repo column")
+}
+
+func TestBoardColumnsRejectsUnknown(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--columns", "id,bogus", "--root", root},
+		&out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "unknown column")
 }
 
 func TestTerminalWidthIsZeroForANonTerminal(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -767,7 +768,8 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 }
 
 type boardCmd struct {
-	Wip bool `help:"Only plans in progress, not those merely not started."`
+	Wip     bool   `help:"Only plans in progress, not those merely not started."`
+	Columns string `help:"Comma-separated columns to show: host, repo, id, status, held, agent, title."`
 	sortFlags
 }
 
@@ -784,6 +786,10 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	cols, err := selectBoardColumns(b.Columns)
+	if err != nil {
+		return err
+	}
 	list, err := b.order(discovery.Board(res.Plans, b.Wip))
 	if err != nil {
 		return err
@@ -800,7 +806,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printBoard(rt.stdout, doc, rt.width)
+	printBoard(rt.stdout, doc, rt.width, cols)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -843,104 +849,183 @@ func agentFor(
 
 // boardRow is one board line's cells, computed once so the title can be
 // trimmed against the width the other columns take.
-type boardRow struct {
-	host, repo, id, status, held, agent, title string
+// boardCols is the board's full set of columns, in default order. The
+// two flexible ones — held and title — have no natural bound and are
+// trimmed to fit; the rest set their width from their content.
+var boardCols = []string{"host", "repo", "id", "status", "held", "agent", "title"}
+
+// boardColAliases lets a person name a column by the word they think in
+// — description for the title, lane for who holds it.
+var boardColAliases = map[string]string{
+	"description": "title",
+	"desc":        "title",
+	"lane":        "held",
+	"machine":     "host",
 }
 
-// printBoard writes one line per outstanding plan: the machine, the
-// repository, the plan, its status, who holds it, the agent on it, and
-// the title. A clear board says so plainly.
+// selectBoardColumns resolves a --columns value to an ordered column
+// list, defaulting to all of them. An unknown name is a usage error, so
+// a typo is caught rather than silently dropping a column.
+func selectBoardColumns(spec string) ([]string, error) {
+	if strings.TrimSpace(spec) == "" {
+		return boardCols, nil
+	}
+
+	var out []string
+	for _, raw := range strings.Split(spec, ",") {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if canon, ok := boardColAliases[name]; ok {
+			name = canon
+		}
+		if !slices.Contains(boardCols, name) {
+			return nil, fmt.Errorf("unknown column %q: want %s",
+				name, strings.Join(boardCols, ", "))
+		}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no columns selected")
+	}
+
+	return out, nil
+}
+
+// boardCell renders one plan's value for a named column.
+func boardCell(name string, doc *report.BoardDoc, p report.BoardPlan) string {
+	switch name {
+	case "host":
+		return p.Host
+	case "repo":
+		return p.Repo
+	case "id":
+		return strconv.FormatInt(p.ID, 10)
+	case "status":
+		return p.Status
+	case "held":
+		return heldLabel(laneShorts(p.Holds, p.ID))
+	case "agent":
+		return agentLabel(doc.Presence, p.Agent, p.AgentStatus)
+	default: // title
+		return p.Title
+	}
+}
+
+// printBoard writes one line per outstanding plan, over the chosen
+// columns. A clear board says so plainly.
 //
-// When width is positive — stdout is a terminal — the title is trimmed
-// so each row fits, since it is the one column with no natural bound.
-// A width of zero, which is what a pipe or a redirect gives, imposes no
-// limit: the full title travels so a downstream reader gets everything.
-func printBoard(out io.Writer, doc *report.BoardDoc, width int) {
+// When width is positive — stdout is a terminal — the flexible columns
+// are trimmed so each row fits. A width of zero, which is what a pipe or
+// a redirect gives, imposes no limit: the full text travels so a
+// downstream reader gets everything.
+func printBoard(
+	out io.Writer, doc *report.BoardDoc, width int, cols []string,
+) {
 	if len(doc.Plans) == 0 {
 		_, _ = fmt.Fprintln(out, "nothing outstanding")
 		return
 	}
 
-	rows := make([]boardRow, 0, len(doc.Plans))
-	for _, p := range doc.Plans {
-		rows = append(rows, boardRow{
-			host:   p.Host,
-			repo:   p.Repo,
-			id:     strconv.FormatInt(p.ID, 10),
-			status: p.Status,
-			held:   heldLabel(laneShorts(p.Holds, p.ID)),
-			agent:  agentLabel(doc.Presence, p.Agent, p.AgentStatus),
-			title:  p.Title,
-		})
+	rows := make([][]string, len(doc.Plans))
+	for i, p := range doc.Plans {
+		row := make([]string, len(cols))
+		for c, name := range cols {
+			row[c] = boardCell(name, doc, p)
+		}
+		rows[i] = row
 	}
 
 	if width > 0 {
-		held, title := fitColumns(width, rows)
-		for i := range rows {
-			rows[i].held = textw.Truncate(rows[i].held, held)
-			rows[i].title = textw.Truncate(rows[i].title, title)
-		}
+		fitBoard(width, rows, cols)
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, r := range rows {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.host, r.repo, r.id, r.status, r.held, r.agent, r.title)
+		_, _ = fmt.Fprintln(tw, strings.Join(r, "\t"))
 	}
 	_ = tw.Flush()
 }
 
-// fitColumns decides how wide the two flexible cells — the lane and the
-// title — may each be so a row fits the terminal. The fixed cells and
-// the gaps between all seven columns are subtracted first; what remains
-// is split, the title favoured because it is what a person reads, but
-// the lane kept rather than crowded out entirely.
-//
-// The lane is only trimmed when it would otherwise leave the title less
-// than a readable minimum, so a wide terminal shows both whole and a
-// narrow one gives up the lane's tail before the title's.
-func fitColumns(width int, rows []boardRow) (held, title int) {
-	col := func(get func(boardRow) string) int {
-		m := 0
-		for _, r := range rows {
-			if n := textw.Width(get(r)); n > m {
-				m = n
+// fitBoard trims the flexible columns present — the lane and the title —
+// so the widest row fits the terminal. The fixed columns and the gaps
+// are subtracted first; what remains goes to the title, with the lane
+// kept whole until doing so would crowd the title below a readable
+// minimum, at which point the lane gives up its tail first.
+func fitBoard(width int, rows [][]string, cols []string) {
+	maxw := make([]int, len(cols))
+	for _, r := range rows {
+		for c := range r {
+			if w := textw.Width(r[c]); w > maxw[c] {
+				maxw[c] = w
 			}
 		}
-
-		return m
 	}
 
-	// Six two-space gaps sit between the seven columns.
-	const gaps = 6 * 2
-	fixed := col(func(r boardRow) string { return r.host }) +
-		col(func(r boardRow) string { return r.repo }) +
-		col(func(r boardRow) string { return r.id }) +
-		col(func(r boardRow) string { return r.status }) +
-		col(func(r boardRow) string { return r.agent })
+	fixed, heldIdx, titleIdx := 0, -1, -1
+	for c, name := range cols {
+		switch name {
+		case "held":
+			heldIdx = c
+		case "title":
+			titleIdx = c
+		default:
+			fixed += maxw[c]
+		}
+	}
+	if heldIdx < 0 && titleIdx < 0 {
+		return
+	}
 
-	budget := width - fixed - gaps
+	budget := width - fixed - (len(cols)-1)*2
 	if budget < 1 {
 		budget = 1
 	}
 
-	const minTitle = 12
-	held = col(func(r boardRow) string { return r.held })
-	title = budget - held
-	if title < minTitle {
-		if budget <= minTitle {
-			// No room to favour the title; give it what there is and
-			// drop the lane rather than spill.
-			held, title = 0, budget
-		} else {
-			held, title = budget-minTitle, minTitle
-		}
+	heldW, titleW := allocateFlex(budget, maxw, heldIdx, titleIdx)
+	if heldIdx >= 0 {
+		trimColumn(rows, heldIdx, heldW)
 	}
-	if held < 0 {
-		held = 0
+	if titleIdx >= 0 {
+		trimColumn(rows, titleIdx, titleW)
+	}
+}
+
+// allocateFlex splits a budget between the lane and the title. With
+// both, the title is favoured — the lane keeps its natural width until
+// that would leave the title below a minimum. With only one, it takes
+// the whole budget.
+func allocateFlex(budget int, maxw []int, heldIdx, titleIdx int) (held, title int) {
+	const minTitle = 12
+	switch {
+	case heldIdx >= 0 && titleIdx >= 0:
+		held = maxw[heldIdx]
+		title = budget - held
+		if title < minTitle {
+			if budget <= minTitle {
+				held, title = 0, budget
+			} else {
+				held, title = budget-minTitle, minTitle
+			}
+		}
+		if held < 0 {
+			held = 0
+		}
+	case titleIdx >= 0:
+		title = budget
+	default:
+		held = budget
 	}
 
 	return held, title
+}
+
+// trimColumn caps every row's cell in one column to a width.
+func trimColumn(rows [][]string, col, width int) {
+	for _, r := range rows {
+		r[col] = textw.Truncate(r[col], width)
+	}
 }
 
 // laneShorts drops the redundant plan/<id>- prefix a hold branch carries,
