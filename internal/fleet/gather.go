@@ -30,11 +30,32 @@ type Problem struct {
 	NotPlan bool
 }
 
+// Coord is the per-repository state a lease is minted from: where the
+// repository lives, the remote a claim is pushed to, and the base a
+// lease is dated against. The gather already resolves all three walking
+// the fleet, so a mutating verb reads them off the result rather than
+// walking the whole fleet a second time to re-derive them.
+//
+// The base is the config's when set, otherwise the default-ref cascade
+// the gather already runs for its merged-ref filter — the same cascade
+// a lease dates against.
+type Coord struct {
+	Path   string
+	Remote string
+	Base   string
+}
+
 // Result is a gathered fleet: every plan's authoritative version across
-// every repository and ref, and the problems met on the way.
+// every repository and ref, the coordinate a lease is minted from for
+// each repository, and the problems met on the way.
+//
+// The coordinates are keyed by repository name — the same name a plan
+// carries — and are per repository, not per plan, so they travel beside
+// the plans rather than copied onto each one a repository holds.
 type Result struct {
 	Plans    []discovery.Plan
 	Problems []Problem
+	Coords   map[string]Coord
 }
 
 // Gather reads every repository under root and flattens its plan index
@@ -53,15 +74,20 @@ func Gather(
 		return Result{}, err
 	}
 
-	res := Result{Plans: []discovery.Plan{}, Problems: []Problem{}}
+	res := Result{
+		Plans:    []discovery.Plan{},
+		Problems: []Problem{},
+		Coords:   map[string]Coord{},
+	}
 	for _, repo := range repos {
-		entries, held, problems, err := gatherRepo(host, repo, run, pipe)
+		entries, held, coord, problems, err := gatherRepo(host, repo, run, pipe)
 		if err != nil {
 			res.Problems = append(res.Problems,
 				Problem{Repo: repo.Name, Err: err})
 			continue
 		}
 		res.Problems = append(res.Problems, problems...)
+		res.Coords[repo.Name] = coord
 		for _, e := range entries {
 			res.Plans = append(res.Plans, planOf(repo.Name, e, held))
 		}
@@ -70,19 +96,22 @@ func Gather(
 	return res, nil
 }
 
-// gatherRepo reads one repository's plans and the ids its lanes hold.
+// gatherRepo reads one repository's plans, the ids its lanes hold, and
+// the coordinate a lease is minted from. The coordinate reuses the
+// config and the default-ref cascade this loop already resolved, so it
+// costs no new walk or subprocess.
 func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner,
-) ([]index.Entry, map[int64][]string, []Problem, error) {
+) ([]index.Entry, map[int64][]string, Coord, []Problem, error) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, Coord{}, nil, err
 	}
 
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, Coord{}, nil, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
@@ -98,10 +127,22 @@ func gatherRepo(
 
 	held, err := heldBranches(repo, cfg, preferred, run)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, Coord{}, nil, err
 	}
 
-	return entries, held, problems, nil
+	return entries, held, coordOf(repo, cfg, preferred), problems, nil
+}
+
+// coordOf resolves the lease coordinate from what the gather already
+// read: the repository path, the config's remote, and the base — the
+// config's when set, otherwise the default-ref cascade the gather ran.
+func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
+	base := cfg.Base
+	if base == "" {
+		base = preferred
+	}
+
+	return Coord{Path: repo.Path, Remote: cfg.Remote, Base: base}
 }
 
 // heldBranches maps each claimed plan id to the branches that claim it:

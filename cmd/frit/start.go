@@ -11,8 +11,8 @@ import (
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
-	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -71,10 +71,7 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 		return renderStart(c, rt, doc)
 	}
 
-	sc, err := startResolve(c, rt, plan)
-	if err != nil {
-		return err
-	}
+	sc := startContextOf(res.Coords[plan.Repo])
 	sp := composeStart(plan, phase, s.Note, sc)
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, s.Go)
 	carryProblems(doc, res.Problems, c.All)
@@ -89,27 +86,25 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 }
 
 // startContext is the repository state the escalation reads once: where
-// the repository lives, its config, and the base a lease is dated
-// against.
+// the repository lives, the remote a claim is pushed to, and the base a
+// lease is dated against.
 type startContext struct {
 	repoPath string
-	cfg      repocfg.Config
+	remote   string
 	base     string
 }
 
-// startResolve reads the repository path, its config, and the base ref —
-// the inputs both the composition and the execution need, read once and
-// shared. It reads the lease's base through the same helper claim does,
-// so the two never disagree on where a lease is dated from.
-func startResolve(
-	c *cli, rt *runtime, plan discovery.Plan,
-) (startContext, error) {
-	repoPath, cfg, base, err := repoBaseFor(c.Root, plan.Repo, rt.git)
-	if err != nil {
-		return startContext{}, err
+// startContextOf reads the escalation's inputs off the coordinate the
+// gather already resolved — the repository path, its remote and the
+// base — so start dates a lease from the one fleet walk rather than a
+// second one. It reads the same coordinate claim mints from, so the two
+// never disagree on where a lease is dated from.
+func startContextOf(coord fleet.Coord) startContext {
+	return startContext{
+		repoPath: coord.Path,
+		remote:   coord.Remote,
+		base:     coord.Base,
 	}
-
-	return startContext{repoPath: repoPath, cfg: cfg, base: base}, nil
 }
 
 // composeStart builds the escalation from the plan: the claim branch and
@@ -160,7 +155,7 @@ func startExecute(
 	if _, err := claim.Mint(sc.repoPath, claim.Options{
 		Branch:   sp.Branch,
 		Base:     sp.Base,
-		Remote:   sc.cfg.Remote,
+		Remote:   sc.remote,
 		PlanID:   plan.ID,
 		PlanFile: plan.Path,
 		Lane:     sp.Lane,
@@ -179,7 +174,7 @@ func startExecute(
 		// The claim was pushed but nothing stood behind it. Unwind it, so a
 		// failed handoff does not leave a hold that reads as an abandoned
 		// lane; the delete is best-effort beneath the handoff's own error.
-		_ = claim.Release(sc.repoPath, sp.Branch, sc.cfg.Remote, rt.git)
+		_ = claim.Release(sc.repoPath, sp.Branch, sc.remote, rt.git)
 
 		return err
 	}

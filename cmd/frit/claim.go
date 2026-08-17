@@ -8,11 +8,8 @@ import (
 	"strings"
 
 	"github.com/jeduden/frit/internal/claim"
-	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
-	"github.com/jeduden/frit/internal/gitobj"
-	"github.com/jeduden/frit/internal/gitwt"
-	"github.com/jeduden/frit/internal/repocfg"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -47,34 +44,30 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if err := mintClaim(c, rt, doc, plan, branch); err != nil {
+	if err := mintClaim(rt, doc, plan, branch, res.Coords[plan.Repo]); err != nil {
 		return err
 	}
 
 	return renderClaim(c, rt, doc)
 }
 
-// mintClaim resolves the repository's remote and base and writes the
-// lease. A lost race is the one expected non-fatal outcome — another
-// machine got there first — so it is carried in the document as a
-// refusal rather than surfaced as a command failure; a git fault is
-// returned.
+// mintClaim writes the lease from the coordinate the gather already
+// resolved — the repository path, its remote and the base — so the
+// claim reads them off the one fleet walk rather than a second one. A
+// lost race is the one expected non-fatal outcome — another machine got
+// there first — so it is carried in the document as a refusal rather
+// than surfaced as a command failure; a git fault is returned.
 func mintClaim(
-	c *cli, rt *runtime, doc *report.ClaimDoc,
-	plan discovery.Plan, branch string,
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, branch string, coord fleet.Coord,
 ) error {
-	repoPath, cfg, base, err := repoBaseFor(c.Root, plan.Repo, rt.git)
-	if err != nil {
-		return err
-	}
-
-	minted, err := claim.Mint(repoPath, claim.Options{
+	minted, err := claim.Mint(coord.Path, claim.Options{
 		Branch:   branch,
-		Base:     base,
-		Remote:   cfg.Remote,
+		Base:     coord.Base,
+		Remote:   coord.Remote,
 		PlanID:   plan.ID,
 		PlanFile: plan.Path,
-		Lane:     defaultLanePath(repoPath, plan.ID, branch),
+		Lane:     defaultLanePath(coord.Path, plan.ID, branch),
 		Host:     hostname(),
 	}, rt.git)
 	if err != nil {
@@ -113,50 +106,6 @@ func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 		return fmt.Sprintf(
 			"blocked by an unfinished dependency; see frit show %d", p.ID)
 	}
-}
-
-// repoPathFor finds the absolute path of the repository a plan lives in,
-// so the claim can run git inside it. The plan carries its repository's
-// name; the walk that gathered it knows the path.
-func repoPathFor(
-	root, name string, run gitwt.Runner,
-) (string, error) {
-	repos, err := discover.Repos(root, run)
-	if err != nil {
-		return "", err
-	}
-	for _, r := range repos {
-		if r.Name == name {
-			return r.Path, nil
-		}
-	}
-
-	return "", fmt.Errorf("no repository named %s under %s", name, root)
-}
-
-// repoBaseFor resolves the inputs a lease needs before it is minted: the
-// repository path, its config, and the base ref the lease is dated
-// against. The base is the config's when set, otherwise the ref cascade's,
-// so a repository on the convention needs no base in its config. Both
-// claim and start read the lease's base through here, so the rule lives
-// in one place.
-func repoBaseFor(
-	root, name string, run gitwt.Runner,
-) (repoPath string, cfg repocfg.Config, base string, err error) {
-	repoPath, err = repoPathFor(root, name, run)
-	if err != nil {
-		return "", repocfg.Config{}, "", err
-	}
-	cfg, err = repocfg.Load(repoPath)
-	if err != nil {
-		return "", repocfg.Config{}, "", err
-	}
-	base = cfg.Base
-	if base == "" {
-		base = gitobj.DefaultRef(repoPath, run)
-	}
-
-	return repoPath, cfg, base, nil
 }
 
 // defaultLanePath is where the lane's worktree lives by convention: a
