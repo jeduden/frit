@@ -820,9 +820,10 @@ func printBoard(out io.Writer, doc *report.BoardDoc, width int) {
 	}
 
 	if width > 0 {
-		budget := titleBudget(width, rows)
+		held, title := fitColumns(width, rows)
 		for i := range rows {
-			rows[i].title = truncateCells(rows[i].title, budget)
+			rows[i].held = truncateCells(rows[i].held, held)
+			rows[i].title = truncateCells(rows[i].title, title)
 		}
 	}
 
@@ -834,11 +835,16 @@ func printBoard(out io.Writer, doc *report.BoardDoc, width int) {
 	_ = tw.Flush()
 }
 
-// titleBudget is how many columns the title may take before a row spills
-// past the terminal: the width, less what every other column and the
-// gaps between them occupy. It never returns less than a readable
-// minimum, so a narrow terminal trims hard rather than to nothing.
-func titleBudget(width int, rows []boardRow) int {
+// fitColumns decides how wide the two flexible cells — the lane and the
+// title — may each be so a row fits the terminal. The fixed cells and
+// the gaps between all seven columns are subtracted first; what remains
+// is split, the title favoured because it is what a person reads, but
+// the lane kept rather than crowded out entirely.
+//
+// The lane is only trimmed when it would otherwise leave the title less
+// than a readable minimum, so a wide terminal shows both whole and a
+// narrow one gives up the lane's tail before the title's.
+func fitColumns(width int, rows []boardRow) (held, title int) {
 	col := func(get func(boardRow) string) int {
 		m := 0
 		for _, r := range rows {
@@ -852,19 +858,34 @@ func titleBudget(width int, rows []boardRow) int {
 
 	// Six two-space gaps sit between the seven columns.
 	const gaps = 6 * 2
-	prefix := col(func(r boardRow) string { return r.host }) +
+	fixed := col(func(r boardRow) string { return r.host }) +
 		col(func(r boardRow) string { return r.repo }) +
 		col(func(r boardRow) string { return r.id }) +
 		col(func(r boardRow) string { return r.status }) +
-		col(func(r boardRow) string { return r.held }) +
 		col(func(r boardRow) string { return r.agent })
 
-	const minTitle = 8
-	if budget := width - prefix - gaps; budget > minTitle {
-		return budget
+	budget := width - fixed - gaps
+	if budget < 1 {
+		budget = 1
 	}
 
-	return minTitle
+	const minTitle = 12
+	held = col(func(r boardRow) string { return r.held })
+	title = budget - held
+	if title < minTitle {
+		if budget <= minTitle {
+			// No room to favour the title; give it what there is and
+			// drop the lane rather than spill.
+			held, title = 0, budget
+		} else {
+			held, title = budget-minTitle, minTitle
+		}
+	}
+	if held < 0 {
+		held = 0
+	}
+
+	return held, title
 }
 
 // cellWidth is the display width of a cell. It counts runes, adding a

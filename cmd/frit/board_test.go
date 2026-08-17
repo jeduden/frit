@@ -50,13 +50,33 @@ func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
 	longTitle := strings.Repeat("very long title ", 8)
 	var buf bytes.Buffer
 
-	printBoard(&buf, boardWith(longTitle), 60)
+	printBoard(&buf, boardWith(longTitle), 80)
 
 	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, cellWidth(line), 60, "the row fits the terminal")
+	assert.LessOrEqual(t, cellWidth(line), 80, "the row fits the terminal")
 	assert.Contains(t, line, "…", "the trimmed title is marked")
 	assert.Contains(t, line, "underway",
 		"the lane shows without its plan/<id>- prefix")
+}
+
+// TestPrintBoardTrimsTheLaneOnANarrowTerminal: when a long lane would
+// crowd out the title, the lane gives up its tail too so the row still
+// fits.
+func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:smalt:100", Repo: "smalt", ID: 100, Status: "🔳",
+		Title: "A title that also wants room",
+		Held:  true, Holds: []string{"plan/100-render-consistency-loop-gas-giants"},
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 80)
+
+	line := strings.TrimRight(buf.String(), "\n")
+	assert.LessOrEqual(t, cellWidth(line), 80,
+		"a long lane is trimmed rather than spilling the row")
+	assert.Contains(t, line, "…")
 }
 
 // TestPrintBoardWidthZeroKeepsTheFullTitle: a pipe or a test gets the
