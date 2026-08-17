@@ -24,6 +24,7 @@ empty: |
 | ID         | Model | Title                                                                                       |
 | ---------- | ----- | ------------------------------------------------------------------------------------------- |
 | 2608161810 | opus  | [The dispatch ladder — from a board to a seeded prompt](plan/2608161810_dispatch-ladder.md) |
+| 2608171835 | opus  | [The claim lease — frit mints the hold, atomically](plan/2608171835_claim-lease.md)         |
 <?/catalog?>
 
 ## All plans
@@ -49,5 +50,5 @@ footer: |
 | 2608161809 | ✅     | opus   | [Discovery — what can I start, and what blocks it](plan/2608161809_discovery-readiness-verbs.md)       |
 | 2608161810 | 🔳     | opus   | [The dispatch ladder — from a board to a seeded prompt](plan/2608161810_dispatch-ladder.md)            |
 | 2608161811 | 🔲     | sonnet | [Multi-host — read the sockets, not the socket](plan/2608161811_multi-host-fan-out.md)                 |
-| 2608171835 | 🔲     | opus   | [The claim lease — frit mints the hold, atomically](plan/2608171835_claim-lease.md)                    |
+| 2608171835 | 🔳     | opus   | [The claim lease — frit mints the hold, atomically](plan/2608171835_claim-lease.md)                    |
 <?/catalog?>

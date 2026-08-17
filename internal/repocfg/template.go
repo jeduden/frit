@@ -49,6 +49,18 @@ plan-dir: ` + DefaultPlanDir + `
 # An empty list says this repository has no claims at all.
 holds:
   - "` + DefaultHoldPattern + `"
+
+# The git remote a claim lease is pushed to.
+remote: ` + DefaultRemote + `
+
+# The ref a claim lease is dated against.
+#
+# Left unset, base is derived from git through the
+# origin/HEAD → main → master → HEAD cascade — so it has no literal
+# default and is not written as an active key. Set it only to pin the
+# ref the lease is dated against, e.g.
+#
+# base: origin/main
 `
 
 // Init writes the template into repoDir.
