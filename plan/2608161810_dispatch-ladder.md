@@ -31,10 +31,13 @@ The way out is that the plan already contains the prompt. Plans
 declare, per phase, the model tier and the gate that proves the work.
 Combined with the `plan-phase` skill, which loads only the front
 matter and one `## Phase N` section, the whole prompt is about twenty
-characters: `/plan-phase 2607191320 8`. The tier comes out of the
-Execution table, so dispatch is typed — phase 8 asks for opus and gets
-opus. No general-purpose orchestrator can do this, because none of
-them reads the plan.
+characters: `/plan-phase 2607191320 8`. The tier is the plan's declared
+`model`, which the author sets from the Execution table's most
+demanding phase, so dispatch is typed — a plan asks for opus and gets
+opus. frit reads that tier from the front matter it already indexes,
+never by re-parsing the markdown table, because mdsmith owns the body
+and frit owns the front matter. No general-purpose orchestrator can do
+this, because none of them reads the plan.
 
 The ladder is built from herdr's protocol-17 surface. `worktree.create`
 and `agent.start` stand a lane up. `agent.prompt` sends the composed
@@ -42,7 +45,7 @@ command. Herdr's own pane focus and `--remote` attach do the handoff.
 `agent.wait` bounds `agent.start` until the agent has come up, which is
 a wait on a status, not on a reply — so it is not the forbidden
 `agent.read`. The `agent.start.args` field is the important one. The
-tier from the table maps straight onto `--model haiku|sonnet|opus`.
+plan's declared tier maps straight onto `--model haiku|sonnet|opus`.
 
 Three rules keep this from becoming herdr, and every phase is built to
 hold them:
@@ -77,7 +80,8 @@ rather than escalating on its own — that is the signal to climb a rung.
 
 Ship `frit nudge <selector>`: compose the typed slash command from the
 plan's next open phase and `agent.prompt` it into an existing idle
-lane. The tier is read from the Execution table, never chosen here.
+lane. The tier is read from the plan's declared `model`, never chosen
+here.
 
 Dry-run is the default. `frit nudge shader-unit` prints the exact
 composition and the target pane; only `--go` sends it. A lane with no
@@ -111,7 +115,7 @@ Tier is per phase, set by the most demanding ingredient.
 | Phase           | Design | Implement | Gate that catches a wrong answer                               |
 | --------------- | ------ | --------- | -------------------------------------------------------------- |
 | 1 open, rung 1  | sonnet | sonnet    | test that open sends no text and starts no agent               |
-| 2 nudge, rung 2 | opus   | sonnet    | test that dry-run is default and the tier comes from the table |
+| 2 nudge, rung 2 | opus   | sonnet    | test that dry-run is default and the tier comes from the plan  |
 | 3 start, rung 3 | opus   | opus      | test that every mutation is delegated and agent.read is unused |
 
 ## Non-goals
@@ -127,8 +131,8 @@ Tier is per phase, set by the most demanding ingredient.
 ## Tasks
 
 1. [x] Ship `frit open` — rung 1, focus or attach, no text sent
-2. Compose the typed slash command from a plan's next open phase
-3. Ship `frit nudge` — rung 2, dry-run by default, `--go` to send
+2. [x] Compose the typed slash command from a plan's next open phase
+3. [x] Ship `frit nudge` — rung 2, dry-run by default, `--go` to send
 4. Ship `frit start` — rung 3, claim, worktree, agent, prompt, focus
 5. Add `--note` and `--edit` as prefilled-template escape hatches
 6. Give every dispatch verb a `--json` dry-run form
@@ -136,8 +140,8 @@ Tier is per phase, set by the most demanding ingredient.
 ## Acceptance Criteria
 
 - [x] `frit open` focuses or attaches and sends no text
-- [ ] The composed prompt is always a slash command naming plan and phase
-- [ ] The model tier is read from the Execution table, never chosen
+- [x] The composed prompt is always a slash command naming plan and phase
+- [x] The model tier is read from the plan's declared model, never chosen
 - [ ] `frit nudge` and `frit start` are dry-run unless `--go` is given
 - [ ] `frit start` delegates the claim to plan-lane and the spawn to herdr
 - [ ] `agent.read` is never called by any code path

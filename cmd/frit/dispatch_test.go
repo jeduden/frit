@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -73,15 +77,42 @@ func recordingHerdr(agents ...map[string]any) (herdr.Runner, *herdrCalls) {
 // on that plan's hold branch, which is what a lane under active work
 // looks like: a claim frit can resolve and a pane herdr can be on.
 func heldPlan(t *testing.T, root, name string, id int, title string) string {
+	return heldPlanModeled(t, root, name, id, title, "")
+}
+
+// heldPlanModeled is heldPlan carrying a declared model tier, so a test
+// can prove the tier a dispatch verb shows comes from the plan.
+func heldPlanModeled(
+	t *testing.T, root, name string, id int, title, model string,
+) string {
 	t.Helper()
 	repo := initRepo(t, root, name)
 	// Commit the plan on the hold branch, not main: a branch level with
 	// main reads as already merged, and a merged ref is landed work, not
 	// a live claim.
 	git(t, repo, "checkout", "-q", "-b", planBranch(id, title))
-	commitPlan(t, repo, id, "🔳", title, nil, "")
+	writeHeldPlan(t, repo, id, title, model)
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d", id))
 
 	return repo
+}
+
+// writeHeldPlan lays down an in-progress plan file, carrying a model
+// tier when one is given.
+func writeHeldPlan(t *testing.T, repo string, id int, title, model string) {
+	t.Helper()
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nid: %d\ntitle: %s\nstatus: %q\n", id, title, "🔳")
+	if model != "" {
+		fmt.Fprintf(&b, "model: %s\n", model)
+	}
+	b.WriteString("---\n# " + title + "\n")
+
+	path := filepath.Join(repo, "plan",
+		fmt.Sprintf("%d_%s.md", id, slugify(title)))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte(b.String()), 0o600))
 }
 
 // planBranch is the hold branch a held plan is worked on, in the
@@ -169,4 +200,113 @@ func TestOpenEmitsJSON(t *testing.T) {
 	assert.True(t, doc.Focused)
 	assert.Equal(t, "wC:p1", doc.Target)
 	assert.Equal(t, "claude", doc.Agent)
+}
+
+// idleLane fakes a herdr with one idle agent parked in repo, the target
+// a nudge is allowed to prompt.
+func idleLane(repo string) map[string]any {
+	return map[string]any{
+		"agent": "claude", "agent_status": "idle", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "idle lane",
+	}
+}
+
+// TestNudgeIsDryRunByDefault is the Phase 2 gate: without --go, nudge
+// prints the composition it would send and sends nothing.
+func TestNudgeIsDryRunByDefault(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--phase", "2", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"), "dry-run sends nothing")
+	assert.Contains(t, out.String(), "/plan-phase 7 2",
+		"the composition is printed")
+	assert.Contains(t, out.String(), "wC:p1", "the target pane is printed")
+}
+
+// TestNudgeGoSendsTheComposedCommand: with --go, the slash command is
+// prompted into the idle lane, whole.
+func TestNudgeGoSendsTheComposedCommand(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--phase", "2", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "prompt", "wC:p1", "/plan-phase 7 2"),
+		"the composed command is sent whole to the pane")
+	assert.False(t, rec.verb("agent", "read"), "nudge never reads a reply")
+	assert.Contains(t, out.String(), "sent")
+}
+
+// TestNudgeRefusesABusyLane: an agent that is working is not
+// interrupted, even with --go.
+func TestNudgeRefusesABusyLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "busy",
+	})
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--phase", "2", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"),
+		"a working lane is refused, not interrupted")
+	assert.Contains(t, out.String(), "refus")
+}
+
+// TestNudgeRefusesWhenNoLiveLane: nudge is into an existing lane, so a
+// plan nobody is working is refused rather than started.
+func TestNudgeRefusesWhenNoLiveLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // no panes
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--go", "--phase", "2",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"))
+	assert.Contains(t, out.String(), "no live lane")
+}
+
+// TestNudgeTierComesFromThePlan: the tier shown is the plan's declared
+// model, never a flag — dispatch is typed, not chosen.
+func TestNudgeTierComesFromThePlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlanModeled(t, root, "atlas", 7, "Dispatch me", "sonnet")
+	runner, _ := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--root", root)
+
+	assert.Equal(t, "nudge", doc.Command)
+	assert.Equal(t, "/plan-phase 7 2", doc.Prompt)
+	assert.Equal(t, "2", doc.Phase)
+	assert.Equal(t, "sonnet", doc.Tier)
+	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
+	assert.Equal(t, "wC:p1", doc.Target)
 }

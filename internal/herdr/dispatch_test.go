@@ -29,3 +29,29 @@ func TestFocusReturnsTheRunnerError(t *testing.T) {
 	err := Focus(func(...string) ([]byte, error) { return nil, want }, "gone")
 	assert.ErrorIs(t, err, want)
 }
+
+// TestPromptSendsTheTextToTheTarget hands the composed slash command to
+// the pane and nothing else. The text is one argument, so a command with
+// spaces stays whole rather than splitting into flags.
+func TestPromptSendsTheTextToTheTarget(t *testing.T) {
+	var got []string
+	runner := func(args ...string) ([]byte, error) {
+		got = args
+
+		return nil, nil
+	}
+
+	require.NoError(t, Prompt(runner, "wC:p1", "/plan-phase 7 2"))
+	assert.Equal(t, []string{"agent", "prompt", "wC:p1", "/plan-phase 7 2"},
+		got)
+}
+
+// TestPromptReturnsTheRunnerError surfaces a failed send rather than
+// reporting text that never landed.
+func TestPromptReturnsTheRunnerError(t *testing.T) {
+	want := errors.New("agent busy")
+	err := Prompt(func(...string) ([]byte, error) {
+		return nil, want
+	}, "wC:p1", "/plan-phase 7 2")
+	assert.ErrorIs(t, err, want)
+}

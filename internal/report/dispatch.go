@@ -59,3 +59,65 @@ func (d *OpenDoc) Focus(lane herdr.Lane) {
 func (d *OpenDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// NudgeDoc is what `frit nudge` composed and, with --go, sent: the typed
+// slash command it derived from the plan, the tier the plan declares,
+// and the idle lane it targeted.
+//
+// Rung two is dry-run by default: the document reports the composition
+// whether or not it was sent, so a person or an agent sees exactly what
+// would go before it goes. It never carries a reply — nudge sends and
+// hands over.
+type NudgeDoc struct {
+	header
+	Root string       `json:"root"`
+	Plan DispatchPlan `json:"plan"`
+	// Phase is the phase the command names; Prompt is the whole composed
+	// slash command; Tier is the model the plan declares for it, shown
+	// but never sent — nudge prompts an agent already at its tier.
+	Phase  string `json:"phase"`
+	Prompt string `json:"prompt"`
+	Tier   string `json:"tier"`
+	// Target is the pane a send would land in, empty when no lane is live
+	// to take it.
+	Target string `json:"target"`
+	// Go is whether --go was given; Sent is whether text actually went.
+	// They differ on a refusal: --go with a busy lane sends nothing.
+	Go   bool `json:"go"`
+	Sent bool `json:"sent"`
+	// Refused is why a send was withheld — a busy lane, or none live —
+	// empty when nudge was free to send.
+	Refused  string    `json:"refused"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewNudge opens a nudge report for a resolved plan and its composition.
+func NewNudge(
+	root string, repo string, id int64, title,
+	phase, tier, prompt string, wantGo bool,
+) *NudgeDoc {
+	return &NudgeDoc{
+		header:   newHeader("nudge"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Phase:    phase,
+		Prompt:   prompt,
+		Tier:     tier,
+		Go:       wantGo,
+		Problems: []Problem{},
+	}
+}
+
+// SetTarget records the pane a send would land in.
+func (d *NudgeDoc) SetTarget(pane string) { d.Target = pane }
+
+// Refuse records why a send was withheld, leaving Sent false.
+func (d *NudgeDoc) Refuse(reason string) { d.Refused = reason }
+
+// MarkSent records that the composed prompt went to the target.
+func (d *NudgeDoc) MarkSent() { d.Sent = true }
+
+// AddProblem records a socket frit could not read.
+func (d *NudgeDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}

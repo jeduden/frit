@@ -13,3 +13,13 @@ func Focus(runner Runner, target string) error {
 
 	return err
 }
+
+// Prompt submits the composed slash command to the agent on a pane. The
+// text is a single argument, so a command carrying spaces reaches herdr
+// whole rather than split into flags. It sends and returns — it never
+// waits for or reads the reply.
+func Prompt(runner Runner, target, text string) error {
+	_, err := runner("agent", "prompt", target, text)
+
+	return err
+}
