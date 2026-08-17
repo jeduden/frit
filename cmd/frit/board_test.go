@@ -7,29 +7,16 @@ import (
 
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/report"
+	"github.com/jeduden/frit/internal/textw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestTruncateCellsMarksACut(t *testing.T) {
-	assert.Equal(t, "hello", truncateCells("hello", 10))
-	assert.Equal(t, "hel…", truncateCells("hello world", 4))
-	assert.Equal(t, "…", truncateCells("hello", 1))
-	assert.Equal(t, "", truncateCells("hello", 0))
-}
 
 func TestLaneShortsDropsTheRedundantPrefix(t *testing.T) {
 	got := laneShorts([]string{"plan/100-shader-unit", "feature/x"}, 100)
 
 	assert.Equal(t, []string{"shader-unit", "feature/x"}, got,
 		"the plan/<id>- prefix goes; a foreign convention stays whole")
-}
-
-func TestCellWidthCountsAStatusGlyphAsTwo(t *testing.T) {
-	assert.Equal(t, 2, cellWidth("🔳"))
-	assert.Equal(t, 5, cellWidth("hello"))
-	// An em dash stays one column.
-	assert.Equal(t, 3, cellWidth("a—b"))
 }
 
 // boardWith builds a one-row board carrying a long title, to exercise
@@ -53,7 +40,7 @@ func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
 	printBoard(&buf, boardWith(longTitle), 80)
 
 	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, cellWidth(line), 80, "the row fits the terminal")
+	assert.LessOrEqual(t, textw.Width(line), 80, "the row fits the terminal")
 	assert.Contains(t, line, "…", "the trimmed title is marked")
 	assert.Contains(t, line, "underway",
 		"the lane shows without its plan/<id>- prefix")
@@ -74,7 +61,7 @@ func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
 	printBoard(&buf, doc, 80)
 
 	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, cellWidth(line), 80,
+	assert.LessOrEqual(t, textw.Width(line), 80,
 		"a long lane is trimmed rather than spilling the row")
 	assert.Contains(t, line, "…")
 }
@@ -94,4 +81,41 @@ func TestPrintBoardWidthZeroKeepsTheFullTitle(t *testing.T) {
 func TestTerminalWidthIsZeroForANonTerminal(t *testing.T) {
 	require.Equal(t, 0, terminalWidth(&bytes.Buffer{}),
 		"a buffer is not a terminal, so no width is imposed")
+}
+
+// TestFitLastColumnCapsTheFlexibleCell: the last column is trimmed to
+// what the fixed columns and gaps leave, and the shorter fixed cells
+// are untouched.
+func TestFitLastColumnCapsTheFlexibleCell(t *testing.T) {
+	rows := [][]string{
+		{"atlas", "100", "opus", strings.Repeat("word ", 20)},
+		{"orrery", "7", "sonnet", "short"},
+	}
+
+	fitLastColumn(40, rows)
+
+	for _, r := range rows {
+		assert.LessOrEqual(t, textw.Width(strings.Join(r, "  ")), 40)
+	}
+	assert.Equal(t, "short", rows[1][3], "a short cell is left whole")
+}
+
+// TestReadyTrimsTitleToWidth: the ready table fits a terminal, and full
+// when there is none.
+func TestReadyTrimsTitleToWidth(t *testing.T) {
+	doc := report.NewReady("/x", "h")
+	doc.SetPlans([]discovery.Plan{{
+		Repo: "atlas", ID: 100, Status: "🔲", Model: "opus",
+		Title: strings.Repeat("very long title ", 6),
+	}})
+
+	var fitted bytes.Buffer
+	printReady(&fitted, doc, 50)
+	line := strings.TrimRight(fitted.String(), "\n")
+	assert.LessOrEqual(t, textw.Width(line), 50)
+	assert.Contains(t, line, "…")
+
+	var full bytes.Buffer
+	printReady(&full, doc, 0)
+	assert.NotContains(t, full.String(), "…", "no width means no trim")
 }

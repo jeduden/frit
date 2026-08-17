@@ -15,7 +15,6 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
-	"unicode/utf8"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -34,6 +33,7 @@ import (
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
+	"github.com/jeduden/frit/internal/textw"
 )
 
 // version is stamped at build time with -ldflags.
@@ -621,7 +621,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printReady(rt.stdout, doc)
+	printReady(rt.stdout, doc, rt.width)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -646,7 +646,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printReady(rt.stdout, readyView(doc))
+	printReady(rt.stdout, readyView(doc), rt.width)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -822,8 +822,8 @@ func printBoard(out io.Writer, doc *report.BoardDoc, width int) {
 	if width > 0 {
 		held, title := fitColumns(width, rows)
 		for i := range rows {
-			rows[i].held = truncateCells(rows[i].held, held)
-			rows[i].title = truncateCells(rows[i].title, title)
+			rows[i].held = textw.Truncate(rows[i].held, held)
+			rows[i].title = textw.Truncate(rows[i].title, title)
 		}
 	}
 
@@ -848,7 +848,7 @@ func fitColumns(width int, rows []boardRow) (held, title int) {
 	col := func(get func(boardRow) string) int {
 		m := 0
 		for _, r := range rows {
-			if n := cellWidth(get(r)); n > m {
+			if n := textw.Width(get(r)); n > m {
 				m = n
 			}
 		}
@@ -886,40 +886,6 @@ func fitColumns(width int, rows []boardRow) (held, title int) {
 	}
 
 	return held, title
-}
-
-// cellWidth is the display width of a cell. It counts runes, adding a
-// column for each wide glyph — the status emoji, chiefly — so the title
-// budget is not an underestimate that lets a row spill. The 0x2100
-// cutoff keeps a narrow em dash at one column while giving the emoji and
-// CJK their two, which is enough without a full wcwidth table.
-func cellWidth(s string) int {
-	width := 0
-	for _, r := range s {
-		width++
-		if r >= 0x2100 {
-			width++
-		}
-	}
-
-	return width
-}
-
-// truncateCells caps a string to max display columns, marking a cut with
-// an ellipsis so a trimmed title reads as trimmed rather than as a
-// different title.
-func truncateCells(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	if max == 1 {
-		return "…"
-	}
-
-	return string([]rune(s)[:max-1]) + "…"
 }
 
 // laneShorts drops the redundant plan/<id>- prefix a hold branch carries,
@@ -1002,7 +968,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
-	printFind(rt.stdout, doc)
+	printFind(rt.stdout, doc, rt.width)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1012,18 +978,19 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 // answers with plans in any state, not only startable ones. A search
 // that matched nothing says so with the query, so an empty result is
 // never mistaken for a broken command.
-func printFind(out io.Writer, doc *report.FindDoc) {
+func printFind(out io.Writer, doc *report.FindDoc, width int) {
 	if len(doc.Plans) == 0 {
 		_, _ = fmt.Fprintf(out, "no plan matches %q\n", doc.Query)
 		return
 	}
 
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	rows := make([][]string, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
-			p.Repo, p.ID, statusLabel(p.Status), p.Title)
+		rows = append(rows, []string{
+			p.Repo, strconv.FormatInt(p.ID, 10), statusLabel(p.Status), p.Title,
+		})
 	}
-	_ = tw.Flush()
+	fitTable(out, width, rows)
 }
 
 // printNext writes the plan and the phase to pick up, the seed a
@@ -1130,18 +1097,70 @@ func statusLabel(status string) string {
 // printReady writes one line per startable plan, carrying the model
 // tier because it is what a person reaches for the plan to dispatch it.
 // A fleet with nothing startable says so plainly.
-func printReady(out io.Writer, doc *report.ReadyDoc) {
+func printReady(out io.Writer, doc *report.ReadyDoc, width int) {
 	if len(doc.Plans) == 0 {
 		_, _ = fmt.Fprintln(out, "nothing startable")
 		return
 	}
 
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	rows := make([][]string, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
-			p.Repo, p.ID, modelLabel(p.Model), p.Title)
+		rows = append(rows, []string{
+			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model), p.Title,
+		})
+	}
+	fitTable(out, width, rows)
+}
+
+// fitTable renders rows as an aligned table, trimming each row's final
+// cell so the widest line fits the terminal. The last column is the
+// flexible one — a title, the text with no natural bound — and the
+// others take their own width from their content. A width of zero, a
+// pipe or a test, imposes no limit and prints in full.
+func fitTable(out io.Writer, width int, rows [][]string) {
+	if width > 0 {
+		fitLastColumn(width, rows)
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, r := range rows {
+		_, _ = fmt.Fprintln(tw, strings.Join(r, "\t"))
 	}
 	_ = tw.Flush()
+}
+
+// fitLastColumn caps each row's final cell to the columns left after the
+// fixed columns and the gaps between them, so no rendered line spills
+// past width. The cap never falls below a readable minimum: a narrow
+// terminal trims hard rather than to nothing.
+func fitLastColumn(width int, rows [][]string) {
+	if len(rows) == 0 {
+		return
+	}
+	last := len(rows[0]) - 1
+	if last < 1 {
+		return
+	}
+
+	fixed := 0
+	for c := 0; c < last; c++ {
+		m := 0
+		for _, r := range rows {
+			if w := textw.Width(r[c]); w > m {
+				m = w
+			}
+		}
+		fixed += m
+	}
+
+	const minCol = 12
+	budget := width - fixed - last*2
+	if budget < minCol {
+		budget = minCol
+	}
+	for _, r := range rows {
+		r[last] = textw.Truncate(r[last], budget)
+	}
 }
 
 // modelLabel names the tier a plan asks for, or a dash when it names
