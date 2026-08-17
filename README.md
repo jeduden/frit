@@ -83,6 +83,22 @@ frit show <plan> --all  # every dependency, done ones included
 frit ready --all        # ...and surface files that are not plans
 ```
 
+## Fitting the terminal
+
+The board and the plan lists trim their titles to the terminal width so
+a row never wraps. This happens only when the output is a terminal; a
+pipe or a redirect gets the full, stable text. Where there is no
+terminal to measure — behind a pager, or under a harness that indents
+the output — pass the width to use:
+
+```sh
+frit board --width 100  # fit to 100 columns regardless of detection
+```
+
+Global flags like `--root`, `--width` and `--json` may sit before the
+verb or after it: `frit --root ~/git board` and `frit board --root
+~/git` are the same.
+
 ## JSON
 
 Every command takes `--json` and answers with a document instead of a
