@@ -26,6 +26,42 @@ func TestDefaultIsTheCanonicalConvention(t *testing.T) {
 	assert.Equal(t, []string{"plan/{id}-*"}, got.Holds)
 }
 
+// TestDefaultRemoteIsOriginAndBaseIsDerived pins that a lease pushes to
+// origin by default, while base carries no literal default: it is
+// resolved from git at use-time, so repocfg leaves it empty.
+func TestDefaultRemoteIsOriginAndBaseIsDerived(t *testing.T) {
+	got := Default()
+
+	assert.Equal(t, "origin", got.Remote)
+	assert.Empty(t, got.Base,
+		"base has no literal default; it is derived from git")
+}
+
+func TestLoadOverridesRemoteAndBase(t *testing.T) {
+	dir := write(t, "remote: upstream\nbase: origin/trunk\n")
+
+	got, err := Load(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, "upstream", got.Remote)
+	assert.Equal(t, "origin/trunk", got.Base)
+}
+
+// TestLoadKeepsRemoteAndBaseDefaultsForOmittedKeys pins that overriding
+// one unrelated key does not reset remote or base to something other
+// than their defaults.
+func TestLoadKeepsRemoteAndBaseDefaultsForOmittedKeys(t *testing.T) {
+	dir := write(t, "plan-dir: docs/plans\n")
+
+	got, err := Load(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, "docs/plans", got.PlanDir)
+	assert.Equal(t, "origin", got.Remote,
+		"omitting remote keeps its default")
+	assert.Empty(t, got.Base, "omitting base keeps it derived")
+}
+
 func TestLoadOnARepoWithNoFileGetsTheDefaults(t *testing.T) {
 	got, err := Load(t.TempDir())
 

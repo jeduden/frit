@@ -45,6 +45,10 @@ func TestGoldenShapes(t *testing.T) {
 		{"show", goldenShow()},
 		{"find", goldenFind()},
 		{"board", goldenBoard()},
+		{"open", goldenOpen()},
+		{"nudge", goldenNudge()},
+		{"claim", goldenClaim()},
+		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
@@ -234,6 +238,61 @@ func goldenBoard() *BoardDoc {
 	}, "", "")
 
 	return doc
+}
+
+// goldenOpen pins the handoff shape: the plan open resolved and the
+// live pane it raised, carrying the branch and agent that prove the
+// right lane was focused.
+func goldenOpen() *OpenDoc {
+	doc := NewOpen("/fleet", "atlas", 2608161810, "The dispatch ladder")
+	doc.Focus(herdr.Lane{
+		Pane: herdr.Pane{
+			Agent: "claude", Status: herdr.StatusWorking,
+			PaneID: "wC:p1", Title: "The dispatch ladder",
+		},
+		Root:   "/fleet/atlas-dispatch",
+		Repo:   "atlas",
+		Branch: "plan/2608161810-dispatch",
+	})
+
+	return doc
+}
+
+// goldenNudge pins the dry-run shape: the typed slash command nudge
+// composed, the tier the plan declares, and the idle lane it would land
+// in — with nothing sent, because --go was not given.
+func goldenNudge() *NudgeDoc {
+	doc := NewNudge("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "2", "opus",
+		"/plan-phase 2608161810 2", false)
+	doc.SetTarget("wC:p1")
+
+	return doc
+}
+
+// goldenClaim pins the lease shape: the hold branch frit minted for a
+// plan and the base commit it was dated against, the branch a consumer
+// reads back to learn what it now holds.
+func goldenClaim() *ClaimDoc {
+	doc := NewClaim("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "plan/2608161810-dispatch-ladder")
+	doc.Minted("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
+
+	return doc
+}
+
+// goldenStart pins the escalation shape: the claim, worktree, agent tier
+// and typed prompt start composed, with a note folded into the prompt and
+// nothing spawned because --go was not given.
+func goldenStart() *StartDoc {
+	return NewStart("/fleet", "atlas", 2608161810, "The dispatch ladder",
+		StartPlan{
+			Phase: "3", Tier: "opus", Kind: "claude",
+			Branch: "plan/2608161810-dispatch-ladder",
+			Base:   "refs/remotes/origin/main",
+			Lane:   "/fleet/atlas-dispatch-ladder",
+			Prompt: "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
+		}, false)
 }
 
 func goldenOrphans() *OrphansDoc {

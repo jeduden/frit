@@ -81,3 +81,17 @@ func TestTemplateDocumentsEveryKeyItWrites(t *testing.T) {
 	assert.Contains(t, Template, "{id}")
 	assert.Contains(t, Template, "remote prefix stripped")
 }
+
+// TestTemplateWritesTheActiveRemoteKey pins that the remote a lease is
+// pushed to is written as a live setting, built from the default.
+func TestTemplateWritesTheActiveRemoteKey(t *testing.T) {
+	assert.Contains(t, Template, "remote: origin")
+}
+
+// TestTemplateLeavesBaseCommented pins that base appears only as a
+// commented example, because its default is derived from git and an
+// active empty value would be wrong.
+func TestTemplateLeavesBaseCommented(t *testing.T) {
+	assert.Contains(t, Template, "# base: origin/main")
+	assert.NotContains(t, Template, "\nbase:")
+}

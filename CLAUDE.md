@@ -18,8 +18,9 @@ record; the research is the reasoning.
 
 ## Architecture
 
-frit consumes rather than reimplements. Three tools already own a
-layer of this problem, and frit is the join between them:
+frit consumes rather than reimplements. Two tools already own a layer
+of this problem, and frit is the join between them. It owns one
+mutation itself, the claim:
 
 - **mdsmith** owns markdown, and is imported as a library, not run
   as a subprocess. `pkg/markdown` splits front matter from body and
@@ -34,15 +35,22 @@ layer of this problem, and frit is the join between them:
 - **herdr** owns panes, worktrees and prompts. frit reads its socket
   API for live agent state and hands panes back to it for anything
   interactive.
-- **plan-lane** owns claims. A hold is a ref name, so frit reads
-  holds out of the ref list and delegates every mutation. Which
-  names count is declared per repository in its `.frit.yml`, never
-  inferred from a plan id, and refs merged into the default branch
-  are excluded so landed work does not read as an active claim.
+- **The claim is frit's own.** A hold is a ref name, and frit mints
+  it: an empty marker commit pushed with `--force-with-lease`, so a
+  hold is atomic across machines and a lost race is caught rather than
+  papered over ([internal/claim](internal/claim)). frit reads holds
+  out of the ref list too — which names count is declared per
+  repository in its `.frit.yml`, never inferred from a plan id, and
+  refs merged into the default branch are excluded so landed work does
+  not read as an active claim. frit still delegates the worktree and
+  the pane the claim stands up to herdr; the lease is the one thing it
+  writes.
 
-The rule that keeps those boundaries honest: frit indexes and
-displays. It never edits a plan, never spawns an agent it does not
-hand straight back, and never reads a transcript.
+The rule that keeps those boundaries honest: frit indexes, displays,
+and owns exactly one mutation — the claim, because a hold has to be
+atomic and a ref push is the only atom git offers. It never edits a
+plan, never spawns an agent it does not hand straight back, and never
+reads a transcript.
 
 ## Development Workflow
 
@@ -140,6 +148,10 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit show <id>` — what blocks a plan; `--all` for every dep
 - `go run ./cmd/frit find <text>` — search plan titles and summaries
 - `go run ./cmd/frit board` — outstanding plans, who holds each, the agent
+- `go run ./cmd/frit open <id>` — focus the pane a plan's lane runs in
+- `go run ./cmd/frit nudge <id>` — dry-run the phase prompt; `--go` sends it
+- `go run ./cmd/frit claim <id>` — mint frit's atomic hold on a startable plan
+- `go run ./cmd/frit start <id>` — compose the rung-3 escalation; `--go` runs it
 
 The discovery verbs are `ready`, `pick`, `next`, `show` and `find`.
 Each takes a plan three ways: an exact id, a slug fragment matched
