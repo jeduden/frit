@@ -114,6 +114,84 @@ func TestDiscoveryProblemGoesToStderrInTheTable(t *testing.T) {
 	assert.Contains(t, errb.String(), "frit: busted:")
 }
 
+// commitNonPlan drops a markdown file with no front matter into the
+// plan directory — a PLAN.md index or a stray note, the kind of file a
+// real plan directory keeps beside its plans.
+func commitNonPlan(t *testing.T, repo, name string) {
+	t.Helper()
+	path := filepath.Join(repo, "plan", name)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# Just a heading\n\nNo front matter here.\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "a non-plan "+name)
+}
+
+// TestNotAPlanIsHiddenByDefaultAndShownWithAll: a front-matterless file
+// in the plan directory is noise, held back from the report unless
+// --all asks for it. A genuine plan is unaffected.
+func TestNotAPlanIsHiddenByDefaultAndShownWithAll(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
+	commitNonPlan(t, repo, "notes.md")
+
+	var quiet, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"find", "real", "--root", root},
+		&quiet, &errb))
+	assert.NotContains(t, errb.String(), "no front matter",
+		"a non-plan is held back by default")
+	assert.Contains(t, quiet.String(), "Real plan")
+
+	var out, errb2 bytes.Buffer
+	require.Equal(t, 0, run([]string{"find", "real", "--all", "--root", root},
+		&out, &errb2))
+	assert.Contains(t, errb2.String(), "no front matter",
+		"--all surfaces the non-plan")
+	assert.Contains(t, errb2.String(), "notes.md")
+}
+
+// TestPlansHidesNonPlansUntilAll: frit plans reads the same directory
+// and applies the same rule down its own problem path.
+func TestPlansHidesNonPlansUntilAll(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
+	commitNonPlan(t, repo, "PLAN.md")
+
+	var out, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"plans", "--root", root}, &out, &errb))
+	assert.NotContains(t, errb.String(), "no front matter")
+
+	out.Reset()
+	errb.Reset()
+	require.Equal(t, 0,
+		run([]string{"plans", "--all", "--root", root}, &out, &errb))
+	assert.Contains(t, errb.String(), "no front matter")
+}
+
+// TestNotAPlanIsAbsentFromJSONUntilAll: the same rule holds in the
+// document, so a consumer is not handed the noise either until it asks.
+func TestNotAPlanIsAbsentFromJSONUntilAll(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
+	commitNonPlan(t, repo, "PLAN.md")
+
+	var plain report.ReadyDoc
+	emit(t, &plain, "ready", "--root", root)
+	assert.Empty(t, plain.Problems, "no non-plan noise by default")
+	require.Len(t, plain.Plans, 1)
+
+	var all report.ReadyDoc
+	emit(t, &all, "ready", "--all", "--root", root)
+	require.Len(t, all.Problems, 1)
+	assert.Contains(t, all.Problems[0].Message, "no front matter")
+}
+
 // phasesBlock builds a phases: front-matter block, one entry per given
 // status, numbered from one.
 func phasesBlock(statuses ...string) string {
@@ -264,7 +342,7 @@ func TestNextFromCwdResolvesWithinTheRepo(t *testing.T) {
 	assert.Equal(t, "atlas", doc.Plan.Repo,
 		"the cwd pins the repo; the shared id is not ambiguous")
 	assert.Equal(t, int64(100), doc.Plan.ID)
-	assert.Equal(t, 2, doc.Phase.N)
+	assert.Equal(t, "2", doc.Phase.N)
 }
 
 func TestNextEmitsJSON(t *testing.T) {
@@ -278,7 +356,7 @@ func TestNextEmitsJSON(t *testing.T) {
 
 	assert.Equal(t, "next", doc.Command)
 	assert.True(t, doc.HasPhase)
-	assert.Equal(t, 2, doc.Phase.N)
+	assert.Equal(t, "2", doc.Phase.N)
 	assert.Equal(t, int64(100), doc.Plan.ID)
 }
 

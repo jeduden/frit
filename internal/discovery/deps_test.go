@@ -17,15 +17,15 @@ func withPhases(pl Plan, phases ...planmeta.Phase) Plan {
 // follows over a plan's ledger.
 func TestNextPhaseSkipsDoneAndStopsAtTheFirstOpen(t *testing.T) {
 	pl := withPhases(p("atlas", 1, wip),
-		planmeta.Phase{N: 1, Title: "one", Status: done},
-		planmeta.Phase{N: 2, Title: "two", Status: wip},
-		planmeta.Phase{N: 3, Title: "three", Status: no},
+		planmeta.Phase{N: "1", Title: "one", Status: done},
+		planmeta.Phase{N: "2", Title: "two", Status: wip},
+		planmeta.Phase{N: "3", Title: "three", Status: no},
 	)
 
 	phase, ok := pl.NextPhase()
 
 	require.True(t, ok)
-	assert.Equal(t, 2, phase.N)
+	assert.Equal(t, planmeta.PhaseNumber("2"), phase.N)
 	assert.Equal(t, "two", phase.Title)
 }
 
