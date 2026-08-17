@@ -43,8 +43,33 @@ func TestGatherCarriesRepoCoordinates(t *testing.T) {
 
 	coord, ok := res.Coords["atlas"]
 	require.True(t, ok, "the gather carries a coordinate for the repo")
-	assert.Equal(t, repo, coord.Path)
+	// git reports the worktree's realpath, so resolve the expected path
+	// too: on a host where the temp root is a symlink the raw join and
+	// git's answer would differ though the coordinate is right.
+	want, err := filepath.EvalSymlinks(repo)
+	require.NoError(t, err)
+	assert.Equal(t, want, coord.Path)
 	assert.Equal(t, "origin", coord.Remote)
 	assert.Equal(t, "refs/heads/main", coord.Base,
 		"the base is the default-ref cascade when the config sets none")
+}
+
+// TestGatherCarriesTheConfiguredBase: when a repository pins its base in
+// .frit.yml, that is the base the gather carries — not the default-ref
+// cascade, which only fills in when the config sets none.
+func TestGatherCarriesTheConfiguredBase(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, ".frit.yml"), []byte("base: refs/heads/dev\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "pin base")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	coord, ok := res.Coords["atlas"]
+	require.True(t, ok)
+	assert.Equal(t, "refs/heads/dev", coord.Base,
+		"the base is the config's when it sets one")
 }
