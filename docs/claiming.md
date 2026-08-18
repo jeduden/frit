@@ -55,10 +55,7 @@ lane.
 If a plan has a claim branch but no worktree, frit reports it as
 unstaffed (see [Finding stale claims](#finding-stale-claims)). The
 reverse — a worktree on a branch with no matching claim — is not reported
-by any command. If any of herdr's four steps fails, frit tries to undo
-the claim it just minted; see [Finding stale
-claims](#finding-stale-claims) for what that undo does and does not
-guarantee.
+by any command.
 
 ## When a plan can be claimed
 
@@ -92,32 +89,51 @@ remote. If the plan cannot be claimed, frit writes nothing and prints the
 reason. A third outcome, a hard failure, is covered in [Failures that are
 not refusals](#failures-that-are-not-refusals).
 
-```mermaid
-flowchart TD
-    A[frit claim plan] --> B[read the fleet]
-    B --> C[find the one plan]
-    C --> D{can it be claimed?}
-    D -->|no| E[print the reason, write nothing]
-    D -->|yes| F[build the marker, push the branch]
-    F --> G{did the push succeed?}
-    G -->|branch did not exist on the remote| H[claim taken]
-    G -->|branch already existed| I[lost the race, delete local branch]
-    G -->|failed for another reason| J[real error, delete local branch, exit non-zero]
+The push uses `git push --force-with-lease=<ref>:` with an empty value
+after the colon. That tells git the branch must not already exist on the
+remote. The remote checks this atomically and rejects the push if the
+branch is there. On a shared remote, that check is what stops two
+machines from both taking the plan. The exact steps are below.
+
+## The claim, step by step
+
+To reimplement the claim, run exactly these steps, in this order, inside
+the plan's repository. `<ref>` is `refs/heads/plan/<id>-<slug>`. `<base>`
+is the plan's base ref: the `base:` in `.frit.yml`, or the default
+branch. `<message>` is the marker message shown in [What the marker
+records](#what-the-marker-records).
+
+```text
+1. Resolve the base commit and its tree:
+      base_sha  = git rev-parse <base>
+      base_tree = git rev-parse <base>^{tree}
+   If either fails, stop with an error. Nothing was written.
+
+2. Build the empty marker commit on that base:
+      marker = git commit-tree <base_tree> -p <base_sha> -m <message>
+
+3. Point the local branch at the marker:
+      git update-ref <ref> <marker>
+
+4. Push, claiming the ref only if it does not yet exist:
+      git push --force-with-lease=<ref>: <remote> <marker>:<ref>
+
+5. Decide the outcome:
+   - push succeeded                    -> CLAIMED
+   - push failed, and the ref now
+     exists on the remote:
+       git ls-remote --heads <remote> <ref>   (non-empty output)
+                                        -> LOST RACE
+   - push failed, and ls-remote is
+     empty or cannot be read           -> ERROR (a real fault)
+
+6. If the push failed, delete the local branch so a retry starts clean:
+      git update-ref -d <ref>
 ```
 
-Under the hood frit runs two local git commands, then one push:
-
-```sh
-git commit-tree <base-tree> -p <base> -m <marker message>
-git update-ref refs/heads/plan/7-shader-unit <marker>
-git push --force-with-lease=refs/heads/plan/7-shader-unit: \
-    origin <marker>:refs/heads/plan/7-shader-unit
-```
-
-The empty value after the colon in `--force-with-lease=<ref>:` tells git
-the branch must not already exist on the remote. The remote checks this
-atomically and rejects the push if the branch is there. On a shared
-remote, that check is what stops two machines from both taking the plan.
+Step 5 never reads git's error text. The only authoritative sign that
+another machine won is that the ref exists on the remote, so that is the
+question asked. This keeps the outcome deterministic across git versions.
 
 ## Two machines at once
 
@@ -145,12 +161,13 @@ branch can remain. It is safe to delete by hand — the remote never had
 it.
 
 This arbitration only holds between machines pushing to the same remote.
-frit tells a lost race from a real fault by matching git's error text for
-`[rejected]`, `stale info`, or `already exists`. Any of those reads as a
-lost race. Anything else — no network, a missing remote, a rejecting hook
-— is a real error, and frit exits non-zero. Because this is a text match
-on git's output, an unusual git version, or a hook that prints one of
-those phrases, could be misread.
+When the push fails, frit does not read git's error text to decide what
+happened. It asks the remote whether the hold ref now exists, with `git
+ls-remote --heads <remote> <ref>`. If the ref is there, another machine
+won: frit reports the lost race and exits 0. If the ref is absent, the
+push failed for another reason — no network, a missing remote, a
+declining hook — and frit reports a real error and exits non-zero. Either
+way, frit first deletes its own local branch, so a retry starts clean.
 
 ## When a claim is refused
 
@@ -256,17 +273,16 @@ The copy on the remote is the one other machines read. Deleting only the
 local branch leaves the plan claimed for everyone else.
 
 `frit start` runs this same delete itself if it mints a claim but then
-fails to set up the worktree. The delete is best-effort. If it fails —
-for example the remote is unreachable at that moment — frit does not
-report it, and the claim is left behind. After a failed `frit start
---go`, run `frit orphans` to check.
+fails to set up the worktree. If that delete also fails — for example the
+remote is unreachable at that moment — frit reports it in the error,
+names the branch, and points you at `frit orphans`. It does not leave the
+claim behind without saying so.
 
 ## What the marker records
 
-The marker commit's message records what the claim is for, so the branch
-alone tells the whole story. It holds the worktree path, the machine that
-took the plan, the base commit the branch started from, and the plan
-file.
+The marker's message records what the claim is for. The branch alone
+then tells the whole story: the worktree path, the host, the base commit,
+and the plan file.
 
 ```text
 plan 7: claim atlas-shader-unit
@@ -277,7 +293,6 @@ base:     3f2a9c1e8b7d4056a1c9e2f0b8d6473a5e1c9f20
 plan:     plan/7_shader-unit.md
 ```
 
-`base` is the commit frit resolved for the plan's base ref when it made
-the claim — the `base:` set in `.frit.yml`, or the default branch. When
-frit has no lane path to record, the title and the `lane` line show `-`
-instead of a path.
+`base` is the commit frit resolved for the plan's base ref — the `base:`
+in `.frit.yml`, or the default branch. With no lane path to record, the
+title and the `lane` line show `-`.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -190,4 +191,34 @@ func TestEditInEditorRunsAMultiWordEditor(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "/plan-phase 7 3 amended", got)
+}
+
+// TestReleaseClaimSurfacesADanglingClaim: when the unwind's remote delete
+// fails, the claim is still on the remote, and that is reported — naming
+// the ref and pointing at frit orphans — rather than swallowed.
+func TestReleaseClaimSurfacesADanglingClaim(t *testing.T) {
+	rt := &runtime{git: func(_ string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("remote hung up")
+		}
+		return nil, nil // update-ref -d is best-effort and ignored
+	}}
+	sc := startContext{repoPath: "/repo", remote: "origin"}
+
+	err := releaseClaim(rt, sc, "plan/7-shader-unit")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plan/7-shader-unit")
+	assert.Contains(t, err.Error(), "frit orphans")
+}
+
+// TestReleaseClaimIsSilentWhenTheUnwindTakes: a clean release reports
+// nothing, so only a real leak is ever surfaced.
+func TestReleaseClaimIsSilentWhenTheUnwindTakes(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, nil
+	}}
+	err := releaseClaim(rt,
+		startContext{repoPath: "/repo", remote: "origin"}, "plan/7-x")
+	assert.NoError(t, err)
 }

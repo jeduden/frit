@@ -170,6 +170,33 @@ func TestMintReportsANonRaceFailure(t *testing.T) {
 	assert.Error(t, refErr, "the local ref was rolled back")
 }
 
+// TestMintClassifiesByTheRemoteRefNotTheErrorText: a push a server hook
+// rejects is a real fault, even when the rejection text happens to carry
+// race-like words like "already exists". The claim is lost only when the
+// hold ref actually exists on the remote — so classification asks the
+// remote, never git's human-readable stderr.
+func TestMintClassifiesByTheRemoteRefNotTheErrorText(t *testing.T) {
+	work := originAndClone(t)
+	origin := gitCmd(t, work, "config", "--get", "remote.origin.url")
+	// A hook that declines every push with wording that would fool a
+	// stderr match. It never creates the ref, so this is a fault.
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	require.NoError(t, os.WriteFile(hook,
+		[]byte("#!/bin/sh\necho 'error: object already exists' >&2\nexit 1\n"),
+		0o755))
+
+	_, err := Mint(work, sampleOptions(), gitwt.Exec)
+
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, ErrLostRace),
+		"a hook decline is a fault, not another machine winning")
+
+	remote, lsErr := gitCapture(t, work,
+		"ls-remote", "origin", "refs/heads/plan/7-shader-unit")
+	require.NoError(t, lsErr)
+	assert.Empty(t, remote, "the push was declined, so no ref is on origin")
+}
+
 // TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
 // locally or on the remote for a lane that never stood up.
 func TestReleaseDropsTheClaim(t *testing.T) {

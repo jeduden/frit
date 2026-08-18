@@ -97,11 +97,14 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 		// all-or-nothing and the next attempt starts clean.
 		_, _ = run(repoDir, "update-ref", "-d", ref)
 
-		// Only a ref that already exists is a lost race. A push that
-		// failed for any other reason — an unreachable or missing remote,
-		// a rejecting hook — is a real fault, and must not read as another
-		// machine getting there first.
-		if isRaceRejection(err) {
+		// A lost race is the one case where the hold ref now exists on the
+		// remote — another machine planted it. Ask the remote directly
+		// rather than reading the push's stderr: a rejecting hook can print
+		// "already exists" for something unrelated, and git's wording is
+		// not a stable contract. A push that failed for any other reason —
+		// an unreachable or missing remote, a declining hook — leaves no
+		// ref, and is a real fault.
+		if heldOnRemote(repoDir, opts.Remote, ref, run) {
 			return Result{}, fmt.Errorf(
 				"%w for plan %d: the claim ref already exists",
 				ErrLostRace, opts.PlanID)
@@ -114,17 +117,23 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
 }
 
-// isRaceRejection reports whether a failed push was the remote refusing a
-// ref that already exists — the lost race — rather than a fault like an
-// unreachable or missing remote. The lease rejection prints "[rejected]"
-// with a "stale info" reason; a connection or lookup fault does not, so
-// the two are told apart by that signature rather than collapsed.
-func isRaceRejection(err error) bool {
-	msg := err.Error()
+// heldOnRemote reports whether the hold ref exists on the remote, which
+// is the authoritative sign that another machine won the claim. It reads
+// the answer from `ls-remote`, whose output is a stable `<sha>\t<ref>`
+// per matching ref and empty when none matches — a plumbing format, not
+// the human-readable push stderr the project rule forbids parsing.
+//
+// A ref that is present means the race was lost. Absent means the push
+// failed for another reason and left nothing behind. If the remote
+// cannot be read at all, the race cannot be confirmed, so it reports
+// false and the original push fault stands.
+func heldOnRemote(repoDir, remote, ref string, run gitwt.Runner) bool {
+	out, err := run(repoDir, "ls-remote", "--heads", remote, ref)
+	if err != nil {
+		return false
+	}
 
-	return strings.Contains(msg, "[rejected]") ||
-		strings.Contains(msg, "stale info") ||
-		strings.Contains(msg, "already exists")
+	return strings.TrimSpace(string(out)) != ""
 }
 
 // Release drops a claim: the local ref and its copy on the remote. It is
