@@ -109,10 +109,9 @@ the agent at the plan's tier, and the pane to herdr. It is dry-run until
 `--go`. Use `--note` to add a rider to the prompt, or `--edit` to amend
 it in `$EDITOR`.
 
-How a claim is minted is written up with diagrams in [How claiming
-works](docs/claiming.md). It covers why a ref push is the atom that
-makes a hold safe across machines, and how a race resolves to one
-winner.
+[How claiming works](docs/claiming.md) explains it with diagrams. It
+covers how a claim is made and how two machines avoid taking the same
+plan. It also shows how to find and drop a claim no longer being worked.
 
 ## What is hidden by default
 
