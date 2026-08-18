@@ -71,7 +71,21 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 		return renderStart(c, rt, doc)
 	}
 
-	sc := startContextOf(res.Coords[plan.Repo])
+	// The gather withholds a coordinate when two checkouts share the
+	// plan's repository name; without one there is no repository to stand
+	// the lane in, so refuse for the same reason claim does.
+	coord, ok := res.Coords[plan.Repo]
+	if !ok {
+		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
+			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
+			s.Go)
+		carryProblems(doc, res.Problems, c.All)
+		doc.Refuse(ambiguousRepo(plan.Repo))
+
+		return renderStart(c, rt, doc)
+	}
+
+	sc := startContextOf(coord)
 	sp := composeStart(plan, phase, s.Note, sc)
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, s.Go)
 	carryProblems(doc, res.Problems, c.All)

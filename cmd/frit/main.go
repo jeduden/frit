@@ -569,6 +569,19 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	return fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
 }
 
+// ambiguousRepo is the refusal a mutating verb reports when a plan's
+// repository name is shared by another checkout under the root. The
+// fleet keys plans by basename, so frit cannot tell which checkout to
+// mint the lease in — the gather withholds the coordinate rather than
+// pick whichever the walk reached last, and this names why. Renaming
+// one repository resolves it.
+func ambiguousRepo(name string) string {
+	return fmt.Sprintf(
+		"its repository name %q is shared by another checkout under the "+
+			"root; rename one so the claim lands in the right repository",
+		name)
+}
+
 // problemAdder is the AddProblem every discovery document carries. The
 // commands share one loop to move a gather's problems onto whichever
 // document they are building.

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jeduden/frit/internal/gitwt"
@@ -72,4 +73,50 @@ func TestGatherCarriesTheConfiguredBase(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "refs/heads/dev", coord.Base,
 		"the base is the config's when it sets one")
+}
+
+// TestGatherWithholdsAnAmbiguousCoordinate: two repositories under the
+// root sharing a basename cannot be told apart by the name the fleet
+// keys on, so the gather carries no coordinate for that name and records
+// the collision — a mutating verb then refuses rather than mint a lease
+// into whichever checkout the walk reached last. The plans of both are
+// still gathered, so the read-only board stays useful.
+func TestGatherWithholdsAnAmbiguousCoordinate(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, filepath.Join(root, "a"), "frontend", 7)
+	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	_, ok := res.Coords["frontend"]
+	assert.False(t, ok,
+		"an ambiguous name carries no coordinate, so no lease is minted blind")
+
+	var recorded bool
+	for _, p := range res.Problems {
+		if p.Repo == "frontend" && strings.Contains(p.Err.Error(), "not unique") {
+			recorded = true
+		}
+	}
+	assert.True(t, recorded, "the collision is recorded as a problem")
+	assert.Len(t, res.Plans, 2, "both repos' plans are still gathered")
+}
+
+// TestGatherKeepsAUniqueCoordinate: a repository whose basename is
+// unique under the root keeps its coordinate even when the fleet holds
+// other repos — the collision guard withholds only the name it shares.
+func TestGatherKeepsAUniqueCoordinate(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, filepath.Join(root, "a"), "frontend", 7)
+	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
+	repoWithPlan(t, root, "atlas", 3)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	_, ok := res.Coords["atlas"]
+	assert.True(t, ok, "the unique name keeps its coordinate")
+	_, ok = res.Coords["frontend"]
+	assert.False(t, ok, "the shared name does not")
 }
