@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/jeduden/frit/internal/discover"
@@ -79,6 +80,7 @@ func Gather(
 		Problems: []Problem{},
 		Coords:   map[string]Coord{},
 	}
+	ambiguous := map[string]bool{}
 	for _, repo := range repos {
 		entries, held, coord, problems, err := gatherRepo(host, repo, run, pipe)
 		if err != nil {
@@ -87,13 +89,43 @@ func Gather(
 			continue
 		}
 		res.Problems = append(res.Problems, problems...)
-		res.Coords[repo.Name] = coord
+		recordCoord(&res, ambiguous, repo.Name, coord)
 		for _, e := range entries {
 			res.Plans = append(res.Plans, planOf(repo.Name, e, held))
 		}
 	}
 
 	return res, nil
+}
+
+// recordCoord files a repository's lease coordinate under its name,
+// unless another repository under the root already claimed that name.
+//
+// The fleet keys every plan by its repository's basename, so two
+// checkouts sharing one cannot be told apart — a coordinate under that
+// name could mint a lease into the wrong repository. When two collide
+// the coordinate is dropped and the collision recorded as a problem, so
+// a mutating verb refuses rather than guesses. The plans of both repos
+// are still gathered, so the read-only board stays useful; only the
+// lease, which must land in one exact checkout, is withheld.
+func recordCoord(
+	res *Result, ambiguous map[string]bool, name string, coord Coord,
+) {
+	if ambiguous[name] {
+		return
+	}
+	if _, dup := res.Coords[name]; dup {
+		delete(res.Coords, name)
+		ambiguous[name] = true
+		res.Problems = append(res.Problems, Problem{
+			Repo: name,
+			Err: fmt.Errorf("repository name %q is not unique under the "+
+				"root; rename one so a claim lands in the right checkout",
+				name),
+		})
+		return
+	}
+	res.Coords[name] = coord
 }
 
 // gatherRepo reads one repository's plans, the ids its lanes hold, and

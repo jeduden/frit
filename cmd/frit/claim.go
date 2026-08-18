@@ -44,7 +44,16 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if err := mintClaim(rt, doc, plan, branch, res.Coords[plan.Repo]); err != nil {
+	// The gather withholds a coordinate when two checkouts share the
+	// plan's repository name; without one there is no repository to mint
+	// the lease in, so refuse rather than guess.
+	coord, ok := res.Coords[plan.Repo]
+	if !ok {
+		doc.Refuse(ambiguousRepo(plan.Repo))
+		return renderClaim(c, rt, doc)
+	}
+
+	if err := mintClaim(rt, doc, plan, branch, coord); err != nil {
 		return err
 	}
 

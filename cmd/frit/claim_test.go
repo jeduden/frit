@@ -112,3 +112,27 @@ func TestClaimEmitsJSON(t *testing.T) {
 	assert.NotEmpty(t, doc.Base, "the lease is dated against a base commit")
 	assert.Empty(t, doc.Refused)
 }
+
+// TestClaimRefusesAnAmbiguousRepoName: when two checkouts under the root
+// share a basename, the fleet cannot tell which one a plan lives in, so
+// claim refuses rather than mint the lease into the wrong repository. No
+// ref is pushed in either checkout.
+func TestClaimRefusesAnAmbiguousRepoName(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := initRepo(t, filepath.Join(root, "a"), "frontend")
+	commitPlan(t, repoA, 7, "🔲", "Shader unit", nil, "")
+	repoB := initRepo(t, filepath.Join(root, "b"), "frontend")
+	commitPlan(t, repoB, 9, "🔲", "Other work", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "shared by another checkout")
+
+	_, err := gitCapture(t, repoA, "rev-parse",
+		"refs/heads/plan/7-shader-unit")
+	assert.Error(t, err, "no lease was minted in either checkout")
+}
