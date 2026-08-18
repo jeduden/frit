@@ -185,14 +185,33 @@ func startExecute(
 
 	pane, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
-		// The claim was pushed but nothing stood behind it. Unwind it, so a
+		// The claim was pushed but nothing stood behind it. Unwind it so a
 		// failed handoff does not leave a hold that reads as an abandoned
-		// lane; the delete is best-effort beneath the handoff's own error.
-		_ = claim.Release(sc.repoPath, sp.Branch, sc.remote, rt.git)
+		// lane. If the unwind itself fails the claim is still on the remote,
+		// so that is reported alongside the handoff error rather than
+		// swallowed into a silent orphan.
+		if relErr := releaseClaim(rt, sc, sp.Branch); relErr != nil {
+			return errors.Join(err, relErr)
+		}
 
 		return err
 	}
 	doc.MarkStarted(pane)
+
+	return nil
+}
+
+// releaseClaim unwinds a claim minted before a handoff that then failed.
+// It returns nil when the claim is gone, and an error naming the still-
+// held ref when the remote delete did not take — so a failed unwind is
+// surfaced and can be found, not left as a silent orphan for the next
+// run to trip over.
+func releaseClaim(rt *runtime, sc startContext, branch string) error {
+	if err := claim.Release(sc.repoPath, branch, sc.remote, rt.git); err != nil {
+		return fmt.Errorf(
+			"claim %s could not be released and is left on the remote; "+
+				"run frit orphans to find it: %w", branch, err)
+	}
 
 	return nil
 }

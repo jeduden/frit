@@ -93,38 +93,63 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 	if _, err := run(repoDir, "push",
 		"--force-with-lease="+ref+":",
 		opts.Remote, marker+":"+ref); err != nil {
-		// Roll the local ref back either way, so the claim is
-		// all-or-nothing and the next attempt starts clean.
-		_, _ = run(repoDir, "update-ref", "-d", ref)
+		// A failed push has three outcomes, told apart by what commit holds
+		// the ref on the remote — never by git's stderr, which the project
+		// rule forbids parsing and which a hook can fill with misleading
+		// wording like "already exists".
+		switch remoteHolder(repoDir, opts.Remote, ref, run) {
+		case marker:
+			// Our own marker is on the remote: the push landed even though
+			// the client reported an error, e.g. a connection dropped after
+			// the ref transaction committed. The claim is ours, so keep the
+			// local ref and report success rather than orphan it as a race
+			// lost to a machine that is really us.
+			return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
+		case "":
+			// Nothing on the remote, or it could not be read: the push left
+			// no ref, so this is a real fault. Roll the local ref back so a
+			// retry starts clean.
+			_, _ = run(repoDir, "update-ref", "-d", ref)
 
-		// Only a ref that already exists is a lost race. A push that
-		// failed for any other reason — an unreachable or missing remote,
-		// a rejecting hook — is a real fault, and must not read as another
-		// machine getting there first.
-		if isRaceRejection(err) {
+			return Result{}, fmt.Errorf(
+				"push claim for plan %d: %w", opts.PlanID, err)
+		default:
+			// A different commit holds the ref: another machine won. Roll
+			// the local ref back.
+			_, _ = run(repoDir, "update-ref", "-d", ref)
+
 			return Result{}, fmt.Errorf(
 				"%w for plan %d: the claim ref already exists",
 				ErrLostRace, opts.PlanID)
 		}
-
-		return Result{}, fmt.Errorf(
-			"push claim for plan %d: %w", opts.PlanID, err)
 	}
 
 	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
 }
 
-// isRaceRejection reports whether a failed push was the remote refusing a
-// ref that already exists — the lost race — rather than a fault like an
-// unreachable or missing remote. The lease rejection prints "[rejected]"
-// with a "stale info" reason; a connection or lookup fault does not, so
-// the two are told apart by that signature rather than collapsed.
-func isRaceRejection(err error) bool {
-	msg := err.Error()
+// remoteHolder returns the commit the hold ref points at on the remote,
+// or "" when the ref is absent or the remote cannot be read. It reads
+// `ls-remote`'s stable `<sha>\t<ref>` plumbing output — not the push's
+// human-readable stderr, which the project rule forbids parsing — so a
+// failed push can be classified by what actually holds the ref:
+//
+//   - our own marker   the push landed; the claim is ours
+//   - a different sha   another machine won the race
+//   - "" (none)         the push left no ref; a real fault
+//
+// Reading "" on an unreadable remote folds the unconfirmable case into a
+// real fault, which fails safe: a retry re-attempts the push cleanly.
+func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
+	out, err := run(repoDir, "ls-remote", "--heads", remote, ref)
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return ""
+	}
 
-	return strings.Contains(msg, "[rejected]") ||
-		strings.Contains(msg, "stale info") ||
-		strings.Contains(msg, "already exists")
+	return fields[0]
 }
 
 // Release drops a claim: the local ref and its copy on the remote. It is
