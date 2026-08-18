@@ -93,47 +93,63 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 	if _, err := run(repoDir, "push",
 		"--force-with-lease="+ref+":",
 		opts.Remote, marker+":"+ref); err != nil {
-		// Roll the local ref back either way, so the claim is
-		// all-or-nothing and the next attempt starts clean.
-		_, _ = run(repoDir, "update-ref", "-d", ref)
+		// A failed push has three outcomes, told apart by what commit holds
+		// the ref on the remote — never by git's stderr, which the project
+		// rule forbids parsing and which a hook can fill with misleading
+		// wording like "already exists".
+		switch remoteHolder(repoDir, opts.Remote, ref, run) {
+		case marker:
+			// Our own marker is on the remote: the push landed even though
+			// the client reported an error, e.g. a connection dropped after
+			// the ref transaction committed. The claim is ours, so keep the
+			// local ref and report success rather than orphan it as a race
+			// lost to a machine that is really us.
+			return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
+		case "":
+			// Nothing on the remote, or it could not be read: the push left
+			// no ref, so this is a real fault. Roll the local ref back so a
+			// retry starts clean.
+			_, _ = run(repoDir, "update-ref", "-d", ref)
 
-		// A lost race is the one case where the hold ref now exists on the
-		// remote — another machine planted it. Ask the remote directly
-		// rather than reading the push's stderr: a rejecting hook can print
-		// "already exists" for something unrelated, and git's wording is
-		// not a stable contract. A push that failed for any other reason —
-		// an unreachable or missing remote, a declining hook — leaves no
-		// ref, and is a real fault.
-		if heldOnRemote(repoDir, opts.Remote, ref, run) {
+			return Result{}, fmt.Errorf(
+				"push claim for plan %d: %w", opts.PlanID, err)
+		default:
+			// A different commit holds the ref: another machine won. Roll
+			// the local ref back.
+			_, _ = run(repoDir, "update-ref", "-d", ref)
+
 			return Result{}, fmt.Errorf(
 				"%w for plan %d: the claim ref already exists",
 				ErrLostRace, opts.PlanID)
 		}
-
-		return Result{}, fmt.Errorf(
-			"push claim for plan %d: %w", opts.PlanID, err)
 	}
 
 	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
 }
 
-// heldOnRemote reports whether the hold ref exists on the remote, which
-// is the authoritative sign that another machine won the claim. It reads
-// the answer from `ls-remote`, whose output is a stable `<sha>\t<ref>`
-// per matching ref and empty when none matches — a plumbing format, not
-// the human-readable push stderr the project rule forbids parsing.
+// remoteHolder returns the commit the hold ref points at on the remote,
+// or "" when the ref is absent or the remote cannot be read. It reads
+// `ls-remote`'s stable `<sha>\t<ref>` plumbing output — not the push's
+// human-readable stderr, which the project rule forbids parsing — so a
+// failed push can be classified by what actually holds the ref:
 //
-// A ref that is present means the race was lost. Absent means the push
-// failed for another reason and left nothing behind. If the remote
-// cannot be read at all, the race cannot be confirmed, so it reports
-// false and the original push fault stands.
-func heldOnRemote(repoDir, remote, ref string, run gitwt.Runner) bool {
+//   - our own marker   the push landed; the claim is ours
+//   - a different sha   another machine won the race
+//   - "" (none)         the push left no ref; a real fault
+//
+// Reading "" on an unreadable remote folds the unconfirmable case into a
+// real fault, which fails safe: a retry re-attempts the push cleanly.
+func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
 	out, err := run(repoDir, "ls-remote", "--heads", remote, ref)
 	if err != nil {
-		return false
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return ""
 	}
 
-	return strings.TrimSpace(string(out)) != ""
+	return fields[0]
 }
 
 // Release drops a claim: the local ref and its copy on the remote. It is

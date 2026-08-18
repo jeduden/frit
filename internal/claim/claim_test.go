@@ -197,6 +197,38 @@ func TestMintClassifiesByTheRemoteRefNotTheErrorText(t *testing.T) {
 	assert.Empty(t, remote, "the push was declined, so no ref is on origin")
 }
 
+// TestMintKeepsAClaimTheRemoteAcceptedDespiteAClientError: if the push
+// plants our own marker on the remote but still reports an error — a
+// connection dropped after the ref transaction committed — the claim is
+// ours, not a lost race. Classification compares the remote's ref to our
+// marker, so our own commit reads as a win rather than a competitor's.
+func TestMintKeepsAClaimTheRemoteAcceptedDespiteAClientError(t *testing.T) {
+	marker := ""
+	run := func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "rev-parse":
+			return []byte("basesha\n"), nil // the base, then its tree
+		case "commit-tree":
+			marker = "markersha"
+			return []byte(marker + "\n"), nil
+		case "update-ref":
+			return nil, nil
+		case "push":
+			return nil, errors.New("fatal: the remote end hung up")
+		case "ls-remote":
+			return []byte(marker + "\trefs/heads/plan/7-shader-unit\n"), nil
+		}
+
+		return nil, nil
+	}
+
+	res, err := Mint("/repo", sampleOptions(), run)
+
+	require.NoError(t, err, "our own marker on the remote is a win, not a fault")
+	assert.Equal(t, "plan/7-shader-unit", res.Branch)
+	assert.Equal(t, "basesha", res.BaseSHA)
+}
+
 // TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
 // locally or on the remote for a lane that never stood up.
 func TestReleaseDropsTheClaim(t *testing.T) {

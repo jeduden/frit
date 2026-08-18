@@ -4,9 +4,8 @@ frit reads many git repositories and shows the plans in them. It changes
 only one thing: it claims a plan. A claim marks a plan as being worked.
 frit records it as a branch on the repository's shared remote, so other
 machines can see the plan is taken once they fetch it. This page explains
-how a claim is made, how two machines avoid taking the same plan, how a
-claim can fail, and how to find and drop a claim that is no longer being
-worked.
+how a claim is made, how two machines avoid taking the same plan, how it
+can fail, and how to find and drop a stale claim.
 
 ## The fleet
 
@@ -118,22 +117,23 @@ records](#what-the-marker-records).
 4. Push, claiming the ref only if it does not yet exist:
       git push --force-with-lease=<ref>: <remote> <marker>:<ref>
 
-5. Decide the outcome:
-   - push succeeded                    -> CLAIMED
-   - push failed, and the ref now
-     exists on the remote:
-       git ls-remote --heads <remote> <ref>   (non-empty output)
-                                        -> LOST RACE
-   - push failed, and ls-remote is
-     empty or cannot be read           -> ERROR (a real fault)
+5. Decide the outcome. If the push succeeded, CLAIMED. If it failed,
+   read what commit holds the ref on the remote:
+      git ls-remote --heads <remote> <ref>        (output: <sha> <ref>)
+   - the ref holds your marker    -> CLAIMED (the push landed; the
+                                     client error came after the commit)
+   - the ref holds another commit -> LOST RACE
+   - the ref is absent, or
+     ls-remote cannot be read     -> ERROR (a real fault)
 
-6. If the push failed, delete the local branch so a retry starts clean:
+6. On LOST RACE or ERROR, delete the local branch so a retry starts
+   clean. On CLAIMED, keep it — the local and remote refs now agree:
       git update-ref -d <ref>
 ```
 
-Step 5 never reads git's error text. The only authoritative sign that
-another machine won is that the ref exists on the remote, so that is the
-question asked. This keeps the outcome deterministic across git versions.
+Step 5 never reads git's error text. The commit holding the ref on the
+remote is the only authoritative signal, so the outcome is deterministic
+across git versions.
 
 ## Two machines at once
 
@@ -161,13 +161,15 @@ branch can remain. It is safe to delete by hand — the remote never had
 it.
 
 This arbitration only holds between machines pushing to the same remote.
-When the push fails, frit does not read git's error text to decide what
-happened. It asks the remote whether the hold ref now exists, with `git
-ls-remote --heads <remote> <ref>`. If the ref is there, another machine
-won: frit reports the lost race and exits 0. If the ref is absent, the
-push failed for another reason — no network, a missing remote, a
-declining hook — and frit reports a real error and exits non-zero. Either
-way, frit first deletes its own local branch, so a retry starts clean.
+When the push fails, frit does not read git's error text. It reads what
+commit holds the ref on the remote, with `git ls-remote --heads <remote>
+<ref>`. If the ref holds frit's own marker, the push landed and the claim
+is kept — the client error came after the ref committed. If it holds a
+different commit, another machine won: frit reports the lost race and
+exits 0. If the ref is absent or unreadable, the push failed for another
+reason — no network, a missing remote, a declining hook — and frit
+reports a real error and exits non-zero. On a lost race or error, frit
+first deletes its local branch, so a retry starts clean.
 
 ## When a claim is refused
 
