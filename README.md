@@ -109,6 +109,11 @@ the agent at the plan's tier, and the pane to herdr. It is dry-run until
 `--go`. Use `--note` to add a rider to the prompt, or `--edit` to amend
 it in `$EDITOR`.
 
+How a claim is minted is written up with diagrams in [How claiming
+works](docs/claiming.md). It covers why a ref push is the atom that
+makes a hold safe across machines, and how a race resolves to one
+winner.
+
 ## What is hidden by default
 
 Two things are held back so the common view stays quiet, and `--all`
