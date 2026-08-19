@@ -2,6 +2,12 @@ package herdr
 
 import "sync"
 
+// ExecFunc runs a process and returns its stdout. It is the seam
+// ListHosts fans out over and WithTimeout wraps: run in production, a
+// fake in tests, or a timeout-bounded run when a slow host must not
+// stall the board.
+type ExecFunc func(name string, args ...string) ([]byte, error)
+
 // Host is where a herdr socket lives. The empty Host is this machine,
 // read through the local herdr binary; any other value is an ssh
 // target reached as `ssh <host> herdr …`. The plan key already carries
@@ -37,10 +43,7 @@ func command(host Host, args []string) (name string, argv []string) {
 // exec is the process runner — run in production, a fake in tests — and
 // each host's own error is kept in its own result so one unreachable
 // machine does not fail the read for the rest.
-func ListHosts(
-	hosts []Host,
-	exec func(name string, args ...string) ([]byte, error),
-) []HostResult {
+func ListHosts(hosts []Host, exec ExecFunc) []HostResult {
 	results := make([]HostResult, len(hosts))
 
 	var wg sync.WaitGroup
