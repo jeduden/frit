@@ -1,7 +1,7 @@
 ---
 id: 2608192233
 title: Harden the claim against squash-merges and shared checkouts
-status: "🔳"
+status: "✅"
 summary: >-
   Two demonstrated gaps let a stale or foreign hold read as live. A
   squash-merged plan is landed yet its branch is no ancestor, so the
@@ -141,8 +141,8 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A claim on a plan done on the default branch is not a live hold
 - [x] `frit orphans` ignores a squash-merged claim, as it does an ancestor
 - [x] Board, ready and pick read a landed plan as unheld
-- [ ] An empty-selector verb refuses on a worktree held by another host
-- [ ] The refusal names the holder read from the claim marker
-- [ ] An own-host or non-frit checkout is not falsely refused
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] An empty-selector verb refuses on a worktree held by another host
+- [x] The refusal names the holder read from the claim marker
+- [x] An own-host or non-frit checkout is not falsely refused
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

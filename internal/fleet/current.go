@@ -11,6 +11,7 @@ package fleet
 import (
 	"path/filepath"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/repocfg"
@@ -30,7 +31,20 @@ func ForeignHold(
 	cwd, thisHost string, run gitwt.Runner,
 	holdsFor func(root string) repocfg.Holds,
 ) (host string, foreign bool) {
-	return "", false
+	site := herdr.Resolve(cwd, run)
+	if site.Root == "" || site.Branch == "" {
+		return "", false
+	}
+	id, ok := holdsFor(site.Root).Match(site.Branch)
+	if !ok {
+		return "", false
+	}
+	marker := claim.MarkerHost(site.Root, site.Branch, id, run)
+	if marker == "" || marker == thisHost {
+		return "", false
+	}
+
+	return marker, true
 }
 
 // CurrentPlanID infers the plan a directory is working, by resolving
