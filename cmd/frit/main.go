@@ -1225,6 +1225,9 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 // person is shown, never what a consumer receives, the same split as
 // plans --detail.
 func printShow(out io.Writer, doc *report.ShowDoc, all bool) {
+	if doc.Goal != "" {
+		_, _ = fmt.Fprintf(out, "Goal: %s\n\n", doc.Goal)
+	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	printDep(tw, doc.Tree, 0, all)
 	if visibleDeps(doc.Tree, all) == 0 {

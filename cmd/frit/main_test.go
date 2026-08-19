@@ -315,6 +315,25 @@ func TestSkillsJSONCarriesTheWrittenPaths(t *testing.T) {
 	assert.Contains(t, out.String(), "SKILL.md")
 }
 
+func TestShowPrintsTheGoalReadFromTheBody(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	plan := "---\nid: 42\ntitle: Widget\nstatus: \"🔲\"\n---\n# Widget\n\n" +
+		"## Goal\n\nMake the widget spin.\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "plan"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "plan", "42_widget.md"), []byte(plan), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "add plan 42")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "42", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Goal: Make the widget spin.")
+}
+
 // TestPlansHonoursEachRepositorysPlanDir is the payoff of per-repo
 // config: a repository that keeps plans somewhere else is indexed
 // correctly with no flag at all.

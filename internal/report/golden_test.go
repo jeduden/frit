@@ -190,6 +190,7 @@ func goldenShow() *ShowDoc {
 		Plan: discovery.Plan{
 			Key: "forge:atlas:2608161810", Repo: "atlas",
 			ID: 2608161810, Status: "🔲", Title: "The dispatch ladder",
+			Goal: "Turn a board into a seeded prompt.",
 		},
 		Found: true,
 		Deps: []discovery.DepNode{

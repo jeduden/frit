@@ -38,6 +38,42 @@ func TestParseReadsEveryFrontMatterField(t *testing.T) {
 	assert.Contains(t, got.Summary, "walk a root for git")
 }
 
+func TestParseReadsTheGoalFromTheBody(t *testing.T) {
+	got, err := Parse([]byte(realPlan))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Answer three questions.", got.Goal)
+}
+
+func TestParseReadsAMultiLineGoalAsOneLine(t *testing.T) {
+	src := "---\nid: 7\ntitle: T\nstatus: \"🔲\"\n---\n# T\n\n" +
+		"## Goal\n\nA goal that wraps\nover two lines.\n\n## Context\n\nx\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	assert.Equal(t, "A goal that wraps over two lines.", got.Goal)
+}
+
+func TestParseReadsGoalWithInlineCode(t *testing.T) {
+	src := "---\nid: 7\ntitle: T\nstatus: \"🔲\"\n---\n# T\n\n" +
+		"## Goal\n\nMake `frit show` print it.\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Make frit show print it.", got.Goal)
+}
+
+func TestParseLeavesGoalEmptyWhenAbsent(t *testing.T) {
+	src := "---\nid: 7\ntitle: T\nstatus: \"🔲\"\n---\n# T\n\n## Tasks\n\n1. x\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Goal)
+}
+
 func TestParseFoldsTheBlockScalarSummaryIntoOneLine(t *testing.T) {
 	got, err := Parse([]byte(realPlan))
 
