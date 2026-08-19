@@ -67,6 +67,30 @@ kinds:
     rules:
       required-structure:
         schema: plan/proto.md
+  skill:
+    # Skills frit ships: the canonical text in
+    # internal/skills/assets/<name>/SKILL.md, and its dogfooded copy in
+    # .claude/skills/<name>/SKILL.md that `frit skills` writes. A skill
+    # is a procedure an agent follows under time pressure, so two rules
+    # are the point of linting it. Readability stays ON — padded prose
+    # costs a skimmed reader a missed step. And a hard length cap keeps
+    # it token-cheap: it loads into a working session, so every line is
+    # paid for. Both frit's shipped skills sit far under the cap today,
+    # so this is a live constraint, not aspiration.
+    path-pattern: "{internal/skills/assets,.claude/skills}/*/SKILL.md"
+    rules:
+      required-frontmatter:
+        fields: [name, description]
+      # Uniqueness is scoped to the canonical source: the .claude/skills
+      # copy carries the same names by design, so including it would read
+      # the dogfood as a duplicate.
+      unique-frontmatter:
+        field: name
+        include:
+          - "internal/skills/assets/*/SKILL.md"
+      table-readability: false
+      max-file-length:
+        max: 80
 
 # Order matters: proto applies first so plan/proto.md also picks up
 # the plan kind, whose required-structure.schema points back at the
@@ -77,6 +101,10 @@ kind-assignment:
     kinds: [proto]
   - glob: ["plan/*.md"]
     kinds: [plan]
+  - glob:
+      - "internal/skills/assets/*/SKILL.md"
+      - ".claude/skills/*/SKILL.md"
+    kinds: [skill]
 
 overrides:
   # Research notes are a record of how a decision was reached, not
