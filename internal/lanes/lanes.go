@@ -38,6 +38,13 @@ func (l Lane) Unstaffed() bool {
 	return len(l.Holds) > 0 && len(l.Worktrees) == 0
 }
 
+// Stranded reports a plan with a checkout but no live claim. The branch
+// it stands on has merged into the default branch, so Build dropped the
+// ref, and the worktree outlived the work it was cut for.
+func (l Lane) Stranded() bool {
+	return len(l.Holds) == 0 && len(l.Worktrees) > 0
+}
+
 // Build joins one repository's refs and worktrees into lanes.
 //
 // Merged refs are excluded before anything else. Landing a plan does
@@ -119,6 +126,8 @@ func collect(byID map[int64]*Lane) []Lane {
 type Orphans struct {
 	// Unstaffed are plans claimed with no checkout behind them.
 	Unstaffed []Lane
+	// Stranded are checkouts left on a branch that has since landed.
+	Stranded []Lane
 	// Empty are worktrees that never received a commit.
 	Empty []gitwt.Worktree
 	// Prunable are worktrees git considers removable.
@@ -128,17 +137,17 @@ type Orphans struct {
 // Any reports whether anything was found, so a caller can stay quiet
 // when a repository is in good order.
 func (o Orphans) Any() bool {
-	return len(o.Unstaffed) > 0 || len(o.Empty) > 0 ||
-		len(o.Prunable) > 0
+	return len(o.Unstaffed) > 0 || len(o.Stranded) > 0 ||
+		len(o.Empty) > 0 || len(o.Prunable) > 0
 }
 
 // Find classifies what is abandoned.
 //
-// The three kinds are deliberately separate rather than one count:
-// an unstaffed lane means work was claimed and dropped, an empty
-// worktree means a lane was prepared and never started, and a prunable
-// one means the checkout is already gone. They call for different
-// responses.
+// The kinds are deliberately separate rather than one count: an
+// unstaffed lane means work was claimed and dropped, a stranded one
+// means a checkout outlived its now-landed claim, an empty worktree
+// means a lane was prepared and never started, and a prunable one means
+// the checkout is already gone. They call for different responses.
 //
 // A bare repository is never an orphan; it has no working tree by
 // definition.
@@ -148,6 +157,9 @@ func Find(built []Lane, worktrees []gitwt.Worktree) Orphans {
 	for _, lane := range built {
 		if lane.Unstaffed() {
 			o.Unstaffed = append(o.Unstaffed, lane)
+		}
+		if lane.Stranded() {
+			o.Stranded = append(o.Stranded, lane)
 		}
 	}
 

@@ -16,6 +16,26 @@
           ]
         }
       ],
+      "stranded": [
+        {
+          "plan_id": 99,
+          "worktrees": [
+            {
+              "path": "/fleet/atlas-landed",
+              "name": "atlas-landed",
+              "head": "d00dfeed",
+              "branch": "plan/99-z",
+              "detached": false,
+              "bare": false,
+              "locked": false,
+              "lock_reason": "",
+              "prunable": false,
+              "prune_reason": "",
+              "has_commit": true
+            }
+          ]
+        }
+      ],
       "empty": [
         {
           "path": "/fleet/atlas-empty",
@@ -50,6 +70,7 @@
     {
       "name": "clean",
       "unstaffed": [],
+      "stranded": [],
       "empty": [],
       "prunable": []
     }

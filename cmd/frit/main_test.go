@@ -343,6 +343,33 @@ func TestOrphansIgnoresAMergedClaim(t *testing.T) {
 	assert.Contains(t, out.String(), "no orphaned lanes")
 }
 
+// TestOrphansReportsACheckoutStrandedOnALandedBranch is the counterpart
+// to the merged-ref filter: once the branch lands, the ref stops reading
+// as a claim, but a worktree still standing on it is stranded work the
+// report must name rather than silently keep.
+func TestOrphansReportsACheckoutStrandedOnALandedBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	git(t, repo, "worktree", "add", "-q", "-b", branch,
+		filepath.Join(root, "atlas-landed"))
+	lane := filepath.Join(root, "atlas-landed")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lane, "work.txt"), []byte("done\n"), 0o600))
+	git(t, lane, "add", "-A")
+	git(t, lane, "commit", "-q", "-m", "work on "+branch)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land", branch)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "landed, still checked out")
+	assert.Contains(t, out.String(), "atlas-landed")
+	assert.NotContains(t, out.String(), "claimed, no checkout")
+}
+
 func TestOrphansReportsAWorktreeThatNeverStarted(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()

@@ -152,9 +152,9 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 }
 
 // printOrphans writes a block per repository with something wrong.
-// The three kinds stay labelled rather than merged into a count,
-// because each calls for a different response. A repository in good
-// order is left out entirely; --json lists it with empty sets.
+// The kinds stay labelled rather than merged into a count, because
+// each calls for a different response. A repository in good order is
+// left out entirely; --json lists it with empty sets.
 func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	found := false
@@ -169,6 +169,13 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, lane := range repo.Unstaffed {
 			_, _ = fmt.Fprintf(tw, "  claimed, no checkout\tplan %d\t%s\n",
 				lane.PlanID, lane.Holds[0].Branch)
+		}
+		for _, lane := range repo.Stranded {
+			for _, wt := range lane.Worktrees {
+				_, _ = fmt.Fprintf(tw,
+					"  landed, still checked out\t%s\t%s\n",
+					wt.Name, wt.Branch)
+			}
 		}
 		for _, wt := range repo.Empty {
 			_, _ = fmt.Fprintf(tw, "  never started\t%s\t%s\n",
