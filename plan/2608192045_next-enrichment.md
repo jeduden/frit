@@ -104,6 +104,11 @@ findings. Some of it lives in mdsmith's `internal/` today, the
 promote the entry point, per the standing rule in
 [CLAUDE.md](../CLAUDE.md), not to reimplement a checker here.
 
+doctor validates against a repository's `plan/proto.md`, so a repo that
+has none has nothing to check. Shipping that schema as an `init`
+default is its own concern, tracked in plan 2608192121; doctor here
+assumes it is present, as it is in frit's own repo.
+
 The verb documents its own mechanics, reuse included. `frit doctor
 --help` enumerates what it checks — a missing `## Goal`, a phase with no
 Execution row, a tier that is not a known model — so a reader learns
