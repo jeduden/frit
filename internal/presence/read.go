@@ -44,6 +44,18 @@ func Read(
 	results := herdr.ListHosts(toProbe, WithTimeout(exec, opt.Timeout))
 	statuses, next := Reconcile(results, cache, now)
 
+	// Drop any host no longer in the roster, so a machine dropped from
+	// the config does not linger in the cache across host churn.
+	wanted := make(map[herdr.Host]bool, len(hosts))
+	for _, host := range hosts {
+		wanted[host] = true
+	}
+	for host := range next {
+		if !wanted[host] {
+			delete(next, host)
+		}
+	}
+
 	for _, host := range skipped {
 		snap := cache[host]
 		statuses = append(statuses, Status{

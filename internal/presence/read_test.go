@@ -152,6 +152,28 @@ func TestReadSurvivesAnUnwritableCache(t *testing.T) {
 	assert.Contains(t, paneIDs(panes), "box:p1")
 }
 
+// TestReadPrunesHostsNoLongerConfigured: a host dropped from the roster
+// is not probed and must not linger in the cache forever — Read keeps
+// only the hosts it was asked about.
+func TestReadPrunesHostsNoLongerConfigured(t *testing.T) {
+	seen := at("2026-08-20T11:59:55Z")
+	now := at("2026-08-20T12:00:00Z")
+	path := filepath.Join(t.TempDir(), "presence.json")
+	require.NoError(t, Store(path, Cache{
+		"gone": {Panes: []herdr.Pane{pane("gone:p1")}, At: seen},
+		"box":  {Panes: []herdr.Pane{pane("box:old")}, At: seen},
+	}))
+	rec := &probeRecorder{}
+
+	Read([]herdr.Host{"box"}, rec.exec, path, opts(), now)
+
+	stored := Load(path)
+	_, keptGone := stored["gone"]
+	assert.False(t, keptGone, "a dropped host is pruned from the cache")
+	_, keptBox := stored["box"]
+	assert.True(t, keptBox, "a configured host stays")
+}
+
 func paneIDs(panes []herdr.Pane) []string {
 	ids := make([]string, 0, len(panes))
 	for _, p := range panes {

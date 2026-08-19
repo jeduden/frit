@@ -59,6 +59,9 @@ func ListHosts(hosts []Host, exec ExecFunc) []HostResult {
 			}
 
 			panes, err := List(runner)
+			for j := range panes {
+				panes[j].Host = host
+			}
 			results[i] = HostResult{Host: host, Panes: panes, Err: err}
 		}(i, host)
 	}

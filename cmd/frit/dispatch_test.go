@@ -185,13 +185,13 @@ func TestLiveLaneForRejectsASameNamedBranchInAnotherRepo(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec, herdr: runner}
 	branch := planBranch(7, "Shared work")
 
-	_, found, err := liveLaneFor(&cli{},
+	_, found, _, err := liveLaneFor(&cli{},
 		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt)
 	require.NoError(t, err)
 	assert.False(t, found,
 		"a lane in another repo on the same branch is not this plan's")
 
-	laneB, foundB, err := liveLaneFor(&cli{},
+	laneB, foundB, _, err := liveLaneFor(&cli{},
 		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt)
 	require.NoError(t, err)
 	require.True(t, foundB, "the lane in the plan's own repo matches")

@@ -223,9 +223,12 @@ func (s *staleCmd) Run(c *cli, rt *runtime) error {
 	// still has an agent in its worktree is being worked, not abandoned.
 	// It is read once for the whole fleet, and an unreachable socket
 	// leaves the git answer standing rather than failing the report.
-	live, present := livePresence(c, rt)
+	live, present, hostProbs := livePresence(c, rt)
 
 	doc := report.NewStale(c.Root, s.Days, present)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
 	for _, repo := range repos {
 		times, err := gitobj.RefTimes(repo.Path, rt.git)
 		if err != nil {
@@ -300,63 +303,126 @@ const (
 	hostReadTimeout = 3 * time.Second
 )
 
-// presencePanes reads live panes across the fleet. With no hosts
-// configured it is the single local socket, exactly as before; with
-// hosts it fans out over ssh and reconciles a dead or slow host to its
-// last-known presence, so one machine never blocks the board. The union
-// of every host's panes is returned, so every caller that read
-// herdr.List is unchanged.
-func presencePanes(c *cli, rt *runtime) ([]herdr.Pane, error) {
+// hostProblem names a host frit could not read live, or could only read
+// stale from cache, so a command can carry it in its report.
+type hostProblem struct {
+	name string
+	err  error
+}
+
+// fleetPresence reads live panes across the fleet. The local socket is
+// read first and its failure is returned as err — so a caller still
+// tells "presence unknown" from "nobody live", exactly as the
+// single-socket read did. With no hosts configured that is all it does.
+// With hosts, the remotes are read best-effort over ssh and reconciled
+// against the cache: a dead or slow one renders its last-known panes and
+// travels back as a hostProblem rather than failing the read, so one
+// unreachable machine never blocks the board.
+func fleetPresence(
+	c *cli, rt *runtime,
+) (panes []herdr.Pane, probs []hostProblem, err error) {
+	local, err := herdr.List(rt.herdr)
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(c.Hosts) == 0 {
-		return herdr.List(rt.herdr)
+		return local, nil, nil
 	}
 
-	path, err := presence.CachePath()
-	if err != nil {
-		// With nowhere to cache last-known presence, read the local
-		// socket rather than nothing: this host's agents still show.
-		return herdr.List(rt.herdr)
+	path, perr := presence.CachePath()
+	if perr != nil {
+		// With nowhere to cache last-known presence, the local socket
+		// still stands rather than nothing; the remotes wait for a cache.
+		return local, nil, nil
 	}
 
 	exec := func(name string, args ...string) ([]byte, error) {
-		if name == "herdr" { // the local host, from command("", args)
-			return rt.herdr(args...)
-		}
-
 		return herdr.Run(name, args...)
 	}
-
 	opt := presence.Options{TTL: hostReadTTL, Timeout: hostReadTimeout}
-	panes, _ := presence.Read(
-		hostsWithLocal(c.Hosts), exec, path, opt, time.Now())
+	remotePanes, statuses := presence.Read(
+		toHosts(c.Hosts), exec, path, opt, time.Now())
 
-	return panes, nil
+	return append(local, remotePanes...), hostProblems(statuses), nil
 }
 
-// hostsWithLocal puts the local host — the empty Host, read through the
-// local socket — ahead of the configured remotes: presence is read from
-// the fleet "not just the local socket", the remotes on top of it
-// rather than instead of it.
-func hostsWithLocal(hosts []string) []herdr.Host {
-	all := make([]herdr.Host, 0, len(hosts)+1)
-	all = append(all, "")
-	for _, h := range hosts {
-		all = append(all, herdr.Host(h))
+// hostProblems turns the reconciled per-host statuses into the problems
+// a report carries: a host never reached is unreachable, and one served
+// from cache is flagged with how stale its presence is. A fresh read is
+// no problem and is left silent.
+func hostProblems(statuses []presence.Status) []hostProblem {
+	var probs []hostProblem
+	for _, s := range statuses {
+		switch {
+		case !s.Seen:
+			probs = append(probs, hostProblem{
+				name: "host " + string(s.Host),
+				err:  errors.New("unreachable, no cached presence"),
+			})
+		case !s.Fresh:
+			probs = append(probs, hostProblem{
+				name: "host " + string(s.Host),
+				err: fmt.Errorf(
+					"unreachable; showing presence %s stale",
+					s.Age.Round(time.Second)),
+			})
+		}
 	}
 
-	return all
+	return probs
+}
+
+// toHosts is the configured remote roster as herdr hosts. The local
+// host is not in it: fleetPresence reads the local socket directly, so
+// the fan-out is remotes only.
+func toHosts(hosts []string) []herdr.Host {
+	out := make([]herdr.Host, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, herdr.Host(h))
+	}
+
+	return out
+}
+
+// gitForHost selects the git runner that reaches a pane's host: the
+// local runner for the empty Host, and one that shells `ssh <host> git
+// -C <dir> …` for a remote one. A remote pane's cwd is a path on the
+// remote, so only the remote's git can resolve it to a lane.
+func gitForHost(local gitwt.Runner) func(herdr.Host) gitwt.Runner {
+	return func(host herdr.Host) gitwt.Runner {
+		if host == "" {
+			return local
+		}
+
+		return remoteGit(host)
+	}
+}
+
+// remoteGit runs a git command on a remote host over ssh, standing in
+// for gitwt.Exec's local `git -C`. The cwd and args are handed to the
+// remote shell as `ssh <host> git -C <dir> <args…>`.
+func remoteGit(host herdr.Host) gitwt.Runner {
+	return func(dir string, args ...string) ([]byte, error) {
+		full := append([]string{string(host), "git", "-C", dir}, args...)
+
+		return herdr.Run("ssh", full...)
+	}
 }
 
 // livePresence reads the fleet's live agent roots from herdr. A failing
 // or missing socket yields an empty set and false, which every reader
-// treats as "presence unknown" rather than "no agents".
-func livePresence(c *cli, rt *runtime) (map[string]bool, bool) {
-	panes, err := presencePanes(c, rt)
+// treats as "presence unknown" rather than "no agents". Per-host
+// problems travel back so a caller can carry an unreachable or stale
+// host in its report.
+func livePresence(
+	c *cli, rt *runtime,
+) (map[string]bool, bool, []hostProblem) {
+	panes, probs, err := fleetPresence(c, rt)
 	if err != nil {
-		return nil, false
+		return nil, false, nil
 	}
 
-	return herdr.LiveRoots(panes, rt.git), true
+	return herdr.LiveRoots(panes, rt.git), true, probs
 }
 
 type whoCmd struct{}
@@ -371,10 +437,13 @@ type whoCmd struct{}
 func (w *whoCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewWho(c.Root)
 
-	panes, err := presencePanes(c, rt)
+	panes, hostProbs, err := fleetPresence(c, rt)
 	if err != nil {
 		doc.AddProblem("herdr", err)
 	} else {
+		for _, p := range hostProbs {
+			doc.AddProblem(p.name, p.err)
+		}
 		for _, lane := range whoLanes(panes, rt.git) {
 			doc.AddLane(lane)
 		}
@@ -391,7 +460,9 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 
 // whoLanes keeps the panes with an agent, resolves each to its lane,
 // and orders them so the board reads the same way twice: by repository,
-// then plan, then pane.
+// then plan, then pane. Each pane is resolved against its own host's
+// git, so a pane read from another machine lands on the right lane
+// rather than being lost or misresolved by the local git.
 func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 	staffed := make([]herdr.Pane, 0, len(panes))
 	for _, p := range panes {
@@ -400,7 +471,7 @@ func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 		}
 	}
 
-	lanes := herdr.Join(staffed, git, holdsForRoot)
+	lanes := herdr.Join(staffed, gitForHost(git), holdsForRoot)
 	sort.Slice(lanes, func(i, j int) bool {
 		if lanes[i].Repo != lanes[j].Repo {
 			return lanes[i].Repo < lanes[j].Repo
@@ -915,9 +986,12 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, present := liveByBranch(c, rt)
+	live, present, hostProbs := liveByBranch(c, rt)
 	doc := report.NewBoard(c.Root, present)
 	carryProblems(doc, res.Problems, c.All)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status)
@@ -936,10 +1010,12 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 // on, so a plan can find the agent working one of its hold branches. A
 // missing socket yields no map and false, which the board reads as
 // "presence unknown".
-func liveByBranch(c *cli, rt *runtime) (map[string]herdr.Lane, bool) {
-	panes, err := presencePanes(c, rt)
+func liveByBranch(
+	c *cli, rt *runtime,
+) (map[string]herdr.Lane, bool, []hostProblem) {
+	panes, probs, err := fleetPresence(c, rt)
 	if err != nil {
-		return nil, false
+		return nil, false, nil
 	}
 
 	live := map[string]herdr.Lane{}
@@ -949,7 +1025,7 @@ func liveByBranch(c *cli, rt *runtime) (map[string]herdr.Lane, bool) {
 		}
 	}
 
-	return live, true
+	return live, true, probs
 }
 
 // agentFor finds the agent working one of a plan's hold branches, if
