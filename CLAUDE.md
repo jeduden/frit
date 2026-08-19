@@ -59,6 +59,14 @@ reads a transcript.
 - Run `mdsmith check .` before committing; all markdown must pass
 - Never modify `.mdsmith.yml` (linter configuration) without explicit
   user consent
+- Run `mdsmith merge-driver install` once per clone. `PLAN.md` is a
+  mdsmith catalog, regenerated from the plan files rather than edited,
+  so two branches adding a plan conflict on it by construction. The
+  driver regenerates the catalog during a merge or rebase instead of
+  leaving conflict markers. frit itself never reads `PLAN.md` — it
+  enumerates the plan files directly — so this is repo hygiene, not a
+  frit dependency. `.gitattributes` is committed; the driver is
+  per-clone local config, which is why each clone installs it.
 
 ## Plan Maintenance
 

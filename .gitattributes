@@ -1,0 +1,6 @@
+# BEGIN mdsmith merge-driver
+*.md merge=mdsmith
+*.markdown merge=mdsmith
+.github/**/*.md merge=text
+.github/**/*.markdown merge=text
+# END mdsmith merge-driver
