@@ -104,11 +104,14 @@ findings. Some of it lives in mdsmith's `internal/` today, the
 promote the entry point, per the standing rule in
 [CLAUDE.md](../CLAUDE.md), not to reimplement a checker here.
 
-The verb documents its own mechanics. `frit doctor --help` enumerates
-what it checks — a missing `## Goal`, a phase with no Execution row, a
-tier that is not a known model — and names mdsmith as the authority on
-structure, so a reader learns what a finding means without opening the
-source. The help is the contract for what doctor promises to catch.
+The verb documents its own mechanics, reuse included. `frit doctor
+--help` enumerates what it checks — a missing `## Goal`, a phase with no
+Execution row, a tier that is not a known model — so a reader learns
+what a finding means without opening the source. It also names where
+each check comes from: the repository's own `plan/proto.md` schema, run
+through mdsmith's validation and CUE projection as a library, not a
+second rule set frit invented. The help is the contract for what doctor
+promises to catch, and the provenance of every finding.
 
 ## Phase 5: the skills lean on the output
 
@@ -155,8 +158,9 @@ Tier is per phase, set by the most demanding ingredient.
       never a blank tier
 - [ ] `frit doctor` lists every plan with a semantic gap and omits the
       clean ones
-- [ ] `frit doctor --help` enumerates the checks it runs and names
-      mdsmith as the authority on structure
+- [ ] `frit doctor --help` enumerates the checks it runs, and names
+      their source: `plan/proto.md` validated through mdsmith as a
+      library, not a rule set frit reimplements
 - [ ] The shipped skills read frit's output instead of the plan file,
       and stay under the skill kind's line cap
 - [ ] All tests pass: `go test ./...`
