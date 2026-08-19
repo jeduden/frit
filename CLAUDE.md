@@ -8,6 +8,7 @@ agents, written in Go.
 ## Docs
 
 - [Plan template; see PLAN.md for status, plans live in plan/](plan/proto.md)
+- [How frit and mdsmith fit together](docs/mdsmith-and-frit.md)
 - [Why frit exists — the research](docs/research/fleet-index/README.md)
 - [Where the name comes from](docs/research/naming.md)
 
