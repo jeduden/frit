@@ -24,6 +24,34 @@ import (
 // apart from a git fault, and report it rather than crash on it.
 var ErrLostRace = errors.New("lost the race")
 
+// Holder describes who holds the ref that won a lost push, read from its
+// marker. It turns the refusal's guess into a fact: a claim held on this
+// host reads differently from one held elsewhere, and a ref already
+// merged into the base is landed work with a stale status, not a
+// competitor. Known is false when the marker could not be read, so the
+// caller falls back to the original wording rather than misreport.
+type Holder struct {
+	Host     string // the host recorded in the holder's marker; "" if none
+	ThisHost bool   // the holder's host is this run's host
+	Landed   bool   // the holder's ref is merged into the base
+	Known    bool   // the marker was read; false → fall back to old wording
+}
+
+// LostRaceError reports a claim that lost the push and carries who holds
+// the ref. It wraps ErrLostRace, so a caller can still test the sentinel
+// with errors.Is while reading the Holder with errors.As.
+type LostRaceError struct {
+	PlanID int64
+	Holder Holder
+}
+
+func (e *LostRaceError) Error() string {
+	return fmt.Sprintf(
+		"lost the race for plan %d: the claim ref already exists", e.PlanID)
+}
+
+func (e *LostRaceError) Unwrap() error { return ErrLostRace }
+
 // Options describes the lease to mint.
 type Options struct {
 	Branch   string // the hold branch to mint, e.g. "plan/7-shader-unit"
@@ -97,7 +125,8 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 		// the ref on the remote — never by git's stderr, which the project
 		// rule forbids parsing and which a hook can fill with misleading
 		// wording like "already exists".
-		switch remoteHolder(repoDir, opts.Remote, ref, run) {
+		holderSHA := remoteHolder(repoDir, opts.Remote, ref, run)
+		switch holderSHA {
 		case marker:
 			// Our own marker is on the remote: the push landed even though
 			// the client reported an error, e.g. a connection dropped after
@@ -114,13 +143,17 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 			return Result{}, fmt.Errorf(
 				"push claim for plan %d: %w", opts.PlanID, err)
 		default:
-			// A different commit holds the ref: another machine won. Roll
-			// the local ref back.
+			// A different commit holds the ref: another machine won, or our
+			// own branch already landed with a status never set to ✅. Roll
+			// the local ref back, then read the holder's marker so the
+			// refusal can name who really holds the plan rather than always
+			// blaming a machine that may not be there.
 			_, _ = run(repoDir, "update-ref", "-d", ref)
 
-			return Result{}, fmt.Errorf(
-				"%w for plan %d: the claim ref already exists",
-				ErrLostRace, opts.PlanID)
+			return Result{}, &LostRaceError{
+				PlanID: opts.PlanID,
+				Holder: readHolder(repoDir, opts, holderSHA, run),
+			}
 		}
 	}
 
@@ -150,6 +183,81 @@ func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
 	}
 
 	return fields[0]
+}
+
+// readHolder names who holds the ref that won a lost push. It reads the
+// holder's marker for the host that took the claim, and asks whether the
+// holder's tip is already merged into the base — landed work whose status
+// was never set to ✅. Both are on the already-slow failure path, so
+// naming a holder costs nothing on the winning push.
+//
+// An unreadable marker yields the zero Holder, whose Known is false, so
+// the caller falls back to the original wording rather than misreport.
+func readHolder(
+	repoDir string, opts Options, sha string, run gitwt.Runner,
+) Holder {
+	body, ok := holderBody(repoDir, opts, sha, run)
+	if !ok {
+		return Holder{}
+	}
+	host := markerHost(body)
+
+	return Holder{
+		Host:     host,
+		ThisHost: host != "" && host == opts.Host,
+		Landed:   isAncestor(repoDir, sha, opts.Base, run),
+		Known:    true,
+	}
+}
+
+// holderBody returns the commit body of the ref that won, or ok=false
+// when it cannot be read. The holder's commit may not be in the local
+// store — a fresh claim from another machine was never fetched — so a
+// first read that misses is retried after fetching the holder ref, the
+// one extra network step paid only on the failure path. An empty body is
+// treated as unread, since a well-formed marker always carries one.
+func holderBody(
+	repoDir string, opts Options, sha string, run gitwt.Runner,
+) (string, bool) {
+	if body, err := trimmed(
+		run(repoDir, "log", "-1", "--format=%B", sha)); err == nil && body != "" {
+		return body, true
+	}
+
+	if _, err := run(repoDir, "fetch", "--quiet",
+		opts.Remote, "refs/heads/"+opts.Branch); err != nil {
+		return "", false
+	}
+
+	if body, err := trimmed(
+		run(repoDir, "log", "-1", "--format=%B", sha)); err == nil && body != "" {
+		return body, true
+	}
+
+	return "", false
+}
+
+// markerHost reads the host line from a claim marker's body, or "" when
+// there is none — a plain work commit that landed carries no host line,
+// and that absence is not a fault.
+func markerHost(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if rest, ok := strings.CutPrefix(
+			strings.TrimSpace(line), "host:"); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+
+	return ""
+}
+
+// isAncestor reports whether sha is already merged into base. A non-zero
+// exit — the not-an-ancestor answer, or any git fault — reads as false,
+// which is the safe default: a claim is called landed only on a clear yes.
+func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
+	_, err := run(dir, "merge-base", "--is-ancestor", sha, base)
+
+	return err == nil
 }
 
 // Release drops a claim: the local ref and its copy on the remote. It is

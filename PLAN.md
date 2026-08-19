@@ -50,5 +50,5 @@ footer: |
 | 2608171835 | ✅     | opus   | [The claim lease — frit mints the hold, atomically](plan/2608171835_claim-lease.md)                    |
 | 2608172211 | ✅     | sonnet | [One fleet walk — carry the repo coordinates](plan/2608172211_one-fleet-walk.md)                       |
 | 2608191811 | 🔲     | sonnet | [Report a checkout stranded on a landed branch](plan/2608191811_report-a-stranded-checkout.md)         |
-| 2608191812 | 🔲     | sonnet | [Name who holds a claim when the race is lost](plan/2608191812_name-the-holder-of-a-lost-race.md)      |
+| 2608191812 | ✅     | sonnet | [Name who holds a claim when the race is lost](plan/2608191812_name-the-holder-of-a-lost-race.md)      |
 <?/catalog?>

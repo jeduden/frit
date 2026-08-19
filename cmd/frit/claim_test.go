@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +63,38 @@ func TestClaimMintsAPickablePlan(t *testing.T) {
 		"refs/heads/plan/7-shader-unit")
 	require.NoError(t, err)
 	assert.Contains(t, remote, local, "the same lease is on origin")
+}
+
+// TestLostRaceRefusalNamesTheHolder: the refusal wording distinguishes a
+// landed branch, a claim held on this host, and one held elsewhere, and
+// falls back to the original wording for an unknown or non-race error.
+func TestLostRaceRefusalNamesTheHolder(t *testing.T) {
+	lost := func(h claim.Holder) error {
+		return &claim.LostRaceError{PlanID: 7, Holder: h}
+	}
+
+	assert.Equal(t,
+		"the claim branch has already landed; its status is still open, "+
+			"so set plan 7 to ✅",
+		lostRaceRefusal(lost(claim.Holder{Landed: true, Known: true})),
+		"a merged holder is named as landed, not a competitor")
+
+	assert.Equal(t, "already held on this host (box-a)",
+		lostRaceRefusal(lost(claim.Holder{
+			Host: "box-a", ThisHost: true, Known: true})),
+		"a claim held on this host names this host")
+
+	assert.Equal(t, "lost the race to another machine (box-b)",
+		lostRaceRefusal(lost(claim.Holder{Host: "box-b", Known: true})),
+		"a claim held elsewhere names the other machine")
+
+	assert.Equal(t, "lost the race to another machine",
+		lostRaceRefusal(lost(claim.Holder{})),
+		"an unread holder falls back to the original wording")
+
+	assert.Equal(t, "lost the race to another machine",
+		lostRaceRefusal(errors.New("some other error")),
+		"a non-LostRaceError falls back too")
 }
 
 // TestClaimRefusesAHeldPlan: a plan a lane already holds is not

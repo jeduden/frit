@@ -229,6 +229,144 @@ func TestMintKeepsAClaimTheRemoteAcceptedDespiteAClientError(t *testing.T) {
 	assert.Equal(t, "basesha", res.BaseSHA)
 }
 
+// TestMintNamesAClaimHeldOnThisHost: a claim lost to a ref this same
+// machine minted — the stale-status retry — reads its marker and reports
+// the holder as this host, not a competitor that is not there.
+func TestMintNamesAClaimHeldOnThisHost(t *testing.T) {
+	first := originAndClone(t)
+	second := cloneAgain(t, first)
+
+	a := sampleOptions()
+	a.Host = "box-a"
+	_, err := Mint(first, a, gitwt.Exec)
+	require.NoError(t, err)
+
+	b := sampleOptions()
+	b.Host = "box-a" // the same machine, retrying after a partial success
+	_, err = Mint(second, b, gitwt.Exec)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	require.True(t, lost.Holder.Known, "the holder marker was read")
+	assert.True(t, lost.Holder.ThisHost, "the holder is this host")
+	assert.Equal(t, "box-a", lost.Holder.Host)
+	assert.False(t, lost.Holder.Landed, "a fresh marker is not merged")
+}
+
+// TestMintNamesAClaimHeldElsewhere: a claim lost to another machine's ref
+// reads that marker's host and names the machine, so a genuine race still
+// reports the truth.
+func TestMintNamesAClaimHeldElsewhere(t *testing.T) {
+	first := originAndClone(t)
+	second := cloneAgain(t, first)
+
+	a := sampleOptions()
+	a.Host = "box-a"
+	_, err := Mint(first, a, gitwt.Exec)
+	require.NoError(t, err)
+
+	b := sampleOptions()
+	b.Host = "box-b" // a different machine really racing
+	_, err = Mint(second, b, gitwt.Exec)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	require.True(t, lost.Holder.Known)
+	assert.False(t, lost.Holder.ThisHost, "the holder is another machine")
+	assert.Equal(t, "box-a", lost.Holder.Host)
+	assert.False(t, lost.Holder.Landed)
+}
+
+// TestMintNamesALandedClaim: a push rejected by a work branch that already
+// merged into the base is landed work with a stale status, not a live
+// competitor. The holder's tip is an ancestor of the base, so Landed reads
+// true even though a plain work commit carries no host line.
+func TestMintNamesALandedClaim(t *testing.T) {
+	work := originAndClone(t)
+
+	// A work branch with a real commit, merged no-ff into main and left on
+	// the remote — the shape of a plan that landed but was never set to ✅.
+	gitCmd(t, work, "checkout", "-q", "-b", "plan/7-shader-unit")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "f.txt"), []byte("y\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "work on plan 7")
+	gitCmd(t, work, "checkout", "-q", "main")
+	gitCmd(t, work, "merge", "-q", "--no-ff", "-m", "land plan 7",
+		"plan/7-shader-unit")
+	gitCmd(t, work, "push", "-q", "origin", "main", "plan/7-shader-unit")
+
+	_, err := Mint(work, sampleOptions(), gitwt.Exec)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	require.True(t, lost.Holder.Known)
+	assert.True(t, lost.Holder.Landed, "the holder's tip is merged into the base")
+}
+
+// TestMintFallsBackWhenTheHolderMarkerIsUnreadable: a lost race whose
+// holder marker cannot be read — the object is missing and the fetch fails
+// — reports an unknown holder, so the caller falls back to today's wording
+// rather than failing the command.
+func TestMintFallsBackWhenTheHolderMarkerIsUnreadable(t *testing.T) {
+	run := func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "rev-parse":
+			return []byte("basesha\n"), nil
+		case "commit-tree":
+			return []byte("markersha\n"), nil
+		case "update-ref":
+			return nil, nil
+		case "push":
+			return nil, errors.New("rejected: already exists")
+		case "ls-remote":
+			return []byte("othersha\trefs/heads/plan/7-shader-unit\n"), nil
+		case "fetch":
+			return nil, errors.New("could not fetch the holder ref")
+		case "log":
+			return nil, errors.New("missing object")
+		}
+
+		return nil, nil
+	}
+
+	_, err := Mint("/repo", sampleOptions(), run)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	assert.True(t, errors.Is(err, ErrLostRace),
+		"the error still wraps the sentinel")
+	assert.False(t, lost.Holder.Known, "an unreadable marker is not known")
+}
+
+// TestMintWinningPathReadsNoHolder: a push that lands runs none of the
+// holder-reading git calls, so naming a holder costs nothing on the win.
+func TestMintWinningPathReadsNoHolder(t *testing.T) {
+	var calls []string
+	run := func(_ string, args ...string) ([]byte, error) {
+		calls = append(calls, args[0])
+		switch args[0] {
+		case "rev-parse":
+			return []byte("basesha\n"), nil
+		case "commit-tree":
+			return []byte("markersha\n"), nil
+		case "update-ref", "push":
+			return nil, nil // the push succeeds
+		}
+
+		return nil, nil
+	}
+
+	_, err := Mint("/repo", sampleOptions(), run)
+
+	require.NoError(t, err)
+	for _, c := range calls {
+		assert.NotContains(t,
+			[]string{"ls-remote", "fetch", "log", "merge-base"}, c,
+			"the winning path reads no holder")
+	}
+}
+
 // TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
 // locally or on the remote for a lane that never stood up.
 func TestReleaseDropsTheClaim(t *testing.T) {

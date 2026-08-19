@@ -81,7 +81,7 @@ func mintClaim(
 	}, rt.git)
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
-			doc.Refuse("lost the race to another machine")
+			doc.Refuse(lostRaceRefusal(err))
 			return nil
 		}
 		return err
@@ -89,6 +89,29 @@ func mintClaim(
 	doc.Minted(minted.BaseSHA)
 
 	return nil
+}
+
+// lostRaceRefusal names who holds a plan whose claim push lost, from the
+// holder facts claim.Mint read off the winning ref's marker. A branch
+// that already landed, a claim held on this host, and one held elsewhere
+// each read differently; an unread marker falls back to the original
+// wording so a missing or malformed body never changes the outcome.
+func lostRaceRefusal(err error) string {
+	var lost *claim.LostRaceError
+	if !errors.As(err, &lost) || !lost.Holder.Known {
+		return "lost the race to another machine"
+	}
+
+	switch h := lost.Holder; {
+	case h.Landed:
+		return fmt.Sprintf(
+			"the claim branch has already landed; its status is still open, "+
+				"so set plan %d to ✅", lost.PlanID)
+	case h.ThisHost:
+		return fmt.Sprintf("already held on this host (%s)", h.Host)
+	default:
+		return fmt.Sprintf("lost the race to another machine (%s)", h.Host)
+	}
 }
 
 // claimRefusal reports why a plan cannot be claimed, or "" when it can.
