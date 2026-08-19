@@ -274,6 +274,47 @@ func TestInitForceOverwrites(t *testing.T) {
 	assert.Equal(t, 0, code, errb.String())
 }
 
+func TestSkillsWritesTheBundledSkillsIntoARepository(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"skills", repo}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "SKILL.md")
+	body, err := os.ReadFile(filepath.Join(
+		repo, ".claude", "skills", "plan-pick", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "frit pick")
+}
+
+func TestSkillsRefusesToClobberWithoutForce(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"skills", repo}, &out, &errb))
+
+	out.Reset()
+	errb.Reset()
+	code := run([]string{"skills", repo}, &out, &errb)
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "already exists")
+}
+
+func TestSkillsJSONCarriesTheWrittenPaths(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"skills", repo, "--json"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "\"command\": \"skills\"")
+	assert.Contains(t, out.String(), "SKILL.md")
+}
+
 // TestPlansHonoursEachRepositorysPlanDir is the payoff of per-repo
 // config: a repository that keeps plans somewhere else is indexed
 // correctly with no flag at all.

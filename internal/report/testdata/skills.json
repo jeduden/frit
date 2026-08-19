@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "command": "skills",
+  "paths": [
+    "/fleet/atlas/.claude/skills/plan-pick/SKILL.md",
+    "/fleet/atlas/.claude/skills/plan-phase/SKILL.md"
+  ]
+}
