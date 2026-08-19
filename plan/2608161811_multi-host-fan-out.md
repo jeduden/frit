@@ -1,7 +1,7 @@
 ---
 id: 2608161811
 title: Multi-host — read the sockets, not the socket
-status: "🔲"
+status: "✅"
 summary: >-
   Grow presence from one host to many by SSH fan-out, because git
   already carries the durable half. The plan key already holds the
@@ -49,16 +49,33 @@ herdr already supports `--remote <ssh-target>`. So attaching to a pane
 spotted elsewhere stays a one-liner. A read-only attach needs no new
 work when the lane it points at turns out to live on another host.
 
+A pane carries the host it was read from. Resolving it to a lane is a
+`git` question about a cwd, and that cwd is a path on the machine the
+pane lives on. So a remote pane is resolved with the remote's git over
+ssh, never the local one. Resolving it locally would drop the pane, or
+match a coincidental local checkout.
+
+Hold patterns are still read from the local config. So a remote repo
+with a non-canonical convention resolves its branch but not its plan
+id. That is a later refinement, not this plan.
+
 ## Phase 2: an unreachable host is stale, not gone
 
 A dead SSH target must never block the board. An unreachable host
 renders its last-known presence with an explicit staleness age, rather
 than dropping its lanes or failing the whole command. A host that is
-merely slow is bounded by a timeout and treated the same.
+merely slow is bounded by a timeout and treated the same. The local
+socket is read first and on its own terms, so its failure is still
+"presence unknown", told apart from a fleet where nobody is live.
+
+The staleness surfaces as a per-host problem the report carries. It
+rides the table's problem lines and `--json`, not new report fields.
+So a board with no hosts configured is byte-for-byte what it was.
 
 The cache has a short TTL so a live fleet is not re-probed on every
 invocation. It is keyed on the host, so one slow machine does not
-stale the others.
+stale the others, and a host dropped from the roster is dropped from
+the cache rather than lingering.
 
 ## Execution
 

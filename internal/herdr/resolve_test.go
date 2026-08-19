@@ -152,7 +152,7 @@ func TestJoinResolvesEachPaneToItsPlan(t *testing.T) {
 		{Agent: "claude", CWD: "/fleet/atlas/docs"},
 		{Agent: "pi", CWD: "/elsewhere"},
 	}
-	lanes := Join(panes, git, holdsFor)
+	lanes := Join(panes, localGit(git), holdsFor)
 
 	require.Len(t, lanes, 2)
 	assert.Equal(t, "atlas", lanes[0].Repo)
@@ -185,6 +185,10 @@ func TestLiveRootsCollectsOnlyStaffedResolvableRoots(t *testing.T) {
 		{Agent: "pi", CWD: "/fleet/atlas/b"},
 		{Agent: "", CWD: "/fleet/bare"}, // bare pane, no agent
 		{Agent: "claude", CWD: "/no/repo"},
+		// A remote pane resolves to /fleet/bare under the fake git, but
+		// it lives on another host, so it must not mark a local
+		// worktree live — only /fleet/atlas comes back.
+		{Agent: "claude", CWD: "/fleet/bare", Host: "box"},
 	}, git)
 
 	assert.Equal(t, map[string]bool{"/fleet/atlas": true}, roots)
@@ -197,10 +201,51 @@ func TestJoinKeepsAPaneInNoRepository(t *testing.T) {
 	holdsFor := func(string) repocfg.Holds { return nil }
 
 	lanes := Join([]Pane{{Agent: "claude", CWD: "/tmp/scratch"}},
-		git, holdsFor)
+		localGit(git), holdsFor)
 
 	require.Len(t, lanes, 1)
 	assert.Empty(t, lanes[0].Root)
 	assert.Empty(t, lanes[0].Repo)
 	assert.False(t, lanes[0].HasPlan())
+}
+
+// localGit adapts a single fake git into a host selector that hands
+// every host the same runner — the shape a single-host test wants.
+func localGit(run gitwt.Runner) func(Host) gitwt.Runner {
+	return func(Host) gitwt.Runner { return run }
+}
+
+// TestJoinResolvesARemotePaneWithItsHostsGit is the multi-host join: a
+// pane read from another machine is resolved with that machine's git,
+// never the local one — a remote cwd is a path the local git cannot
+// see, so only the per-host runner places it on a lane.
+func TestJoinResolvesARemotePaneWithItsHostsGit(t *testing.T) {
+	local := fakeJoinGit(
+		map[string]string{"/local/atlas": "/local/atlas"},
+		map[string]string{"/local/atlas": "plan/2608161808-a"})
+	remote := fakeJoinGit(
+		map[string]string{"/remote/borg": "/remote/borg"},
+		map[string]string{"/remote/borg": "plan/2608161809-b"})
+	gitFor := func(h Host) gitwt.Runner {
+		if h == "box" {
+			return remote
+		}
+
+		return local
+	}
+	holds, err := repocfg.CompileAll([]string{"plan/{id}-*"})
+	require.NoError(t, err)
+	holdsFor := func(string) repocfg.Holds { return holds }
+
+	panes := []Pane{
+		{Agent: "claude", CWD: "/local/atlas", Host: ""},
+		{Agent: "claude", CWD: "/remote/borg", Host: "box"},
+	}
+	lanes := Join(panes, gitFor, holdsFor)
+
+	require.Len(t, lanes, 2)
+	assert.Equal(t, int64(2608161808), lanes[0].PlanID)
+	assert.Equal(t, "plan/2608161809-b", lanes[1].Branch,
+		"remote pane resolved with the remote git")
+	assert.Equal(t, int64(2608161809), lanes[1].PlanID)
 }
