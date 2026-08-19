@@ -219,6 +219,26 @@ func readHolder(
 	}
 }
 
+// MarkerHost reads the host recorded in the claim marker for a plan on a
+// branch, or "" when no frit marker is reachable — a non-frit branch, or
+// objects not yet in the local store.
+//
+// It reuses the marker the lease wrote, so a preflight can tell a foreign
+// checkout from an own one without a second parser: standing in a shared
+// clone on a branch another host holds must not read as this session's
+// own lane. An unreadable marker returning "" fails open — the guard
+// then does not refuse, which is the safe default for a non-frit branch.
+func MarkerHost(
+	repoDir, branch string, planID int64, run gitwt.Runner,
+) string {
+	body, ok := holderMarker(repoDir, Options{PlanID: planID}, branch, run)
+	if !ok {
+		return ""
+	}
+
+	return markerHost(body)
+}
+
 // holderMarker returns the claim marker's body from the holder branch.
 //
 // The host line lives on the marker commit frit minted, not the branch

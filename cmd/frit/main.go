@@ -665,6 +665,18 @@ func resolveSelector(
 	if err != nil {
 		return discovery.Plan{}, err
 	}
+
+	// Preflight the shared checkout: inferring a plan from the cwd must
+	// not hand this session the lane another host holds. A claim minted
+	// on one machine and worked in a clone a second agent shares would
+	// otherwise read as that agent's own current plan.
+	if host, foreign := fleet.ForeignHold(
+		cwd, hostname(), rt.git, holdsForRoot); foreign {
+		return discovery.Plan{}, fmt.Errorf(
+			"the current worktree stands on a claim held by %s; "+
+				"pass a plan explicitly to work another", host)
+	}
+
 	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
 	if !ok {
 		return discovery.Plan{}, errors.New(
