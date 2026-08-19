@@ -442,6 +442,27 @@ func TestOrphansIgnoresASquashMergedClaim(t *testing.T) {
 	assert.NotContains(t, out.String(), "claimed, no checkout")
 }
 
+// TestOrphansReportsAClaimDoneOnlyOnItsBranch is the guard against the
+// squash-merge fix overreaching: the plan-phase workflow flips status to
+// ✅ on the feature branch before the work merges, so a plan done only
+// there — absent from the default branch — has a live claim, and orphans
+// must still report it unstaffed rather than read it as landed.
+func TestOrphansReportsAClaimDoneOnlyOnItsBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/2608142306-fleet-index")
+	landPlan(t, repo, 2608142306, "fleet-index", "✅")
+	git(t, repo, "checkout", "-q", "main")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed, no checkout",
+		"a plan done only on its branch has not landed; the claim is live")
+}
+
 // TestOrphansReportsACheckoutStrandedOnALandedBranch is the counterpart
 // to the merged-ref filter: once the branch lands, the ref stops reading
 // as a claim, but a worktree still standing on it is stranded work the

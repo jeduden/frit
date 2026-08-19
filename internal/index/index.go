@@ -76,7 +76,11 @@ func (e Entry) Primary() Version {
 func LandedIDs(entries []Entry, preferred string) map[int64]bool {
 	landed := map[int64]bool{}
 	for _, e := range entries {
-		if p := e.Primary().Plan; p.Done() || p.Superseded() {
+		v := e.Primary()
+		if !onRef(v, preferred) {
+			continue
+		}
+		if v.Plan.Done() || v.Plan.Superseded() {
 			landed[e.Key.ID] = true
 		}
 	}
