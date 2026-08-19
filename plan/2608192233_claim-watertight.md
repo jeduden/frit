@@ -138,9 +138,9 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A claim on a plan done on the default branch is not a live hold
-- [ ] `frit orphans` ignores a squash-merged claim, as it does an ancestor
-- [ ] Board, ready and pick read a landed plan as unheld
+- [x] A claim on a plan done on the default branch is not a live hold
+- [x] `frit orphans` ignores a squash-merged claim, as it does an ancestor
+- [x] Board, ready and pick read a landed plan as unheld
 - [ ] An empty-selector verb refuses on a worktree held by another host
 - [ ] The refusal names the holder read from the claim marker
 - [ ] An own-host or non-frit checkout is not falsely refused

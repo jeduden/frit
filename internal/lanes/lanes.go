@@ -94,6 +94,9 @@ func Build(
 		if !ok {
 			continue
 		}
+		if landed[id] {
+			continue
+		}
 		lane := laneFor(byID, id)
 		lane.Holds = append(lane.Holds, Hold{
 			Ref: ref.Name, Branch: branch, PlanID: id,
