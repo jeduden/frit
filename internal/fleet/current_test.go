@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,56 @@ func planHolds(t *testing.T) repocfg.Holds {
 	require.NoError(t, err)
 
 	return holds
+}
+
+// markClaim writes a claim marker on the current branch, recording the
+// host that took it — the same subject and host line the lease mints, so
+// the reader under test finds it.
+func markClaim(t *testing.T, dir string, id int64, slug, host string) {
+	t.Helper()
+	msg := fmt.Sprintf("plan %d: claim %s\n\nhost:     %s\n", id, slug, host)
+	gitCmd(t, dir, "commit", "--allow-empty", "-q", "-m", msg)
+}
+
+// TestForeignHoldNamesAnotherHostsHolder is the guard that stops a
+// shared checkout handing one agent another's lane: standing on a claim
+// whose marker records a different host, the preflight names that host.
+func TestForeignHoldNamesAnotherHostsHolder(t *testing.T) {
+	root := repoOnBranch(t, "plan/2608161809-discovery")
+	markClaim(t, root, 2608161809, "discovery", "otherbox")
+	holds := planHolds(t)
+
+	host, foreign := ForeignHold(root, "thisbox", gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.True(t, foreign, "a claim held by another host is foreign")
+	assert.Equal(t, "otherbox", host)
+}
+
+// TestForeignHoldIsSilentOnThisHostsOwnClaim: standing on a lane this
+// host itself took is not foreign, so the verb proceeds.
+func TestForeignHoldIsSilentOnThisHostsOwnClaim(t *testing.T) {
+	root := repoOnBranch(t, "plan/2608161809-discovery")
+	markClaim(t, root, 2608161809, "discovery", "thisbox")
+	holds := planHolds(t)
+
+	_, foreign := ForeignHold(root, "thisbox", gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.False(t, foreign, "an own-host claim is not foreign")
+}
+
+// TestForeignHoldIsSilentWithoutAMarker fails open: a claim branch
+// carrying no frit marker — objects not fetched, or a non-frit branch —
+// must not read as a foreign hold and block the verb.
+func TestForeignHoldIsSilentWithoutAMarker(t *testing.T) {
+	root := repoOnBranch(t, "plan/2608161809-discovery")
+	holds := planHolds(t)
+
+	_, foreign := ForeignHold(root, "thisbox", gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.False(t, foreign, "an unreadable marker never refuses")
 }
 
 // TestCurrentPlanIDReadsTheLaneAWorktreeIsOn is the cwd form of the

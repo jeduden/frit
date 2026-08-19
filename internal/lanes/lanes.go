@@ -65,10 +65,19 @@ func (l Lane) standing() Lane {
 // not delete its branch, so without that filter every finished plan
 // would report as an active claim — the single largest source of false
 // holds in a long-lived repository.
+//
+// A squash-merge lands a plan without leaving its branch an ancestor of
+// the default branch, so the merged set never lists it. The landed set
+// closes that gap by plan id: a claim whose plan is already done on the
+// default branch is landed work, not a live hold, however its work
+// reached the branch. Like merged, it filters only the claim ref; a
+// checkout still standing on a landed branch is left for the stranded
+// report to name.
 func Build(
 	worktrees []gitwt.Worktree,
 	refs []gitobj.Ref,
 	merged map[string]bool,
+	landed map[int64]bool,
 	holds repocfg.Holds,
 ) []Lane {
 	byID := map[int64]*Lane{}
@@ -83,6 +92,9 @@ func Build(
 		}
 		id, ok := holds.Match(branch)
 		if !ok {
+			continue
+		}
+		if landed[id] {
 			continue
 		}
 		lane := laneFor(byID, id)

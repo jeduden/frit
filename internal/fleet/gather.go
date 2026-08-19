@@ -157,7 +157,8 @@ func gatherRepo(
 		})
 	}
 
-	held, err := heldBranches(repo, cfg, preferred, run)
+	held, err := heldBranches(
+		repo, cfg, preferred, index.LandedIDs(entries, preferred), run)
 	if err != nil {
 		return nil, nil, Coord{}, nil, err
 	}
@@ -184,7 +185,7 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 // claim pushed to a remote does not read as two.
 func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
-	run gitwt.Runner,
+	landed map[int64]bool, run gitwt.Runner,
 ) (map[int64][]string, error) {
 	holds, err := cfg.Compiled()
 	if err != nil {
@@ -200,7 +201,8 @@ func heldBranches(
 	}
 
 	held := map[int64][]string{}
-	for _, lane := range lanes.Build(repo.Worktrees, refs, merged, holds) {
+	for _, lane := range lanes.Build(
+		repo.Worktrees, refs, merged, landed, holds) {
 		seen := map[string]bool{}
 		for _, h := range lane.Holds {
 			if seen[h.Branch] {

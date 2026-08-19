@@ -11,10 +11,41 @@ package fleet
 import (
 	"path/filepath"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/repocfg"
 )
+
+// ForeignHold reports the host holding the claim the current worktree
+// stands on, when that host is not this run's own. It is the preflight
+// for an empty selector: inferring a plan from the cwd must not hand an
+// agent the lane another host holds.
+//
+// It returns not-foreign for every non-refusal: a directory in no lane,
+// a branch no pattern claims, a marker that cannot be read, or a claim
+// this host itself holds. Only a readable marker naming another host is
+// a foreign hold, so a non-frit branch or a lease with no marker never
+// blocks a verb.
+func ForeignHold(
+	cwd, thisHost string, run gitwt.Runner,
+	holdsFor func(root string) repocfg.Holds,
+) (host string, foreign bool) {
+	site := herdr.Resolve(cwd, run)
+	if site.Root == "" || site.Branch == "" {
+		return "", false
+	}
+	id, ok := holdsFor(site.Root).Match(site.Branch)
+	if !ok {
+		return "", false
+	}
+	marker := claim.MarkerHost(site.Root, site.Branch, id, run)
+	if marker == "" || marker == thisHost {
+		return "", false
+	}
+
+	return marker, true
+}
 
 // CurrentPlanID infers the plan a directory is working, by resolving
 // the directory to its worktree root, reading the branch that worktree
