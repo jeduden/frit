@@ -64,20 +64,27 @@ func (l Lane) HasPlan() bool {
 
 // Join resolves every pane to its lane through the cwd join.
 //
+// gitFor returns the git runner that reaches a pane's host: the local
+// git for the empty Host, and one that runs over ssh for a remote one.
+// A pane's cwd is a path on the machine it lives on, so resolving it
+// against any other host's git would either fail or, worse, match a
+// coincidental local checkout — the wrong-lane hazard this join exists
+// to prevent.
+//
 // holdsFor returns the hold patterns for a worktree root; it is a
 // callback rather than a hard dependency on repocfg so this package
 // stays about panes and git, and the caller owns config loading and
 // its caching. The roots resolved here are memoised so a fleet of
 // panes in one repository costs one config read, not one per pane.
 func Join(
-	panes []Pane, run gitwt.Runner,
+	panes []Pane, gitFor func(Host) gitwt.Runner,
 	holdsFor func(root string) repocfg.Holds,
 ) []Lane {
 	holdsByRoot := map[string]repocfg.Holds{}
 
 	lanes := make([]Lane, 0, len(panes))
 	for _, p := range panes {
-		site := Resolve(p.CWD, run)
+		site := Resolve(p.CWD, gitFor(p.Host))
 		lane := Lane{
 			Pane:   p,
 			Root:   site.Root,
@@ -100,10 +107,15 @@ func Join(
 // has an agent in its worktree is being worked, not abandoned. A pane
 // with no agent, or one git cannot resolve to a root, contributes
 // nothing, and a root with several panes appears once.
+//
+// Only local panes count. Staleness is a fact about this machine's
+// worktrees, and a remote root is a path on another host that could
+// collide with a local one — so a pane from elsewhere never marks a
+// local worktree live.
 func LiveRoots(panes []Pane, run gitwt.Runner) map[string]bool {
 	roots := map[string]bool{}
 	for _, p := range panes {
-		if !p.HasAgent() {
+		if !p.HasAgent() || p.Host != "" {
 			continue
 		}
 		if site := Resolve(p.CWD, run); site.Root != "" {

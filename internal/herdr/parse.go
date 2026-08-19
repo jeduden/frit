@@ -29,6 +29,12 @@ const (
 // a person may be working in, and a board that hides it is lying about
 // what the machine is doing.
 type Pane struct {
+	// Host is the machine this pane was read from: the empty Host for
+	// the local socket, an ssh target for a remote one. It travels with
+	// the pane so its cwd is resolved against the right host's git — a
+	// remote pane's cwd is a path on the remote, meaningless to the
+	// local git.
+	Host Host `json:"host,omitempty"`
 	// Agent is the agent kind, e.g. "claude"; empty for a bare pane.
 	Agent string
 	// Status is agent_status: working, idle, unknown, or another value

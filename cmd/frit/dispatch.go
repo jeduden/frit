@@ -39,9 +39,12 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewOpen(c.Root, plan.Repo, plan.ID, plan.Title)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, herdrErr := liveLaneFor(plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
 	if herdrErr != nil {
 		doc.AddProblem("herdr", herdrErr)
+	}
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
 	}
 	if found {
 		if err := herdr.Focus(rt.herdr, lane.Pane.PaneID); err != nil {
@@ -74,11 +77,11 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 // on an identically named branch elsewhere would be dispatched onto by
 // mistake — the one error this whole join exists to prevent.
 func liveLaneFor(
-	p discovery.Plan, rt *runtime,
-) (herdr.Lane, bool, error) {
-	panes, err := herdr.List(rt.herdr)
+	c *cli, p discovery.Plan, rt *runtime,
+) (herdr.Lane, bool, []hostProblem, error) {
+	panes, probs, err := fleetPresence(c, rt)
 	if err != nil {
-		return herdr.Lane{}, false, err
+		return herdr.Lane{}, false, nil, err
 	}
 
 	holds := map[string]bool{}
@@ -90,12 +93,12 @@ func liveLaneFor(
 		if lane.Root == "" || lane.Branch == "" || !holds[lane.Branch] {
 			continue
 		}
-		if fleet.RepoName(lane.Root, rt.git) == p.Repo {
-			return lane, true, nil
+		if fleet.RepoName(lane.Root, gitForHost(rt.git)(lane.Pane.Host)) == p.Repo {
+			return lane, true, probs, nil
 		}
 	}
 
-	return herdr.Lane{}, false, nil
+	return herdr.Lane{}, false, probs, nil
 }
 
 // printOpen reports the pane open raised, or that no lane was live to
@@ -153,7 +156,10 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 		phase, plan.Model, prompt, n.Go)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, herdrErr := liveLaneFor(plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
 	if herdrErr != nil {
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent
