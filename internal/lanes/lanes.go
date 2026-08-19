@@ -45,6 +45,20 @@ func (l Lane) Stranded() bool {
 	return len(l.Holds) == 0 && len(l.Worktrees) > 0
 }
 
+// standing returns the lane with only the checkouts still on disk: a
+// prunable worktree is git's "already gone", counted under Prunable
+// rather than as work still standing on a landed branch.
+func (l Lane) standing() Lane {
+	kept := make([]gitwt.Worktree, 0, len(l.Worktrees))
+	for _, wt := range l.Worktrees {
+		if !wt.Prunable {
+			kept = append(kept, wt)
+		}
+	}
+
+	return Lane{PlanID: l.PlanID, Holds: l.Holds, Worktrees: kept}
+}
+
 // Build joins one repository's refs and worktrees into lanes.
 //
 // Merged refs are excluded before anything else. Landing a plan does
@@ -159,7 +173,13 @@ func Find(built []Lane, worktrees []gitwt.Worktree) Orphans {
 			o.Unstaffed = append(o.Unstaffed, lane)
 		}
 		if lane.Stranded() {
-			o.Stranded = append(o.Stranded, lane)
+			// A prunable checkout is git's "already gone" and is reported
+			// under Prunable, so drop it here to keep one worktree to one
+			// complaint. A lane left with no standing checkout is not
+			// stranded — it is prunable, and named there instead.
+			if live := lane.standing(); len(live.Worktrees) > 0 {
+				o.Stranded = append(o.Stranded, live)
+			}
 		}
 	}
 

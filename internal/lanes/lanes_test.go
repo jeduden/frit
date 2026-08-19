@@ -166,6 +166,47 @@ func TestFindReportsACheckoutStrandedOnALandedBranch(t *testing.T) {
 	assert.True(t, got.Any())
 }
 
+// TestFindReportsAPrunableStrandedCheckoutOnceAsPrunable holds the
+// "one worktree, one complaint" line for a landed branch: a checkout git
+// already considers removable is prunable, not "still checked out", so it
+// must not be reported as stranded as well.
+func TestFindReportsAPrunableStrandedCheckoutOnceAsPrunable(t *testing.T) {
+	gone := gitwt.Worktree{
+		Path:     "/w/proj-fleet",
+		Branch:   "plan/42-fleet",
+		Head:     strings.Repeat("a", 40),
+		Prunable: true,
+	}
+	built := Build(
+		[]gitwt.Worktree{gone},
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		map[string]bool{"refs/heads/plan/42-fleet": true}, canonical(t))
+
+	got := Find(built, []gitwt.Worktree{gone})
+
+	require.Len(t, got.Prunable, 1)
+	assert.Empty(t, got.Stranded, "a prunable checkout is not still checked out")
+}
+
+// TestStandingKeepsOnlyTheCheckoutsStillOnDisk pins the helper that
+// keeps stranded from double-counting a prunable worktree: the standing
+// checkout survives, the prunable one is dropped.
+func TestStandingKeepsOnlyTheCheckoutsStillOnDisk(t *testing.T) {
+	lane := Lane{
+		PlanID: 7,
+		Worktrees: []gitwt.Worktree{
+			wt("/w/here", "plan/7-a"),
+			{Path: "/w/gone", Branch: "plan/7-a", Prunable: true},
+		},
+	}
+
+	got := lane.standing()
+
+	require.Len(t, got.Worktrees, 1)
+	assert.Equal(t, "/w/here", got.Worktrees[0].Path)
+	assert.Equal(t, int64(7), got.PlanID)
+}
+
 func TestFindReportsAWorktreeThatNeverStarted(t *testing.T) {
 	empty := gitwt.Worktree{
 		Path:   "/w/proj-fleet",
