@@ -1,7 +1,7 @@
 ---
 id: 2608191812
 title: Name who holds a claim when the race is lost
-status: "🔲"
+status: "✅"
 summary: >-
   When a claim push loses, frit reports "lost the race to another
   machine" whoever holds the ref — including your own branch that merged
@@ -54,11 +54,11 @@ read, the message falls back to today's wording rather than failing.
 
 ## Acceptance Criteria
 
-- [ ] A lost race to a claim held on this host names this host
-- [ ] A lost race to a claim held elsewhere still names another machine
-- [ ] A push rejected by a branch that merged names it as a landed claim
+- [x] A lost race to a claim held on this host names this host
+- [x] A lost race to a claim held elsewhere still names another machine
+- [x] A push rejected by a branch that merged names it as a landed claim
       with a stale status, not a live competitor
-- [ ] An unreadable holder marker falls back to today's message
-- [ ] The winning path runs no extra git call
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] An unreadable holder marker falls back to today's message
+- [x] The winning path runs no extra git call
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

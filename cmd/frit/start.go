@@ -176,7 +176,7 @@ func startExecute(
 		Host:     hostname(),
 	}, rt.git); err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
-			doc.Refuse("lost the race to another machine")
+			doc.Refuse(lostRaceRefusal(err))
 			return nil
 		}
 
