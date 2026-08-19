@@ -68,19 +68,73 @@ in the `--json` document. This establishes the whole seam — body
 parse, carry, render, golden — that phases 2+ copy. It ends in
 sign-off on that seam and the output shape.
 
+Phase 1 is complete. The phases below were appended at its sign-off.
+
+## Phase 2: the Execution tier and gate
+
+Parse the `## Execution` table into a per-phase tier and gate, and have
+`frit next <id>` print them for the phase it points at. This is the
+inline half of the linting answer: a `## Phase N` with no Execution row
+— no tier, no gate — is surfaced through the report's `Problems`
+channel, not rendered as a blank. frit never fails on it; it says so.
+
+## Phase 3: the phase body and a section-derived ledger
+
+Parse each `## Phase N` section body, so `frit next` prints the phase
+an executor reads, not just its title. When a plan carries no
+front-matter `phases:` ledger — as frit's own plans do not — derive the
+phase list from the `## Phase N` headings so `next` still points at the
+first one. Section state carries no status, so this reports the phases
+without inventing one.
+
+## Phase 4: frit doctor, the fleet-wide health report
+
+Add a read-only `frit doctor` verb that scans every plan and lists the
+semantic gaps frit now depends on: a missing `## Goal`, a phase with no
+Execution row, a tier that is not a known model. This is the
+fleet-wide half of the linting answer — a health report in the shape of
+`orphans` and `stale`, not a mutation.
+
+The check itself uses **mdsmith as a library**, not a hand-rolled
+linter. mdsmith already validates a plan against `plan/proto.md`. It
+also projects the front matter through a CUE schema, in `extract`. frit
+runs that validation through the imported package and reports the
+findings. Some of it lives in mdsmith's `internal/` today, the
+`extract` projection among it. That is the moment to ask mdsmith to
+promote the entry point, per the standing rule in
+[CLAUDE.md](../CLAUDE.md), not to reimplement a checker here.
+
+## Phase 5: the skills lean on the output
+
+Trim the shipped `plan-pick` and `plan-phase` skills so they read
+frit's output instead of the plan file, dropping the "read the plan
+file" prose the enrichment makes redundant. Regenerate frit's own
+`.claude/skills` from the bundle, and keep every skill under the kind's
+line cap.
+
 ## Tasks
 
-1. Phase 1 — proving slice: `frit show` prints the Goal parsed from
-   the body, end to end, then sign-off.
-2. (determined after Phase 1 sign-off)
+1. Phase 1 — proving slice: `frit show` prints the Goal from the body,
+   end to end. Done.
+2. Phase 2 — Execution tier and gate on `frit next`; a phase with no
+   row surfaced via `Problems`.
+3. Phase 3 — phase-section body on `frit next`; a section-derived
+   ledger when front matter carries none.
+4. Phase 4 — `frit doctor`: a fleet-wide report of plans with a
+   semantic gap, checked through mdsmith as a library.
+5. Phase 5 — the skills lean on the enriched output; re-dogfood.
 
 ## Execution
 
 Tier is per phase, set by the most demanding ingredient.
 
-| Phase        | Design | Implement | Gate that catches a wrong answer                            |
-| ------------ | ------ | --------- | ----------------------------------------------------------- |
-| 1 Goal slice | opus   | sonnet    | test that `frit show` prints a body-only Goal, table + json |
+| Phase         | Design | Implement | Gate that catches a wrong answer                               |
+| ------------- | ------ | --------- | -------------------------------------------------------------- |
+| 1 Goal slice  | opus   | sonnet    | test that `frit show` prints a body-only Goal, table + json    |
+| 2 tier & gate | sonnet | sonnet    | test that `next` prints them, and a row-less phase is a gap    |
+| 3 phase body  | sonnet | sonnet    | test that `next` prints the body, ledger derived from headings |
+| 4 frit doctor | sonnet | sonnet    | test that a gapped plan is listed and a clean one is not       |
+| 5 skills lean | sonnet | sonnet    | shipped skills drop the file-read prose and stay under the cap |
 
 ## Acceptance Criteria
 
@@ -90,5 +144,12 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A plan with no `## Goal` section renders an empty Goal, not a
       crash
 - [x] The golden files are re-recorded and the diff read
-- [x] All tests pass: `go test ./...`
-- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [ ] `frit next <id>` prints the target phase's tier, gate and body
+- [ ] A phase with no Execution row is surfaced as a `Problems` entry,
+      never a blank tier
+- [ ] `frit doctor` lists every plan with a semantic gap and omits the
+      clean ones
+- [ ] The shipped skills read frit's output instead of the plan file,
+      and stay under the skill kind's line cap
+- [ ] All tests pass: `go test ./...`
+- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
