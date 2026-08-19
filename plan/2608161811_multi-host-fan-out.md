@@ -1,7 +1,7 @@
 ---
 id: 2608161811
 title: Multi-host — read the sockets, not the socket
-status: "🔳"
+status: "✅"
 summary: >-
   Grow presence from one host to many by SSH fan-out, because git
   already carries the durable half. The plan key already holds the

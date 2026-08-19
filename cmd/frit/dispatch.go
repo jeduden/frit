@@ -39,7 +39,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewOpen(c.Root, plan.Repo, plan.ID, plan.Title)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, herdrErr := liveLaneFor(plan, rt)
+	lane, found, herdrErr := liveLaneFor(c, plan, rt)
 	if herdrErr != nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
@@ -74,9 +74,9 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 // on an identically named branch elsewhere would be dispatched onto by
 // mistake — the one error this whole join exists to prevent.
 func liveLaneFor(
-	p discovery.Plan, rt *runtime,
+	c *cli, p discovery.Plan, rt *runtime,
 ) (herdr.Lane, bool, error) {
-	panes, err := herdr.List(rt.herdr)
+	panes, err := presencePanes(c, rt)
 	if err != nil {
 		return herdr.Lane{}, false, err
 	}
@@ -153,7 +153,7 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 		phase, plan.Model, prompt, n.Go)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, herdrErr := liveLaneFor(plan, rt)
+	lane, found, herdrErr := liveLaneFor(c, plan, rt)
 	if herdrErr != nil {
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent

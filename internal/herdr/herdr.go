@@ -14,9 +14,16 @@ import (
 // implementation stays one function with no state to construct.
 type Runner func(args ...string) ([]byte, error)
 
-// Exec is the Runner that shells out to the herdr binary.
+// Exec is the Runner that shells out to the local herdr binary.
 func Exec(args ...string) ([]byte, error) {
 	return run("herdr", args...)
+}
+
+// Run is the ExecFunc that shells out to an arbitrary process, the seam
+// ListHosts fans out over in production: the local herdr binary for the
+// local host, and `ssh <host> herdr …` for a remote one.
+func Run(name string, args ...string) ([]byte, error) {
+	return run(name, args...)
 }
 
 // run invokes name with args, taking the binary name so a test can
