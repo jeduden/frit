@@ -42,8 +42,15 @@ func Load(path string) Cache {
 // Store writes the cache to path as JSON, creating its directory. It is
 // the one side effect this package owns; Reconcile hands back the cache
 // to persist and Store is where it lands.
+//
+// The write is atomic — a temp file renamed into place — so one frit
+// run reading the cache while another writes it sees either the old
+// file or the new one, never a half-written one. A torn read would
+// unmarshal to a cold start and re-probe the whole fleet, the very
+// thrash the cache exists to avoid.
 func Store(path string, c Cache) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -52,7 +59,23 @@ func Store(path string, c Cache) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0o644)
+	tmp, err := os.CreateTemp(dir, "presence-*.json")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+
+		return err
+	}
+
+	return os.Rename(tmp.Name(), path)
 }
 
 // CachePath is the default location of the presence cache, under the
