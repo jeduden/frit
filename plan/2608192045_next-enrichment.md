@@ -104,6 +104,12 @@ findings. Some of it lives in mdsmith's `internal/` today, the
 promote the entry point, per the standing rule in
 [CLAUDE.md](../CLAUDE.md), not to reimplement a checker here.
 
+The verb documents its own mechanics. `frit doctor --help` enumerates
+what it checks — a missing `## Goal`, a phase with no Execution row, a
+tier that is not a known model — and names mdsmith as the authority on
+structure, so a reader learns what a finding means without opening the
+source. The help is the contract for what doctor promises to catch.
+
 ## Phase 5: the skills lean on the output
 
 Trim the shipped `plan-pick` and `plan-phase` skills so they read
@@ -128,13 +134,13 @@ line cap.
 
 Tier is per phase, set by the most demanding ingredient.
 
-| Phase         | Design | Implement | Gate that catches a wrong answer                               |
-| ------------- | ------ | --------- | -------------------------------------------------------------- |
-| 1 Goal slice  | opus   | sonnet    | test that `frit show` prints a body-only Goal, table + json    |
-| 2 tier & gate | sonnet | sonnet    | test that `next` prints them, and a row-less phase is a gap    |
-| 3 phase body  | sonnet | sonnet    | test that `next` prints the body, ledger derived from headings |
-| 4 frit doctor | sonnet | sonnet    | test that a gapped plan is listed and a clean one is not       |
-| 5 skills lean | sonnet | sonnet    | shipped skills drop the file-read prose and stay under the cap |
+| Phase         | Design | Implement | Gate that catches a wrong answer                                       |
+| ------------- | ------ | --------- | ---------------------------------------------------------------------- |
+| 1 Goal slice  | opus   | sonnet    | test that `frit show` prints a body-only Goal, table + json            |
+| 2 tier & gate | sonnet | sonnet    | test that `next` prints them, and a row-less phase is a gap            |
+| 3 phase body  | sonnet | sonnet    | test that `next` prints the body, ledger derived from headings         |
+| 4 frit doctor | sonnet | sonnet    | a gapped plan is listed, a clean one is not, `--help` lists the checks |
+| 5 skills lean | sonnet | sonnet    | shipped skills drop the file-read prose and stay under the cap         |
 
 ## Acceptance Criteria
 
@@ -149,6 +155,8 @@ Tier is per phase, set by the most demanding ingredient.
       never a blank tier
 - [ ] `frit doctor` lists every plan with a semantic gap and omits the
       clean ones
+- [ ] `frit doctor --help` enumerates the checks it runs and names
+      mdsmith as the authority on structure
 - [ ] The shipped skills read frit's output instead of the plan file,
       and stay under the skill kind's line cap
 - [ ] All tests pass: `go test ./...`
