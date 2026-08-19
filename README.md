@@ -25,6 +25,16 @@ frit resolves a plan to a lane and a model tier, hands the pane to
 the agent that already runs there, and steps back. It renders no
 text input, and it never reads a transcript back.
 
+## Built on mdsmith and herdr
+
+frit consumes rather than reimplements. It does not parse markdown,
+lint it, or generate an index of it — mdsmith owns all of that, and
+frit imports it as a library. It does not run panes — herdr owns those,
+and frit reads its socket and hands panes back. frit is the join, and
+it owns exactly one mutation of its own: the claim. Where the line runs
+between frit and mdsmith, and why, is written up in
+[how frit and mdsmith fit together](docs/mdsmith-and-frit.md).
+
 ## Install
 
 From source, with Go 1.25 or newer:
