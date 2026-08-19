@@ -34,7 +34,7 @@ func TestBuildPairsAClaimWithItsCheckout(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, canonical(t))
+		nil, nil, canonical(t))
 
 	require.Len(t, got, 1)
 	assert.Equal(t, int64(42), got[0].PlanID)
@@ -50,9 +50,23 @@ func TestBuildDropsMergedRefs(t *testing.T) {
 
 	got := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		merged, canonical(t))
+		merged, nil, canonical(t))
 
 	assert.Empty(t, got, "a landed plan is not an active claim")
+}
+
+// TestBuildDropsLandedClaims closes the squash-merge gap: a claim whose
+// plan is done on the default branch is landed work, even when its
+// branch is no ancestor of that branch, so the merged set never lists
+// it. The landed set drops it by plan id.
+func TestBuildDropsLandedClaims(t *testing.T) {
+	landed := map[int64]bool{42: true}
+
+	got := Build(nil,
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		nil, landed, canonical(t))
+
+	assert.Empty(t, got, "a plan done on the default branch is not a hold")
 }
 
 func TestBuildTreatsALocalAndRemoteClaimAsOneLane(t *testing.T) {
@@ -60,7 +74,7 @@ func TestBuildTreatsALocalAndRemoteClaimAsOneLane(t *testing.T) {
 		ref("refs/heads/plan/42-fleet"),
 		ref("refs/remotes/origin/plan/42-fleet"),
 		ref("refs/remotes/peer/plan/42-fleet"),
-	}, nil, canonical(t))
+	}, nil, nil, canonical(t))
 
 	require.Len(t, got, 1, "one plan, three refs")
 	assert.Len(t, got[0].Holds, 3)
@@ -72,7 +86,7 @@ func TestBuildIgnoresRefsNoPatternClaims(t *testing.T) {
 		ref("refs/heads/backup/plan/42-fleet"),
 		ref("refs/tags/plan/42-fleet"),
 		ref("refs/heads/v0.42"),
-	}, nil, canonical(t))
+	}, nil, nil, canonical(t))
 
 	assert.Empty(t, got)
 }
@@ -80,7 +94,7 @@ func TestBuildIgnoresRefsNoPatternClaims(t *testing.T) {
 func TestBuildIgnoresAWorktreeOnNoClaimedBranch(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj", "main")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	assert.Empty(t, got)
 }
@@ -92,7 +106,7 @@ func TestBuildWithNoPatternsFindsNothing(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, none)
+		nil, nil, none)
 
 	assert.Empty(t, got, "a repo declaring no pattern has no lanes")
 }
@@ -101,7 +115,7 @@ func TestBuildIsSortedByPlanID(t *testing.T) {
 	got := Build(nil, []gitobj.Ref{
 		ref("refs/heads/plan/90-b"),
 		ref("refs/heads/plan/10-a"),
-	}, nil, canonical(t))
+	}, nil, nil, canonical(t))
 
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(10), got[0].PlanID)
@@ -111,7 +125,7 @@ func TestBuildIsSortedByPlanID(t *testing.T) {
 func TestFindReportsAClaimWithNoCheckout(t *testing.T) {
 	built := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, canonical(t))
+		nil, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -129,7 +143,7 @@ func TestBuildLeavesAMergedBranchsCheckoutStranded(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		merged, canonical(t))
+		merged, nil, canonical(t))
 
 	require.Len(t, got, 1)
 	assert.Empty(t, got[0].Holds, "the merged ref was dropped")
@@ -156,7 +170,7 @@ func TestFindReportsACheckoutStrandedOnALandedBranch(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		map[string]bool{"refs/heads/plan/42-fleet": true}, canonical(t))
+		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -180,7 +194,7 @@ func TestFindReportsAPrunableStrandedCheckoutOnceAsPrunable(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{gone},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		map[string]bool{"refs/heads/plan/42-fleet": true}, canonical(t))
+		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, canonical(t))
 
 	got := Find(built, []gitwt.Worktree{gone})
 
@@ -244,7 +258,7 @@ func TestFindOnAHealthyRepositoryIsSilent(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, canonical(t))
+		nil, nil, canonical(t))
 
 	got := Find(built, []gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")})
 

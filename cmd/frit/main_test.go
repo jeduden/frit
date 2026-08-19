@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -372,6 +373,24 @@ func claimBranch(t *testing.T, repo, branch string) {
 	git(t, repo, "checkout", "-q", "main")
 }
 
+// landPlan commits a plan file on the default branch with a given
+// status, so a test can assert how frit reads a claim whose plan is
+// already done there — the squash-merged case the ancestry filter
+// cannot see.
+func landPlan(t *testing.T, repo string, id int64, slug, status string) {
+	t.Helper()
+	dir := filepath.Join(repo, "plan")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	body := fmt.Sprintf(
+		"---\nid: %d\ntitle: %s\nstatus: %q\n---\n# %s\n",
+		id, slug, status, slug)
+	name := fmt.Sprintf("%d_%s.md", id, slug)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, name), []byte(body), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "land plan "+slug)
+}
+
 func TestOrphansReportsAClaimWithNoCheckout(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -401,6 +420,26 @@ func TestOrphansIgnoresAMergedClaim(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "no orphaned lanes")
+}
+
+// TestOrphansIgnoresASquashMergedClaim is the squash-merge counterpart
+// to the merged-ref filter: this repository squash-merges, so a landed
+// plan's branch is no ancestor of the default branch and --merged never
+// lists it. The plan is done on the default branch, so its lingering
+// claim is landed work, not an abandoned lane.
+func TestOrphansIgnoresASquashMergedClaim(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	landPlan(t, repo, 2608142306, "fleet-index", "✅")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no orphaned lanes")
+	assert.NotContains(t, out.String(), "claimed, no checkout")
 }
 
 // TestOrphansReportsACheckoutStrandedOnALandedBranch is the counterpart

@@ -1,7 +1,7 @@
 ---
 id: 2608192233
 title: Harden the claim against squash-merges and shared checkouts
-status: "🔲"
+status: "🔳"
 summary: >-
   Two demonstrated gaps let a stale or foreign hold read as live. A
   squash-merged plan is landed yet its branch is no ancestor, so the

@@ -114,13 +114,25 @@ func repoLanes(
 	if err != nil {
 		return nil, err
 	}
-	merged, err := gitobj.MergedRefs(repo.Path,
-		gitobj.DefaultRef(repo.Path, rt.git), rt.git)
+	preferred := gitobj.DefaultRef(repo.Path, rt.git)
+	merged, err := gitobj.MergedRefs(repo.Path, preferred, rt.git)
 	if err != nil {
 		return nil, err
 	}
 
-	return lanes.Build(repo.Worktrees, refs, merged, holds), nil
+	// A squash-merge lands a plan without leaving its branch an ancestor
+	// of the default branch, so the merged filter cannot see it. The
+	// default-branch status can: a plan done there is landed work, and
+	// its claim ref is not a live hold. Reading the index costs the
+	// orphan report the same plan walk the fleet already runs.
+	files, err := plans.Collect(repo.Path, cfg.PlanDir, rt.git, rt.gitPipe)
+	if err != nil {
+		return nil, err
+	}
+	entries, _ := index.Build("", repo.Name, preferred, files)
+	landed := index.LandedIDs(entries)
+
+	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), nil
 }
 
 type orphansCmd struct{}

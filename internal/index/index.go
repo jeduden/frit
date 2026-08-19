@@ -61,6 +61,21 @@ func (e Entry) Primary() Version {
 	return e.Versions[0]
 }
 
+// LandedIDs returns the ids whose authoritative version is done or
+// superseded. That work has reached the default branch, so a claim ref
+// left behind on it is landed, not a live hold — the signal that closes
+// the squash-merge gap the ancestry-based merged filter cannot see.
+func LandedIDs(entries []Entry) map[int64]bool {
+	landed := map[int64]bool{}
+	for _, e := range entries {
+		if p := e.Primary().Plan; p.Done() || p.Superseded() {
+			landed[e.Key.ID] = true
+		}
+	}
+
+	return landed
+}
+
 // RefCount is how many refs carry this plan in any version.
 func (e Entry) RefCount() int {
 	n := 0
