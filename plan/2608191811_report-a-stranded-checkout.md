@@ -1,7 +1,7 @@
 ---
 id: 2608191811
 title: Report a checkout stranded on a landed branch
-status: "🔲"
+status: "✅"
 summary: >-
   A worktree left on a branch that has since merged is invisible to
   frit orphans. The merged ref is dropped from the lane's holds, so the
@@ -51,10 +51,10 @@ find.
 
 ## Acceptance Criteria
 
-- [ ] A worktree left on a merged branch is reported by `frit orphans`
-- [ ] The new category is distinct from `claimed, no checkout`
-- [ ] The `--json` document carries the same lanes as the table
-- [ ] An ordinary staffed lane, and a landed branch with no worktree,
+- [x] A worktree left on a merged branch is reported by `frit orphans`
+- [x] The new category is distinct from `claimed, no checkout`
+- [x] The `--json` document carries the same lanes as the table
+- [x] An ordinary staffed lane, and a landed branch with no worktree,
       are unaffected
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

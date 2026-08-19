@@ -20,6 +20,14 @@ func found() lanes.Orphans {
 				PlanID: 42,
 			}},
 		}},
+		Stranded: []lanes.Lane{{
+			PlanID: 99,
+			Worktrees: []gitwt.Worktree{{
+				Path:   "/fleet/atlas-landed",
+				Branch: "plan/99-z",
+				Head:   "d00dfeed",
+			}},
+		}},
 		Empty: []gitwt.Worktree{
 			{Path: "/fleet/atlas-empty", Branch: "plan/7-y", Head: zero},
 		},
@@ -34,7 +42,7 @@ func found() lanes.Orphans {
 	}
 }
 
-func TestOrphansKeepsTheThreeKindsApart(t *testing.T) {
+func TestOrphansKeepsTheKindsApart(t *testing.T) {
 	doc := NewOrphans("/fleet")
 	doc.AddRepo("atlas", found())
 
@@ -47,6 +55,11 @@ func TestOrphansKeepsTheThreeKindsApart(t *testing.T) {
 	assert.Equal(t, int64(42), repo.Unstaffed[0].PlanID)
 	require.Len(t, repo.Unstaffed[0].Holds, 1)
 	assert.Equal(t, "plan/42-x", repo.Unstaffed[0].Holds[0].Branch)
+	require.Len(t, repo.Stranded, 1)
+	assert.Equal(t, int64(99), repo.Stranded[0].PlanID)
+	require.Len(t, repo.Stranded[0].Worktrees, 1)
+	assert.Equal(t, "atlas-landed", repo.Stranded[0].Worktrees[0].Name)
+	assert.Equal(t, "plan/99-z", repo.Stranded[0].Worktrees[0].Branch)
 	require.Len(t, repo.Empty, 1)
 	assert.Equal(t, "atlas-empty", repo.Empty[0].Name)
 	require.Len(t, repo.Prunable, 1)
@@ -66,6 +79,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.Equal(t, "clean", doc.Repos[0].Name)
 	assert.False(t, doc.Repos[0].Any())
 	assert.NotNil(t, doc.Repos[0].Unstaffed)
+	assert.NotNil(t, doc.Repos[0].Stranded)
 	assert.NotNil(t, doc.Repos[0].Empty)
 	assert.NotNil(t, doc.Repos[0].Prunable)
 	require.Len(t, doc.Problems, 1)
@@ -75,6 +89,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.False(t, OrphanRepo{}.Any())
 	assert.True(t, OrphanRepo{Unstaffed: []Lane{{}}}.Any())
+	assert.True(t, OrphanRepo{Stranded: []StrandedLane{{}}}.Any())
 	assert.True(t, OrphanRepo{Empty: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Prunable: []Worktree{{}}}.Any())
 }
