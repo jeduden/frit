@@ -75,6 +75,41 @@ func TestBuildKeepsDistinctVersionsApart(t *testing.T) {
 		"the version most refs agree on wins")
 }
 
+// TestLandedIDsRequiresTheStatusOnTheDefaultBranch is the guard the
+// squash-merge fix must not overreach: a plan flipped ✅ only on its own
+// feature branch — the ordinary pre-merge state the plan-phase workflow
+// leaves — has not landed, so its claim is still live and must not be
+// suppressed. Primary() falls back off the default branch, so done-ness
+// alone is not enough; the authoritative version must be the one the
+// preferred ref carries.
+func TestLandedIDsRequiresTheStatusOnTheDefaultBranch(t *testing.T) {
+	preferred := "refs/heads/main"
+	files := []plans.File{{
+		Ref: "refs/heads/plan/7-x", Path: "plan/7_x.md", OID: "a",
+		Content: plan(7, "✅", "X"),
+	}}
+	entries, _ := Build("h", "r", preferred, files)
+
+	assert.Empty(t, LandedIDs(entries, preferred),
+		"a status flipped only on a feature branch is not landed")
+}
+
+// TestLandedIDsMarksAPlanDoneOnTheDefaultBranch is the squash-merge
+// case the fix must still catch: the ✅ version is carried by the
+// preferred ref, so the work landed however it got there, and a claim
+// left behind on it is not a live hold.
+func TestLandedIDsMarksAPlanDoneOnTheDefaultBranch(t *testing.T) {
+	preferred := "refs/heads/main"
+	files := []plans.File{{
+		Ref: preferred, Path: "plan/7_x.md", OID: "a",
+		Content: plan(7, "✅", "X"),
+	}}
+	entries, _ := Build("h", "r", preferred, files)
+
+	assert.True(t, LandedIDs(entries, preferred)[7],
+		"done on the default branch is landed")
+}
+
 func TestRankBreaksTiesOnObjectIDForStability(t *testing.T) {
 	versions := []Version{
 		{OID: "bbb", Refs: []string{"r1"}},

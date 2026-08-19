@@ -62,10 +62,18 @@ func (e Entry) Primary() Version {
 }
 
 // LandedIDs returns the ids whose authoritative version is done or
-// superseded. That work has reached the default branch, so a claim ref
-// left behind on it is landed, not a live hold — the signal that closes
-// the squash-merge gap the ancestry-based merged filter cannot see.
-func LandedIDs(entries []Entry) map[int64]bool {
+// superseded on the default branch. That work has reached the default
+// branch, so a claim ref left behind on it is landed, not a live hold —
+// the signal that closes the squash-merge gap the ancestry-based merged
+// filter cannot see.
+//
+// The status must be on the preferred ref, not merely on Primary(): a
+// plan absent from the default branch falls back to a feature-branch
+// version, and the plan-phase workflow flips status to ✅ there before
+// the work merges. Counting that as landed would suppress a live claim,
+// so the authoritative version is required to be one the preferred ref
+// actually carries.
+func LandedIDs(entries []Entry, preferred string) map[int64]bool {
 	landed := map[int64]bool{}
 	for _, e := range entries {
 		if p := e.Primary().Plan; p.Done() || p.Superseded() {

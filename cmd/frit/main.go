@@ -130,7 +130,7 @@ func repoLanes(
 		return nil, err
 	}
 	entries, _ := index.Build("", repo.Name, preferred, files)
-	landed := index.LandedIDs(entries)
+	landed := index.LandedIDs(entries, preferred)
 
 	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), nil
 }

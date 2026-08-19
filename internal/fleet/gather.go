@@ -158,7 +158,7 @@ func gatherRepo(
 	}
 
 	held, err := heldBranches(
-		repo, cfg, preferred, index.LandedIDs(entries), run)
+		repo, cfg, preferred, index.LandedIDs(entries, preferred), run)
 	if err != nil {
 		return nil, nil, Coord{}, nil, err
 	}
