@@ -187,54 +187,57 @@ func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
 
 // readHolder names who holds the ref that won a lost push. It reads the
 // holder's marker for the host that took the claim, and asks whether the
-// holder's tip is already merged into the base — landed work whose status
+// holder's work is already merged into the base — landed work whose status
 // was never set to ✅. Both are on the already-slow failure path, so
 // naming a holder costs nothing on the winning push.
 //
 // An unreadable marker yields the zero Holder, whose Known is false, so
 // the caller falls back to the original wording rather than misreport.
 func readHolder(
-	repoDir string, opts Options, sha string, run gitwt.Runner,
+	repoDir string, opts Options, tip string, run gitwt.Runner,
 ) Holder {
-	body, ok := holderBody(repoDir, opts, sha, run)
+	body, ok := holderMarker(repoDir, opts, tip, run)
 	if !ok {
-		return Holder{}
+		// The holder's commits may not be local — a claim from another
+		// machine was never fetched. Bring the branch in once, then retry
+		// before falling back to the original wording.
+		if _, err := run(repoDir, "fetch", "--quiet",
+			opts.Remote, "refs/heads/"+opts.Branch); err != nil {
+			return Holder{}
+		}
+		if body, ok = holderMarker(repoDir, opts, tip, run); !ok {
+			return Holder{}
+		}
 	}
 	host := markerHost(body)
 
 	return Holder{
 		Host:     host,
 		ThisHost: host != "" && host == opts.Host,
-		Landed:   isAncestor(repoDir, sha, opts.Base, run),
+		Landed:   landed(repoDir, opts, tip, run),
 		Known:    true,
 	}
 }
 
-// holderBody returns the commit body of the ref that won, or ok=false
-// when it cannot be read. The holder's commit may not be in the local
-// store — a fresh claim from another machine was never fetched — so a
-// first read that misses is retried after fetching the holder ref, the
-// one extra network step paid only on the failure path. An empty body is
-// treated as unread, since a well-formed marker always carries one.
-func holderBody(
-	repoDir string, opts Options, sha string, run gitwt.Runner,
+// holderMarker returns the claim marker's body from the holder branch.
+//
+// The host line lives on the marker commit frit minted, not the branch
+// tip: an active lane advances its branch past the marker with real work,
+// so the tip carries no host line. The marker is found by the stable
+// subject frit writes — `plan <id>: claim` — even when work commits sit on
+// top of it. ok is false when no such marker is reachable — a non-frit
+// branch on the hold ref, or objects not yet in the local store.
+func holderMarker(
+	repoDir string, opts Options, tip string, run gitwt.Runner,
 ) (string, bool) {
-	if body, err := trimmed(
-		run(repoDir, "log", "-1", "--format=%B", sha)); err == nil && body != "" {
-		return body, true
-	}
-
-	if _, err := run(repoDir, "fetch", "--quiet",
-		opts.Remote, "refs/heads/"+opts.Branch); err != nil {
+	pattern := fmt.Sprintf("^plan %d: claim ", opts.PlanID)
+	body, err := trimmed(run(repoDir, "log", "-1",
+		"--grep="+pattern, "--format=%B", tip))
+	if err != nil || body == "" {
 		return "", false
 	}
 
-	if body, err := trimmed(
-		run(repoDir, "log", "-1", "--format=%B", sha)); err == nil && body != "" {
-		return body, true
-	}
-
-	return "", false
+	return body, true
 }
 
 // markerHost reads the host line from a claim marker's body, or "" when
@@ -249,6 +252,36 @@ func markerHost(body string) string {
 	}
 
 	return ""
+}
+
+// landed reports whether the holder's work has reached the default branch
+// on the remote — merged work whose branch was left behind with a status
+// never set to ✅. It refreshes the base from the remote first, so a stale
+// local view of the default branch does not read a claim merged on another
+// machine as a live competitor. A base that cannot be fetched falls back
+// to the local view rather than failing the classification.
+func landed(repoDir string, opts Options, tip string, run gitwt.Runner) bool {
+	base := opts.Base
+	if branch := baseBranch(opts.Base, opts.Remote); branch != "" {
+		if _, err := run(repoDir, "fetch", "--quiet",
+			opts.Remote, branch); err == nil {
+			base = "FETCH_HEAD"
+		}
+	}
+
+	return isAncestor(repoDir, tip, base, run)
+}
+
+// baseBranch reduces a base ref to the remote branch name to fetch for a
+// fresh landed check: refs/remotes/<remote>/main, <remote>/main and
+// refs/heads/main all reduce to main. A base with no such prefix is
+// returned unchanged, so a fetch of it either refreshes the base or fails
+// into the local fallback.
+func baseBranch(base, remote string) string {
+	base = strings.TrimPrefix(base, "refs/remotes/")
+	base = strings.TrimPrefix(base, "refs/heads/")
+
+	return strings.TrimPrefix(base, remote+"/")
 }
 
 // isAncestor reports whether sha is already merged into base. A non-zero

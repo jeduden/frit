@@ -93,6 +93,10 @@ func TestLostRaceRefusalNamesTheHolder(t *testing.T) {
 		"an unread holder falls back to the original wording")
 
 	assert.Equal(t, "lost the race to another machine",
+		lostRaceRefusal(lost(claim.Holder{Known: true})),
+		"a known holder with no host names no machine, not empty parentheses")
+
+	assert.Equal(t, "lost the race to another machine",
 		lostRaceRefusal(errors.New("some other error")),
 		"a non-LostRaceError falls back too")
 }

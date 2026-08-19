@@ -109,8 +109,12 @@ func lostRaceRefusal(err error) string {
 				"so set plan %d to ✅", lost.PlanID)
 	case h.ThisHost:
 		return fmt.Sprintf("already held on this host (%s)", h.Host)
-	default:
+	case h.Host != "":
 		return fmt.Sprintf("lost the race to another machine (%s)", h.Host)
+	default:
+		// The marker was read but carried no host — a malformed body. Name
+		// no machine rather than print an empty pair of parentheses.
+		return "lost the race to another machine"
 	}
 }
 

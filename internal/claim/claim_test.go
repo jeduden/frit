@@ -277,31 +277,186 @@ func TestMintNamesAClaimHeldElsewhere(t *testing.T) {
 	assert.False(t, lost.Holder.Landed)
 }
 
-// TestMintNamesALandedClaim: a push rejected by a work branch that already
-// merged into the base is landed work with a stale status, not a live
-// competitor. The holder's tip is an ancestor of the base, so Landed reads
-// true even though a plain work commit carries no host line.
-func TestMintNamesALandedClaim(t *testing.T) {
-	work := originAndClone(t)
+// TestMintReadsHostFromMarkerUnderWorkCommits: an active lane advances its
+// branch past the marker with real work, so the hold ref's tip carries no
+// host line. The host is still read from the marker beneath the work, so a
+// lost race to this host's own in-progress lane names this host rather than
+// misreading an empty host as another machine.
+func TestMintReadsHostFromMarkerUnderWorkCommits(t *testing.T) {
+	first := originAndClone(t)
 
-	// A work branch with a real commit, merged no-ff into main and left on
-	// the remote — the shape of a plan that landed but was never set to ✅.
-	gitCmd(t, work, "checkout", "-q", "-b", "plan/7-shader-unit")
+	a := sampleOptions()
+	a.Host = "box-a"
+	_, err := Mint(first, a, gitwt.Exec)
+	require.NoError(t, err)
+
+	// The lane does real work on top of its marker and pushes it, so the
+	// remote hold ref's tip is a work commit with no host line.
+	gitCmd(t, first, "checkout", "-q", "plan/7-shader-unit")
 	require.NoError(t, os.WriteFile(
-		filepath.Join(work, "f.txt"), []byte("y\n"), 0o600))
-	gitCmd(t, work, "add", "-A")
-	gitCmd(t, work, "commit", "-q", "-m", "work on plan 7")
-	gitCmd(t, work, "checkout", "-q", "main")
-	gitCmd(t, work, "merge", "-q", "--no-ff", "-m", "land plan 7",
-		"plan/7-shader-unit")
-	gitCmd(t, work, "push", "-q", "origin", "main", "plan/7-shader-unit")
+		filepath.Join(first, "w.txt"), []byte("z\n"), 0o600))
+	gitCmd(t, first, "add", "-A")
+	gitCmd(t, first, "commit", "-q", "-m", "real work, no host line")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7-shader-unit")
+	gitCmd(t, first, "checkout", "-q", "main")
 
-	_, err := Mint(work, sampleOptions(), gitwt.Exec)
+	second := cloneAgain(t, first)
+	b := sampleOptions()
+	b.Host = "box-a" // the same machine, retrying
+	_, err = Mint(second, b, gitwt.Exec)
 
 	var lost *LostRaceError
 	require.ErrorAs(t, err, &lost)
 	require.True(t, lost.Holder.Known)
-	assert.True(t, lost.Holder.Landed, "the holder's tip is merged into the base")
+	assert.Equal(t, "box-a", lost.Holder.Host,
+		"the host is read from the marker, not the work tip")
+	assert.True(t, lost.Holder.ThisHost)
+	assert.False(t, lost.Holder.Landed, "the lane has not merged")
+}
+
+// TestMintNamesALandedClaim: a push rejected by a lane whose work already
+// merged into the base is landed work with a stale status, not a live
+// competitor. The lane carries frit's marker, so the holder is known, and
+// its work is an ancestor of the base, so Landed reads true.
+func TestMintNamesALandedClaim(t *testing.T) {
+	work := originAndClone(t)
+
+	// Mint a real claim so the branch carries frit's marker, do work on top,
+	// merge it no-ff into main, and leave the branch on the remote — a plan
+	// that landed but was never set to ✅.
+	_, err := Mint(work, sampleOptions(), gitwt.Exec)
+	require.NoError(t, err)
+	gitCmd(t, work, "checkout", "-q", "plan/7-shader-unit")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "f.txt"), []byte("y\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "work on plan 7")
+	gitCmd(t, work, "push", "-q", "origin", "plan/7-shader-unit")
+	gitCmd(t, work, "checkout", "-q", "main")
+	gitCmd(t, work, "merge", "-q", "--no-ff", "-m", "land plan 7",
+		"plan/7-shader-unit")
+	gitCmd(t, work, "push", "-q", "origin", "main")
+
+	// A fresh claim attempt loses to the branch still on the remote.
+	_, err = Mint(work, sampleOptions(), gitwt.Exec)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	require.True(t, lost.Holder.Known)
+	assert.True(t, lost.Holder.Landed, "the holder's work is merged into the base")
+}
+
+// TestMintNamesALandedClaimMergedElsewhere: a lane merged on another
+// machine still reads as landed even when this machine's view of the
+// default branch predates the merge — the landed check refreshes the base
+// rather than trusting a stale local origin/main.
+func TestMintNamesALandedClaimMergedElsewhere(t *testing.T) {
+	first := originAndClone(t)
+
+	_, err := Mint(first, sampleOptions(), gitwt.Exec)
+	require.NoError(t, err)
+	gitCmd(t, first, "checkout", "-q", "plan/7-shader-unit")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(first, "f.txt"), []byte("y\n"), 0o600))
+	gitCmd(t, first, "add", "-A")
+	gitCmd(t, first, "commit", "-q", "-m", "work on plan 7")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7-shader-unit")
+
+	// second clones after the branch exists but before the merge, so its
+	// origin/main goes stale the moment first lands the work.
+	second := cloneAgain(t, first)
+
+	gitCmd(t, first, "checkout", "-q", "main")
+	gitCmd(t, first, "merge", "-q", "--no-ff", "-m", "land plan 7",
+		"plan/7-shader-unit")
+	gitCmd(t, first, "push", "-q", "origin", "main")
+
+	b := sampleOptions()
+	b.Host = "box-b"
+	_, err = Mint(second, b, gitwt.Exec)
+
+	var lost *LostRaceError
+	require.ErrorAs(t, err, &lost)
+	require.True(t, lost.Holder.Known)
+	assert.True(t, lost.Holder.Landed,
+		"a branch merged on another machine still reads as landed")
+}
+
+// TestMarkerHost reads the host line from a marker body, and reports "" for
+// a plain work commit that carries none.
+func TestMarkerHost(t *testing.T) {
+	body := "plan 7: claim shader-unit\n\n" +
+		"lane:     /work/lanes/shader-unit\n" +
+		"host:     mm-box\n" +
+		"base:     abc123\n" +
+		"plan:     plan/7-shader-unit.md"
+	assert.Equal(t, "mm-box", markerHost(body))
+	assert.Empty(t, markerHost("real work, no host line"))
+}
+
+// TestBaseBranch reduces every base-ref shape to the remote branch name a
+// fresh landed check fetches, and leaves a bare name unchanged.
+func TestBaseBranch(t *testing.T) {
+	assert.Equal(t, "main", baseBranch("refs/remotes/origin/main", "origin"))
+	assert.Equal(t, "main", baseBranch("origin/main", "origin"))
+	assert.Equal(t, "main", baseBranch("refs/heads/main", "origin"))
+	assert.Equal(t, "main", baseBranch("main", "origin"))
+}
+
+// TestIsAncestor: a zero exit reads as merged, any non-zero exit as not.
+func TestIsAncestor(t *testing.T) {
+	yes := func(_ string, _ ...string) ([]byte, error) { return nil, nil }
+	no := func(_ string, _ ...string) ([]byte, error) {
+		return nil, errors.New("not an ancestor")
+	}
+	assert.True(t, isAncestor("/r", "a", "b", yes))
+	assert.False(t, isAncestor("/r", "a", "b", no))
+}
+
+// TestHolderMarker returns the marker body on a match and reports not-found
+// when the grep selects nothing or the object is missing.
+func TestHolderMarker(t *testing.T) {
+	found := func(_ string, _ ...string) ([]byte, error) {
+		return []byte("plan 7: claim x\n\nhost:     mm-box\n"), nil
+	}
+	body, ok := holderMarker("/r", sampleOptions(), "tip", found)
+	require.True(t, ok)
+	assert.Contains(t, body, "host:     mm-box")
+
+	missing := func(_ string, _ ...string) ([]byte, error) {
+		return nil, errors.New("bad object tip")
+	}
+	_, ok = holderMarker("/r", sampleOptions(), "tip", missing)
+	assert.False(t, ok)
+
+	empty := func(_ string, _ ...string) ([]byte, error) { return nil, nil }
+	_, ok = holderMarker("/r", sampleOptions(), "tip", empty)
+	assert.False(t, ok, "an empty body is not a marker")
+}
+
+// TestLanded fetches the base then asks merge-base; the merge-base answer
+// decides, and a failed fetch falls back to the local base rather than
+// failing the check.
+func TestLanded(t *testing.T) {
+	all := func(_ string, _ ...string) ([]byte, error) { return nil, nil }
+	assert.True(t, landed("/r", sampleOptions(), "tip", all))
+
+	notMerged := func(_ string, args ...string) ([]byte, error) {
+		if args[0] == "merge-base" {
+			return nil, errors.New("not an ancestor")
+		}
+		return nil, nil
+	}
+	assert.False(t, landed("/r", sampleOptions(), "tip", notMerged))
+}
+
+// TestLostRaceErrorMessage pins the sentinel wording and that the error
+// still unwraps to ErrLostRace.
+func TestLostRaceErrorMessage(t *testing.T) {
+	e := &LostRaceError{PlanID: 7}
+	assert.Equal(t,
+		"lost the race for plan 7: the claim ref already exists", e.Error())
+	assert.True(t, errors.Is(e, ErrLostRace))
 }
 
 // TestMintFallsBackWhenTheHolderMarkerIsUnreadable: a lost race whose
