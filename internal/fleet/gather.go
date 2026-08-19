@@ -230,6 +230,7 @@ func planOf(
 		Title:     v.Plan.Title,
 		Summary:   v.Plan.Summary,
 		Model:     v.Plan.Model,
+		Goal:      v.Plan.Goal,
 		DependsOn: v.Plan.DependsOn,
 		Phases:    v.Plan.Phases,
 		Path:      v.Path,

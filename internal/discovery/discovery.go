@@ -35,6 +35,9 @@ type Plan struct {
 	Summary string
 	// Model is the tier the plan asks for.
 	Model string
+	// Goal is the prose of the plan's `## Goal` section, folded to one
+	// line. Empty when the plan carries no such section.
+	Goal string
 	// DependsOn is the plan ids this plan waits on, within its repo.
 	DependsOn []int64
 	// Phases is the phase ledger, if the plan carries one.

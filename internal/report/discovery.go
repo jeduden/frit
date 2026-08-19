@@ -214,7 +214,12 @@ type DepCard struct {
 // tree of one plan, so "what blocks this" has a direct answer.
 type ShowDoc struct {
 	header
-	Root     string    `json:"root"`
+	Root string `json:"root"`
+	// Goal is the shown plan's `## Goal`, read from its body. It is a
+	// document-level fact because show is about one plan; the tree
+	// underneath it is what blocks that plan. Empty when the plan
+	// carries no Goal section.
+	Goal     string    `json:"goal"`
 	Tree     DepCard   `json:"tree"`
 	Problems []Problem `json:"problems"`
 }
@@ -224,6 +229,7 @@ func NewShow(root string, tree discovery.DepNode) *ShowDoc {
 	return &ShowDoc{
 		header:   newHeader("show"),
 		Root:     root,
+		Goal:     tree.Plan.Goal,
 		Tree:     depCard(tree),
 		Problems: []Problem{},
 	}
