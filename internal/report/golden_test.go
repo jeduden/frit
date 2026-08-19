@@ -53,6 +53,10 @@ func TestGoldenShapes(t *testing.T) {
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
 		{"init", Init("/fleet/atlas/.frit.yml")},
+		{"skills", Skills([]string{
+			"/fleet/atlas/.claude/skills/plan-pick/SKILL.md",
+			"/fleet/atlas/.claude/skills/plan-phase/SKILL.md",
+		})},
 		{"version", Version("1.2.3")},
 	}
 

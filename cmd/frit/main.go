@@ -38,6 +38,7 @@ import (
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
+	"github.com/jeduden/frit/internal/skills"
 	"github.com/jeduden/frit/internal/textw"
 )
 
@@ -91,6 +92,7 @@ type cli struct {
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
+	Skills  skillsCmd  `cmd:"" help:"Install the bundled agent skills into .claude/skills."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
 
@@ -418,6 +420,30 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 		return report.WriteJSON(rt.stdout, report.Init(path))
 	}
 	_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", path)
+
+	return nil
+}
+
+type skillsCmd struct {
+	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to install the skills into."`
+	Force bool   `short:"f" help:"Overwrite existing skill files."`
+}
+
+// Run lays frit's bundled agent skills into the repository's
+// .claude/skills, so the repo carries the instructions for driving
+// frit, not just the tool.
+func (s *skillsCmd) Run(c *cli, rt *runtime) error {
+	paths, err := skills.Install(s.Dir, s.Force)
+	if err != nil {
+		return err
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, report.Skills(paths))
+	}
+	for _, p := range paths {
+		_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", p)
+	}
 
 	return nil
 }

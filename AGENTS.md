@@ -120,6 +120,34 @@ would let a stale file outrank the environment. `envResolver` in
 [cmd/frit/main.go](cmd/frit/main.go) restores the expected order and
 is pinned by a precedence test — do not remove it.
 
+## Shipping Skills
+
+frit ships the instructions for driving frit. `frit skills` lays a
+suite of Claude Code planning skills into a repository's
+`.claude/skills`. A repo frit indexes then carries the workflow an
+agent loads to work its plans. The suite is `plan-pick` (find and
+claim the next lane), `plan-phase` (execute one phase test-first),
+`plan-new` (author a plan that conforms to `plan/proto.md`), and
+`plan-sync` (reconcile statuses against git).
+
+The skills are embedded in the binary from
+[internal/skills](internal/skills), so a shipped frit needs no
+companion files. Writing them is scaffolding of the same class as
+`frit init`: not the claim, not a mutation of any ref, and it refuses
+to clobber an edited skill without `--force`. The canonical text lives
+in `internal/skills/assets`; frit's own `.claude/skills` is the output
+of `frit skills`, regenerated from the bundle rather than hand-kept, so
+it never drifts from what ships. A shipped skill names `frit`, because
+it lands where frit is a binary on `PATH`, not `go run ./cmd/frit`.
+
+A skill is read under time pressure and loaded into a working session,
+so it must stay skimmable and token-cheap. The `skill` kind in
+[.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, and a
+hard line cap keeps every skill short. Both the canonical assets and
+the installed copies are linted. Uniqueness of the skill `name` is
+scoped to the assets, because the dogfooded copies carry those same
+names by design.
+
 ## The JSON Contract
 
 `--json` is global, so every command answers it. Both renderings
@@ -173,6 +201,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit nudge <id>` — dry-run the phase prompt; `--go` sends it
 - `go run ./cmd/frit claim <id>` — mint frit's atomic hold on a startable plan
 - `go run ./cmd/frit start <id>` — compose the rung-3 escalation; `--go` runs it
+- `go run ./cmd/frit skills` — install the bundled agent skills
 
 The discovery verbs are `ready`, `pick`, `next`, `show` and `find`.
 Each takes a plan three ways: an exact id, a slug fragment matched

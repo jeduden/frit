@@ -25,3 +25,22 @@ type InitDoc struct {
 func Init(path string) InitDoc {
 	return InitDoc{header: newHeader("init"), Path: path}
 }
+
+// SkillsDoc is the set of skill files `frit skills` wrote.
+type SkillsDoc struct {
+	header
+	Paths []string `json:"paths"`
+}
+
+// Skills reports the skill files that were written.
+//
+// Like init, skills is not read-only, and its document says only what
+// it did: the paths an agent now owns and can read or amend. The list
+// is `[]` never null, so a consumer ranges over it without a nil test.
+func Skills(paths []string) SkillsDoc {
+	if paths == nil {
+		paths = []string{}
+	}
+
+	return SkillsDoc{header: newHeader("skills"), Paths: paths}
+}
