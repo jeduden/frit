@@ -21,6 +21,9 @@ Run `frit <verb>` (from a source checkout, `go run ./cmd/frit`); add
 
 1. **Look.** `frit pick -n 5` ranks startable plans by how much each
    unblocks; `frit board` shows who holds each and the live agent.
+   `pick` ranks only fresh plans — when it says nothing startable but
+   `board` shows an in-progress plan nobody holds, its lane merged
+   away. That is a resume, not a fresh pick: skip to step 4.
 2. **Verify the top pick.** `frit show <id>` names any unmet
    dependency (a blocked plan is not startable); `frit next <id>`
    names the first unfinished phase and its tier. Then
@@ -29,8 +32,11 @@ Run `frit <verb>` (from a source checkout, `go run ./cmd/frit`); add
 3. **Claim.** `frit claim <id>`. Non-zero exit means someone else
    holds it; the message names the holder — re-run `pick`, take the
    next. Never force.
-4. **Start.** Report the branch, lane and evidence. Then run plan-phase
-   here, or hand the phase to its own lane with `frit start <id> --go`.
+4. **Start.** `frit start <id> --go` mints the claim and stands the
+   lane up; `--phase N` names the phase when the plan carries no
+   ledger. It resumes an in-progress plan nobody holds as readily as
+   it starts a fresh one. The branch, lane and model are the plan's —
+   frit states them, so report them, never ask which to use.
 
 ## Notes
 
