@@ -556,31 +556,39 @@ func planLabel(id int64) string {
 }
 
 type initCmd struct {
-	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to write .frit.yml into."`
-	Force bool   `short:"f" help:"Overwrite an existing .frit.yml."`
+	Dir     string `arg:"" optional:"" default:"." type:"path" help:"Repository to write .frit.yml into."`
+	Force   bool   `short:"f" help:"Overwrite existing files."`
+	Mdsmith bool   `help:"Also scaffold the mdsmith machinery: plan/proto.md and PLAN.md."`
 }
 
-// Run writes a per-repository config carrying frit's defaults, and the
-// plan machinery its workflow assumes: the plan/proto.md schema, laid
-// into the configured plan directory. Both are shipped defaults, editable
-// after, and neither is rewritten over an edit without --force.
+// Run writes a per-repository config carrying frit's defaults. With
+// --mdsmith it also lays down the plan machinery frit's workflow
+// assumes: the plan/proto.md schema, into the configured plan directory.
+// That machinery is gated because it depends on mdsmith to be of value —
+// proto.md is the schema mdsmith lints against — so a plain init never
+// seeds a file the repo cannot keep correct without mdsmith. Every file
+// is a shipped default, editable after, and none is rewritten over an
+// edit without --force.
 func (i *initCmd) Run(c *cli, rt *runtime) error {
 	cfgPath, err := repocfg.Init(i.Dir, i.Force)
 	if err != nil {
 		return err
 	}
+	paths := []string{cfgPath}
 
-	cfg, err := repocfg.Load(i.Dir)
-	if err != nil {
-		return err
-	}
-	protoPath, err := scaffold.WriteProto(
-		filepath.Join(i.Dir, cfg.PlanDir), i.Force)
-	if err != nil {
-		return err
+	if i.Mdsmith {
+		cfg, err := repocfg.Load(i.Dir)
+		if err != nil {
+			return err
+		}
+		protoPath, err := scaffold.WriteProto(
+			filepath.Join(i.Dir, cfg.PlanDir), i.Force)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, protoPath)
 	}
 
-	paths := []string{cfgPath, protoPath}
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, report.Init(paths))
 	}
