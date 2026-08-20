@@ -601,6 +601,38 @@ func TestNextReportsAMissingExecutionRowAsAProblem(t *testing.T) {
 	assert.Contains(t, doc.Problems[0].Message, "no Execution row")
 }
 
+// TestNextDerivesTheLedgerFromHeadingsAndPrintsThePhaseBody covers
+// frit's own plan convention: no front-matter `phases:` list, just
+// `## Phase N` sections. next still finds a phase to point at — the
+// first one, since section state carries no status to skip by — and
+// prints the section's own prose, not just its title.
+func TestNextDerivesTheLedgerFromHeadingsAndPrintsThePhaseBody(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writePlanFile(t, repo, 100, "🔳", "Section tracked", nil, "",
+		"## Phase 1: First sitting\n\n"+
+			"Read the fixture and confirm it parses.\n\n"+
+			"## Phase 2: Second sitting\n\nWire the second half.\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+	var doc report.NextDoc
+
+	emit(t, &doc, "next", "100", "--root", root)
+
+	require.True(t, doc.HasPhase)
+	assert.Equal(t, "1", doc.Phase.N)
+	assert.Equal(t, "First sitting", doc.Phase.Title)
+	assert.Empty(t, doc.Phase.Status, "section state carries no status")
+	assert.Equal(t, "Read the fixture and confirm it parses.",
+		doc.Phase.Body)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"next", "100", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Read the fixture and confirm it parses.")
+}
+
 // TestShowByDefaultShowsOnlyBlockers: the default view walks the
 // upstream chain but prunes the done edges, because a finished
 // dependency blocks nothing.

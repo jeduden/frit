@@ -322,6 +322,140 @@ func TestParseSkipsTheExecutionTableWhenThePlanCarriesNoLedger(t *testing.T) {
 	assert.Empty(t, got.Phases)
 }
 
+const sectionDerivedPlan = `---
+id: 2608201200
+title: A plan tracked by sections, not a ledger
+status: "🔳"
+---
+# A plan tracked by sections, not a ledger
+
+## Phase 1: First sitting
+
+Do the first thing.
+
+A second paragraph, still phase one.
+
+## Phase 2: Second sitting
+
+Do the second thing.
+
+## Execution
+
+| Phase          | Design | Implement | Gate           |
+| -------------- | ------ | --------- | -------------- |
+| 1 first sitting | sonnet | sonnet   | test one       |
+| 2 second sitting | sonnet | opus    | test two       |
+`
+
+func TestParseDerivesPhasesFromHeadingsWhenNoLedger(t *testing.T) {
+	got, err := Parse([]byte(sectionDerivedPlan))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 2)
+	assert.Equal(t, PhaseNumber("1"), got.Phases[0].N)
+	assert.Equal(t, "First sitting", got.Phases[0].Title)
+	assert.Equal(t, PhaseNumber("2"), got.Phases[1].N)
+	assert.Equal(t, "Second sitting", got.Phases[1].Title)
+}
+
+// TestParseLeavesADerivedPhaseWithNoStatus: section state carries no
+// status, so a derived phase is left blank rather than an invented
+// "not started" — see FirstOpenPhase for what that blank means for
+// what next points at.
+func TestParseLeavesADerivedPhaseWithNoStatus(t *testing.T) {
+	got, err := Parse([]byte(sectionDerivedPlan))
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Phases[0].Status)
+	assert.Empty(t, got.Phases[1].Status)
+}
+
+// TestFirstOpenPhaseOnADerivedLedgerPointsAtTheFirst: with no status
+// to skip by, the first derived phase is the most next can promise,
+// whatever a person or an agent has actually finished.
+func TestFirstOpenPhaseOnADerivedLedgerPointsAtTheFirst(t *testing.T) {
+	got, err := Parse([]byte(sectionDerivedPlan))
+	require.NoError(t, err)
+
+	phase, ok := got.FirstOpenPhase()
+
+	require.True(t, ok)
+	assert.Equal(t, PhaseNumber("1"), phase.N)
+}
+
+func TestParseReadsThePhaseBody(t *testing.T) {
+	got, err := Parse([]byte(sectionDerivedPlan))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Do the first thing.\n\nA second paragraph, still phase one.",
+		got.Phases[0].Body)
+	assert.Equal(t, "Do the second thing.", got.Phases[1].Body)
+}
+
+// TestParseAlsoReadsThePhaseBodyWithAFrontMatterLedger: the body walk
+// runs for an explicit ledger too, not only a derived one — the two
+// are independent seams over the same headings.
+func TestParseAlsoReadsThePhaseBodyWithAFrontMatterLedger(t *testing.T) {
+	src := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'One', status: \"🔳\" }\n" +
+		"---\n# T\n\n## Phase 1: One\n\nThe body of phase one.\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 1)
+	assert.Equal(t, "The body of phase one.", got.Phases[0].Body)
+}
+
+// TestParseLeavesPhaseBodyEmptyWhenSectionAbsent: a ledger entry with
+// no matching `## Phase N` section gets no body invented for it.
+func TestParseLeavesPhaseBodyEmptyWhenSectionAbsent(t *testing.T) {
+	src := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'One', status: \"🔳\" }\n" +
+		"---\n# T\n\nNo phase sections here.\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Phases[0].Body)
+}
+
+// TestParseDerivesAnAlphanumericPhaseNumberFromAHeading is the same
+// regression as the front-matter ledger, for the derived path: a
+// heading titled "Phase 3b: Split" must not swallow the colon or the
+// "Split" word into the number.
+func TestParseDerivesAnAlphanumericPhaseNumberFromAHeading(t *testing.T) {
+	src := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\n---\n# T\n\n" +
+		"## Phase 3b: Split third\n\nThe split half.\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 1)
+	assert.Equal(t, PhaseNumber("3b"), got.Phases[0].N)
+	assert.Equal(t, "Split third", got.Phases[0].Title)
+}
+
+// TestParseKeepsTheFrontMatterLedgerOverDerivingOne: a plan that
+// carries both an explicit ledger and `## Phase N` headings trusts
+// the ledger — its statuses are load-bearing, a derived one has none.
+func TestParseKeepsTheFrontMatterLedgerOverDerivingOne(t *testing.T) {
+	src := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'One', status: \"✅\" }\n" +
+		"  - { n: 2, title: 'Two', status: \"🔲\" }\n" +
+		"---\n# T\n\n## Phase 1: One\n\nBody one.\n\n" +
+		"## Phase 2: Two\n\nBody two.\n"
+
+	got, err := Parse([]byte(src))
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 2)
+
+	phase, ok := got.FirstOpenPhase()
+	require.True(t, ok)
+	assert.Equal(t, PhaseNumber("2"), phase.N,
+		"the ledger's own ✅ on phase one is trusted, not overwritten")
+}
+
 func TestIsProtoRecognisesTheTemplateByName(t *testing.T) {
 	assert.True(t, IsProto("plan/proto.md"))
 	assert.True(t, IsProto("proto.md"))

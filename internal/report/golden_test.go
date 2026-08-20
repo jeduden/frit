@@ -183,6 +183,7 @@ func goldenNext() *NextDoc {
 				N: "2", Title: "ready", Status: "🔳",
 				Tier: "sonnet", Gate: "test ready lists a startable plan",
 				HasExecutionRow: true,
+				Body:            "Parse the readiness rule and wire it to a verb.",
 			},
 		},
 	})
