@@ -11,6 +11,7 @@ import (
 
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/doctor"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
@@ -51,6 +52,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
+		{"doctor", goldenDoctor()},
 		{"who", goldenWho()},
 		{"init", Init([]string{
 			"/fleet/atlas/.frit.yml", "/fleet/atlas/plan/proto.md"})},
@@ -311,6 +313,26 @@ func goldenOrphans() *OrphansDoc {
 	doc.AddRepo("atlas", found())
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
+
+	return doc
+}
+
+// goldenDoctor pins the semantic-gap shape: a plan with a finding, a
+// repository doctor could not scan, and a clean repository — the
+// three cases the JSON contract keeps distinct from a table, which
+// drops the clean one entirely.
+func goldenDoctor() *DoctorDoc {
+	doc := NewDoctor("/fleet")
+	doc.AddFindings("atlas", []doctor.Finding{
+		{
+			ID: 2608161809, Path: "plan/2608161809_discovery.md",
+			Check: "goal",
+			Message: `section "## Goal" has no meaningful body content; ` +
+				`add paragraph, list, table, or code content, or add ` +
+				`"<?allow-empty-section?>" for an intentional empty section`,
+		},
+	})
+	doc.AddProblem("busted", errors.New("no such directory"))
 
 	return doc
 }

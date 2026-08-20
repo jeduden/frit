@@ -279,6 +279,19 @@ func TestParseTierIsTheMostDemandingColumn(t *testing.T) {
 	assert.Equal(t, "opus", got.Phases[1].Tier)
 }
 
+// TestParseAlsoExposesDesignAndImplementSeparately: mostDemandingTier
+// collapses the row into one Tier, which loses which column an
+// unrecognized value came from — frit doctor (phase 4) needs the raw
+// columns to catch a typo that Tier alone would hide behind a valid
+// neighbor.
+func TestParseAlsoExposesDesignAndImplementSeparately(t *testing.T) {
+	got, err := Parse([]byte(phasedPlanWithExecution))
+
+	require.NoError(t, err)
+	assert.Equal(t, "sonnet", got.Phases[1].Design)
+	assert.Equal(t, "opus", got.Phases[1].Implement)
+}
+
 // TestParseMatchesExecutionRowByLeadingPhaseNumber is the regression:
 // a row's first cell carries a title after the number ("3b split
 // third"), and an alphanumeric phase number still matches it.
