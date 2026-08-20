@@ -48,6 +48,16 @@ func TestInitEmitsThePathsItWrote(t *testing.T) {
 	emit(t, &doc, "init", repo)
 
 	assert.Equal(t, "init", doc.Command)
+	assert.Equal(t, []string{filepath.Join(repo, ".frit.yml")}, doc.Paths)
+}
+
+func TestInitMdsmithEmitsEveryPath(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var doc report.InitDoc
+
+	emit(t, &doc, "init", "--mdsmith", repo)
+
 	assert.Contains(t, doc.Paths, filepath.Join(repo, ".frit.yml"))
 	assert.Contains(t, doc.Paths, filepath.Join(repo, "plan", "proto.md"))
 }

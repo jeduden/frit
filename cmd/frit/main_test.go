@@ -273,10 +273,27 @@ func TestInitWritesAConfigIntoARepository(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), ".frit.yml")
-	assert.Contains(t, out.String(), "proto.md")
 	body, err := os.ReadFile(filepath.Join(repo, ".frit.yml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "plan/{id}-*")
+	// A plain init writes only frit's own config. proto.md is mdsmith
+	// machinery, gated behind --mdsmith, so a repo never seeds a file it
+	// cannot keep correct without mdsmith.
+	_, statErr := os.Stat(filepath.Join(repo, "plan", "proto.md"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// TestInitMdsmithScaffoldsProto pins that the flag adds the mdsmith
+// machinery a plain init leaves out.
+func TestInitMdsmithScaffoldsProto(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"init", "--mdsmith", repo}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "proto.md")
 	proto, err := os.ReadFile(filepath.Join(repo, "plan", "proto.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(proto), "<?require")
