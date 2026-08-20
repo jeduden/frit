@@ -179,7 +179,11 @@ func goldenNext() *NextDoc {
 		Path: "plan/2608161809_discovery-readiness-verbs.md",
 		Phases: []planmeta.Phase{
 			{N: "1", Title: "selectors", Status: "✅"},
-			{N: "2", Title: "ready", Status: "🔳"},
+			{
+				N: "2", Title: "ready", Status: "🔳",
+				Tier: "sonnet", Gate: "test ready lists a startable plan",
+				HasExecutionRow: true,
+			},
 		},
 	})
 }

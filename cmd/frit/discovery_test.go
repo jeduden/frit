@@ -527,6 +527,80 @@ func TestNextEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(100), doc.Plan.ID)
 }
 
+// executionTableBody builds an `## Execution` section with one row
+// per given (phase, design, implement, gate) tuple, the shape phase 2
+// parses tier and gate out of.
+func executionTableBody(rows [][4]string) string {
+	var b strings.Builder
+	b.WriteString("## Execution\n\n")
+	b.WriteString("| Phase | Design | Implement | Gate |\n")
+	b.WriteString("| --- | --- | --- | --- |\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", r[0], r[1], r[2], r[3])
+	}
+
+	return b.String()
+}
+
+// TestNextPrintsTheExecutionTierAndGate: the phase next points at
+// carries the tier and gate its Execution row names — tier the more
+// demanding of Design and Implement — in both the table and the JSON.
+func TestNextPrintsTheExecutionTierAndGate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"),
+		executionTableBody([][4]string{
+			{"1 first", "sonnet", "sonnet", "test one"},
+			{"2 second", "sonnet", "opus", "test two"},
+		}))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+	var doc report.NextDoc
+
+	emit(t, &doc, "next", "100", "--root", root)
+
+	assert.True(t, doc.HasPhase)
+	assert.Equal(t, "opus", doc.Phase.Tier,
+		"the more demanding of sonnet and opus")
+	assert.Equal(t, "test two", doc.Phase.Gate)
+	assert.Empty(t, doc.Problems, "the phase carries a row")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"next", "100", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "opus")
+	assert.Contains(t, out.String(), "test two")
+}
+
+// TestNextReportsAMissingExecutionRowAsAProblem: the phase next
+// points at has no row in the Execution table, so its tier and gate
+// stay blank and the gap is said explicitly rather than rendered as
+// if the plan asked for nothing.
+func TestNextReportsAMissingExecutionRowAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"),
+		executionTableBody([][4]string{
+			{"1 first", "sonnet", "sonnet", "test one"},
+		}))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+	var doc report.NextDoc
+
+	emit(t, &doc, "next", "100", "--root", root)
+
+	assert.True(t, doc.HasPhase)
+	assert.Empty(t, doc.Phase.Tier, "no row means no invented tier")
+	assert.Empty(t, doc.Phase.Gate)
+	require.Len(t, doc.Problems, 1)
+	assert.Contains(t, doc.Problems[0].Message, "phase 2")
+	assert.Contains(t, doc.Problems[0].Message, "no Execution row")
+}
+
 // TestShowByDefaultShowsOnlyBlockers: the default view walks the
 // upstream chain but prunes the done edges, because a finished
 // dependency blocks nothing.

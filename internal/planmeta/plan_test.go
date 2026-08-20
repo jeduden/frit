@@ -233,6 +233,95 @@ func TestStatusHelpersNameTheLifecycle(t *testing.T) {
 	assert.False(t, open.InProgress())
 }
 
+const phasedPlanWithExecution = `---
+id: 2607232057
+title: Plans get first-class phases
+status: "🔳"
+phases:
+  - { n: 1, title: 'Schema', status: "✅" }
+  - { n: 2, title: 'The catalog', status: "🔳" }
+  - { n: '3b', title: 'Split third', status: "🔲" }
+---
+# Plans get first-class phases
+
+## Execution
+
+Tier is per phase, set by the most demanding ingredient.
+
+| Phase        | Design | Implement | Gate that catches a wrong answer   |
+| ------------ | ------ | --------- | ----------------------------------- |
+| 1 schema     | sonnet | sonnet    | schema unit tests                   |
+| 2 the catalog | sonnet | opus     | golden catalog diff test            |
+| 3b split third | opus | sonnet    | test the split phase runs alone     |
+
+## Non-goals
+
+Nothing yet.
+`
+
+func TestParseReadsTierAndGateFromTheExecutionTable(t *testing.T) {
+	got, err := Parse([]byte(phasedPlanWithExecution))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 3)
+	assert.True(t, got.Phases[0].HasExecutionRow)
+	assert.Equal(t, "sonnet", got.Phases[0].Tier)
+	assert.Equal(t, "schema unit tests", got.Phases[0].Gate)
+}
+
+// TestParseTierIsTheMostDemandingColumn: phase 2's row names sonnet
+// for Design and opus for Implement, so the phase's tier is opus, the
+// more demanding of the two.
+func TestParseTierIsTheMostDemandingColumn(t *testing.T) {
+	got, err := Parse([]byte(phasedPlanWithExecution))
+
+	require.NoError(t, err)
+	assert.Equal(t, "opus", got.Phases[1].Tier)
+}
+
+// TestParseMatchesExecutionRowByLeadingPhaseNumber is the regression:
+// a row's first cell carries a title after the number ("3b split
+// third"), and an alphanumeric phase number still matches it.
+func TestParseMatchesExecutionRowByLeadingPhaseNumber(t *testing.T) {
+	got, err := Parse([]byte(phasedPlanWithExecution))
+
+	require.NoError(t, err)
+	assert.True(t, got.Phases[2].HasExecutionRow)
+	assert.Equal(t, "opus", got.Phases[2].Tier)
+	assert.Equal(t, "test the split phase runs alone", got.Phases[2].Gate)
+}
+
+// TestParseLeavesAPhaseWithNoExecutionRowUnflagged is the gap the
+// report layer surfaces as a Problem rather than a blank tier: a
+// phase whose number never appears in the Execution table gets no
+// tier or gate invented for it.
+func TestParseLeavesAPhaseWithNoExecutionRowUnflagged(t *testing.T) {
+	src := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'Only phase', status: \"🔳\" }\n" +
+		"---\n# T\n\n## Execution\n\n" +
+		"| Phase | Design | Implement | Gate |\n" +
+		"| --- | --- | --- | --- |\n" +
+		"| 2 other phase | sonnet | sonnet | unrelated |\n"
+
+	got, err := Parse([]byte(src))
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 1)
+	assert.False(t, got.Phases[0].HasExecutionRow)
+	assert.Empty(t, got.Phases[0].Tier)
+	assert.Empty(t, got.Phases[0].Gate)
+}
+
+// TestParseSkipsTheExecutionTableWhenThePlanCarriesNoLedger: a plan
+// with no front-matter phases: has nothing to attach a row to, so the
+// table is never even parsed.
+func TestParseSkipsTheExecutionTableWhenThePlanCarriesNoLedger(t *testing.T) {
+	got, err := Parse([]byte(realPlan))
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Phases)
+}
+
 func TestIsProtoRecognisesTheTemplateByName(t *testing.T) {
 	assert.True(t, IsProto("plan/proto.md"))
 	assert.True(t, IsProto("proto.md"))
