@@ -31,7 +31,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, o.Selector, res.Plans)
+	plan, err := resolveSelector(rt, o.Selector, res.Plans, true)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, n.Selector, res.Plans)
+	plan, err := resolveSelector(rt, n.Selector, res.Plans, true)
 	if err != nil {
 		return err
 	}

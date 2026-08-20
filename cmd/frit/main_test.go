@@ -35,6 +35,34 @@ func rootWith(t *testing.T, repo string) string {
 	return root
 }
 
+// TestResolveSelectorGuardsWorkVerbsNotReports scopes the foreign-checkout
+// guard: standing in a shared clone on another host's claim, an acting
+// verb refuses so it cannot work the foreign lane, while a read-only
+// report answers normally — refusing a read hands out no lane and only
+// blocks a harmless status query.
+func TestResolveSelectorGuardsWorkVerbsNotReports(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	commitPlan(t, repo, 7, "🔳", "Shader unit", nil, "")
+	git(t, repo, "checkout", "-q", "-b", "plan/7-shader-unit")
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader-unit\n\nhost:     otherbox\n")
+	t.Chdir(repo)
+
+	t.Run("an acting verb refuses the foreign lane", func(t *testing.T) {
+		var out, errb bytes.Buffer
+		code := run([]string{"claim", "--root", repo}, &out, &errb)
+		assert.NotEqual(t, 0, code)
+		assert.Contains(t, errb.String(), "held by otherbox")
+	})
+	t.Run("a read-only report answers without refusing", func(t *testing.T) {
+		var out, errb bytes.Buffer
+		code := run([]string{"show", "--root", repo}, &out, &errb)
+		require.Equal(t, 0, code, errb.String())
+		assert.NotContains(t, out.String()+errb.String(), "held by otherbox")
+	})
+}
+
 func TestNoCommandIsAUsageError(t *testing.T) {
 	isolate(t)
 	var out, errb bytes.Buffer

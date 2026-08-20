@@ -31,7 +31,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, cc.Selector, res.Plans)
+	plan, err := resolveSelector(rt, cc.Selector, res.Plans, true)
 	if err != nil {
 		return err
 	}
