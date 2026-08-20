@@ -1,7 +1,7 @@
 ---
 id: 2608192045
 title: Enrich next and show so a skill leans on frit's output
-status: "🔳"
+status: "✅"
 summary: >-
   frit next and show read only front matter, so a plan's Goal, phase
   bodies, tiers and gates stay invisible and a skill must tell the
@@ -137,6 +137,7 @@ line cap.
 4. Phase 4 — `frit doctor`: a fleet-wide report of plans with a
    semantic gap, checked through mdsmith as a library. Done.
 5. Phase 5 — the skills lean on the enriched output; re-dogfood.
+   Done.
 
 ## Execution
 
@@ -166,7 +167,7 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] `frit doctor --help` enumerates the checks it runs, and names
       their source: `plan/proto.md` validated through mdsmith as a
       library, not a rule set frit reimplements
-- [ ] The shipped skills read frit's output instead of the plan file,
+- [x] The shipped skills read frit's output instead of the plan file,
       and stay under the skill kind's line cap
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

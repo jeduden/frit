@@ -21,11 +21,10 @@ stale.
 ## Method
 
 1. **Load the phase.** `frit next <id>` reports the first phase not
-   done; `frit show <id>` gives the Goal and any blocker. Read the
-   plan file for that phase's section, its tier and its gate — that one
-   section, never the whole file by hand.
+   done — its own body, tier and gate; `frit show <id>` gives the
+   Goal and any blocker. Nothing else opens the plan file.
 2. **Honor the two answers.** "already done" means stop and report,
-   not redo. Honor the tier the Execution row names.
+   not redo. Honor the tier `next` names.
 3. **Red then green.** Commit the failing test first, then the code
    that passes it. Verify with the narrowest instrument, then the
    phase's own gate.

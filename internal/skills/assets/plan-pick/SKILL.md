@@ -25,10 +25,10 @@ Run `frit <verb>` (from a source checkout, `go run ./cmd/frit`); add
    `board` shows an in-progress plan nobody holds, its lane merged
    away. That is a resume, not a fresh pick: skip to step 4.
 2. **Verify the top pick.** `frit show <id>` names any unmet
-   dependency (a blocked plan is not startable); `frit next <id>`
-   names the first unfinished phase and its tier. Then
-   `grep -rn "<symbol>" .` — if the artifact already exists, the work
-   landed; take the next candidate.
+   dependency (a blocked plan is not startable) and its Goal; `frit
+   next <id>` names the first unfinished phase, its own body, tier
+   and gate. Then `grep -rn "<symbol>" .` — if the artifact already
+   exists, the work landed; take the next candidate.
 3. **Claim.** `frit claim <id>`. Non-zero exit means someone else
    holds it; the message names the holder — re-run `pick`, take the
    next. Never force.
