@@ -81,6 +81,26 @@ func TestStartRefusesAnUnstartablePlan(t *testing.T) {
 	assert.Contains(t, out.String(), "already held")
 }
 
+// TestStartResumesAnUnheldInProgressPlan: an in-progress plan whose lane
+// vanished — 🔳 on main, held by nobody — is escalated, not refused. The
+// resume stands the lane back up on the plan's deterministic branch; the
+// "already in progress" guard is not a refusal when nobody holds it.
+func TestStartResumesAnUnheldInProgressPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	resumableRepo(t, root, "atlas", 7, "Shader unit")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "2", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "plan/7-shader-unit", "the claim branch is prescribed")
+	assert.Contains(t, got, "dry run")
+}
+
 // TestStartEmitsJSON decodes the escalation a consumer reads to see
 // exactly what start would run.
 func TestStartEmitsJSON(t *testing.T) {

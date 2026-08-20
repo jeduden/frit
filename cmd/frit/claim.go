@@ -147,9 +147,16 @@ func lostRaceRefusal(err error) string {
 }
 
 // claimRefusal reports why a plan cannot be claimed, or "" when it can.
-// A plan is claimable exactly when it is startable — not begun, held by
-// nobody, every dependency done — so membership in the ready set is the
-// test, and the reason names why a plan outside it is out.
+// A plan is claimable when it is startable — not begun, held by nobody,
+// every dependency done — so membership in the ready set is the test.
+// One state outside that set is claimable anyway: a plan in progress that
+// nobody holds. Its lane vanished when its first phase merged — the 🔳
+// marker rode in on the merge — leaving prescribed work with no lane to
+// resume it on. The Held case is checked before InProgress, so reaching
+// the latter means nobody holds it; the resume re-mints the hold on the
+// deterministic branch, and Mint's force-with-lease stays the arbiter if
+// a live hold still exists. Every other plan outside the ready set is
+// refused, and the reason names why it is out.
 func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 	for _, r := range ready {
 		if r.Repo == p.Repo && r.ID == p.ID {
@@ -165,7 +172,8 @@ func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 	case p.Superseded():
 		return "superseded"
 	case p.InProgress():
-		return "already in progress"
+		// In progress and, since Held was excluded above, unheld: a resume.
+		return ""
 	default:
 		return fmt.Sprintf(
 			"blocked by an unfinished dependency; see frit show %d", p.ID)

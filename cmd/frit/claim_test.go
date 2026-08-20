@@ -33,6 +33,24 @@ func claimableRepo(
 	return repo
 }
 
+// resumableRepo builds a repository whose plan is in progress on main
+// with no hold branch — the state a plan is left in when its first phase
+// merged: the 🔳 marker rode in on the merge and the lane that set it is
+// gone. Nobody holds it, so it is resumable, not refused.
+func resumableRepo(
+	t *testing.T, root, name string, id int, title string,
+) string {
+	t.Helper()
+	repo := initRepo(t, root, name)
+	commitPlan(t, repo, id, "🔳", title, nil, "")
+	origin := filepath.Join(t.TempDir(), name+"-origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+
+	return repo
+}
+
 // gitCapture runs git in dir and returns its output and error, for
 // asserting on refs a command wrote.
 func gitCapture(t *testing.T, dir string, args ...string) (string, error) {
@@ -181,6 +199,29 @@ func TestClaimRefusesABlockedPlan(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
 	assert.Contains(t, out.String(), "blocked")
+}
+
+// TestClaimResumesAnUnheldInProgressPlan: an in-progress plan whose lane
+// vanished — 🔳 on main, held by nobody — is resumable, not refused. The
+// branch, lane and tier are already prescribed; only the "already in
+// progress" guard blocked a resume. frit re-mints the hold on the
+// deterministic branch, and Mint's force-with-lease stays the arbiter of
+// a live hold.
+func TestClaimResumesAnUnheldInProgressPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := resumableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7")
+	assert.NotContains(t, out.String(), "already in progress")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	require.NoError(t, err, "the resume mints the hold on the deterministic branch")
 }
 
 // TestClaimEmitsJSON decodes the document a consumer reads back to learn
