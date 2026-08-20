@@ -135,7 +135,7 @@ line cap.
 3. Phase 3 — phase-section body on `frit next`; a section-derived
    ledger when front matter carries none. Done.
 4. Phase 4 — `frit doctor`: a fleet-wide report of plans with a
-   semantic gap, checked through mdsmith as a library.
+   semantic gap, checked through mdsmith as a library. Done.
 5. Phase 5 — the skills lean on the enriched output; re-dogfood.
 
 ## Execution
@@ -161,9 +161,9 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] `frit next <id>` prints the target phase's tier, gate and body
 - [x] A phase with no Execution row is surfaced as a `Problems` entry,
       never a blank tier
-- [ ] `frit doctor` lists every plan with a semantic gap and omits the
+- [x] `frit doctor` lists every plan with a semantic gap and omits the
       clean ones
-- [ ] `frit doctor --help` enumerates the checks it runs, and names
+- [x] `frit doctor --help` enumerates the checks it runs, and names
       their source: `plan/proto.md` validated through mdsmith as a
       library, not a rule set frit reimplements
 - [ ] The shipped skills read frit's output instead of the plan file,

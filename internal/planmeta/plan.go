@@ -67,6 +67,13 @@ type Phase struct {
 	// read by walking the parsed AST rather than decoded from YAML.
 	// Empty when the phase carries no Execution row.
 	Tier string `yaml:"-"`
+	// Design and Implement are that same row's own two columns,
+	// before mostDemandingTier collapses them into Tier. An unknown
+	// value in one column is invisible in Tier when the other column
+	// is a real model — frit doctor checks each of these on its own,
+	// so a typo does not hide behind a valid neighbor.
+	Design    string `yaml:"-"`
+	Implement string `yaml:"-"`
 	// Gate is the check the same row names as what catches a wrong
 	// answer for this phase. Empty when the phase carries no
 	// Execution row.
@@ -274,6 +281,8 @@ func attachExecutionRows(p *Plan, body []byte) {
 		}
 		p.Phases[i].Tier = row.tier
 		p.Phases[i].Gate = row.gate
+		p.Phases[i].Design = row.design
+		p.Phases[i].Implement = row.implement
 		p.Phases[i].HasExecutionRow = true
 	}
 }
@@ -281,8 +290,9 @@ func attachExecutionRows(p *Plan, body []byte) {
 // executionRow is what a plan's `## Execution` table says about one
 // phase.
 type executionRow struct {
-	tier string
-	gate string
+	tier              string
+	gate              string
+	design, implement string
 }
 
 // executionTable parses a plan's `## Execution` section into a row per
@@ -355,10 +365,12 @@ func collectExecutionRows(
 
 		var er executionRow
 		if designCol >= 0 && designCol < len(cells) {
-			er.tier = cells[designCol]
+			er.design = cells[designCol]
+			er.tier = er.design
 		}
 		if implCol >= 0 && implCol < len(cells) {
-			er.tier = mostDemandingTier(er.tier, cells[implCol])
+			er.implement = cells[implCol]
+			er.tier = mostDemandingTier(er.tier, er.implement)
 		}
 		if gateCol >= 0 && gateCol < len(cells) {
 			er.gate = cells[gateCol]
@@ -381,6 +393,15 @@ func cellTexts(row *extast.TableRow, body []byte) []string {
 // mostDemandingTier can pick the higher of a phase's Design and
 // Implement columns.
 var tierRank = map[string]int{"haiku": 0, "sonnet": 1, "opus": 2}
+
+// KnownTier reports whether s names a model tier frit recognizes — the
+// same vocabulary mostDemandingTier ranks by. frit doctor uses this to
+// flag a phase whose Execution row names something else.
+func KnownTier(s string) bool {
+	_, ok := tierRank[s]
+
+	return ok
+}
 
 // mostDemandingTier returns whichever of a and b ranks higher. An
 // unrecognized tier ranks below any recognized one rather than

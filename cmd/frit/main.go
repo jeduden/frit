@@ -29,6 +29,7 @@ import (
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
+	doctorpkg "github.com/jeduden/frit/internal/doctor"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -102,6 +103,7 @@ type cli struct {
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
+	Doctor  doctorCmd  `cmd:"" help:"Report plans with a semantic gap: missing Goal, tier, Execution row."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Skills  skillsCmd  `cmd:"" help:"Install the bundled agent skills into .claude/skills."`
@@ -305,6 +307,85 @@ func staleState(presence, hasAgent bool) string {
 		return "live"
 	default:
 		return "abandoned"
+	}
+}
+
+type doctorCmd struct{}
+
+// Help documents doctor's checks and their provenance, so a reader
+// learns what a finding means and where it came from without opening
+// the source — the contract this verb promises to catch, and nothing
+// beyond it.
+func (d *doctorCmd) Help() string {
+	return `doctor scans every plan on disk and lists these gaps:
+
+  goal            a "## Goal" section with no meaningful body content
+  schema          a front-matter field plan/proto.md's schema rejects
+                  (today, only the model tier)
+  execution-row   a phase with no matching row in its "## Execution"
+                  table
+  tier            an Execution row naming a tier that is not haiku,
+                  sonnet or opus
+
+goal and schema are mdsmith's own findings: doctor runs mdsmith as an
+imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
+repository's own plan/proto.md, rather than reimplementing a checker.
+execution-row and tier read the body data frit already parses for
+next and show — mdsmith's schema has no way to see inside a markdown
+table's cells, or cross-reference a table's rows against another
+section's headings.
+
+A repository with no plan/proto.md has nothing to check.`
+}
+
+// Run scans every repository's plan directory for the semantic gaps
+// frit now depends on, read-only — see Help.
+func (d *doctorCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewDoctor(c.Root)
+	for _, repo := range repos {
+		cfg, err := repocfg.Load(repo.Path)
+		if err != nil {
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
+		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
+		if err != nil {
+			if errors.Is(err, doctorpkg.ErrNoSchema) {
+				continue
+			}
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
+		doc.AddFindings(repo.Name, findings)
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printDoctor(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printDoctor writes one row per finding. A repository with nothing
+// wrong contributes no rows, the same convention orphans and stale
+// use to stay short.
+func printDoctor(out io.Writer, doc *report.DoctorDoc) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, f := range doc.Findings {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n",
+			f.Repo, f.ID, f.Path, f.Check, f.Message)
+	}
+	_ = tw.Flush()
+
+	if len(doc.Findings) == 0 {
+		_, _ = fmt.Fprintln(out, "no semantic gaps found")
 	}
 }
 
