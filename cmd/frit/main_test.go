@@ -276,6 +276,33 @@ func TestInitWritesAConfigIntoARepository(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(repo, ".frit.yml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "plan/{id}-*")
+	// A plain init writes only frit's own config. proto.md is mdsmith
+	// machinery, gated behind --mdsmith, so a repo never seeds a file it
+	// cannot keep correct without mdsmith.
+	_, statErr := os.Stat(filepath.Join(repo, "plan", "proto.md"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// TestInitMdsmithScaffoldsTheMachinery pins that the flag adds the three
+// files a plain init leaves out: the .mdsmith.yml config, the proto.md
+// schema, and the PLAN.md catalog seed.
+func TestInitMdsmithScaffoldsTheMachinery(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"init", "--mdsmith", repo}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	proto, err := os.ReadFile(filepath.Join(repo, "plan", "proto.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(proto), "<?require")
+	cfg, err := os.ReadFile(filepath.Join(repo, ".mdsmith.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(cfg), "schema: plan/proto.md")
+	index, err := os.ReadFile(filepath.Join(repo, "PLAN.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(index), "<?catalog")
 }
 
 func TestInitRefusesToClobberWithoutForce(t *testing.T) {

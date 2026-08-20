@@ -14,12 +14,23 @@ func TestVersionCarriesTheBuildVersion(t *testing.T) {
 	assert.Equal(t, "1.2.3", doc.Version)
 }
 
-func TestInitCarriesTheFileItWrote(t *testing.T) {
-	doc := Init("/fleet/atlas/.frit.yml")
+func TestInitCarriesTheFilesItWrote(t *testing.T) {
+	doc := Init([]string{
+		"/fleet/atlas/.frit.yml", "/fleet/atlas/plan/proto.md"})
 
 	assert.Equal(t, Schema, doc.Schema)
 	assert.Equal(t, "init", doc.Command)
-	assert.Equal(t, "/fleet/atlas/.frit.yml", doc.Path)
+	assert.Equal(t, []string{
+		"/fleet/atlas/.frit.yml", "/fleet/atlas/plan/proto.md"}, doc.Paths)
+}
+
+// TestInitNeverNull pins the list-is-[]-never-null rule for init too: a
+// document that wrote nothing still carries an empty list, not null.
+func TestInitNeverNull(t *testing.T) {
+	doc := Init(nil)
+
+	assert.NotNil(t, doc.Paths)
+	assert.Empty(t, doc.Paths)
 }
 
 func TestSkillsCarriesTheFilesItWrote(t *testing.T) {

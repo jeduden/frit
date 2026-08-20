@@ -52,7 +52,8 @@ func TestGoldenShapes(t *testing.T) {
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
 		{"who", goldenWho()},
-		{"init", Init("/fleet/atlas/.frit.yml")},
+		{"init", Init([]string{
+			"/fleet/atlas/.frit.yml", "/fleet/atlas/plan/proto.md"})},
 		{"skills", Skills([]string{
 			"/fleet/atlas/.claude/skills/plan-pick/SKILL.md",
 			"/fleet/atlas/.claude/skills/plan-phase/SKILL.md",

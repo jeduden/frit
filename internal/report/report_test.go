@@ -24,7 +24,8 @@ func TestWriteJSONIndentsAndEndsWithANewline(t *testing.T) {
 func TestWriteJSONLeavesTextAsWritten(t *testing.T) {
 	var out bytes.Buffer
 
-	require.NoError(t, WriteJSON(&out, Init("/fleet/atlas & co/.frit.yml")))
+	require.NoError(t, WriteJSON(&out,
+		Init([]string{"/fleet/atlas & co/.frit.yml"})))
 
 	assert.Contains(t, out.String(), "/fleet/atlas & co/.frit.yml")
 }
