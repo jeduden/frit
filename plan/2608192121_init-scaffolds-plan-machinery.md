@@ -15,11 +15,14 @@ depends-on: []
 
 ## Goal
 
-Make `frit init` lay down the plan machinery a repo needs to use
-frit's workflow — the `plan/proto.md` schema and a `PLAN.md` index —
-not only the `.frit.yml` config. A repo that ran `init` then has the
-conventions the shipped skills and `frit doctor` assume, rather than a
-config pointing at a plan directory that does not exist.
+Make `frit init --mdsmith` lay down the plan machinery a repo needs to
+use frit's workflow — the `plan/proto.md` schema and a `PLAN.md`
+index. Both depend on mdsmith to be of value: proto.md is the schema
+mdsmith lints against, and PLAN.md is a catalog mdsmith regenerates. So
+a plain `init` writes only `.frit.yml`, frit's own config, and never
+seeds a file the repo cannot keep correct without mdsmith. A repo that
+ran `init --mdsmith` then has the conventions the shipped skills and
+`frit doctor` assume.
 
 ## Context
 
@@ -54,40 +57,66 @@ and pinned equal to it, exactly as the skills are.
   edited one without force.
 - Not a plan format change. proto.md is shipped as it already is here;
   this plan moves it, it does not redesign it.
+- frit does not generate the PLAN.md catalog. It imports mdsmith's
+  parser, not its catalog builder, so `init` ships a static empty seed;
+  mdsmith fills and maintains it from then on.
 
-## Phase 1: init writes proto.md
+## Phase 1: the proto write seam
 
-The proving slice: `frit init` also writes `plan/proto.md` from an
-embedded copy of frit's canonical schema, into the repo's configured
-plan directory, refusing to clobber an existing one without force. The
-written paths are reported, and the `--json` document carries them.
-This establishes the seam — embed the schema, write it beside the
-config, report it — that the PLAN.md index and any later default copy.
-It ends in sign-off on shipping proto.md from init.
+The proving slice: a `scaffold` package writes `plan/proto.md` from an
+embedded copy of frit's canonical schema into a plan directory,
+creating it if absent, refusing to clobber an existing one without
+force. The shipped copy is pinned equal to this repo's `plan/proto.md`.
+This establishes the seam — embed a default, write it, report it,
+refuse to clobber — that the flag and the PLAN.md seed reuse.
+
+## Phase 2: the --mdsmith flag gates the machinery
+
+A plain `frit init` writes only `.frit.yml`. `frit init --mdsmith`
+additionally writes `plan/proto.md`, through the Phase 1 seam. The flag
+defaults off, so `init` never seeds a file that needs mdsmith to be of
+value. Every written path is reported, and the `--json` document
+carries them all, `[]` never null.
+
+## Phase 3: --mdsmith also seeds PLAN.md
+
+`frit init --mdsmith` also writes a `PLAN.md` catalog seed — the empty
+skeleton mdsmith renders for a repo with no plans yet, carrying the
+`<?catalog?>` directives it will fill as plans accrue. It refuses to
+clobber an edited PLAN.md without force, and `mdsmith check` passes on
+a freshly `--mdsmith`-inited repo.
 
 ## Tasks
 
-1. Phase 1 — proving slice: `frit init` writes an embedded
-   `plan/proto.md` into the plan directory, refusing to clobber without
-   force, then sign-off.
-2. (determined after Phase 1 sign-off)
+1. Phase 1 — the write seam: a `scaffold` package writes an embedded
+   `plan/proto.md`, refusing to clobber without force, pinned equal to
+   this repo's copy.
+2. Phase 2 — `--mdsmith` gates the machinery: plain `init` writes only
+   `.frit.yml`; `--mdsmith` adds proto.md.
+3. Phase 3 — `--mdsmith` seeds an empty `PLAN.md` catalog that mdsmith
+   check accepts and later regenerates.
 
 ## Execution
 
 Tier is per phase, set by the most demanding ingredient.
 
-| Phase        | Design | Implement | Gate that catches a wrong answer                         |
-| ------------ | ------ | --------- | -------------------------------------------------------- |
-| 1 ship proto | opus   | sonnet    | test that init writes proto.md and refuses to clobber it |
+| Phase          | Design | Implement | Gate that catches a wrong answer                           |
+| -------------- | ------ | --------- | ---------------------------------------------------------- |
+| 1 proto seam   | opus   | sonnet    | test that WriteProto writes proto.md and refuses clobber   |
+| 2 mdsmith flag | opus   | sonnet    | test that plain init writes only .frit.yml, flag adds it   |
+| 3 PLAN.md seed | opus   | sonnet    | test that mdsmith check passes on an --mdsmith-inited repo |
 
 ## Acceptance Criteria
 
-- [ ] `frit init` writes `plan/proto.md` into the configured plan
-      directory, and reports the path
+- [ ] A plain `frit init` writes only `.frit.yml`
+- [ ] `frit init --mdsmith` writes `plan/proto.md` and `PLAN.md` into
+      the repo, and reports each path
 - [ ] A second run without `--force` refuses to clobber an edited
-      proto.md; `--force` overwrites
+      proto.md or PLAN.md; `--force` overwrites
 - [ ] The shipped proto.md is pinned equal to this repo's
       `plan/proto.md`, so it cannot drift from what frit lints against
+- [ ] The PLAN.md seed is the empty catalog mdsmith renders for a repo
+      with no plans, so `mdsmith check` passes on a freshly-inited repo
 - [ ] `frit init --json` carries every written path, `[]` never null
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
