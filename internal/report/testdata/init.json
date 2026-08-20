@@ -1,5 +1,8 @@
 {
   "schema": 1,
   "command": "init",
-  "path": "/fleet/atlas/.frit.yml"
+  "paths": [
+    "/fleet/atlas/.frit.yml",
+    "/fleet/atlas/plan/proto.md"
+  ]
 }

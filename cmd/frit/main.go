@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -39,6 +40,7 @@ import (
 	"github.com/jeduden/frit/internal/presence"
 	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
+	"github.com/jeduden/frit/internal/scaffold"
 	"github.com/jeduden/frit/internal/skills"
 	"github.com/jeduden/frit/internal/textw"
 )
@@ -558,17 +560,33 @@ type initCmd struct {
 	Force bool   `short:"f" help:"Overwrite an existing .frit.yml."`
 }
 
-// Run writes a per-repository config carrying frit's defaults.
+// Run writes a per-repository config carrying frit's defaults, and the
+// plan machinery its workflow assumes: the plan/proto.md schema, laid
+// into the configured plan directory. Both are shipped defaults, editable
+// after, and neither is rewritten over an edit without --force.
 func (i *initCmd) Run(c *cli, rt *runtime) error {
-	path, err := repocfg.Init(i.Dir, i.Force)
+	cfgPath, err := repocfg.Init(i.Dir, i.Force)
 	if err != nil {
 		return err
 	}
 
-	if c.JSON {
-		return report.WriteJSON(rt.stdout, report.Init(path))
+	cfg, err := repocfg.Load(i.Dir)
+	if err != nil {
+		return err
 	}
-	_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", path)
+	protoPath, err := scaffold.WriteProto(
+		filepath.Join(i.Dir, cfg.PlanDir), i.Force)
+	if err != nil {
+		return err
+	}
+
+	paths := []string{cfgPath, protoPath}
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, report.Init(paths))
+	}
+	for _, p := range paths {
+		_, _ = fmt.Fprintf(rt.stdout, "wrote %s\n", p)
+	}
 
 	return nil
 }

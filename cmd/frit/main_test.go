@@ -273,9 +273,13 @@ func TestInitWritesAConfigIntoARepository(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), ".frit.yml")
+	assert.Contains(t, out.String(), "proto.md")
 	body, err := os.ReadFile(filepath.Join(repo, ".frit.yml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "plan/{id}-*")
+	proto, err := os.ReadFile(filepath.Join(repo, "plan", "proto.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(proto), "<?require")
 }
 
 func TestInitRefusesToClobberWithoutForce(t *testing.T) {

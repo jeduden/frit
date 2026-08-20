@@ -40,7 +40,7 @@ func TestVersionEmitsJSON(t *testing.T) {
 	assert.Equal(t, "dev", doc.Version)
 }
 
-func TestInitEmitsThePathItWrote(t *testing.T) {
+func TestInitEmitsThePathsItWrote(t *testing.T) {
 	isolate(t)
 	repo := initRepo(t, t.TempDir(), "atlas")
 	var doc report.InitDoc
@@ -48,7 +48,8 @@ func TestInitEmitsThePathItWrote(t *testing.T) {
 	emit(t, &doc, "init", repo)
 
 	assert.Equal(t, "init", doc.Command)
-	assert.Equal(t, filepath.Join(repo, ".frit.yml"), doc.Path)
+	assert.Contains(t, doc.Paths, filepath.Join(repo, ".frit.yml"))
+	assert.Contains(t, doc.Paths, filepath.Join(repo, "plan", "proto.md"))
 }
 
 func TestReposEmitsEveryWorktree(t *testing.T) {
