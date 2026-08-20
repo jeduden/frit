@@ -49,6 +49,8 @@ func TestClaimMintsAPickablePlan(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
 	var out, errb bytes.Buffer
 
 	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
@@ -63,6 +65,54 @@ func TestClaimMintsAPickablePlan(t *testing.T) {
 		"refs/heads/plan/7-shader-unit")
 	require.NoError(t, err)
 	assert.Contains(t, remote, local, "the same lease is on origin")
+}
+
+// TestClaimStandsUpItsWorktree is the isolation gate: a successful claim
+// hands the lane's checkout to herdr — an isolated worktree, not a bare
+// ref that tempts the shared clone. The agent stays start's rung.
+func TestClaimStandsUpItsWorktree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("worktree", "create"),
+		"a claim stands its lane's worktree up through herdr")
+	assert.True(t, rec.hasArg("plan/7-shader-unit"),
+		"the worktree is checked out on the claim branch")
+	assert.False(t, rec.verb("agent", "start"),
+		"the agent is start's rung, not claim's")
+	assert.Contains(t, out.String(), "worktree:",
+		"the report names the isolated checkout to work in")
+}
+
+// TestClaimWarnsWhenTheWorktreeFails: the ref is atomic and minted first,
+// so a herdr that cannot stand the worktree up is a warning, not a lost
+// claim — the lease still stands, locally and on origin.
+func TestClaimWarnsWhenTheWorktreeFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return nil, errors.New("herdr down")
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7", "the lease stands")
+	assert.Contains(t, out.String(), "warning", "a failed worktree warns")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	require.NoError(t, err, "the atomic lease is minted before the worktree")
 }
 
 // TestLostRaceRefusalNamesTheHolder: the refusal wording distinguishes a
@@ -139,6 +189,8 @@ func TestClaimEmitsJSON(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
 	var doc report.ClaimDoc
 
 	emit(t, &doc, "claim", "7", "--root", root)
@@ -149,6 +201,8 @@ func TestClaimEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(7), doc.Plan.ID)
 	assert.NotEmpty(t, doc.Base, "the lease is dated against a base commit")
 	assert.Empty(t, doc.Refused)
+	assert.NotEmpty(t, doc.Worktree, "the isolated checkout is reported")
+	assert.Empty(t, doc.Warning, "the worktree stood up, so no warning")
 }
 
 // TestClaimRefusesAnAmbiguousRepoName: when two checkouts under the root

@@ -1,7 +1,7 @@
 ---
 id: 2608192322
 title: A claimed lane is its own worktree, never the shared clone
-status: "🔲"
+status: "🔳"
 summary: >-
   frit claim mints the hold but stands up no checkout, so a claimed lane
   is worked in whatever clone the agent sits in — the shared one — and a

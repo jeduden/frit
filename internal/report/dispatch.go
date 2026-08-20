@@ -141,8 +141,16 @@ type ClaimDoc struct {
 	// Claimed is whether the lease was minted; Refused is why it was not,
 	// empty when it was. A plan already held, blocked by an unfinished
 	// dependency, or lost to another machine is refused, not leased.
-	Claimed  bool      `json:"claimed"`
-	Refused  string    `json:"refused"`
+	Claimed bool   `json:"claimed"`
+	Refused string `json:"refused"`
+	// Worktree is the isolated checkout the claim stood up for the lane,
+	// so an agent works it there rather than in the shared clone. Empty
+	// when the lease was refused, or when standing the worktree up failed.
+	Worktree string `json:"worktree"`
+	// Warning is a non-fatal failure that left the atomic lease standing —
+	// herdr could not stand the worktree up. The ref is minted first, so a
+	// failed checkout is a warning, not a lost claim. Empty when none.
+	Warning  string    `json:"warning"`
 	Problems []Problem `json:"problems"`
 }
 
@@ -165,6 +173,13 @@ func (d *ClaimDoc) Minted(baseSHA string) {
 	d.Claimed = true
 	d.Base = baseSHA
 }
+
+// Stood records the isolated worktree the claim stood up for the lane.
+func (d *ClaimDoc) Stood(path string) { d.Worktree = path }
+
+// Warn records a non-fatal failure that left the lease standing — herdr
+// could not stand the worktree up behind a minted claim.
+func (d *ClaimDoc) Warn(reason string) { d.Warning = reason }
 
 // Refuse records why no lease was minted, leaving Claimed false.
 func (d *ClaimDoc) Refuse(reason string) { d.Refused = reason }

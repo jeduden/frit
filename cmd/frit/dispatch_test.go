@@ -52,6 +52,23 @@ func (h *herdrCalls) verb(words ...string) bool {
 	return false
 }
 
+// hasArg reports whether any recorded call carried the given word
+// anywhere in its arguments, for asserting on a flag value — a branch
+// passed to worktree create — that verb's leading match cannot see.
+func (h *herdrCalls) hasArg(word string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, c := range h.calls {
+		for _, w := range c {
+			if w == word {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // recordingHerdr fakes a herdr socket that answers `agent list` with the
 // given panes and records every other call, returning success. It is the
 // seam for asserting that open focuses and nothing more.
