@@ -10,6 +10,7 @@ import (
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -30,7 +31,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, cc.Selector, res.Plans)
+	plan, err := resolveSelector(rt, cc.Selector, res.Plans, true)
 	if err != nil {
 		return err
 	}
@@ -56,8 +57,35 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	if err := mintClaim(rt, doc, plan, branch, coord); err != nil {
 		return err
 	}
+	if doc.Claimed {
+		standUpClaimWorktree(rt, doc, plan, branch, coord)
+	}
 
 	return renderClaim(c, rt, doc)
+}
+
+// standUpClaimWorktree hands the freshly claimed lane's checkout to
+// herdr, so an agent works it in a worktree of its own rather than in
+// the shared clone. The lease is already atomic and minted; a herdr that
+// cannot stand the worktree up is recorded as a warning, not a failure,
+// so a lost checkout never reads as a lost claim. The agent and its
+// prompt stay start's rung — claim stands up the checkout only.
+func standUpClaimWorktree(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, branch string, coord fleet.Coord,
+) {
+	path := defaultLanePath(coord.Path, plan.ID, branch)
+	if _, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
+		CWD:    coord.Path,
+		Branch: branch,
+		Base:   coord.Base,
+		Path:   path,
+		Label:  fmt.Sprintf("plan %d", plan.ID),
+	}); err != nil {
+		doc.Warn(fmt.Sprintf("worktree not stood up: %v", err))
+		return
+	}
+	doc.Stood(path)
 }
 
 // mintClaim writes the lease from the coordinate the gather already
@@ -179,4 +207,10 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 
 	_, _ = fmt.Fprintf(out, "claimed plan %d\n  branch: %s\n  base:   %s\n",
 		doc.Plan.ID, doc.Branch, doc.Base)
+	if doc.Worktree != "" {
+		_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Worktree)
+	}
+	if doc.Warning != "" {
+		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
 }

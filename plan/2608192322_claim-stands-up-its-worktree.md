@@ -1,7 +1,7 @@
 ---
 id: 2608192322
 title: A claimed lane is its own worktree, never the shared clone
-status: "🔲"
+status: "✅"
 summary: >-
   frit claim mints the hold but stands up no checkout, so a claimed lane
   is worked in whatever clone the agent sits in — the shared one — and a
@@ -100,9 +100,9 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A successful frit claim stands a worktree up on the claim branch
-- [ ] The claim report names the worktree path the agent works in
-- [ ] The shared clone's checkout is left untouched by a claim
-- [ ] A herdr failure warns and leaves the atomic lease standing
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] A successful frit claim stands a worktree up on the claim branch
+- [x] The claim report names the worktree path the agent works in
+- [x] The shared clone's checkout is left untouched by a claim
+- [x] A herdr failure warns and leaves the atomic lease standing
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -791,8 +791,13 @@ func carryProblems(doc problemAdder, problems []fleet.Problem, all bool) {
 // empty one is inferred from the current directory, the cwd join run
 // backwards. An ambiguous or unknown selector returns the error
 // discovery raised, which the command surfaces and exits non-zero on.
+//
+// When guardForeign is set — for a verb that acts on the lane: claim,
+// start, nudge or open — it refuses an empty selector inferred from a
+// checkout another host holds. A read-only report passes false: refusing
+// a status query hands out no lane and only blocks a harmless read.
 func resolveSelector(
-	rt *runtime, selector string, plans []discovery.Plan,
+	rt *runtime, selector string, plans []discovery.Plan, guardForeign bool,
 ) (discovery.Plan, error) {
 	if selector != "" {
 		return discovery.Resolve(selector, plans)
@@ -806,12 +811,15 @@ func resolveSelector(
 	// Preflight the shared checkout: inferring a plan from the cwd must
 	// not hand this session the lane another host holds. A claim minted
 	// on one machine and worked in a clone a second agent shares would
-	// otherwise read as that agent's own current plan.
-	if host, foreign := fleet.ForeignHold(
-		cwd, hostname(), rt.git, holdsForRoot); foreign {
-		return discovery.Plan{}, fmt.Errorf(
-			"the current worktree stands on a claim held by %s; "+
-				"pass a plan explicitly to work another", host)
+	// otherwise read as that agent's own current plan. Only a verb that
+	// acts on the lane guards; a read-only report has nothing to refuse.
+	if guardForeign {
+		if host, foreign := fleet.ForeignHold(
+			cwd, hostname(), rt.git, holdsForRoot); foreign {
+			return discovery.Plan{}, fmt.Errorf(
+				"the current worktree stands on a claim held by %s; "+
+					"pass a plan explicitly to work another", host)
+		}
 	}
 
 	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
@@ -935,7 +943,7 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, n.Selector, res.Plans)
+	plan, err := resolveSelector(rt, n.Selector, res.Plans, false)
 	if err != nil {
 		return err
 	}
@@ -965,7 +973,7 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, s.Selector, res.Plans)
+	plan, err := resolveSelector(rt, s.Selector, res.Plans, false)
 	if err != nil {
 		return err
 	}

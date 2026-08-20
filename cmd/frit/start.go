@@ -44,7 +44,7 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, err := resolveSelector(rt, s.Selector, res.Plans)
+	plan, err := resolveSelector(rt, s.Selector, res.Plans, true)
 	if err != nil {
 		return err
 	}

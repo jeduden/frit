@@ -57,5 +57,5 @@ footer: |
 | 2608192045 | 🔳     | sonnet | [Enrich next and show so a skill leans on frit's output](plan/2608192045_next-enrichment.md)                  |
 | 2608192121 | 🔲     | sonnet | [init scaffolds the plan machinery, not just the config](plan/2608192121_init-scaffolds-plan-machinery.md)    |
 | 2608192233 | ✅     | sonnet | [Harden the claim against squash-merges and shared checkouts](plan/2608192233_claim-watertight.md)            |
-| 2608192322 | 🔲     | sonnet | [A claimed lane is its own worktree, never the shared clone](plan/2608192322_claim-stands-up-its-worktree.md) |
+| 2608192322 | ✅     | sonnet | [A claimed lane is its own worktree, never the shared clone](plan/2608192322_claim-stands-up-its-worktree.md) |
 <?/catalog?>
