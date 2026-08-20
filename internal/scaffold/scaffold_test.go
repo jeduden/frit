@@ -71,3 +71,55 @@ func TestShippedProtoMatchesRepo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, repo, protoSchema)
 }
+
+func TestWriteMdsmithConfigWritesTheDefault(t *testing.T) {
+	dir := t.TempDir()
+
+	path, err := WriteMdsmithConfig(dir, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, ".mdsmith.yml"), path)
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, mdsmithConfig, got)
+}
+
+func TestWriteMdsmithConfigRefusesToClobber(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, ".mdsmith.yml")
+	mine := []byte("front-matter: false\n")
+	require.NoError(t, os.WriteFile(target, mine, 0o644))
+
+	_, err := WriteMdsmithConfig(dir, false)
+
+	require.ErrorIs(t, err, ErrExists)
+	after, readErr := os.ReadFile(target)
+	require.NoError(t, readErr)
+	assert.Equal(t, mine, after, "the edit survives")
+}
+
+func TestWritePlanIndexWritesTheSeed(t *testing.T) {
+	dir := t.TempDir()
+
+	path, err := WritePlanIndex(dir, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "PLAN.md"), path)
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, planIndex, got)
+}
+
+func TestWritePlanIndexRefusesToClobber(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "PLAN.md")
+	mine := []byte("# my plans\n")
+	require.NoError(t, os.WriteFile(target, mine, 0o644))
+
+	_, err := WritePlanIndex(dir, false)
+
+	require.ErrorIs(t, err, ErrExists)
+	after, readErr := os.ReadFile(target)
+	require.NoError(t, readErr)
+	assert.Equal(t, mine, after, "the edit survives")
+}
