@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
@@ -75,6 +76,13 @@ type Phase struct {
 	// a missing row as a gap rather than render a blank tier as if it
 	// meant something.
 	HasExecutionRow bool `yaml:"-"`
+
+	// Body is the prose of this phase's `## Phase N` section — the
+	// text an executor reads to do the work, not just its title.
+	// Paragraphs join on a blank line; each one is folded to a single
+	// line the way Goal is. Empty when the plan carries no matching
+	// section.
+	Body string `yaml:"-"`
 }
 
 // PhaseNumber is a phase's position in the ledger, kept as a string
@@ -153,9 +161,98 @@ func Parse(source []byte) (Plan, error) {
 		return Plan{}, fmt.Errorf("front matter: %w", err)
 	}
 	p.Goal = sectionText(doc, "Goal")
+	if len(p.Phases) == 0 {
+		p.Phases = derivePhasesFromHeadings(doc)
+	}
+	attachPhaseBodies(&p, doc)
 	attachExecutionRows(&p, doc.Body)
 
 	return p, nil
+}
+
+// phaseHeadingRE matches a `## Phase N: Title` heading's text, taking
+// the phase number as whatever token follows "Phase" and the rest of
+// the line, past an optional colon, as the title. The number is
+// captured non-greedily so "3b: Split" and "3b Split" both yield "3b"
+// rather than swallowing the colon or the title's first word.
+var phaseHeadingRE = regexp.MustCompile(`(?i)^Phase\s+(\S+?)(?::\s*|\s+|$)(.*)$`)
+
+// derivePhasesFromHeadings builds a phase ledger from `## Phase N`
+// headings for a plan that carries no front-matter `phases:` list —
+// the convention frit's own plans use. Section state carries no
+// status, so every derived phase is left with an empty one rather
+// than an invented "not started": FirstOpenPhase's skip-done rule
+// then never skips a derived phase, so next still points at the
+// first one, which is the most a ledger with no status can promise.
+func derivePhasesFromHeadings(doc *markdown.Document) []Phase {
+	var out []Phase
+	for n := doc.AST.FirstChild(); n != nil; n = n.NextSibling() {
+		h, ok := n.(*ast.Heading)
+		if !ok || h.Level != 2 {
+			continue
+		}
+		m := phaseHeadingRE.FindStringSubmatch(
+			strings.TrimSpace(inlineText(h, doc.Body)))
+		if m == nil {
+			continue
+		}
+		out = append(out, Phase{N: PhaseNumber(m[1]), Title: strings.TrimSpace(m[2])})
+	}
+
+	return out
+}
+
+// attachPhaseBodies enriches the phase ledger — front-matter or
+// derived — with the prose of each phase's own `## Phase N` section.
+func attachPhaseBodies(p *Plan, doc *markdown.Document) {
+	if len(p.Phases) == 0 {
+		return
+	}
+
+	bodies := phaseSectionBodies(doc)
+	for i := range p.Phases {
+		p.Phases[i].Body = bodies[p.Phases[i].N]
+	}
+}
+
+// phaseSectionBodies walks the body for every `## Phase N` section and
+// returns its prose, keyed by phase number. A phase body commonly
+// spans several paragraphs, so blocks join on a blank line rather
+// than folding the whole section to one line the way Goal does; each
+// block itself still folds its own soft-wrapped lines to one, via
+// inlineText.
+func phaseSectionBodies(doc *markdown.Document) map[PhaseNumber]string {
+	blocks := map[PhaseNumber][]string{}
+	var current PhaseNumber
+	inPhase := false
+
+	for n := doc.AST.FirstChild(); n != nil; n = n.NextSibling() {
+		if h, ok := n.(*ast.Heading); ok {
+			inPhase = false
+			if h.Level == 2 {
+				m := phaseHeadingRE.FindStringSubmatch(
+					strings.TrimSpace(inlineText(h, doc.Body)))
+				if m != nil {
+					current = PhaseNumber(m[1])
+					inPhase = true
+				}
+			}
+
+			continue
+		}
+		if inPhase {
+			if text := strings.TrimSpace(inlineText(n, doc.Body)); text != "" {
+				blocks[current] = append(blocks[current], text)
+			}
+		}
+	}
+
+	out := make(map[PhaseNumber]string, len(blocks))
+	for n, bs := range blocks {
+		out[n] = strings.Join(bs, "\n\n")
+	}
+
+	return out
 }
 
 // attachExecutionRows enriches the front-matter phase ledger with the

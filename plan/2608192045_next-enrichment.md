@@ -133,7 +133,7 @@ line cap.
 2. Phase 2 — Execution tier and gate on `frit next`; a phase with no
    row surfaced via `Problems`. Done.
 3. Phase 3 — phase-section body on `frit next`; a section-derived
-   ledger when front matter carries none.
+   ledger when front matter carries none. Done.
 4. Phase 4 — `frit doctor`: a fleet-wide report of plans with a
    semantic gap, checked through mdsmith as a library.
 5. Phase 5 — the skills lean on the enriched output; re-dogfood.
@@ -158,7 +158,7 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A plan with no `## Goal` section renders an empty Goal, not a
       crash
 - [x] The golden files are re-recorded and the diff read
-- [ ] `frit next <id>` prints the target phase's tier, gate and body
+- [x] `frit next <id>` prints the target phase's tier, gate and body
 - [x] A phase with no Execution row is surfaced as a `Problems` entry,
       never a blank tier
 - [ ] `frit doctor` lists every plan with a semantic gap and omits the

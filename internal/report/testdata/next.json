@@ -19,7 +19,8 @@
     "title": "ready",
     "status": "🔳",
     "tier": "sonnet",
-    "gate": "test ready lists a startable plan"
+    "gate": "test ready lists a startable plan",
+    "body": "Parse the readiness rule and wire it to a verb."
   },
   "has_phase": true,
   "problems": []
