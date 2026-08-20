@@ -1,7 +1,7 @@
 ---
 id: 2608192121
 title: init scaffolds the plan machinery, not just the config
-status: "🔲"
+status: "🔳"
 summary: >-
   frit init writes .frit.yml, but the plan workflow it enables assumes
   a plan/proto.md schema and a PLAN.md index that a fresh repo has not

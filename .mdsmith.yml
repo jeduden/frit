@@ -67,6 +67,16 @@ kinds:
     rules:
       required-structure:
         schema: plan/proto.md
+  embedded-proto:
+    # frit init ships plan/proto.md from an embedded copy in
+    # internal/scaffold/assets. Like plan/proto.md, the copy is its own
+    # schema: pointing required-structure back at the file marks it as a
+    # schema file, which is what stops MDS020 firing on the <?require?>
+    # inside it. A Go test pins the copy byte-equal to plan/proto.md.
+    path-pattern: "internal/scaffold/assets/proto.md"
+    rules:
+      required-structure:
+        schema: internal/scaffold/assets/proto.md
   skill:
     # Skills frit ships: the canonical text in
     # internal/skills/assets/<name>/SKILL.md, and its dogfooded copy in
@@ -101,6 +111,8 @@ kind-assignment:
     kinds: [proto]
   - glob: ["plan/*.md"]
     kinds: [plan]
+  - glob: ["internal/scaffold/assets/proto.md"]
+    kinds: [embedded-proto]
   - glob:
       - "internal/skills/assets/*/SKILL.md"
       - ".claude/skills/*/SKILL.md"
