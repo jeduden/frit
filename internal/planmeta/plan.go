@@ -14,7 +14,11 @@ import (
 	"strings"
 
 	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/extension"
+	extast "github.com/jeduden/mdsmith/pkg/goldmark/extension/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/text"
 	"github.com/jeduden/mdsmith/pkg/markdown"
+	"github.com/jeduden/mdsmith/pkg/markdown/flavor"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,6 +59,22 @@ type Phase struct {
 	N      PhaseNumber `yaml:"n"`
 	Title  string      `yaml:"title"`
 	Status string      `yaml:"status"`
+
+	// Tier is the model tier the plan's `## Execution` table names for
+	// this phase: the more demanding of its Design and Implement
+	// columns. It lives in the body, not the front matter, so it is
+	// read by walking the parsed AST rather than decoded from YAML.
+	// Empty when the phase carries no Execution row.
+	Tier string `yaml:"-"`
+	// Gate is the check the same row names as what catches a wrong
+	// answer for this phase. Empty when the phase carries no
+	// Execution row.
+	Gate string `yaml:"-"`
+	// HasExecutionRow reports whether the `## Execution` table
+	// carried a row for this phase's number, so a caller can surface
+	// a missing row as a gap rather than render a blank tier as if it
+	// meant something.
+	HasExecutionRow bool `yaml:"-"`
 }
 
 // PhaseNumber is a phase's position in the ledger, kept as a string
@@ -133,8 +153,158 @@ func Parse(source []byte) (Plan, error) {
 		return Plan{}, fmt.Errorf("front matter: %w", err)
 	}
 	p.Goal = sectionText(doc, "Goal")
+	attachExecutionRows(&p, doc.Body)
 
 	return p, nil
+}
+
+// attachExecutionRows enriches the front-matter phase ledger with the
+// tier and gate its `## Execution` table row names, matched by
+// leading phase number. A phase whose number has no row is left with
+// HasExecutionRow false, so a caller reports the gap rather than
+// rendering a blank tier as if it meant something. A plan with no
+// ledger has nothing to attach to, so the table is left unparsed.
+func attachExecutionRows(p *Plan, body []byte) {
+	if len(p.Phases) == 0 {
+		return
+	}
+
+	rows := executionTable(body)
+	for i := range p.Phases {
+		row, ok := rows[p.Phases[i].N]
+		if !ok {
+			continue
+		}
+		p.Phases[i].Tier = row.tier
+		p.Phases[i].Gate = row.gate
+		p.Phases[i].HasExecutionRow = true
+	}
+}
+
+// executionRow is what a plan's `## Execution` table says about one
+// phase.
+type executionRow struct {
+	tier string
+	gate string
+}
+
+// executionTable parses a plan's `## Execution` section into a row per
+// phase, keyed by the phase number its first column leads with — "2
+// tier & gate" keys "2".
+//
+// The shared body AST (markdown.Parse) is CommonMark-only, so a GFM
+// table there is a Paragraph of literal pipe text, not a table node.
+// This re-parses the body with mdsmith's exported
+// flavor.NewPooledParserWith(extension.Table) — the same seam
+// mdsmith's own schema validator reaches for when it needs to see a
+// GFM table (internal/schema.parseWithTableExt, "lint.NewFile's
+// parser is CommonMark-only, so GFM tables would otherwise appear as
+// paragraphs") — rather than hand-rolling a second table parser.
+func executionTable(body []byte) map[PhaseNumber]executionRow {
+	p, reset := flavor.NewPooledParserWith(extension.Table)
+	defer reset()
+	root := p.Parse(text.NewReader(body))
+
+	out := map[PhaseNumber]executionRow{}
+	for _, n := range sectionNodes(root, body, "Execution") {
+		tbl, ok := n.(*extast.Table)
+		if !ok {
+			continue
+		}
+		collectExecutionRows(tbl, body, out)
+
+		break
+	}
+
+	return out
+}
+
+// collectExecutionRows reads an Execution table's header to find its
+// Design, Implement and Gate columns by name, then fills one row per
+// data row, keyed by the phase number the first column leads with.
+func collectExecutionRows(
+	tbl *extast.Table, body []byte, out map[PhaseNumber]executionRow,
+) {
+	header, ok := tbl.FirstChild().(*extast.TableHeader)
+	if !ok {
+		return
+	}
+
+	designCol, implCol, gateCol := -1, -1, -1
+	for i, c := 0, header.FirstChild(); c != nil; i, c = i+1, c.NextSibling() {
+		switch label := strings.ToLower(inlineText(c, body)); {
+		case strings.Contains(label, "design"):
+			designCol = i
+		case strings.Contains(label, "implement"):
+			implCol = i
+		case strings.Contains(label, "gate"):
+			gateCol = i
+		}
+	}
+
+	for n := header.NextSibling(); n != nil; n = n.NextSibling() {
+		row, ok := n.(*extast.TableRow)
+		if !ok {
+			continue
+		}
+		cells := cellTexts(row, body)
+		if len(cells) == 0 {
+			continue
+		}
+		fields := strings.Fields(cells[0])
+		if len(fields) == 0 {
+			continue
+		}
+
+		var er executionRow
+		if designCol >= 0 && designCol < len(cells) {
+			er.tier = cells[designCol]
+		}
+		if implCol >= 0 && implCol < len(cells) {
+			er.tier = mostDemandingTier(er.tier, cells[implCol])
+		}
+		if gateCol >= 0 && gateCol < len(cells) {
+			er.gate = cells[gateCol]
+		}
+		out[PhaseNumber(fields[0])] = er
+	}
+}
+
+// cellTexts reads a table row's cells as prose, in column order.
+func cellTexts(row *extast.TableRow, body []byte) []string {
+	var out []string
+	for c := row.FirstChild(); c != nil; c = c.NextSibling() {
+		out = append(out, strings.TrimSpace(inlineText(c, body)))
+	}
+
+	return out
+}
+
+// tierRank orders the model tiers by how demanding they are, so
+// mostDemandingTier can pick the higher of a phase's Design and
+// Implement columns.
+var tierRank = map[string]int{"haiku": 0, "sonnet": 1, "opus": 2}
+
+// mostDemandingTier returns whichever of a and b ranks higher. An
+// unrecognized tier ranks below any recognized one rather than
+// panicking or erroring — frit doctor (phase 4) is where a tier that
+// names no known model becomes a reported gap, not this parse.
+func mostDemandingTier(a, b string) string {
+	ra, oka := tierRank[a]
+	rb, okb := tierRank[b]
+
+	switch {
+	case oka && okb:
+		if rb > ra {
+			return b
+		}
+
+		return a
+	case okb:
+		return b
+	default:
+		return a
+	}
 }
 
 // sectionText returns the prose of the level-2 section with the given
@@ -145,15 +315,30 @@ func Parse(source []byte) (Plan, error) {
 // shape, and this reuses that agreement instead of a second parser.
 func sectionText(doc *markdown.Document, title string) string {
 	var out []string
+	for _, n := range sectionNodes(doc.AST, doc.Body, title) {
+		if text := strings.TrimSpace(inlineText(n, doc.Body)); text != "" {
+			out = append(out, text)
+		}
+	}
+
+	return strings.Join(out, " ")
+}
+
+// sectionNodes returns the block-level nodes inside the level-2
+// section with the given title, walking root directly rather than a
+// *markdown.Document so a differently-configured re-parse (e.g.
+// executionTable's table-aware AST) can share this walk.
+func sectionNodes(root ast.Node, body []byte, title string) []ast.Node {
+	var out []ast.Node
 	inSection := false
 
-	for n := doc.AST.FirstChild(); n != nil; n = n.NextSibling() {
+	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
 		if h, ok := n.(*ast.Heading); ok {
 			if inSection {
 				break
 			}
 			if h.Level == 2 &&
-				strings.EqualFold(strings.TrimSpace(inlineText(h, doc.Body)),
+				strings.EqualFold(strings.TrimSpace(inlineText(h, body)),
 					title) {
 				inSection = true
 			}
@@ -161,13 +346,11 @@ func sectionText(doc *markdown.Document, title string) string {
 			continue
 		}
 		if inSection {
-			if text := strings.TrimSpace(inlineText(n, doc.Body)); text != "" {
-				out = append(out, text)
-			}
+			out = append(out, n)
 		}
 	}
 
-	return strings.Join(out, " ")
+	return out
 }
 
 // inlineText collects a node's visible text, joining soft-wrapped

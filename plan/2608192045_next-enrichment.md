@@ -131,7 +131,7 @@ line cap.
 1. Phase 1 — proving slice: `frit show` prints the Goal from the body,
    end to end. Done.
 2. Phase 2 — Execution tier and gate on `frit next`; a phase with no
-   row surfaced via `Problems`.
+   row surfaced via `Problems`. Done.
 3. Phase 3 — phase-section body on `frit next`; a section-derived
    ledger when front matter carries none.
 4. Phase 4 — `frit doctor`: a fleet-wide report of plans with a
@@ -159,7 +159,7 @@ Tier is per phase, set by the most demanding ingredient.
       crash
 - [x] The golden files are re-recorded and the diff read
 - [ ] `frit next <id>` prints the target phase's tier, gate and body
-- [ ] A phase with no Execution row is surfaced as a `Problems` entry,
+- [x] A phase with no Execution row is surfaced as a `Problems` entry,
       never a blank tier
 - [ ] `frit doctor` lists every plan with a semantic gap and omits the
       clean ones

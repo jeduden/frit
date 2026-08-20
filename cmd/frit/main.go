@@ -1404,8 +1404,10 @@ func printFind(out io.Writer, doc *report.FindDoc, width int) {
 
 // printNext writes the plan and the phase to pick up, the seed a
 // dispatch verb will one day type for you: a plan id, a phase number,
-// and the tier the plan asks for. A plan with no open phase says why —
-// done, or carrying no phase ledger at all.
+// the tier and gate its Execution row names, and the gate itself. A
+// phase with no such row prints a dash rather than the plan's own
+// tier — the gap is said explicitly, in doc.Problems. A plan with no
+// open phase says why — done, or carrying no phase ledger at all.
 func printNext(out io.Writer, doc *report.NextDoc) {
 	p := doc.Plan
 	if !doc.HasPhase {
@@ -1419,9 +1421,21 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\n",
-		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title, modelLabel(p.Model))
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title,
+		modelLabel(doc.Phase.Tier), orDash(doc.Phase.Gate))
 	_ = tw.Flush()
+}
+
+// orDash names an empty string as a dash, so a blank cell reads as
+// "nothing here" rather than looking like a column the renderer
+// dropped.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+
+	return s
 }
 
 // printShow writes the plan and its upstream dependencies, one plan per
