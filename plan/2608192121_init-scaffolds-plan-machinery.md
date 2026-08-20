@@ -1,7 +1,7 @@
 ---
 id: 2608192121
 title: init scaffolds the plan machinery, not just the config
-status: "🔳"
+status: "✅"
 summary: >-
   frit init writes .frit.yml, but the plan workflow it enables assumes
   a plan/proto.md schema and a PLAN.md index that a fresh repo has not
@@ -15,14 +15,15 @@ depends-on: []
 
 ## Goal
 
-Make `frit init --mdsmith` lay down the plan machinery a repo needs to
-use frit's workflow — the `plan/proto.md` schema and a `PLAN.md`
-index. Both depend on mdsmith to be of value: proto.md is the schema
-mdsmith lints against, and PLAN.md is a catalog mdsmith regenerates. So
-a plain `init` writes only `.frit.yml`, frit's own config, and never
-seeds a file the repo cannot keep correct without mdsmith. A repo that
-ran `init --mdsmith` then has the conventions the shipped skills and
-`frit doctor` assume.
+Make `frit init --mdsmith` lay down the mdsmith machinery a repo needs
+to use frit's workflow — a default `.mdsmith.yml`, the `plan/proto.md`
+schema, and a `PLAN.md` index. It all depends on mdsmith to be of
+value: without the config proto.md does not even lint, and PLAN.md is a
+catalog mdsmith regenerates. So a plain `init` writes only `.frit.yml`,
+frit's own config, and never seeds a file the repo cannot keep correct
+without mdsmith. A repo that ran `init --mdsmith` then has the
+conventions the shipped skills and `frit doctor` assume, and lints
+clean out of the box.
 
 ## Context
 
@@ -78,13 +79,15 @@ defaults off, so `init` never seeds a file that needs mdsmith to be of
 value. Every written path is reported, and the `--json` document
 carries them all, `[]` never null.
 
-## Phase 3: --mdsmith also seeds PLAN.md
+## Phase 3: --mdsmith completes the machinery
 
-`frit init --mdsmith` also writes a `PLAN.md` catalog seed — the empty
-skeleton mdsmith renders for a repo with no plans yet, carrying the
-`<?catalog?>` directives it will fill as plans accrue. It refuses to
-clobber an edited PLAN.md without force, and `mdsmith check` passes on
-a freshly `--mdsmith`-inited repo.
+`frit init --mdsmith` also writes a default `.mdsmith.yml` and a
+`PLAN.md` catalog seed. The config is what makes the machinery lint at
+all — without it proto.md trips MDS020, since nothing marks it as a
+schema. The seed is the empty skeleton mdsmith renders for a repo with
+no plans yet, carrying the `<?catalog?>` directives it fills as plans
+accrue. Each refuses to clobber an edit without force, and `mdsmith
+check` passes on a freshly `--mdsmith`-inited repo.
 
 ## Tasks
 
@@ -93,8 +96,8 @@ a freshly `--mdsmith`-inited repo.
    this repo's copy.
 2. Phase 2 — `--mdsmith` gates the machinery: plain `init` writes only
    `.frit.yml`; `--mdsmith` adds proto.md.
-3. Phase 3 — `--mdsmith` seeds an empty `PLAN.md` catalog that mdsmith
-   check accepts and later regenerates.
+3. Phase 3 — `--mdsmith` writes a default `.mdsmith.yml` and an empty
+   `PLAN.md` catalog that mdsmith check accepts and later regenerates.
 
 ## Execution
 
@@ -108,15 +111,15 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A plain `frit init` writes only `.frit.yml`
-- [ ] `frit init --mdsmith` writes `plan/proto.md` and `PLAN.md` into
-      the repo, and reports each path
-- [ ] A second run without `--force` refuses to clobber an edited
-      proto.md or PLAN.md; `--force` overwrites
-- [ ] The shipped proto.md is pinned equal to this repo's
+- [x] A plain `frit init` writes only `.frit.yml`
+- [x] `frit init --mdsmith` writes `.mdsmith.yml`, `plan/proto.md` and
+      `PLAN.md` into the repo, and reports each path
+- [x] A second run without `--force` refuses to clobber an edited
+      scaffolded file; `--force` overwrites
+- [x] The shipped proto.md is pinned equal to this repo's
       `plan/proto.md`, so it cannot drift from what frit lints against
-- [ ] The PLAN.md seed is the empty catalog mdsmith renders for a repo
+- [x] The PLAN.md seed is the empty catalog mdsmith renders for a repo
       with no plans, so `mdsmith check` passes on a freshly-inited repo
-- [ ] `frit init --json` carries every written path, `[]` never null
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `frit init --json` carries every written path, `[]` never null
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

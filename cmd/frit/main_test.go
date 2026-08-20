@@ -283,9 +283,10 @@ func TestInitWritesAConfigIntoARepository(t *testing.T) {
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-// TestInitMdsmithScaffoldsProto pins that the flag adds the mdsmith
-// machinery a plain init leaves out.
-func TestInitMdsmithScaffoldsProto(t *testing.T) {
+// TestInitMdsmithScaffoldsTheMachinery pins that the flag adds the three
+// files a plain init leaves out: the .mdsmith.yml config, the proto.md
+// schema, and the PLAN.md catalog seed.
+func TestInitMdsmithScaffoldsTheMachinery(t *testing.T) {
 	isolate(t)
 	repo := initRepo(t, t.TempDir(), "atlas")
 	var out, errb bytes.Buffer
@@ -293,10 +294,15 @@ func TestInitMdsmithScaffoldsProto(t *testing.T) {
 	code := run([]string{"init", "--mdsmith", repo}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "proto.md")
 	proto, err := os.ReadFile(filepath.Join(repo, "plan", "proto.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(proto), "<?require")
+	cfg, err := os.ReadFile(filepath.Join(repo, ".mdsmith.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(cfg), "schema: plan/proto.md")
+	index, err := os.ReadFile(filepath.Join(repo, "PLAN.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(index), "<?catalog")
 }
 
 func TestInitRefusesToClobberWithoutForce(t *testing.T) {

@@ -59,7 +59,9 @@ func TestInitMdsmithEmitsEveryPath(t *testing.T) {
 	emit(t, &doc, "init", "--mdsmith", repo)
 
 	assert.Contains(t, doc.Paths, filepath.Join(repo, ".frit.yml"))
+	assert.Contains(t, doc.Paths, filepath.Join(repo, ".mdsmith.yml"))
 	assert.Contains(t, doc.Paths, filepath.Join(repo, "plan", "proto.md"))
+	assert.Contains(t, doc.Paths, filepath.Join(repo, "PLAN.md"))
 }
 
 func TestReposEmitsEveryWorktree(t *testing.T) {

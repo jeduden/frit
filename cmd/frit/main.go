@@ -563,12 +563,13 @@ type initCmd struct {
 
 // Run writes a per-repository config carrying frit's defaults. With
 // --mdsmith it also lays down the plan machinery frit's workflow
-// assumes: the plan/proto.md schema, into the configured plan directory.
-// That machinery is gated because it depends on mdsmith to be of value —
-// proto.md is the schema mdsmith lints against — so a plain init never
-// seeds a file the repo cannot keep correct without mdsmith. Every file
-// is a shipped default, editable after, and none is rewritten over an
-// edit without --force.
+// assumes: a default .mdsmith.yml, the plan/proto.md schema in the
+// configured plan directory, and a PLAN.md catalog seed. That machinery
+// is gated because it depends on mdsmith to be of value — without the
+// config proto.md does not even lint — so a plain init never seeds a
+// file the repo cannot keep correct without mdsmith. Every file is a
+// shipped default, editable after, and none is rewritten over an edit
+// without --force.
 func (i *initCmd) Run(c *cli, rt *runtime) error {
 	cfgPath, err := repocfg.Init(i.Dir, i.Force)
 	if err != nil {
@@ -581,12 +582,20 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 		if err != nil {
 			return err
 		}
+		mdsmithPath, err := scaffold.WriteMdsmithConfig(i.Dir, i.Force)
+		if err != nil {
+			return err
+		}
 		protoPath, err := scaffold.WriteProto(
 			filepath.Join(i.Dir, cfg.PlanDir), i.Force)
 		if err != nil {
 			return err
 		}
-		paths = append(paths, protoPath)
+		indexPath, err := scaffold.WritePlanIndex(i.Dir, i.Force)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, mdsmithPath, protoPath, indexPath)
 	}
 
 	if c.JSON {
