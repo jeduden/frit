@@ -218,6 +218,10 @@ Tier is per phase, set by the most demanding ingredient.
 - [ ] Every verb-state cell of the table is a passing test in both
       renderings.
 - [ ] Skills and [docs/claiming.md](../docs/claiming.md) describe
-      only shipped behavior.
+      only shipped behavior; the manual-delete recovery and
+      slug-branch prose are gone.
+- [ ] A fenced session's next verb offers yield.
+- [ ] Every mechanism in the research note's scenario matrix traces
+      to at least one test named for it.
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean

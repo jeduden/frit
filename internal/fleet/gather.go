@@ -216,12 +216,10 @@ func heldBranches(
 	}
 
 	held := map[int64][]string{}
-	leaseTips := map[int64]string{}
 	for _, lane := range lanes.Build(
 		repo.Worktrees, refs, merged, landed, holds) {
 		seen := map[string]bool{}
 		for _, h := range lane.Holds {
-			recordLeaseTip(leaseTips, lane.PlanID, h, tips)
 			if seen[h.Branch] {
 				continue
 			}
@@ -236,25 +234,32 @@ func heldBranches(
 		}
 	}
 
-	return held, leaseTips, nil
+	return held, leaseTips(refs, holds), nil
 }
 
-// recordLeaseTip files the tip of a plan's id-only work ref. When both
-// a local and a remote-tracking copy exist the remote-tracking one
-// wins: origin is the arbiter, and its copy is the lease being
-// observed. Decorated legacy holds are skipped — only the lease ref is
-// observed or taken over.
-func recordLeaseTip(
-	leaseTips map[int64]string, planID int64, h lanes.Hold,
-	tips map[string]string,
-) {
-	if h.Branch != claim.Branch(planID) || tips[h.Ref] == "" {
-		return
+// leaseTips maps each plan to the tip of its id-only work ref — read
+// off the raw ref list, not the hold filters, because the observer
+// watches the ref itself and scavenge needs the tip of exactly the
+// states the filters drop: released, merged, landed. When both a
+// local and a remote-tracking copy exist the remote-tracking one
+// wins: origin is the arbiter, and its copy is the lease observed.
+func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
+	tips := map[int64]string{}
+	for _, r := range refs {
+		branch, ok := r.Branch()
+		if !ok {
+			continue
+		}
+		id, ok := holds.Match(branch)
+		if !ok || branch != claim.Branch(id) || r.OID == "" {
+			continue
+		}
+		if tips[id] == "" || strings.HasPrefix(r.Name, "refs/remotes/") {
+			tips[id] = r.OID
+		}
 	}
-	if leaseTips[planID] == "" ||
-		strings.HasPrefix(h.Ref, "refs/remotes/") {
-		leaseTips[planID] = tips[h.Ref]
-	}
+
+	return tips
 }
 
 // planOf projects a plan's authoritative version into the discovery

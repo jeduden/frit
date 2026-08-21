@@ -167,7 +167,9 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 // Reading "" on an unreadable remote folds the unconfirmable case into a
 // real fault, which fails safe: a retry re-attempts the push cleanly.
 func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
-	out, err := run(repoDir, "ls-remote", "--heads", remote, ref)
+	// No --heads filter: callers pass a full ref name, and the lease
+	// path also reads refs outside refs/heads — the rescue refs.
+	out, err := run(repoDir, "ls-remote", remote, ref)
 	if err != nil {
 		return ""
 	}
@@ -286,15 +288,22 @@ func landed(repoDir string, opts Options, tip string, run gitwt.Runner) bool {
 // landedTip is the landed check itself, shared with the lease path,
 // which carries its base and remote outside an Options.
 func landedTip(repoDir, baseRef, remote, tip string, run gitwt.Runner) bool {
-	base := baseRef
+	return isAncestor(repoDir, tip, freshBase(repoDir, baseRef, remote, run), run)
+}
+
+// freshBase resolves the base to judge evidence against, refreshed
+// from the remote when it can be — FETCH_HEAD after a fetch of the
+// base branch — and the local view otherwise, so a stale origin/main
+// does not decide what has landed.
+func freshBase(repoDir, baseRef, remote string, run gitwt.Runner) string {
 	if branch := baseBranch(baseRef, remote); branch != "" {
 		if _, err := run(repoDir, "fetch", "--quiet",
 			remote, branch); err == nil {
-			base = "FETCH_HEAD"
+			return "FETCH_HEAD"
 		}
 	}
 
-	return isAncestor(repoDir, tip, base, run)
+	return baseRef
 }
 
 // baseBranch reduces a base ref to the remote branch name to fetch for a

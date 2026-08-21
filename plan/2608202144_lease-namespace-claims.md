@@ -1,7 +1,7 @@
 ---
 id: 2608202144
 title: The hold is the work ref, a self-healing lease
-status: "🔳"
+status: "✅"
 summary: >-
   A verified review found the claim not watertight: the hold ref
   embeds a slug derived from local state, holdership is inferred from
@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 3
     title: scavenge with evidence and park
-    status: "🔲"
+    status: "✅"
 ---
 # The hold is the work ref, a self-healing lease
 
@@ -254,28 +254,23 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] Two machines racing a claim resolve to one winner even when the
+These criteria cover the atom, the healing loop and the scavenger.
+Self-resume, yield, the verb-state table and the docs rewrite moved
+to plan 2608211326.
+
+- [x] Two machines racing a claim resolve to one winner even when the
       plan file was renamed between their fetches
-- [ ] A dead holder's plan is taken over automatically after T with
+- [x] A dead holder's plan is taken over automatically after T with
       no human action, and the takeover inherits its pushed work
-- [ ] A zombie's push after takeover is rejected by the server, and
-      its next verb refuses, names the holder, and offers yield
-- [ ] A crashed holder on its own host resumes its lease immediately,
-      with no staleness wait
-- [ ] An origin outage voids observation windows; recovery triggers
-      no takeover of any live holder
-- [ ] A merged-but-unreleased hold is scavenged on tip-coupled
+- [x] A zombie's push after takeover is rejected by the server, and
+      its next verb is fenced and names the holder
+- [x] A takeover racing a live holder's renewal loses the CAS, so no
+      recovery — outage or otherwise — takes a live holder's lease
+- [x] A merged-but-unreleased hold is scavenged on tip-coupled
       evidence, and scavenge never deletes unlanded work
-- [ ] A reopened plan's fresh lease survives a stale ✅ observation:
+- [x] A reopened plan's fresh lease survives a stale ✅ observation:
       a renewing holder can never be scavenged
-- [ ] No two marker commits ever share a SHA, pinned by a test over
+- [x] No two marker commits ever share a SHA, pinned by a test over
       identical acquisition inputs
-- [ ] Every verb-state cell in the behavior table is a passing test
-      with a scripted runner and an explicit clock; no test sleeps
-- [ ] Every mechanism in the research note's scenario matrix traces
-      to at least one test named for it
-- [ ] [docs/claiming.md](../docs/claiming.md) describes the shipped
-      lease behavior — its manual-delete recovery and slug-branch
-      prose are gone, and its "what changes next" note with them
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -44,6 +44,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
+		scavengeGlyph(rt, doc, plan, res)
 		return renderClaim(c, rt, doc)
 	}
 
@@ -113,6 +114,7 @@ func mintClaim(
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
+			scavengeLanded(rt, doc, plan, coord, err)
 			return nil
 		}
 		return err
@@ -120,6 +122,62 @@ func mintClaim(
 	doc.Minted(minted.BaseSHA)
 
 	return nil
+}
+
+// scavengeLanded cleans the ref behind a lost race whose winner has
+// already merged into the base — ancestry evidence, tied to the very
+// tip the refusal read, so no window is needed and a holder that
+// renewed since fails the CAS harmlessly.
+func scavengeLanded(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, err error,
+) {
+	var held *claim.HeldError
+	if !errors.As(err, &held) || !held.Landed || held.Tip == "" {
+		return
+	}
+	scavengeRef(rt, doc, plan, coord, held.Tip)
+}
+
+// scavengeGlyph cleans a lingering ref whose plan is already done on
+// the default branch — the squash-merge shape ancestry cannot see.
+// The hold filters already dropped such a ref, so Held is false here;
+// the ref itself still stands, carried by HoldTip. Glyph evidence is
+// not tied to the tip, so it additionally requires a matured window:
+// a live, renewing holder is never scavenged (A2).
+func scavengeGlyph(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, res fleet.Result,
+) {
+	if !plan.Done() || !plan.Stale || plan.HoldTip == "" {
+		return
+	}
+	coord, ok := res.Coords[plan.Repo]
+	if !ok {
+		return
+	}
+	scavengeRef(rt, doc, plan, coord, plan.HoldTip)
+}
+
+// scavengeRef runs the scavenge and records what it did beside the
+// refusal. A failure is a warning, never a command failure: the
+// refusal already stands, and the ref will be met again.
+func scavengeRef(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, tip string,
+) {
+	sc, err := claim.Scavenge(coord.Path, claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: coord.Remote,
+		Base:   coord.Base,
+		Holder: hostname(),
+		Lane:   defaultLanePath(coord.Path, plan.Path),
+	}, tip, rt.git)
+	if err != nil {
+		doc.Warn(fmt.Sprintf("scavenge: %v", err))
+		return
+	}
+	doc.ScavengedRef(claim.Branch(plan.ID), sc.Rescue)
 }
 
 // mintOrTakeOver runs the transition the plan's state calls for:
@@ -260,6 +318,15 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
+		if doc.Scavenged != "" {
+			_, _ = fmt.Fprintf(out, "  scavenged: %s\n", doc.Scavenged)
+		}
+		if doc.Rescue != "" {
+			_, _ = fmt.Fprintf(out, "  rescued:   %s\n", doc.Rescue)
+		}
+		if doc.Warning != "" {
+			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+		}
 		return
 	}
 

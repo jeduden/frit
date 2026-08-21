@@ -187,11 +187,125 @@ type Scavenged struct {
 
 // Scavenge removes a work ref on landed or matured evidence: park any
 // unlanded work to the rescue ref first, then delete by CAS on
-// exactly the observed tip.
+// exactly the observed tip. The evidence is tied to that tip — a
+// holder that renewed moved it, so the scavenge refuses before it
+// parks anything, and a renewing holder can never be scavenged (A2).
+// Retries are idempotent: a ref already gone is a clean no-op, and a
+// rescue an earlier half-done run parked is recognized, never
+// clobbered.
 func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
-	return Scavenged{}, fmt.Errorf("not implemented")
+	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	switch now := remoteHolder(repoDir, opts.Remote, ref, run); now {
+	case "":
+		// Already gone — an earlier run, or another machine's, finished
+		// the job. Clean the stale local copy and report a no-op.
+		_, _ = run(repoDir, "update-ref", "-d", ref)
+		return Scavenged{}, nil
+	case from:
+	default:
+		return Scavenged{}, fenceError(repoDir, opts, now, run)
+	}
+
+	res := Scavenged{}
+	unlanded, err := hasUnlanded(repoDir, opts, from, run)
+	if err != nil {
+		return res, err
+	}
+	if unlanded {
+		rescue := rescueRef(opts.PlanID, opts.Holder)
+		if err := park(repoDir, opts, rescue, from, run); err != nil {
+			return res, err
+		}
+		res.Rescue = rescue
+	}
+
+	if _, err := run(repoDir, "push",
+		"--force-with-lease="+ref+":"+from,
+		opts.Remote, ":"+ref); err != nil {
+		// The delete is classified like every push: by what holds the
+		// ref now, never by stderr. Gone is a win; anything else is not.
+		if remoteHolder(repoDir, opts.Remote, ref, run) != "" {
+			return res, fmt.Errorf(
+				"delete %s for plan %d: %w", ref, opts.PlanID, err)
+		}
+	}
+	_, _ = run(repoDir, "update-ref", "-d", ref)
+
+	return res, nil
+}
+
+// rescueRef names where scavenge and yield park a plan's unlanded
+// work: per plan and per machine, so two scavengers never contend for
+// one name and parked work says whose run parked it.
+func rescueRef(planID int64, holder string) string {
+	return fmt.Sprintf("refs/frit/rescue/%d/%s", planID, holder)
+}
+
+// park pushes the tip to the rescue ref, create-only. A rescue that
+// already exists at the same tip is an earlier half-done run's work,
+// already parked; one at a different tip is somebody's parked work,
+// and clobbering it would destroy exactly what the rescue exists to
+// keep — so park refuses, and the caller must not delete.
+func park(
+	repoDir string, opts LeaseOptions, rescue, tip string, run gitwt.Runner,
+) error {
+	if _, err := run(repoDir, "push",
+		"--force-with-lease="+rescue+":",
+		opts.Remote, tip+":"+rescue); err == nil {
+		return nil
+	}
+	if remoteHolder(repoDir, opts.Remote, rescue, run) == tip {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"rescue ref %s already holds other work; not deleting plan %d's ref",
+		rescue, opts.PlanID)
+}
+
+// hasUnlanded reports whether the chain from the base to the tip
+// holds anything besides frit's own markers — work a delete would
+// destroy. The base is refreshed the way the landed check refreshes
+// it, so the answer is against origin's view, not a stale local one.
+func hasUnlanded(
+	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
+) (bool, error) {
+	base := freshBase(repoDir, opts.Base, opts.Remote, run)
+	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	if err != nil {
+		return false, fmt.Errorf(
+			"read the chain for plan %d: %w", opts.PlanID, err)
+	}
+	for _, subject := range strings.Split(string(out), "\n") {
+		if subject == "" {
+			continue
+		}
+		if !markerSubject(subject, opts.PlanID) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// markerSubject reports whether a subject line is one of frit's own
+// lease markers for this plan — the droppings a delete may discard.
+// The legacy decorated subjects carry a slug behind the kind and are
+// deliberately not markers here: parking them is harmless, dropping
+// them is not provably so.
+func markerSubject(subject string, planID int64) bool {
+	rest, ok := strings.CutPrefix(subject, fmt.Sprintf("plan %d: ", planID))
+	if !ok {
+		return false
+	}
+	switch rest {
+	case markerClaim, markerBeat, markerRelease, markerTakeover:
+		return true
+	}
+
+	return false
 }
 
 // Released reports whether a ref tip is a release marker for a plan.

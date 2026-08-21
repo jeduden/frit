@@ -808,9 +808,12 @@ func observeHolds(res *fleet.Result, now time.Time) {
 	for i := range res.Plans {
 		p := &res.Plans[i]
 		key := observe.Key(p.Repo, p.ID)
-		if !p.Held || p.HoldTip == "" {
-			// A plan no longer held needs no window; dropping it keeps
-			// the state to what this host actually watches.
+		if p.HoldTip == "" {
+			// No work ref, no window; dropping the key keeps the state
+			// to what this host actually watches. A ref that exists is
+			// observed whether or not it counts as a hold — glyph
+			// evidence needs a matured window on a ref the hold
+			// filters already dropped.
 			delete(state, key)
 			continue
 		}
