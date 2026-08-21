@@ -1,31 +1,29 @@
 # How claiming works
 
-frit reads many git repositories and shows the plans in them. It changes
-only one thing: it claims a plan. A claim marks a plan as being worked.
-frit records it as a branch on the repository's shared remote, so other
-machines can see the plan is taken once they fetch it. This page explains
-how a claim is made, how two machines avoid taking the same plan, how it
-can fail, and how to find and drop a stale claim.
+frit reads many git repositories and shows the plans in them. It
+changes only one thing: it claims a plan. A claim marks a plan as
+being worked, recorded as a branch on the repository's shared remote,
+so other machines see it once they fetch. This page explains how a
+claim is made, how races resolve, how it can fail, and how to find
+and drop a stale claim.
 
 ## The fleet
 
-The fleet is every git repository under one directory, the root. You set
-the root with `--root` (or `FRIT_ROOT`, or a config file). frit walks the
-root and reads the plans in every repository under it. Most frit commands
-read the whole fleet. `frit init` writes to one repository you name, and
+The fleet is every git repository under one directory, the root, set
+with `--root` (or `FRIT_ROOT`, or a config file). Most commands read
+the whole fleet; `frit init` writes to one repository you name, and
 `frit version` reads nothing.
 
 ## A claim is a branch
 
-A git ref is a name that points at a commit. A branch is a ref. frit
-claims a plan by creating a branch named `plan/<id>-<slug>`. The id is
-the plan's id. The slug is the plan file's name without `.md`, with
-everything up to and including the first underscore removed. So the file
-`plan/7_shader-unit.md` claims on the branch `plan/7-shader-unit`.
+A git ref is a name pointing at a commit; a branch is a ref. frit
+claims a plan by creating a branch `plan/<id>-<slug>`: the id is the
+plan's id, the slug is the plan file's name without `.md` and without
+everything up to the first underscore. `plan/7_shader-unit.md` claims
+on `plan/7-shader-unit`.
 
 The branch points at an empty commit — the marker — that changes no
-files. The branch carries no work yet. Its job is to exist, so other
-machines see the plan is taken.
+files. Its job is to exist, so other machines see the plan is taken.
 
 frit finds claims by listing the branches and keeping the ones whose name
 matches a hold pattern. Each repository sets its own patterns in
@@ -60,8 +58,9 @@ by any command.
 
 frit tries to claim a plan only when all of these hold:
 
-- its status is 🔲 not-started — not 🔳 in progress, ✅ done, or ⛔
-  superseded
+- its status is 🔲 not-started, or 🔳 in progress with no branch
+  claiming it — that second case is a resume, and frit re-mints the
+  claim branch for it. ✅ done and ⛔ superseded are refused.
 - no branch already claims it
 - every plan it depends on is ✅ done, in the same repository
 - its repository's name is not shared by another checkout under the root
@@ -160,16 +159,11 @@ best-effort: if it fails, frit does not report it, and a stray local
 branch can remain. It is safe to delete by hand — the remote never had
 it.
 
-This arbitration only holds between machines pushing to the same remote.
-When the push fails, frit does not read git's error text. It reads what
-commit holds the ref on the remote, with `git ls-remote --heads <remote>
-<ref>`. If the ref holds frit's own marker, the push landed and the claim
-is kept — the client error came after the ref committed. If it holds a
-different commit, another machine won: frit reports the lost race and
-exits 0. If the ref is absent or unreadable, the push failed for another
-reason — no network, a missing remote, a declining hook — and frit
-reports a real error and exits non-zero. On a lost race or error, frit
-first deletes its local branch, so a retry starts clean.
+This arbitration only holds between machines pushing to the same
+remote. A failed push is classified by the step-5 read above — what
+commit holds the ref, never git's error text. A lost race exits 0; a
+real fault exits non-zero; both delete the local branch first, so a
+retry starts clean.
 
 ## When a claim is refused
 
@@ -181,13 +175,14 @@ the command prints the reason and exits 0.
 | already held              | one or more branches already claim the plan; checked first |
 | already done              | its status is ✅                                           |
 | superseded                | its status is ⛔, replaced by another plan                 |
-| already in progress       | its status is 🔳                                           |
 | blocked by a dependency   | a plan it depends on is not done, or its id does not exist |
 | lost the race             | another machine created the branch first                   |
 | repository name ambiguous | two checkouts under the root share this repo's name        |
 
 "already held" is checked before the status reasons, so a plan that is
-both held and done reports "already held".
+both held and done reports "already held". A 🔳 plan nobody holds is
+not refused: frit resumes it by re-minting the claim branch, and the
+push still arbitrates if a live hold exists after all.
 
 The last row is a safety stop. frit names each repository by its main
 worktree's directory name. If two repositories under the root have the
@@ -203,10 +198,12 @@ branch still exists on the remote. Normally this is harmless: once a
 plan's status is ✅, frit refuses it as "already done" before any push.
 
 But frit checks the plan's status, not the branch's merge state. If a
-branch was merged and the plan's status was never set to ✅, frit will try
-to claim it again. The push finds the old branch still on the remote and
-is rejected — and frit reports the ordinary "lost the race", though no
-machine is racing. Set a plan's status to ✅ when its branch merges.
+branch merged and the status was never set to ✅, frit tries to resume
+it. The push finds the old branch and is rejected; the refusal calls
+the branch landed and suggests setting the status. Right for a
+finished plan — not for one with open phases: there, delete the
+merged branch on the remote and the resume goes through. Set the
+status ✅ when the last phase merges.
 
 ## Failures that are not refusals
 
@@ -235,23 +232,17 @@ branches, drops any already merged into the default branch, and keeps the
 ones matching that repository's own hold patterns. It lists the worktrees
 the same way, and pairs branches with worktrees by plan id.
 
-frit does not run agents or track them. herdr does — a separate program
-that manages terminal panes, worktrees, and prompts, and runs as a server
-on the machine. To find live agents, frit runs `herdr agent list` and
-reads the panes it returns. A pane is one terminal pane. Each pane names
-its agent, if any (for example `claude`), the agent's status (`working`,
-`idle`, or `unknown`), and the pane's directory.
+frit does not run agents or track them. herdr does — a separate
+program managing panes, worktrees and prompts on the machine. frit
+runs `herdr agent list` and reads the panes: each names its agent, if
+any, the agent's status, and its directory. An idle agent still
+counts; a bare terminal does not. frit maps a pane to a plan through
+its directory — worktree root, then branch, then the repository's
+hold pattern.
 
-"Has an agent" means the pane's agent field is set. An idle agent still
-counts; a bare terminal with no agent does not. frit maps a pane to a
-plan through its directory: `git rev-parse --show-toplevel` for the
-worktree root, then the branch, then the repository's hold pattern for
-the plan id.
-
-This read is local. frit asks the herdr on the machine it runs on, so it
-sees only agents on that machine. A claim is visible on every machine
-that fetches the remote; a running agent is not. If `herdr agent list`
-fails, frit reports agent state as unknown, not as "no agents".
+This read is local: frit sees only agents on its own machine. A claim
+is visible everywhere the remote is fetched; a running agent is not.
+If `herdr agent list` fails, frit reports agent state as unknown.
 
 Two commands report a claim that no longer matches live work:
 
@@ -298,3 +289,12 @@ plan:     plan/7_shader-unit.md
 `base` is the commit frit resolved for the plan's base ref — the `base:`
 in `.frit.yml`, or the default branch. With no lane path to record, the
 title and the `lane` line show `-`.
+
+## What changes next
+
+This page describes the claim as it ships today. A planned redesign
+replaces its weakest parts: the slug leaves the branch name, every
+push renews the lease, a dead agent's plan is observed stale and taken
+over atomically, and the manual delete above stops being the recovery.
+The record is [the lease protocol note](research/lease-protocol.md);
+the work is plan 2608202144. This page is rewritten when that lands.
