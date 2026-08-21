@@ -2,6 +2,8 @@ package claim
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -323,4 +325,132 @@ func TestTakeoverRacesARenewalOneCASWins(t *testing.T) {
 	remote := gitCmd(t, second, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, renewed.Tip,
 		"the renewal stands; the loser moved nothing")
+}
+
+// workOn commits one file on the plan's work ref and pushes it, so
+// the lease carries real work beyond its markers.
+func workOn(t *testing.T, repo string) string {
+	t.Helper()
+	gitCmd(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte("wip\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "unlanded work")
+	gitCmd(t, repo, "push", "-q", "origin", "plan/7")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	return gitCmd(t, repo, "rev-parse", "refs/heads/plan/7")
+}
+
+// TestScavengeParksUnlandedWorkThenDeletes: a chain carrying commits
+// that never landed is parked to the rescue ref before the delete, so
+// scavenge never destroys work.
+func TestScavengeParksUnlandedWorkThenDeletes(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+
+	sc, err := Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "refs/frit/rescue/7/box-b", sc.Rescue,
+		"the rescue ref is named for the plan and the scavenger")
+	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
+	assert.Contains(t, rescue, tip, "the rescue ref carries the old tip")
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone, "the work ref is deleted from origin")
+	_, localErr := gitCapture(t, work,
+		"rev-parse", "--verify", "refs/heads/plan/7")
+	assert.Error(t, localErr, "the local copy is cleaned up too")
+}
+
+// TestScavengeMarkerOnlyDeletesWithoutParking: a ref carrying nothing
+// but frit's own markers has no work to lose — no rescue ref is
+// created, the delete alone suffices.
+func TestScavengeMarkerOnlyDeletesWithoutParking(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	sc, err := Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Empty(t, sc.Rescue, "markers are not work; nothing is parked")
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue, "no rescue ref was created")
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone)
+}
+
+// TestScavengeRefusesAMovedTip: the evidence is tied to the tip it
+// deletes. A holder that renewed moved the tip, so the scavenge fails
+// and deletes nothing — a renewing holder is never scavenged (A2).
+func TestScavengeRefusesAMovedTip(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+	second := cloneAgain(t, first) // observed lease.Tip, then went quiet
+
+	renewed, err := Renew(first, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Scavenge(
+		second, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+
+	require.Error(t, err)
+	remote := gitCmd(t, second, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, renewed.Tip, "nothing was deleted")
+	rescue := gitCmd(t, second, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue, "nothing was parked over")
+}
+
+// TestScavengeIsIdempotent: a second scavenge of a ref already gone is
+// a clean no-op, and a retry after a half-done run — rescue parked,
+// delete never landed — parks nothing again and finishes the delete.
+func TestScavengeIsIdempotent(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	opts := leaseOptions("box-b", "/lanes/b")
+
+	// A half-done earlier run already parked the tip.
+	gitCmd(t, work, "push", "-q", "origin", tip+":refs/frit/rescue/7/box-b")
+
+	sc, err := Scavenge(work, opts, tip, gitwt.Exec)
+	require.NoError(t, err, "an existing rescue at the same tip is already parked")
+	assert.Equal(t, "refs/frit/rescue/7/box-b", sc.Rescue)
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone, "the retry finished the delete")
+
+	sc, err = Scavenge(work, opts, tip, gitwt.Exec)
+	require.NoError(t, err, "a ref already gone is a clean no-op")
+	assert.Empty(t, sc.Rescue)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
+	assert.Contains(t, rescue, tip, "the rescue ref is never clobbered")
+}
+
+// TestScavengeRefusesAForeignRescue: a rescue ref that already exists
+// at a different tip is somebody's parked work — scavenge refuses to
+// clobber it and leaves the work ref alone rather than delete work it
+// could not park.
+func TestScavengeRefusesAForeignRescue(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	other := gitCmd(t, work, "rev-parse", "origin/main")
+	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b")
+
+	_, err = Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+
+	require.Error(t, err)
+	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, tip, "the work ref is not deleted")
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
+	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
 }

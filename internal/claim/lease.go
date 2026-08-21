@@ -178,6 +178,22 @@ func Takeover(
 	}, nil
 }
 
+// Scavenged describes what a scavenge did: the rescue ref unlanded
+// work was parked to, "" when the chain held nothing but markers and
+// landed commits — nothing a delete could destroy.
+type Scavenged struct {
+	Rescue string
+}
+
+// Scavenge removes a work ref on landed or matured evidence: park any
+// unlanded work to the rescue ref first, then delete by CAS on
+// exactly the observed tip.
+func Scavenge(
+	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
+) (Scavenged, error) {
+	return Scavenged{}, fmt.Errorf("not implemented")
+}
+
 // Released reports whether a ref tip is a release marker for a plan.
 // It reads only the subject, so a fleet walk can ask it per hold ref
 // without parsing bodies; an unreadable object reads as not released,

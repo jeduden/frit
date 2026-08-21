@@ -150,8 +150,13 @@ type ClaimDoc struct {
 	// Warning is a non-fatal failure that left the atomic lease standing —
 	// herdr could not stand the worktree up. The ref is minted first, so a
 	// failed checkout is a warning, not a lost claim. Empty when none.
-	Warning  string    `json:"warning"`
-	Problems []Problem `json:"problems"`
+	Warning string `json:"warning"`
+	// Scavenged is the work ref a refusal cleaned up on landed evidence,
+	// "" when nothing was scavenged; Rescue is where its unlanded work was
+	// parked, "" when the chain held nothing a delete could destroy.
+	Scavenged string    `json:"scavenged"`
+	Rescue    string    `json:"rescue"`
+	Problems  []Problem `json:"problems"`
 }
 
 // NewClaim opens a claim report for a resolved plan and the branch it
@@ -183,6 +188,13 @@ func (d *ClaimDoc) Warn(reason string) { d.Warning = reason }
 
 // Refuse records why no lease was minted, leaving Claimed false.
 func (d *ClaimDoc) Refuse(reason string) { d.Refused = reason }
+
+// ScavengedRef records the work ref a refusal cleaned up on landed
+// evidence, and where its unlanded work was parked, if anywhere.
+func (d *ClaimDoc) ScavengedRef(branch, rescue string) {
+	d.Scavenged = branch
+	d.Rescue = rescue
+}
 
 // AddProblem records a repository frit could not read.
 func (d *ClaimDoc) AddProblem(repo string, err error) {

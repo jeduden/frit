@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -379,4 +380,113 @@ func TestClaimStillRefusesALiveLease(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
+}
+
+// landedLeaseRepo is a claimable repo whose lease landed: work on the
+// ref merged into main and pushed, the ref left behind, the plan's
+// status still open — landed work with a stale status.
+func landedLeaseRepo(t *testing.T, root string) (string, string) {
+	t.Helper()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte("done\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "work on plan 7")
+	git(t, repo, "push", "-q", "origin", "plan/7")
+	git(t, repo, "checkout", "-q", "main")
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land plan 7", "plan/7")
+	git(t, repo, "push", "-q", "origin", "main")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+
+	return repo, tip
+}
+
+// TestClaimScavengesALandedRef: a claim lost to a ref whose work
+// already merged keeps today's refusal wording — and cleans the
+// leftover ref up, ancestry evidence tied to the very tip it deletes.
+func TestClaimScavengesALandedRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _ := landedLeaseRepo(t, root)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "already landed",
+		"the refusal keeps today's wording")
+	assert.Contains(t, out.String(), "set plan 7 to ✅")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the landed ref is scavenged from origin")
+	rescue, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/frit/rescue/*")
+	require.NoError(t, err)
+	assert.Empty(t, rescue, "everything landed; there is nothing to park")
+}
+
+// doneGlyphRepo builds a repo whose plan is ✅ on main while a
+// live-looking lease ref lingers — the squash-merge shape ancestry
+// evidence cannot see. Returns the repo and the lingering tip.
+func doneGlyphRepo(t *testing.T, root string) (string, string) {
+	t.Helper()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "✅", "Shader unit", nil, "")
+	origin := filepath.Join(t.TempDir(), "atlas-origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	return repo, lease.Tip
+}
+
+// TestClaimScavengesADoneGlyphOnlyWhenStale: glyph evidence — ✅ on
+// the default branch — is not tied to the tip, so the scavenge fires
+// only under a matured window. A fresh window leaves the ref alone,
+// so a live, renewing holder is never scavenged.
+func TestClaimScavengesADoneGlyphOnlyWhenStale(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	seedWindow(t, "atlas", 7, tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone,
+		"a done plan's lingering ref is scavenged under a matured window")
+}
+
+// TestClaimLeavesADoneGlyphWithAFreshWindow: the same shape without a
+// matured window is left alone — the holder may just be quiet.
+func TestClaimLeavesADoneGlyphWithAFreshWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	remote, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, remote, tip, "a fresh window leaves the ref alone")
 }
