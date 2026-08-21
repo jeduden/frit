@@ -102,6 +102,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
+	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`

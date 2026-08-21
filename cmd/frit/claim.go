@@ -106,17 +106,48 @@ func resumeOwnLease(
 	return true
 }
 
-// resumeToken resolves this lane's own already-held lease from its
-// persisted token, when every condition for a self-resume holds: the
-// calling directory is this exact plan's own lane, its token still
-// matches origin's current tip, and no live session vetoes the resume
-// (F9, F11, S3, S21). It is not identity-based — a cloned machine id
-// or a reused lane path carries no matching token, so it gets no
-// shortcut (A1) — and it consults no staleness window at all. ok is
-// false when any condition fails, leaving the ordinary mint path as
-// the arbiter. Shared by claim, which stops here, and start, which
-// resumes and then still stands the lane up.
+// resumeToken is ownToken further gated by the live-session veto: a
+// resume takes over from wherever a competing takeover would be
+// vetoed, so the same live-bound-session check applies before it
+// hands its own lease back to a fresh process (F9, F11, S3, S21). ok
+// is false when either ownToken fails or a live session is bound,
+// leaving the ordinary mint path as the arbiter. Shared by claim,
+// which stops here, and start, which resumes and then still stands
+// the lane up.
 func resumeToken(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
+) (lane, tip string, ok bool) {
+	lane, tip, ok = ownToken(rt, plan, coord, cwd)
+	if !ok {
+		return "", "", false
+	}
+
+	opts := claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  coord.Remote,
+		Base:    coord.Base,
+		Holder:  hostname(),
+		Lane:    lane,
+		Session: currentSession(rt),
+	}
+	if m, mOK := claim.ReadMarker(coord.Path, opts, tip, rt.git); mOK &&
+		herdr.SessionLive(rt.herdr, m.Session) {
+		return "", "", false
+	}
+
+	return lane, tip, true
+}
+
+// ownToken resolves this lane's own already-held lease from its
+// persisted token: the calling directory is this exact plan's own
+// lane, and its token still matches origin's current tip. It is not
+// identity-based — a cloned machine id or a reused lane path carries
+// no matching token, so it gets no shortcut (A1) — and it consults no
+// staleness window at all. ok is false when either condition fails.
+// The token proof every verb that acts on a lane's own lease reads:
+// resume, by resumeToken's added veto, and release, which reads it
+// directly since there is no competing takeover for it to defer to.
+func ownToken(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
 ) (lane, tip string, ok bool) {
 	if cwd == "" {
@@ -144,19 +175,6 @@ func resumeToken(
 	// states the rule against origin's current tip.
 	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
 	if tip == "" || tip != token {
-		return "", "", false
-	}
-
-	opts := claim.LeaseOptions{
-		PlanID:  plan.ID,
-		Remote:  coord.Remote,
-		Base:    coord.Base,
-		Holder:  hostname(),
-		Lane:    lane,
-		Session: currentSession(rt),
-	}
-	if m, mOK := claim.ReadMarker(coord.Path, opts, tip, rt.git); mOK &&
-		herdr.SessionLive(rt.herdr, m.Session) {
 		return "", "", false
 	}
 
@@ -268,11 +286,20 @@ func scavengeGlyph(
 	scavengeRef(rt, doc, plan, coord, plan.HoldTip)
 }
 
-// scavengeRef runs the scavenge and records what it did beside the
-// refusal. A failure is a warning, never a command failure: the
-// refusal already stands, and the ref will be met again.
+// scavengeReporter is what a scavenge records itself into: claim's
+// refusal, or release's own report of a landed hold. Both carry the
+// same two facts — a warning on a failed scavenge, or the ref and
+// rescue a clean one found.
+type scavengeReporter interface {
+	Warn(reason string)
+	ScavengedRef(branch, rescue string)
+}
+
+// scavengeRef runs the scavenge and records what it did. A failure is
+// a warning, never a command failure: the caller's own report already
+// stands, and the ref will be met again.
 func scavengeRef(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, coord fleet.Coord, tip string,
 ) {
 	sc, err := claim.Scavenge(coord.Path, claim.LeaseOptions{
