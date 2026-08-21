@@ -102,6 +102,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
+	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
@@ -155,9 +156,16 @@ func repoLanes(
 type orphansCmd struct{}
 
 // Run reports what is claimed but unstaffed, prepared but unstarted,
-// or already gone.
+// held past its takeover window, or already gone.
 func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+	// The held-stale cell of the verb-state table reads the same
+	// observation fold board and claim use, not lanes.Find's git-ref
+	// sweep, so it needs its own gather beside the lanes walk below.
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -171,6 +179,7 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
+		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
 	}
 
 	if c.JSON {
@@ -180,6 +189,19 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// staleHeld filters one repository's held plans whose takeover window
+// has matured — a takeover candidate nobody has acted on yet.
+func staleHeld(plans []discovery.Plan, repo string) []discovery.Plan {
+	out := make([]discovery.Plan, 0)
+	for _, p := range plans {
+		if p.Repo == repo && p.Held && p.Stale {
+			out = append(out, p)
+		}
+	}
+
+	return out
 }
 
 // printOrphans writes a block per repository with something wrong.
@@ -215,6 +237,15 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, wt := range repo.Prunable {
 			_, _ = fmt.Fprintf(tw, "  prunable\t%s\t%s\n",
 				wt.Name, wt.PruneReason)
+		}
+		for _, m := range repo.Migratable {
+			_, _ = fmt.Fprintf(tw, "  decorated hold, migrate\tplan %d\t%s → %s\n",
+				m.PlanID, m.From, m.To)
+		}
+		for _, s := range repo.StaleHolds {
+			age := (time.Duration(s.StaleSeconds) * time.Second).Round(time.Minute)
+			_, _ = fmt.Fprintf(tw, "  stale, takeover candidate\tplan %d\t%s (%s)\n",
+				s.PlanID, s.Branch, age)
 		}
 	}
 	_ = tw.Flush()
@@ -871,7 +902,7 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	if err != nil {
 		return res, err
 	}
-	observeHolds(&res, time.Now())
+	observeHolds(&res, rt, time.Now())
 
 	return res, nil
 }
@@ -882,7 +913,14 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 // the one side effect a read verb owns is this local state file, never
 // a ref — and is best-effort: an unwritable store only delays a
 // takeover, so it fails quiet rather than failing the verb.
-func observeHolds(res *fleet.Result, now time.Time) {
+//
+// The window and sample gap are the repository's own — read off the
+// coordinate the gather already resolved, so a repo declaring its own
+// clock in .frit.yml is watched on it rather than the discovery
+// defaults (F12) — and the threshold backs off by k·T, k the takeover
+// markers already in the chain, so oscillation between two live but
+// quiet agents damps out (F3).
+func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 	path, err := observe.Path()
 	if err != nil {
 		return
@@ -900,14 +938,33 @@ func observeHolds(res *fleet.Result, now time.Time) {
 			delete(state, key)
 			continue
 		}
-		w := discovery.Observe(
-			state[key], p.HoldTip, now, discovery.DefaultSampleGap)
+		window, sampleGap := staleClock(res, p.Repo)
+		w := discovery.Observe(state[key], p.HoldTip, now, sampleGap)
 		state[key] = w
-		p.Stale = discovery.StaleHold(
-			w, now, discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap)
+		threshold := window
+		if coord, ok := res.Coords[p.Repo]; ok {
+			k := claim.TakeoverCount(coord.Path, p.ID, coord.Base, p.HoldTip, rt.git)
+			threshold = time.Duration(k+1) * window
+		}
+		p.Stale = discovery.StaleHold(w, now, threshold, sampleGap)
 		p.StaleFor = w.Span()
 	}
 	_ = observe.Save(path, state)
+}
+
+// staleClock is the staleness window and sample gap to watch a
+// repository's holds on: its own coordinate when the gather resolved
+// one, the discovery defaults otherwise — an ambiguous repository
+// withholds a coordinate entirely, and repocfg.Default already fills
+// a repository declaring nothing with the same defaults, so this only
+// ever falls back for a repository the gather could not place.
+func staleClock(res *fleet.Result, repo string) (time.Duration, time.Duration) {
+	coord, ok := res.Coords[repo]
+	if !ok || coord.TakeoverWindow == 0 {
+		return discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap
+	}
+
+	return coord.TakeoverWindow, coord.SampleGap
 }
 
 // ambiguousRepo is the refusal a mutating verb reports when a plan's
@@ -1361,7 +1418,7 @@ func boardCell(name string, doc *report.BoardDoc, p report.BoardPlan) string {
 	case "status":
 		return p.Status
 	case "held":
-		return heldLabel(laneShorts(p.Holds, p.ID))
+		return heldCell(p)
 	case "agent":
 		return agentLabel(doc.Presence, p.Agent, p.AgentStatus)
 	default: // title
@@ -1495,6 +1552,20 @@ func laneShorts(holds []string, id int64) []string {
 	}
 
 	return out
+}
+
+// heldCell renders the board's held column: the lane names, with a
+// stale marker and its age appended once the takeover window has
+// matured — the held-stale cell of the verb-state table, told apart
+// from a live hold at a glance rather than by a second read.
+func heldCell(p report.BoardPlan) string {
+	label := heldLabel(laneShorts(p.Holds, p.ID))
+	if !p.Stale {
+		return label
+	}
+
+	age := time.Duration(p.StaleSeconds) * time.Second
+	return fmt.Sprintf("%s (stale %s)", label, age.Round(time.Minute))
 }
 
 // heldLabel names the lane holding a plan, or a dash when nobody does.

@@ -49,6 +49,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"open", goldenOpen()},
 		{"nudge", goldenNudge()},
 		{"claim", goldenClaim()},
+		{"release", goldenRelease()},
 		{"yield", goldenYield()},
 		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
@@ -315,6 +316,16 @@ func goldenYield() *YieldDoc {
 	return doc
 }
 
+// goldenRelease pins the release shape: this lane's own lease ended
+// with a release marker.
+func goldenRelease() *ReleaseDoc {
+	doc := NewRelease("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "plan/2608161810")
+	doc.MarkReleased()
+
+	return doc
+}
+
 // goldenStart pins the escalation shape: the claim, worktree, agent tier
 // and typed prompt start composed, with a note folded into the prompt and
 // nothing spawned because --go was not given.
@@ -332,6 +343,9 @@ func goldenStart() *StartDoc {
 func goldenOrphans() *OrphansDoc {
 	doc := NewOrphans("/fleet")
 	doc.AddRepo("atlas", found())
+	doc.AddStale("atlas", []discovery.Plan{
+		{ID: 7, Holds: []string{"plan/7"}, StaleFor: 3 * time.Hour},
+	})
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
 

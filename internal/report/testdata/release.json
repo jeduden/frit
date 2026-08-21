@@ -1,20 +1,18 @@
 {
   "schema": 1,
-  "command": "claim",
+  "command": "release",
   "root": "/fleet",
   "plan": {
     "repo": "atlas",
     "id": 2608161810,
     "title": "The dispatch ladder"
   },
-  "branch": "plan/2608161810-dispatch-ladder",
-  "base": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
-  "claimed": true,
+  "branch": "plan/2608161810",
+  "released": true,
   "refused": "",
-  "resumed": false,
-  "worktree": "",
-  "warning": "",
+  "no_op": "",
   "scavenged": "",
   "rescue": "",
+  "warning": "",
   "problems": []
 }

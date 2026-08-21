@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -15,8 +18,9 @@ import (
 )
 
 // startHerdr fakes a herdr that answers worktree.create with a pane and
-// records every other call, so a test can assert the escalation ran the
-// right handshake — and, just as important, never read an agent back.
+// agent.list with that same pane bound to a session, and records every
+// other call, so a test can assert the escalation ran the right
+// handshake — and, just as important, never read an agent back.
 func startHerdr() (herdr.Runner, *herdrCalls) {
 	rec := &herdrCalls{}
 
@@ -26,6 +30,11 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wZ:p1",` +
+				`"agent_session":{"value":"sess-1"}}]}}`), nil
 		}
 
 		return nil, nil
@@ -153,6 +162,31 @@ func TestStartGoRunsTheEscalation(t *testing.T) {
 	require.NoError(t, err, "frit minted the claim itself")
 }
 
+// TestStartBindsTheSessionOntoTheLease: once the agent is up, start
+// reads its herdr session back and binds it onto the lease with a
+// beat, so a later takeover can ask herdr whether this lease's holder
+// is still alive (F3, S61).
+func TestStartBindsTheSessionOntoTheLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "binding never bumps the epoch")
+	assert.Contains(t, body, "session: sess-1")
+}
+
 // TestStartEditAmendsThePrompt: --edit hands the composed prompt to the
 // editor and sends what comes back, the git-commit-message pattern.
 func TestStartEditAmendsThePrompt(t *testing.T) {
@@ -238,6 +272,183 @@ func TestStartUnwindReleasesTheLeaseAndNamesTheLane(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "plan 7: release", subject,
 		"the unwind pushes the release marker")
+}
+
+// TestStartTakesOverAStaleLease: start's escalation meets a stale-held
+// plan the same way claim does — it seizes the lease by takeover
+// rather than losing the race claim.Acquire alone would report, and
+// still stands the lane up.
+func TestStartTakesOverAStaleLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7",
+		"a matured stale hold is taken over, not refused")
+	assert.True(t, rec.verb("worktree", "create"),
+		"the lane is still stood up on the seized lease")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat",
+		"the session bind rides atop the takeover marker")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	takeoverBody, err := gitCapture(t, repo, "log", "-1", "--format=%B", parent)
+	require.NoError(t, err)
+	assert.Contains(t, takeoverBody, "plan 7: takeover")
+	assert.Contains(t, takeoverBody, "epoch:   2", "the takeover reads E+1")
+}
+
+// TestStartRefusesATakeoverVetoedByALiveSession: a matured window would
+// normally open the takeover door for start too, but herdr positively
+// confirms the holder's bound session is still live, so start refuses
+// and beats the holder's own lease instead of seizing it (F3, S61).
+func TestStartRefusesATakeoverVetoedByALiveSession(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"cwd":          repo,
+		"pane_id":      "wS:p9",
+		"agent_session": map[string]any{
+			"value": "wS:p9",
+		},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "live agent session")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat",
+		"the holder's own lease was renewed, not seized")
+	assert.Contains(t, body, "holder:  elsewhere")
+}
+
+// TestStartResumesItsOwnLeaseFromThePersistedToken: run from the
+// lane's own worktree, a restarted fleet of one resumes its lease by
+// its persisted token and still stands a fresh agent up on it, with no
+// staleness window consulted (F9, F11, S3).
+func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "resumed plan 7")
+	assert.True(t, rec.verb("agent", "start", "plan-7"),
+		"a resumed lease still stands a fresh agent up")
+
+	// The chain now carries two beats: the resume itself, CASed from the
+	// lane's own persisted token, and the session bind riding atop it
+	// once the fresh agent is up.
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	resumeBody, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, resumeBody, "plan 7: beat")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, parent,
+		"the resume is CASed from the lane's own persisted token")
+}
+
+// TestStartScavengesALandedRef: the landed cell of the verb-state
+// table for start — a claim lost to a ref whose work already merged
+// keeps the refusal claim gives, and cleans the leftover ref up the
+// same way, rather than merely refusing and leaving it behind.
+func TestStartScavengesALandedRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _ := landedLeaseRepo(t, root)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "already landed")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the landed ref is scavenged from origin")
+}
+
+// TestStartScavengesADoneGlyphOnlyWhenStale: start's refusal of a done
+// plan whose lingering ref has matured cleans it up too, the same
+// glyph evidence claim scavenges.
+func TestStartScavengesADoneGlyphOnlyWhenStale(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	seedWindow(t, "atlas", 7, tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone,
+		"a done plan's lingering ref is scavenged under a matured window")
 }
 
 // TestEditInEditorRunsAMultiWordEditor: a $EDITOR carrying a flag still

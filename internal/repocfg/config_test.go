@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,6 +122,64 @@ func TestLoadHonoursADeclaredEmptyHoldList(t *testing.T) {
 	require.NoError(t, err)
 	_, ok := holds.Match("plan/2608142306-anything")
 	assert.False(t, ok)
+}
+
+// TestDefaultTakeoverWindowAndSampleGap pins the staleness knobs' own
+// defaults to the ones discovery already documents (F12): a
+// repository that declares nothing still watches on the same clock.
+func TestDefaultTakeoverWindowAndSampleGap(t *testing.T) {
+	got := Default()
+
+	assert.Equal(t, discovery.DefaultTakeoverWindow, got.TakeoverWindow)
+	assert.Equal(t, discovery.DefaultSampleGap, got.SampleGap)
+}
+
+// TestLoadParsesTakeoverWindowAndSampleGap: a repo declaring its own
+// clock overrides the defaults (F12) — the knobs travel with the
+// repository rather than living on one observer's machine.
+func TestLoadParsesTakeoverWindowAndSampleGap(t *testing.T) {
+	dir := write(t, "takeover-window: 20m\nsample-gap: 5m\n")
+
+	got, err := Load(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, 20*time.Minute, got.TakeoverWindow)
+	assert.Equal(t, 5*time.Minute, got.SampleGap)
+}
+
+// TestLoadKeepsStalenessDefaultsForOmittedKeys: overriding an
+// unrelated key must not silently reset the staleness clock.
+func TestLoadKeepsStalenessDefaultsForOmittedKeys(t *testing.T) {
+	dir := write(t, "plan-dir: docs/plans\n")
+
+	got, err := Load(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, discovery.DefaultTakeoverWindow, got.TakeoverWindow)
+	assert.Equal(t, discovery.DefaultSampleGap, got.SampleGap)
+}
+
+// TestLoadRejectsAnUnparsableTakeoverWindow: a wrong value is a loud
+// parse error, never a silent fallback to the default — someone tried
+// to configure the clock and got it wrong.
+func TestLoadRejectsAnUnparsableTakeoverWindow(t *testing.T) {
+	dir := write(t, "takeover-window: soon\n")
+
+	_, err := Load(dir)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "takeover-window")
+}
+
+// TestLoadRejectsAnUnparsableSampleGap mirrors the window case for the
+// other clock knob.
+func TestLoadRejectsAnUnparsableSampleGap(t *testing.T) {
+	dir := write(t, "sample-gap: eventually\n")
+
+	_, err := Load(dir)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sample-gap")
 }
 
 func TestLoadFailsOnMalformedYAML(t *testing.T) {

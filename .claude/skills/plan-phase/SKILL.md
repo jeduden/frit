@@ -22,7 +22,11 @@ stale.
 
 1. **Load the phase.** `frit next <id>` reports the first phase not
    done — its own body, tier and gate; `frit show <id>` gives the
-   Goal and any blocker. Nothing else opens the plan file.
+   Goal and any blocker. Nothing else opens the plan file — except
+   inside the plan's own held lane, before its work has merged: `next`
+   and `show` read the default branch's copy, so a phase this lane
+   already closed but hasn't merged still reports as open. Trust the
+   held lane's own frontmatter over `next` there.
 2. **Honor the two answers.** "already done" means stop and report,
    not redo. Honor the tier `next` names.
 3. **Red then green.** Commit the failing test first, then the code
@@ -40,6 +44,8 @@ stale.
    a named seam is gone, a test ripples past the files it names — stop
    and report with evidence. Do not improvise a design or weaken a
    check to reach green.
+6. **Fenced.** A commit refused as "fenced" means this lane's lease
+   moved under it — run `frit yield`, don't fight the CAS.
 
 ## Notes
 

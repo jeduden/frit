@@ -89,41 +89,43 @@ func buildStart(
 			"plan %d has no open phase; pass --phase", plan.ID)
 	}
 
-	// Refuse before reading the repository off disk: a plan already held
-	// or blocked needs no base, worktree path or git subprocess.
-	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
-		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
-			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			doGo)
-		carryProblems(doc, res.Problems, c.All)
-		doc.Refuse(reason)
-
-		return doc, false, nil
-	}
-
 	// The gather withholds a coordinate when two checkouts share the
 	// plan's repository name; without one there is no repository to stand
-	// the lane in, so refuse for the same reason claim does.
-	coord, ok := res.Coords[plan.Repo]
-	if !ok {
-		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
-			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			doGo)
-		carryProblems(doc, res.Problems, c.All)
-		doc.Refuse(ambiguousRepo(plan.Repo))
+	// the lane in, so a resume cannot be checked either.
+	coord, coordOK := res.Coords[plan.Repo]
+	resumeTip := startResumeTip(rt, plan, coord, coordOK)
 
-		return doc, false, nil
+	// Refuse before reading the repository off disk: a plan already held
+	// or blocked needs no base, worktree path or git subprocess. A
+	// resumable own lease skips this refusal — it is startable by
+	// definition, whether or not its window has matured.
+	if resumeTip == "" {
+		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
+			doc := refusedStart(c, res, plan, phase, doGo, reason)
+			scavengeGlyph(rt, doc, plan, res)
+
+			return doc, false, nil
+		}
+	}
+
+	if !coordOK {
+		return refusedStart(
+			c, res, plan, phase, doGo, ambiguousRepo(plan.Repo)), false, nil
 	}
 
 	sc := startContextOf(coord)
 	sp := composeStart(plan, phase, note, sc)
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
+	if resumeTip != "" {
+		doc.MarkResumed()
+	}
 
 	if doGo {
-		if err := startExecute(rt, doc, plan, sp, sc, edit); err != nil {
+		if err := startExecute(rt, doc, plan, sp, sc, edit, resumeTip); err != nil {
 			if errors.Is(err, claim.ErrLostRace) {
 				doc.Refuse(lostRaceRefusal(err))
+				scavengeLanded(rt, doc, plan, coord, err)
 
 				return doc, true, nil
 			}
@@ -133,6 +135,42 @@ func buildStart(
 	}
 
 	return doc, false, nil
+}
+
+// startResumeTip resolves the lane's own lease from its persisted
+// token, when start is run from that exact lane — ahead of the
+// "already held" refusal, exactly as claim orders it (F9, F11, S3,
+// S21). "" when the plan carries no matching coordinate, or none of
+// the resume conditions hold; start's ordinary claim path is then the
+// arbiter.
+func startResumeTip(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+) string {
+	if !coordOK {
+		return ""
+	}
+	cwd, _ := os.Getwd()
+	_, tip, ok := resumeToken(rt, plan, coord, cwd)
+	if !ok {
+		return ""
+	}
+
+	return tip
+}
+
+// refusedStart composes the escalation doc for a plan buildStart is
+// refusing before it reaches the repository — an unstartable plan, or
+// one whose repository name is ambiguous across checkouts.
+func refusedStart(
+	c *cli, res fleet.Result, plan discovery.Plan,
+	phase string, doGo bool, reason string,
+) *report.StartDoc {
+	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
+		report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"}, doGo)
+	carryProblems(doc, res.Problems, c.All)
+	doc.Refuse(reason)
+
+	return doc
 }
 
 // startContext is the repository state the escalation reads once: where
@@ -182,7 +220,7 @@ func composeStart(
 // lost to another machine is carried as a refusal, not a fault.
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
-	sp report.StartPlan, sc startContext, edit bool,
+	sp report.StartPlan, sc startContext, edit bool, resumeTip string,
 ) error {
 	// Amend the prompt before minting anything: an editor that fails to
 	// launch, or a prompt left empty, must abort with no claim pushed and
@@ -200,21 +238,15 @@ func startExecute(
 		doc.Prompt = text
 	}
 
-	lease, err := claim.Acquire(sc.repoPath, claim.LeaseOptions{
-		PlanID: plan.ID,
-		Remote: sc.remote,
-		Base:   sp.Base,
-		Holder: hostname(),
-		Lane:   sp.Lane,
-	}, rt.git)
+	lease, err := startAcquire(rt, plan, sc, sp, resumeTip)
 	if err != nil {
-		// A lost race is returned, not swallowed: buildStart records it as a
-		// refusal for start, and pick --go retries past it to the next
-		// candidate. Every other error is a real fault.
+		// A lost race, or a veto, is returned, not swallowed: buildStart
+		// records it as a refusal for start, and pick --go retries past it
+		// to the next candidate. Every other error is a real fault.
 		return err
 	}
 
-	pane, err := standUpLane(rt, plan, sp, sc.repoPath, text)
+	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
 		// The lease is minted but nothing answers behind it. Release it —
 		// a pushed marker, never a delete, so the next acquire reads epoch
@@ -229,9 +261,67 @@ func startExecute(
 
 		return err
 	}
+	bindSession(rt, doc, plan, sp, sc, lease.Tip, session)
 	doc.MarkStarted(pane)
 
 	return nil
+}
+
+// startAcquire runs the transition start's escalation calls for: the
+// self-resume on a matching persisted token when one was found, or
+// otherwise the same mint-or-takeover claim already runs — a live
+// bound session vetoes a stale hold, a matured one is seized, and a
+// fresh plan is acquired outright. start meets the same lease protocol
+// claim does; it just goes on to stand the lane up afterward.
+func startAcquire(
+	rt *runtime, plan discovery.Plan, sc startContext,
+	sp report.StartPlan, resumeTip string,
+) (claim.Lease, error) {
+	opts := claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: sc.remote,
+		Base:   sp.Base,
+		Holder: hostname(),
+		Lane:   sp.Lane,
+	}
+	if resumeTip != "" {
+		opts.Session = currentSession(rt)
+
+		return claim.Resume(sc.repoPath, opts, resumeTip, rt.git)
+	}
+
+	coord := fleet.Coord{Path: sc.repoPath, Remote: sc.remote, Base: sc.base}
+
+	return mintOrTakeOver(rt, plan, coord, opts)
+}
+
+// bindSession records the started agent's herdr session on the lease:
+// a beat CASed from the tip the acquire just minted, carrying the
+// session trailer, so a later takeover can ask herdr whether this
+// lease's holder is still alive (F3, S61).
+//
+// A failed bind is a warning, never an abort: the lane is up and
+// working, the lease is valid on the remote, and an unbound lease only
+// forgoes the veto and falls back to the staleness window. Tearing a
+// healthy lane down over a decoration would be the worse failure.
+func bindSession(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
+	sp report.StartPlan, sc startContext, tip, session string,
+) {
+	if session == "" {
+		return
+	}
+	if _, err := claim.Renew(sc.repoPath, claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  sc.remote,
+		Base:    sp.Base,
+		Holder:  hostname(),
+		Lane:    sp.Lane,
+		Session: session,
+	}, tip, rt.git); err != nil {
+		doc.AddProblem(plan.Repo, fmt.Errorf(
+			"bind session %s to %s: %w", session, sp.Branch, err))
+	}
 }
 
 // handoffError names what a failed handoff left behind: the worktree
@@ -275,14 +365,15 @@ func releaseLease(
 }
 
 // standUpLane hands the checkout, the agent, the prompt and the focus to
-// herdr in turn and returns the pane it opened — on failure too, once
-// one exists, so the unwind can name what stood up. Every call here is
-// herdr's — frit spawns nothing it does not hand straight over — and
-// `agent read` is deliberately never among them.
+// herdr in turn and returns the pane it opened, and the herdr session
+// the started agent was given — on failure too, once a pane exists, so
+// the unwind can name what stood up. Every call here is herdr's — frit
+// spawns nothing it does not hand straight over — and `agent read` is
+// deliberately never among them.
 func standUpLane(
 	rt *runtime, plan discovery.Plan, sp report.StartPlan,
 	repoPath, text string,
-) (string, error) {
+) (string, string, error) {
 	pane, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
 		CWD:    repoPath,
 		Branch: sp.Branch,
@@ -291,7 +382,7 @@ func standUpLane(
 		Label:  fmt.Sprintf("plan %d", plan.ID),
 	})
 	if err != nil {
-		return "", fmt.Errorf("worktree create: %w", err)
+		return "", "", fmt.Errorf("worktree create: %w", err)
 	}
 
 	if err := herdr.AgentStart(rt.herdr, herdr.AgentSpec{
@@ -301,17 +392,23 @@ func standUpLane(
 		Model:     sp.Tier,
 		TimeoutMS: startTimeoutMS,
 	}); err != nil {
-		return pane, fmt.Errorf("agent start: %w", err)
+		return pane, "", fmt.Errorf("agent start: %w", err)
 	}
+	// The first moment a session exists: herdr assigns one when the
+	// agent starts, and neither this call nor worktree.create answers
+	// with it, so it is read back off the same agent list every other
+	// read uses. Best-effort — a lookup that fails costs the lease
+	// only its herdr veto, not the lane.
+	session := herdr.PaneSession(rt.herdr, pane)
 
 	if err := herdr.Prompt(rt.herdr, pane, text); err != nil {
-		return pane, fmt.Errorf("prompt: %w", err)
+		return pane, session, fmt.Errorf("prompt: %w", err)
 	}
 	if err := herdr.Focus(rt.herdr, pane); err != nil {
-		return pane, fmt.Errorf("focus: %w", err)
+		return pane, session, fmt.Errorf("focus: %w", err)
 	}
 
-	return pane, nil
+	return pane, session, nil
 }
 
 // openEditor is the seam for --edit: it hands the composed prompt to
@@ -402,7 +499,10 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	}
 
 	head := "start plan %d — %s  (dry run)\n"
-	if doc.Started {
+	switch {
+	case doc.Started && doc.Resumed:
+		head = "resumed plan %d — %s\n"
+	case doc.Started:
 		head = "started plan %d — %s\n"
 	}
 	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Plan.Title)

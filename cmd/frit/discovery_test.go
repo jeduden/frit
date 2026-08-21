@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -303,6 +307,50 @@ func TestBoardEmitsJSON(t *testing.T) {
 	assert.True(t, doc.Plans[0].Held)
 	assert.Equal(t, []string{"plan/100-underway"}, doc.Plans[0].Holds)
 	assert.NotEmpty(t, doc.Plans[0].Host)
+}
+
+// TestBoardReportsAMaturedHoldsAge: the board document carries the
+// same stale flag and age ready and pick already answer with, so a
+// consumer of the board's JSON sees a takeover candidate without a
+// second read.
+func TestBoardReportsAMaturedHoldsAge(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Underway")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, herdrReturning())
+	var doc report.BoardDoc
+
+	emit(t, &doc, "board", "--root", root)
+
+	require.Len(t, doc.Plans, 1)
+	assert.True(t, doc.Plans[0].Stale)
+	assert.Greater(t, doc.Plans[0].StaleSeconds, int64(0))
+}
+
+// TestOrphansReportsAMaturedHold: the held-stale cell of the
+// verb-state table — orphans names a takeover candidate beside its
+// other kinds, without a second `board` read to spot it.
+func TestOrphansReportsAMaturedHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Underway")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "stale")
+	assert.Contains(t, out.String(), "plan 7")
 }
 
 // TestBoardSortByID orders the board oldest-first, and --reverse flips
@@ -907,4 +955,94 @@ func TestPickListsAStaleLeaseAsTakeover(t *testing.T) {
 	assert.True(t, card.Stale, "and marked stale, which is why it ranks")
 	assert.GreaterOrEqual(t, card.StaleSeconds, int64(2*60*60),
 		"the observed age rides the card")
+}
+
+// TestPickHonorsAConfiguredTakeoverWindow: a repository declaring its
+// own clock sees staleness mature against it rather than the 2h
+// default (F12) — the knobs travel with the repository, not one
+// observer's machine.
+func TestPickHonorsAConfiguredTakeoverWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("takeover-window: 10m\nsample-gap: 3m\n"), 0o600))
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	leaseRef(t, repo, 7, "claim")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, tip, 15*time.Minute)
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "--root", root)
+
+	require.Len(t, doc.Plans, 1,
+		"15m matures under the repo's own 10m window")
+	assert.True(t, doc.Plans[0].Stale)
+}
+
+// TestPickBacksOffByTheTakeoverMarkersAlreadyInTheChain: a ref
+// carrying one prior takeover marker matures at 2T instead of T, so
+// oscillation between two quiet agents damps out (F3). The same
+// window that matures a fresh hold at the default T does not yet
+// mature one with a takeover already in its chain.
+func TestPickBacksOffByTheTakeoverMarkersAlreadyInTheChain(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Backed-off lane", nil, "")
+	commitPlan(t, repo, 8, "🔲", "Twice-matured lane", nil, "")
+	leaseRef(t, repo, 7, "claim")
+	claim7, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	tip7 := stackMarker(t, repo, 7, "takeover", claim7)
+
+	leaseRef(t, repo, 8, "claim")
+	claim8, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/8")
+	require.NoError(t, err)
+	tip8 := stackMarker(t, repo, 8, "takeover", claim8)
+
+	// seedWindow overwrites the whole state file, so both windows are
+	// seeded together rather than one clobbering the other.
+	path, err := observe.Path()
+	require.NoError(t, err)
+	now := time.Now()
+	require.NoError(t, observe.Save(path, observe.State{
+		observe.Key("atlas", 7): discovery.Window{
+			Tip: tip7, First: now.Add(-3 * time.Hour),
+			Last: now.Add(-time.Minute), Samples: 9,
+		},
+		observe.Key("atlas", 8): discovery.Window{
+			Tip: tip8, First: now.Add(-5 * time.Hour),
+			Last: now.Add(-time.Minute), Samples: 9,
+		},
+	}))
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "--root", root)
+
+	require.Len(t, doc.Plans, 1,
+		"3h has not matured a ref with one takeover marker already "+
+			"in its chain — that needs 2T")
+	assert.Equal(t, int64(8), doc.Plans[0].ID,
+		"5h has matured past the backed-off 2T threshold")
+}
+
+// stackMarker mints a lease marker as a child of parent, reusing its
+// tree the way every marker does, and moves the plan's work ref onto
+// it — building a chain with more than one marker in it, the way a
+// backoff test needs.
+func stackMarker(t *testing.T, repo string, id int, kind, parent string) string {
+	t.Helper()
+	tree, err := gitCapture(t, repo, "rev-parse", parent+"^{tree}")
+	require.NoError(t, err)
+	msg := fmt.Sprintf("plan %d: %s\n\nepoch:   2\nnonce:   cafe2\n"+
+		"holder:  box-a\nlane:    -\nsession: -", id, kind)
+	sha, err := gitCapture(t, repo, "commit-tree", tree, "-p", parent, "-m", msg)
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "update-ref",
+		fmt.Sprintf("refs/heads/plan/%d", id), sha)
+	require.NoError(t, err)
+
+	return sha
 }

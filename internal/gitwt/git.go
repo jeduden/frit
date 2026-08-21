@@ -87,6 +87,22 @@ func List(dir string, run Runner) ([]Worktree, error) {
 	return ParseWorktreeList(out), nil
 }
 
+// GitDir returns the worktree's own git directory.
+//
+// This is not CommonDir: every linked worktree of a repository shares
+// the common dir, while --git-dir names the directory belonging to
+// this worktree alone (<main>/.git/worktrees/<name>). Per-lane state —
+// the lease token — belongs there, so two lanes of one repository
+// never overwrite each other's.
+func GitDir(dir string, run Runner) (string, error) {
+	out, err := run(dir, "rev-parse", "--path-format=absolute", "--git-dir")
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
 // CommonDir returns the repository's shared git directory.
 //
 // This is the identity frit groups by: every linked worktree of one

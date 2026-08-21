@@ -382,6 +382,187 @@ func TestClaimStillRefusesALiveLease(t *testing.T) {
 	assert.Contains(t, out.String(), "refused")
 }
 
+// TestClaimRefusesATakeoverVetoedByALiveSession: a matured window
+// would normally open the takeover door, but herdr positively
+// confirms the holder's bound session is still live, so the takeover
+// is refused and a beat is pushed on the holder's own behalf instead
+// (F3, S61).
+func TestClaimRefusesATakeoverVetoedByALiveSession(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"cwd":          repo,
+		"pane_id":      "wS:p9",
+		"agent_session": map[string]any{
+			"value": "wS:p9",
+		},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "live agent session")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat",
+		"the holder's own lease was renewed, not seized")
+	assert.Contains(t, body, "epoch:   1")
+	assert.Contains(t, body, "holder:  elsewhere",
+		"the beat renews the holder's lease, not this run's own")
+	assert.Contains(t, body, "session: wS:p9")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, parent)
+}
+
+// TestClaimTakesOverWhenHerdrCannotAnswer: no answer is no veto (F3) —
+// an unreachable herdr must not protect a matured stale hold forever.
+func TestClaimTakesOverWhenHerdrCannotAnswer(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover")
+	assert.Contains(t, body, "epoch:   2")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, parent)
+}
+
+// TestClaimTakesOverWhenTheBoundSessionIsGone: herdr answers, but the
+// holder's bound session is not among the live panes — the session is
+// unknown to herdr, which is no veto either.
+func TestClaimTakesOverWhenTheBoundSessionIsGone(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"pane_id":      "wOther:p1",
+		"agent_session": map[string]any{
+			"value": "wOther:session",
+		},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover")
+	assert.Contains(t, body, "epoch:   2")
+}
+
+// TestClaimResumesItsOwnLeaseFromThePersistedToken: a lane whose
+// persisted token matches origin's current tip, with no live session
+// bound to it, resumes on the spot — no matured window is seeded, so
+// the ordinary "already held" refusal would otherwise fire (F9, F11,
+// S3, S21).
+func TestClaimResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "resumed plan 7")
+	assert.NotContains(t, got, "refused")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, parent)
+}
+
+// TestResumeIgnoresATokenFromAnotherLane: `claim` run from anywhere
+// other than the plan's own worktree must not go looking for a local
+// token — the ordinary "already held" refusal stands, and no beat is
+// pushed.
+func TestResumeIgnoresATokenFromAnotherLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	// Deliberately not chdir'd into lane: an unrelated directory.
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "already held")
+}
+
 // landedLeaseRepo is a claimable repo whose lease landed: work on the
 // ref merged into main and pushed, the ref left behind, the plan's
 // status still open — landed work with a stale status.

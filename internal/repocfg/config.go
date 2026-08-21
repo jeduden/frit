@@ -14,7 +14,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,6 +52,26 @@ type Config struct {
 	// means "derive it from git": see Default for why repocfg holds no
 	// literal default here.
 	Base string `yaml:"base"`
+	// TakeoverWindow is T: how long a work ref's tip must sit unchanged
+	// before its lease reads as stale (F12).
+	TakeoverWindow time.Duration `yaml:"-"`
+	// SampleGap is S_max: the longest gap a staleness window tolerates
+	// between two samples before it voids and restarts (F12).
+	SampleGap time.Duration `yaml:"-"`
+}
+
+// fileConfig is what a .frit.yml unmarshals into. TakeoverWindow and
+// SampleGap are read as duration strings here — yaml.v3 has no native
+// time.Duration support — and parsed into Config's typed fields by
+// Load, which is also where a value that fails to parse becomes a
+// loud error rather than a silent default.
+type fileConfig struct {
+	PlanDir        string   `yaml:"plan-dir"`
+	Holds          []string `yaml:"holds"`
+	Remote         string   `yaml:"remote"`
+	Base           string   `yaml:"base"`
+	TakeoverWindow string   `yaml:"takeover-window"`
+	SampleGap      string   `yaml:"sample-gap"`
 }
 
 // Default is the configuration a repository gets when it ships no
@@ -65,6 +87,8 @@ func Default() Config {
 		// origin/HEAD → main → master → HEAD cascade, computed where
 		// the lease is dated. Baking a guess in here would drag a git
 		// dependency into repocfg, which reads config and nothing else.
+		TakeoverWindow: discovery.DefaultTakeoverWindow,
+		SampleGap:      discovery.DefaultSampleGap,
 	}
 }
 
@@ -89,7 +113,7 @@ func Load(repoDir string) (Config, error) {
 		return Config{}, err
 	}
 
-	var file Config
+	var file fileConfig
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", FileName, err)
 	}
@@ -107,6 +131,22 @@ func Load(repoDir string) (Config, error) {
 	}
 	if file.Base != "" {
 		cfg.Base = file.Base
+	}
+	if file.TakeoverWindow != "" {
+		d, err := time.ParseDuration(file.TakeoverWindow)
+		if err != nil {
+			return Config{}, fmt.Errorf(
+				"%s: takeover-window: %w", FileName, err)
+		}
+		cfg.TakeoverWindow = d
+	}
+	if file.SampleGap != "" {
+		d, err := time.ParseDuration(file.SampleGap)
+		if err != nil {
+			return Config{}, fmt.Errorf(
+				"%s: sample-gap: %w", FileName, err)
+		}
+		cfg.SampleGap = d
 	}
 
 	return cfg, nil

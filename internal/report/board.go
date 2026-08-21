@@ -2,6 +2,7 @@ package report
 
 import (
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
 )
@@ -23,17 +24,22 @@ type BoardDoc struct {
 // BoardPlan is one outstanding plan: its status, who holds it, the
 // machine it lives on, and the agent working it now if there is one.
 type BoardPlan struct {
-	Key         string   `json:"key"`
-	Host        string   `json:"host"`
-	Repo        string   `json:"repo"`
-	ID          int64    `json:"id"`
-	Status      string   `json:"status"`
-	Title       string   `json:"title"`
-	Model       string   `json:"model"`
-	Held        bool     `json:"held"`
-	Holds       []string `json:"holds"`
-	Agent       string   `json:"agent"`
-	AgentStatus string   `json:"agent_status"`
+	Key    string   `json:"key"`
+	Host   string   `json:"host"`
+	Repo   string   `json:"repo"`
+	ID     int64    `json:"id"`
+	Status string   `json:"status"`
+	Title  string   `json:"title"`
+	Model  string   `json:"model"`
+	Held   bool     `json:"held"`
+	Holds  []string `json:"holds"`
+	// Stale marks a held plan whose takeover window matured: a
+	// takeover candidate, with the observed unchanged span in seconds
+	// so a consumer applies its own threshold without re-deriving it.
+	Stale        bool   `json:"stale"`
+	StaleSeconds int64  `json:"stale_seconds"`
+	Agent        string `json:"agent"`
+	AgentStatus  string `json:"agent_status"`
 }
 
 // NewBoard opens a status board. presence carries whether herdr was
@@ -52,17 +58,19 @@ func NewBoard(root string, presence bool) *BoardDoc {
 // empty when none is live on its lane.
 func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 	d.Plans = append(d.Plans, BoardPlan{
-		Key:         p.Key,
-		Host:        hostOf(p.Key),
-		Repo:        p.Repo,
-		ID:          p.ID,
-		Status:      p.Status,
-		Title:       p.Title,
-		Model:       p.Model,
-		Held:        p.Held,
-		Holds:       refsOf(p.Holds),
-		Agent:       agent,
-		AgentStatus: status,
+		Key:          p.Key,
+		Host:         hostOf(p.Key),
+		Repo:         p.Repo,
+		ID:           p.ID,
+		Status:       p.Status,
+		Title:        p.Title,
+		Model:        p.Model,
+		Held:         p.Held,
+		Holds:        refsOf(p.Holds),
+		Stale:        p.Stale,
+		StaleSeconds: int64(p.StaleFor / time.Second),
+		Agent:        agent,
+		AgentStatus:  status,
 	})
 }
 

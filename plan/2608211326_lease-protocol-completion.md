@@ -1,7 +1,7 @@
 ---
 id: 2608211326
 title: The lease protocol completed through every verb
-status: "🔳"
+status: "✅"
 summary: >-
   Plan 2608202144 landed the lease atom, observation and takeover.
   This plan finishes the protocol: yield and rescue refs, the herdr
@@ -17,16 +17,16 @@ phases:
     status: "✅"
   - n: 2
     title: herdr veto, session binding, self-resume
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: parameters and the legacy-hold transition
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: the verb-state table through every verb
-    status: "🔲"
+    status: "✅"
   - n: 5
     title: skills and docs rewritten to shipped behavior
-    status: "🔲"
+    status: "✅"
 ---
 # The lease protocol completed through every verb
 
@@ -210,18 +210,18 @@ Tier is per phase, set by the most demanding ingredient.
 
 - [x] A fenced lane yields: divergence parked, lane torn down, exit
       zero; `next` and `show` list the rescue ref.
-- [ ] A stale-held plan with a live bound session is not taken over,
+- [x] A stale-held plan with a live bound session is not taken over,
       and the veto renews on the holder's behalf.
-- [ ] A restarted lane whose token matches origin resumes its lease
+- [x] A restarted lane whose token matches origin resumes its lease
       with no window.
-- [ ] T, S_max and k are read per repository; takeover waits k·T.
-- [ ] Every verb-state cell of the table is a passing test in both
+- [x] T, S_max and k are read per repository; takeover waits k·T.
+- [x] Every verb-state cell of the table is a passing test in both
       renderings.
-- [ ] Skills and [docs/claiming.md](../docs/claiming.md) describe
+- [x] Skills and [docs/claiming.md](../docs/claiming.md) describe
       only shipped behavior; the manual-delete recovery and
       slug-branch prose are gone.
-- [ ] A fenced session's next verb offers yield.
-- [ ] Every mechanism in the research note's scenario matrix traces
+- [x] A fenced session's next verb offers yield.
+- [x] Every mechanism in the research note's scenario matrix traces
       to at least one test named for it.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

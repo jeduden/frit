@@ -143,6 +143,11 @@ type ClaimDoc struct {
 	// dependency, or lost to another machine is refused, not leased.
 	Claimed bool   `json:"claimed"`
 	Refused string `json:"refused"`
+	// Resumed reports whether the lane resumed its own lease by its
+	// persisted token rather than acquiring or taking one over — the
+	// self-resume path, which consults no staleness window at all
+	// (F9, F11, S3, S21). It never appears alongside a refusal.
+	Resumed bool `json:"resumed"`
 	// Worktree is the isolated checkout the claim stood up for the lane,
 	// so an agent works it there rather than in the shared clone. Empty
 	// when the lease was refused, or when standing the worktree up failed.
@@ -177,6 +182,13 @@ func NewClaim(
 func (d *ClaimDoc) Minted(baseSHA string) {
 	d.Claimed = true
 	d.Base = baseSHA
+}
+
+// MarkResumed records a lease resumed by its own lane, on the strength
+// of its persisted token rather than a fresh acquire or a takeover.
+func (d *ClaimDoc) MarkResumed() {
+	d.Claimed = true
+	d.Resumed = true
 }
 
 // Stood records the isolated worktree the claim stood up for the lane.
@@ -255,6 +267,78 @@ func (d *YieldDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
+// ReleaseDoc is what `frit release` did: the calling lane's own lease
+// marked released, or the reason nothing changed.
+//
+// A plan nobody holds, or one whose hold already reads as released, is
+// a no-op — there was nothing left to end, not a door release found
+// shut. A plan held live or matured by another lane is refused: only
+// that lane's own persisted token can release it; a stranger takes a
+// matured one over through claim instead. A hold whose work already
+// landed is scavenged rather than released.
+type ReleaseDoc struct {
+	header
+	Root   string       `json:"root"`
+	Plan   DispatchPlan `json:"plan"`
+	Branch string       `json:"branch"`
+	// Released is whether a release marker was pushed.
+	Released bool `json:"released"`
+	// Refused is why a foreign hold was left standing, empty when
+	// release proceeded or found nothing to do.
+	Refused string `json:"refused"`
+	// NoOp says why nothing changed though nothing stood in the way
+	// either — the plan was already free, or its hold already reads
+	// as released. Empty when release refused, released or scavenged.
+	NoOp string `json:"no_op"`
+	// Scavenged is the work ref release cleaned up on landed evidence,
+	// "" when nothing was scavenged; Rescue is where its unlanded work
+	// was parked, "" when the chain held nothing a delete could
+	// destroy.
+	Scavenged string `json:"scavenged"`
+	Rescue    string `json:"rescue"`
+	// Warning is a non-fatal failure alongside a scavenge — the ref
+	// itself is still gone, or still standing, either way reported
+	// rather than silently swallowed.
+	Warning  string    `json:"warning"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewRelease opens a release report for a resolved plan and the branch
+// its work ref carries.
+func NewRelease(root, repo string, id int64, title, branch string) *ReleaseDoc {
+	return &ReleaseDoc{
+		header:   newHeader("release"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Branch:   branch,
+		Problems: []Problem{},
+	}
+}
+
+// MarkReleased records that a release marker was pushed.
+func (d *ReleaseDoc) MarkReleased() { d.Released = true }
+
+// Refuse records why a foreign hold was left standing.
+func (d *ReleaseDoc) Refuse(reason string) { d.Refused = reason }
+
+// Nothing records that release found nothing to do, and why.
+func (d *ReleaseDoc) Nothing(reason string) { d.NoOp = reason }
+
+// ScavengedRef records the work ref release cleaned up on landed
+// evidence, and where its unlanded work was parked, if anywhere.
+func (d *ReleaseDoc) ScavengedRef(branch, rescue string) {
+	d.Scavenged = branch
+	d.Rescue = rescue
+}
+
+// Warn records a non-fatal failure alongside a scavenge.
+func (d *ReleaseDoc) Warn(reason string) { d.Warning = reason }
+
+// AddProblem records a repository frit could not read.
+func (d *ReleaseDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
 // StartDoc is the full escalation `frit start` composes: the claim it
 // would mint, the worktree and agent herdr would stand up, the tier the
 // plan declares, and the typed prompt it would send.
@@ -283,12 +367,25 @@ type StartDoc struct {
 	// They differ on a refusal: --go on an unstartable plan runs nothing.
 	Go      bool `json:"go"`
 	Started bool `json:"started"`
+	// Resumed reports whether the escalation ran on the lane's own
+	// lease, resumed by its persisted token rather than acquired or
+	// taken over — the self-resume path (F9, F11, S3, S21). It never
+	// appears alongside a refusal.
+	Resumed bool `json:"resumed"`
 	// Pane is the pane herdr opened and the agent runs in, set only once
 	// the escalation has run.
 	Pane string `json:"pane"`
 	// Refused is why the escalation was withheld — a plan not startable,
 	// or a claim lost to another machine — empty when start proceeded.
-	Refused  string    `json:"refused"`
+	Refused string `json:"refused"`
+	// Scavenged is the work ref a refusal cleaned up on landed
+	// evidence, "" when nothing was scavenged; Rescue is where its
+	// unlanded work was parked, "" when the chain held nothing a
+	// delete could destroy.
+	Scavenged string `json:"scavenged"`
+	Rescue    string `json:"rescue"`
+	// Warning is a non-fatal failure alongside a scavenge.
+	Warning  string    `json:"warning"`
 	Problems []Problem `json:"problems"`
 }
 
@@ -328,6 +425,21 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
 }
+
+// MarkResumed records that the escalation is standing the lane back up
+// on a lease resumed by its own persisted token, rather than one
+// acquired or taken over.
+func (d *StartDoc) MarkResumed() { d.Resumed = true }
+
+// ScavengedRef records the work ref a refusal cleaned up on landed
+// evidence, and where its unlanded work was parked, if anywhere.
+func (d *StartDoc) ScavengedRef(branch, rescue string) {
+	d.Scavenged = branch
+	d.Rescue = rescue
+}
+
+// Warn records a non-fatal failure alongside a scavenge.
+func (d *StartDoc) Warn(reason string) { d.Warning = reason }
 
 // AddProblem records a repository frit could not read.
 func (d *StartDoc) AddProblem(repo string, err error) {

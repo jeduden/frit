@@ -6,6 +6,7 @@
 package lanes
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/repocfg"
 )
+
+// idOnlyHold is the branch shape the lease protocol itself writes: id
+// only, no decoration. It is what every other hold shape is a
+// migration candidate toward.
+func idOnlyHold(planID int64) string {
+	return fmt.Sprintf("plan/%d", planID)
+}
 
 // Hold is one ref that claims a plan.
 type Hold struct {
@@ -148,6 +156,19 @@ func collect(byID map[int64]*Lane) []Lane {
 	return out
 }
 
+// Migratable is a hold that still reads as a claim but is decorated
+// rather than the id-only shape the lease protocol writes — the old
+// claim design's slug-carrying branches age out this way, without a
+// flag day: nothing here refuses them, they are only named so a
+// repository can move off them.
+type Migratable struct {
+	PlanID int64
+	// From is the decorated branch actually holding the plan.
+	From string
+	// To is the id-only branch the lease protocol would write.
+	To string
+}
+
 // Orphans are the lanes and checkouts that no longer add up.
 type Orphans struct {
 	// Unstaffed are plans claimed with no checkout behind them.
@@ -158,13 +179,16 @@ type Orphans struct {
 	Empty []gitwt.Worktree
 	// Prunable are worktrees git considers removable.
 	Prunable []gitwt.Worktree
+	// Migratable are holds decorated in the legacy shape rather than
+	// the lease protocol's id-only ref.
+	Migratable []Migratable
 }
 
 // Any reports whether anything was found, so a caller can stay quiet
 // when a repository is in good order.
 func (o Orphans) Any() bool {
 	return len(o.Unstaffed) > 0 || len(o.Stranded) > 0 ||
-		len(o.Empty) > 0 || len(o.Prunable) > 0
+		len(o.Empty) > 0 || len(o.Prunable) > 0 || len(o.Migratable) > 0
 }
 
 // Find classifies what is abandoned.
@@ -183,6 +207,11 @@ func Find(built []Lane, worktrees []gitwt.Worktree) Orphans {
 	for _, lane := range built {
 		if lane.Unstaffed() {
 			o.Unstaffed = append(o.Unstaffed, lane)
+			// The nudge rides on an already-abandoned claim: a
+			// healthy, staffed decorated hold is left alone, since
+			// the legacy shape is a first-class hold, not something
+			// to nag about while it is being worked.
+			o.Migratable = append(o.Migratable, migratable(lane)...)
 		}
 		if lane.Stranded() {
 			// A prunable checkout is git's "already gone" and is reported
@@ -209,6 +238,23 @@ func Find(built []Lane, worktrees []gitwt.Worktree) Orphans {
 	}
 
 	return o
+}
+
+// migratable names the lane's holds that are not already the id-only
+// shape, one entry per decorated branch — a lane claimed on two
+// decorated branches at once names both.
+func migratable(lane Lane) []Migratable {
+	target := idOnlyHold(lane.PlanID)
+	var out []Migratable
+	for _, h := range lane.Holds {
+		if h.Branch != target {
+			out = append(out, Migratable{
+				PlanID: lane.PlanID, From: h.Branch, To: target,
+			})
+		}
+	}
+
+	return out
 }
 
 // Aged is a worktree that has not moved for a while.

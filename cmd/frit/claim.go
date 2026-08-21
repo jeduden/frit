@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,16 +43,26 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewClaim(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
 
+	// The gather withholds a coordinate when two checkouts share the
+	// plan's repository name; without one there is no repository to mint
+	// the lease in, so refuse rather than guess.
+	coord, ok := res.Coords[plan.Repo]
+
+	// The lane's own lease, resumed on the token it persisted — ahead
+	// of the "already held" refusal below, since the plan a resume
+	// asks about is exactly the one this lane already holds (F9, F11,
+	// S3, S21).
+	cwd, _ := os.Getwd()
+	if ok && resumeOwnLease(rt, doc, plan, coord, cwd) {
+		return renderClaim(c, rt, doc)
+	}
+
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
 		scavengeGlyph(rt, doc, plan, res)
 		return renderClaim(c, rt, doc)
 	}
 
-	// The gather withholds a coordinate when two checkouts share the
-	// plan's repository name; without one there is no repository to mint
-	// the lease in, so refuse rather than guess.
-	coord, ok := res.Coords[plan.Repo]
 	if !ok {
 		doc.Refuse(ambiguousRepo(plan.Repo))
 		return renderClaim(c, rt, doc)
@@ -65,6 +76,122 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	return renderClaim(c, rt, doc)
+}
+
+// resumeOwnLease resumes the lease this very lane already holds, on
+// the proof that survives a process: the token in its own git dir
+// (F9, F11, S3, S21). Any doubt along the way answers false and falls
+// through to the ordinary path, where the CAS is still the arbiter.
+func resumeOwnLease(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, cwd string,
+) bool {
+	lane, tip, ok := resumeToken(rt, plan, coord, cwd)
+	if !ok {
+		return false
+	}
+	opts := claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  coord.Remote,
+		Base:    coord.Base,
+		Holder:  hostname(),
+		Lane:    lane,
+		Session: currentSession(rt),
+	}
+	if _, err := claim.Resume(coord.Path, opts, tip, rt.git); err != nil {
+		return false
+	}
+	doc.MarkResumed()
+
+	return true
+}
+
+// resumeToken is ownToken further gated by the live-session veto: a
+// resume takes over from wherever a competing takeover would be
+// vetoed, so the same live-bound-session check applies before it
+// hands its own lease back to a fresh process (F9, F11, S3, S21). ok
+// is false when either ownToken fails or a live session is bound,
+// leaving the ordinary mint path as the arbiter. Shared by claim,
+// which stops here, and start, which resumes and then still stands
+// the lane up.
+func resumeToken(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
+) (lane, tip string, ok bool) {
+	lane, tip, ok = ownToken(rt, plan, coord, cwd)
+	if !ok {
+		return "", "", false
+	}
+
+	opts := claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  coord.Remote,
+		Base:    coord.Base,
+		Holder:  hostname(),
+		Lane:    lane,
+		Session: currentSession(rt),
+	}
+	if m, mOK := claim.ReadMarker(coord.Path, opts, tip, rt.git); mOK &&
+		herdr.SessionLive(rt.herdr, m.Session) {
+		return "", "", false
+	}
+
+	return lane, tip, true
+}
+
+// ownToken resolves this lane's own already-held lease from its
+// persisted token: the calling directory is this exact plan's own
+// lane, and its token still matches origin's current tip. It is not
+// identity-based — a cloned machine id or a reused lane path carries
+// no matching token, so it gets no shortcut (A1) — and it consults no
+// staleness window at all. ok is false when either condition fails.
+// The token proof every verb that acts on a lane's own lease reads:
+// resume, by resumeToken's added veto, and release, which reads it
+// directly since there is no competing takeover for it to defer to.
+func ownToken(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
+) (lane, tip string, ok bool) {
+	if cwd == "" {
+		return "", "", false
+	}
+	// The guard against the CLI being invoked elsewhere: the same
+	// cwd-join-backwards yield's tearDownLane uses to confirm the
+	// calling directory is this exact plan's own lane before trusting
+	// anything local it finds there.
+	repo, id, idOK := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !idOK || repo != plan.Repo || id != plan.ID {
+		return "", "", false
+	}
+
+	lane = herdr.Resolve(cwd, rt.git).Root
+	if lane == "" {
+		return "", "", false
+	}
+	token := claim.ReadToken(lane, plan.ID, rt.git)
+	if token == "" {
+		return "", "", false
+	}
+	// Origin is read fresh rather than trusting plan.HoldTip, which is
+	// this clone's possibly-stale local view of the ref: the protocol
+	// states the rule against origin's current tip.
+	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	if tip == "" || tip != token {
+		return "", "", false
+	}
+
+	return lane, tip, true
+}
+
+// currentSession is the herdr session the calling pane runs, "" when
+// herdr is unreachable or no agent is on it. Best-effort: an unbound
+// lease still holds, it only forgoes the veto until a later renewal
+// binds one.
+func currentSession(rt *runtime) string {
+	pane, err := herdr.CurrentPane(rt.herdr)
+	if err != nil {
+		return ""
+	}
+
+	return pane.Session
 }
 
 // standUpClaimWorktree hands the freshly claimed lane's checkout to
@@ -129,7 +256,7 @@ func mintClaim(
 // tip the refusal read, so no window is needed and a holder that
 // renewed since fails the CAS harmlessly.
 func scavengeLanded(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, coord fleet.Coord, err error,
 ) {
 	var held *claim.HeldError
@@ -146,7 +273,7 @@ func scavengeLanded(
 // not tied to the tip, so it additionally requires a matured window:
 // a live, renewing holder is never scavenged (A2).
 func scavengeGlyph(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, res fleet.Result,
 ) {
 	if !plan.Done() || !plan.Stale || plan.HoldTip == "" {
@@ -159,11 +286,20 @@ func scavengeGlyph(
 	scavengeRef(rt, doc, plan, coord, plan.HoldTip)
 }
 
-// scavengeRef runs the scavenge and records what it did beside the
-// refusal. A failure is a warning, never a command failure: the
-// refusal already stands, and the ref will be met again.
+// scavengeReporter is what a scavenge records itself into: claim's
+// refusal, or release's own report of a landed hold. Both carry the
+// same two facts — a warning on a failed scavenge, or the ref and
+// rescue a clean one found.
+type scavengeReporter interface {
+	Warn(reason string)
+	ScavengedRef(branch, rescue string)
+}
+
+// scavengeRef runs the scavenge and records what it did. A failure is
+// a warning, never a command failure: the caller's own report already
+// stands, and the ref will be met again.
 func scavengeRef(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, coord fleet.Coord, tip string,
 ) {
 	sc, err := claim.Scavenge(coord.Path, claim.LeaseOptions{
@@ -194,6 +330,20 @@ func mintOrTakeOver(
 		return claim.Acquire(coord.Path, opts, rt.git)
 	}
 
+	// Held and matured: the one place a herdr veto can change the
+	// answer. The marker is read from the exact tip the window matured
+	// on and Takeover CASes against, so the veto and the takeover
+	// reason about the same state; if origin moved since, the takeover
+	// loses its CAS below and resetWindow handles it as always.
+	if m, ok := claim.ReadMarker(coord.Path, opts, plan.HoldTip, rt.git); ok &&
+		herdr.SessionLive(rt.herdr, m.Session) {
+		return claim.Lease{}, &claim.VetoError{
+			PlanID:  plan.ID,
+			Marker:  m,
+			Renewed: beatForHolder(rt, coord, opts, m, plan.HoldTip),
+		}
+	}
+
 	lease, err := claim.Takeover(coord.Path, opts, plan.HoldTip, rt.git)
 	var held *claim.HeldError
 	if errors.As(err, &held) && held.Tip != "" {
@@ -201,6 +351,34 @@ func mintOrTakeOver(
 	}
 
 	return lease, err
+}
+
+// beatForHolder renews a vetoed lease on its own holder's behalf: a
+// beat CASed from the observed tip, same epoch. It reports whether the
+// push landed, so the refusal does not claim a renewal it did not
+// make.
+//
+// Every identity trailer is copied off the holder's marker, never
+// taken from this run: the beat renews the holder's lease, not this
+// machine's, and stamping this run's own holder and lane on it would
+// make the ref claim a holder it does not have — the identity
+// confusion A1 and F10 warn against, and the wrong answer for board
+// and orphans.
+func beatForHolder(
+	rt *runtime, coord fleet.Coord, opts claim.LeaseOptions,
+	m claim.Marker, tip string,
+) bool {
+	beatOpts := claim.LeaseOptions{
+		PlanID:  opts.PlanID,
+		Remote:  opts.Remote,
+		Base:    opts.Base,
+		Holder:  m.Holder,
+		Lane:    m.Lane,
+		Session: m.Session,
+	}
+	_, err := claim.Renew(coord.Path, beatOpts, tip, rt.git)
+
+	return err == nil
 }
 
 // resetWindow restarts a plan's observation window on the tip a lost
@@ -226,6 +404,11 @@ func resetWindow(plan discovery.Plan, tip string, now time.Time) {
 // original wording so a missing or malformed body never changes the
 // outcome.
 func lostRaceRefusal(err error) string {
+	var veto *claim.VetoError
+	if errors.As(err, &veto) {
+		return vetoRefusal(veto)
+	}
+
 	var held *claim.HeldError
 	if !errors.As(err, &held) || !held.Known {
 		return "lost the race to another machine"
@@ -246,6 +429,23 @@ func lostRaceRefusal(err error) string {
 		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
+}
+
+// vetoRefusal names the live holder a takeover was refused for, and
+// says whether its lease was renewed on its behalf — the refusal must
+// not claim a renewal that did not land.
+func vetoRefusal(veto *claim.VetoError) string {
+	who := veto.Marker.Holder
+	if who == "" || who == "-" {
+		who = "another machine"
+	}
+	if veto.Renewed {
+		return fmt.Sprintf(
+			"is held by a live agent session on %s; "+
+				"its lease was renewed on its behalf", who)
+	}
+
+	return fmt.Sprintf("is held by a live agent session on %s", who)
 }
 
 // claimRefusal reports why a plan cannot be claimed, or "" when it can.
@@ -330,8 +530,14 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(out, "claimed plan %d\n  branch: %s\n  base:   %s\n",
-		doc.Plan.ID, doc.Branch, doc.Base)
+	head := "claimed plan %d\n  branch: %s\n"
+	if doc.Resumed {
+		head = "resumed plan %d\n  branch: %s\n"
+	}
+	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Branch)
+	if doc.Base != "" {
+		_, _ = fmt.Fprintf(out, "  base:   %s\n", doc.Base)
+	}
 	if doc.Worktree != "" {
 		_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Worktree)
 	}

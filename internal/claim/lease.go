@@ -92,13 +92,34 @@ type FenceError struct {
 
 func (e *FenceError) Error() string {
 	if e.Known && e.Marker.Holder != "" {
-		return fmt.Sprintf("fenced: the work ref for plan %d was moved by %s",
+		return fmt.Sprintf(
+			"fenced: the work ref for plan %d was moved by %s; run yield",
 			e.PlanID, e.Marker.Holder)
 	}
 
 	return fmt.Sprintf(
-		"fenced: the work ref for plan %d moved under the lease", e.PlanID)
+		"fenced: the work ref for plan %d moved under the lease; run yield",
+		e.PlanID)
 }
+
+// VetoError reports a takeover refused because herdr positively
+// confirms the holder's bound session is live (F3, S61). It is never
+// returned by this package — the veto needs herdr, which the lease
+// atom does not import — and lives here only so its wording sits
+// beside the errors it stands in for. Renewed says whether the beat
+// pushed on the holder's behalf landed.
+type VetoError struct {
+	PlanID  int64
+	Marker  Marker
+	Renewed bool
+}
+
+func (e *VetoError) Error() string {
+	return fmt.Sprintf(
+		"plan %d is held by a live session; takeover vetoed", e.PlanID)
+}
+
+func (e *VetoError) Unwrap() error { return ErrLostRace }
 
 // StillHeldError reports a yield run from the lane that still holds
 // the live lease: nothing is fenced, so there is nothing to rescue.
@@ -143,7 +164,24 @@ func Acquire(repoDir string, opts LeaseOptions, run gitwt.Runner) (Lease, error)
 func Renew(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
-	return advance(repoDir, opts, markerBeat, from, run)
+	lease, err := advance(repoDir, opts, markerBeat, from, run)
+	if err == nil {
+		persistToken(opts, lease.Tip, run)
+	}
+
+	return lease, err
+}
+
+// Resume is the self-resume transition (F9, F11, S3, S21): mechanically
+// a renewal — a beat CASed from the lane's own recorded tip, same
+// epoch — named for what the caller is doing with it. A lane resumes
+// on the strength of its own persisted token matching origin's current
+// tip, with no staleness window consulted at all; that decision is the
+// caller's, not this function's.
+func Resume(
+	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
+) (Lease, error) {
+	return Renew(repoDir, opts, from, run)
 }
 
 // Release marks the lease released: a release marker, child of the
@@ -186,6 +224,7 @@ func Takeover(
 	if lost {
 		return Lease{}, heldError(repoDir, opts, tip, run)
 	}
+	persistToken(opts, marker, run)
 
 	return Lease{
 		Branch: leaseBranch(opts.PlanID), Tip: marker, Epoch: m.Epoch + 1,
@@ -468,6 +507,7 @@ func pushClaimMarker(
 	if lost {
 		return Lease{}, heldError(repoDir, opts, tip, run)
 	}
+	persistToken(opts, marker, run)
 
 	return Lease{
 		Branch:  leaseBranch(opts.PlanID),
@@ -572,6 +612,55 @@ func fenceError(
 	}
 
 	return e
+}
+
+// ReadMarker reads the lease marker a work ref's tip carries — epoch,
+// machine, lane and bound session — fetching the ref once when the
+// objects are not local. ok is false when no marker for this plan is
+// reachable from tip. It is the takeover veto's way to learn who
+// currently holds a lease without minting anything.
+func ReadMarker(
+	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
+) (Marker, bool) {
+	return fetchedMarker(repoDir, opts, tip, run)
+}
+
+// TakeoverCount reads the backoff factor k straight off a plan's work
+// ref: how many takeover markers already sit in the chain since base
+// (F3). Every observer reads the same chain, so every observer
+// computes the same k, and a takeover waits k·T instead of T — the
+// damping that keeps two live but quiet agents from oscillating.
+//
+// A git fault answers zero rather than fail the caller: the count only
+// ever widens the window, so a wrong zero costs cost, never
+// correctness, the same tolerance every part of staleness gets.
+func TakeoverCount(
+	repoDir string, planID int64, base, tip string, run gitwt.Runner,
+) int {
+	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	if err != nil {
+		return 0
+	}
+	want := fmt.Sprintf("plan %d: %s", planID, markerTakeover)
+	n := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == want {
+			n++
+		}
+	}
+
+	return n
+}
+
+// RemoteTip is the tip origin holds for a plan's work ref right now,
+// "" when the ref is absent or the remote could not be read. Unlike a
+// gathered discovery.Plan's HoldTip, which may be this clone's stale
+// local view of a ref another lane moved, this is always a fresh read
+// — the one self-resume compares its persisted token against.
+func RemoteTip(repoDir, remote string, planID int64, run gitwt.Runner) string {
+	ref := "refs/heads/" + leaseBranch(planID)
+
+	return remoteHolder(repoDir, remote, ref, run)
 }
 
 // fetchedMarker reads the latest lease marker reachable from tip,

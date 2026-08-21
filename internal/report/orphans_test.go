@@ -3,7 +3,9 @@ package report
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +41,9 @@ func found() lanes.Orphans {
 				PruneReason: "gitdir file points to non-existent location",
 			},
 		},
+		Migratable: []lanes.Migratable{
+			{PlanID: 42, From: "plan/42-x", To: "plan/42"},
+		},
 	}
 }
 
@@ -64,6 +69,10 @@ func TestOrphansKeepsTheKindsApart(t *testing.T) {
 	assert.Equal(t, "atlas-empty", repo.Empty[0].Name)
 	require.Len(t, repo.Prunable, 1)
 	assert.Equal(t, "atlas-gone", repo.Prunable[0].Name)
+	require.Len(t, repo.Migratable, 1)
+	assert.Equal(t, int64(42), repo.Migratable[0].PlanID)
+	assert.Equal(t, "plan/42-x", repo.Migratable[0].From)
+	assert.Equal(t, "plan/42", repo.Migratable[0].To)
 }
 
 // TestOrphansKeepsCleanRepositories is what the table cannot say. A
@@ -82,6 +91,8 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.NotNil(t, doc.Repos[0].Stranded)
 	assert.NotNil(t, doc.Repos[0].Empty)
 	assert.NotNil(t, doc.Repos[0].Prunable)
+	assert.NotNil(t, doc.Repos[0].Migratable)
+	assert.NotNil(t, doc.Repos[0].StaleHolds)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
 }
@@ -92,6 +103,28 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Stranded: []StrandedLane{{}}}.Any())
 	assert.True(t, OrphanRepo{Empty: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Prunable: []Worktree{{}}}.Any())
+	assert.True(t, OrphanRepo{Migratable: []Migratable{{}}}.Any())
+	assert.True(t, OrphanRepo{StaleHolds: []StaleHold{{}}}.Any())
+}
+
+// TestOrphansAddStaleRecordsAMaturedHold: the held-stale cell of the
+// verb-state table — a matured lease reads as a takeover candidate,
+// beside orphans' other kinds, sourced from the same observation fold
+// board and claim read rather than lanes.Find's git-ref sweep.
+func TestOrphansAddStaleRecordsAMaturedHold(t *testing.T) {
+	doc := NewOrphans("/fleet")
+	doc.AddRepo("atlas", lanes.Orphans{})
+
+	doc.AddStale("atlas", []discovery.Plan{
+		{ID: 42, Holds: []string{"plan/42"}, StaleFor: 3 * time.Hour},
+	})
+
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].StaleHolds, 1)
+	assert.Equal(t, int64(42), doc.Repos[0].StaleHolds[0].PlanID)
+	assert.Equal(t, "plan/42", doc.Repos[0].StaleHolds[0].Branch)
+	assert.Equal(t, int64(3*60*60), doc.Repos[0].StaleHolds[0].StaleSeconds)
+	assert.True(t, doc.Repos[0].Any())
 }
 
 func TestOrphansEmitsListsNeverNull(t *testing.T) {

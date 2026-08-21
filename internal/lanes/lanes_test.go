@@ -134,6 +134,38 @@ func TestFindReportsAClaimWithNoCheckout(t *testing.T) {
 	assert.True(t, got.Any())
 }
 
+// TestFindFlagsADecoratedHoldAsMigratable: a legacy decorated branch
+// still reads as a hold — nothing here refuses it — but it is also
+// named as a migration candidate to the id-only ref the lease
+// protocol writes, so a repository can move off it without a flag
+// day.
+func TestFindFlagsADecoratedHoldAsMigratable(t *testing.T) {
+	built := Build(nil,
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		nil, nil, canonical(t))
+
+	got := Find(built, nil)
+
+	require.Len(t, got.Migratable, 1)
+	assert.Equal(t, int64(42), got.Migratable[0].PlanID)
+	assert.Equal(t, "plan/42-fleet", got.Migratable[0].From)
+	assert.Equal(t, "plan/42", got.Migratable[0].To)
+	assert.True(t, got.Any())
+}
+
+// TestFindLeavesAnIDOnlyHoldOffTheMigrationList: the lease protocol's
+// own ref shape is already the target, so it is never its own
+// migration candidate.
+func TestFindLeavesAnIDOnlyHoldOffTheMigrationList(t *testing.T) {
+	built := Build(nil,
+		[]gitobj.Ref{ref("refs/heads/plan/42")},
+		nil, nil, canonical(t))
+
+	got := Find(built, nil)
+
+	assert.Empty(t, got.Migratable)
+}
+
 // TestBuildLeavesAMergedBranchsCheckoutStranded is the shape this whole
 // plan turns on: the ref merged and was dropped, but the worktree loop
 // has no such filter, so the lane keeps a checkout with no hold.

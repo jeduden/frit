@@ -1,6 +1,11 @@
 package report
 
-import "github.com/jeduden/frit/internal/lanes"
+import (
+	"time"
+
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/lanes"
+)
 
 // OrphansDoc is what `frit orphans` found.
 //
@@ -22,11 +27,32 @@ type OrphansDoc struct {
 // and a prunable one means the checkout is already gone. They call for
 // different responses.
 type OrphanRepo struct {
-	Name      string         `json:"name"`
-	Unstaffed []Lane         `json:"unstaffed"`
-	Stranded  []StrandedLane `json:"stranded"`
-	Empty     []Worktree     `json:"empty"`
-	Prunable  []Worktree     `json:"prunable"`
+	Name       string         `json:"name"`
+	Unstaffed  []Lane         `json:"unstaffed"`
+	Stranded   []StrandedLane `json:"stranded"`
+	Empty      []Worktree     `json:"empty"`
+	Prunable   []Worktree     `json:"prunable"`
+	Migratable []Migratable   `json:"migratable"`
+	// StaleHolds are held plans whose takeover window has matured: a
+	// takeover candidate nobody has acted on yet, read from the same
+	// observation fold board and claim use rather than lanes.Find's
+	// git-ref sweep.
+	StaleHolds []StaleHold `json:"stale_holds"`
+}
+
+// StaleHold is one held plan whose lease has matured.
+type StaleHold struct {
+	PlanID       int64  `json:"plan_id"`
+	Branch       string `json:"branch"`
+	StaleSeconds int64  `json:"stale_seconds"`
+}
+
+// Migratable is a hold that still reads as a claim but is decorated
+// rather than the id-only shape the lease protocol writes.
+type Migratable struct {
+	PlanID int64  `json:"plan_id"`
+	From   string `json:"from"`
+	To     string `json:"to"`
 }
 
 // Lane is one plan and the refs claiming it.
@@ -54,7 +80,8 @@ type Hold struct {
 // about a repository in good order.
 func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
-		len(r.Empty) > 0 || len(r.Prunable) > 0
+		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0 ||
+		len(r.StaleHolds) > 0
 }
 
 // NewOrphans opens an orphan report.
@@ -70,11 +97,13 @@ func NewOrphans(root string) *OrphansDoc {
 // AddRepo records what one repository turned up, clean or not.
 func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 	repo := OrphanRepo{
-		Name:      name,
-		Unstaffed: make([]Lane, 0, len(found.Unstaffed)),
-		Stranded:  make([]StrandedLane, 0, len(found.Stranded)),
-		Empty:     worktreesOf(found.Empty),
-		Prunable:  worktreesOf(found.Prunable),
+		Name:       name,
+		Unstaffed:  make([]Lane, 0, len(found.Unstaffed)),
+		Stranded:   make([]StrandedLane, 0, len(found.Stranded)),
+		Empty:      worktreesOf(found.Empty),
+		Prunable:   worktreesOf(found.Prunable),
+		Migratable: make([]Migratable, 0, len(found.Migratable)),
+		StaleHolds: []StaleHold{},
 	}
 
 	for _, lane := range found.Unstaffed {
@@ -85,7 +114,45 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 		repo.Stranded = append(repo.Stranded, strandedOf(lane))
 	}
 
+	for _, m := range found.Migratable {
+		repo.Migratable = append(repo.Migratable,
+			Migratable{PlanID: m.PlanID, From: m.From, To: m.To})
+	}
+
 	d.Repos = append(d.Repos, repo)
+}
+
+// AddStale records the plans in one repository whose lease has
+// matured, beside the kinds AddRepo already recorded for it — the
+// held-stale cell of the verb-state table, read from the same
+// observation fold board and claim use rather than lanes.Find's
+// git-ref sweep. A no-op when AddRepo was never called for the name.
+func (d *OrphansDoc) AddStale(name string, plans []discovery.Plan) {
+	for i := range d.Repos {
+		if d.Repos[i].Name != name {
+			continue
+		}
+		for _, p := range plans {
+			d.Repos[i].StaleHolds = append(
+				d.Repos[i].StaleHolds, staleHoldOf(p))
+		}
+
+		return
+	}
+}
+
+// staleHoldOf projects a matured plan into its wire shape.
+func staleHoldOf(p discovery.Plan) StaleHold {
+	branch := ""
+	if len(p.Holds) > 0 {
+		branch = p.Holds[0]
+	}
+
+	return StaleHold{
+		PlanID:       p.ID,
+		Branch:       branch,
+		StaleSeconds: int64(p.StaleFor / time.Second),
+	}
 }
 
 // AddProblem records a repository whose lanes could not be read.

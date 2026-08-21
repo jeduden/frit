@@ -54,6 +54,14 @@ holds:
 # The git remote a claim lease is pushed to.
 remote: ` + DefaultRemote + `
 
+# How long a work ref's tip must sit unchanged before its lease reads
+# as stale (the takeover window, T), and the longest gap a staleness
+# window tolerates between two looks before it voids and restarts
+# (the sample gap, S_max). A takeover of a live but quiet holder wastes
+# effort, never correctness, so these affect cost only.
+takeover-window: 2h
+sample-gap: 30m
+
 # The ref a claim lease is dated against.
 #
 # Left unset, base is derived from git through the

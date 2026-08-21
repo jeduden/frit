@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
@@ -46,6 +47,11 @@ type Coord struct {
 	Path   string
 	Remote string
 	Base   string
+	// TakeoverWindow and SampleGap are the repository's own staleness
+	// clock (T, S_max), read from .frit.yml with the discovery
+	// defaults when it declares neither (F12).
+	TakeoverWindow time.Duration
+	SampleGap      time.Duration
 }
 
 // Result is a gathered fleet: every plan's authoritative version across
@@ -182,7 +188,10 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 		base = preferred
 	}
 
-	return Coord{Path: repo.Path, Remote: cfg.Remote, Base: base}
+	return Coord{
+		Path: repo.Path, Remote: cfg.Remote, Base: base,
+		TakeoverWindow: cfg.TakeoverWindow, SampleGap: cfg.SampleGap,
+	}
 }
 
 // heldBranches maps each claimed plan id to the branches that claim it:
