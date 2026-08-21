@@ -282,6 +282,37 @@ func TestRemoteTipReadsOriginsCurrentTip(t *testing.T) {
 	assert.Equal(t, lease.Tip, RemoteTip(first, "origin", 7, gitwt.Exec))
 }
 
+// TestTakeoverCountReadsTheMarkersAlreadyInTheChain: the backoff
+// factor k is read straight off the chain, so every observer computes
+// the same one (F3) — a fresh claim carries none, and each seized
+// takeover adds one more.
+func TestTakeoverCountReadsTheMarkersAlreadyInTheChain(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	base := gitCmd(t, first, "rev-parse", "origin/main")
+	assert.Equal(t, 0, TakeoverCount(first, 7, base, lease.Tip, gitwt.Exec),
+		"a fresh claim carries no takeover marker")
+
+	taken, err := Takeover(
+		first, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, 1, TakeoverCount(first, 7, base, taken.Tip, gitwt.Exec))
+
+	twice, err := Takeover(
+		first, leaseOptions("box-c", "/lanes/c"), taken.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, 2, TakeoverCount(first, 7, base, twice.Tip, gitwt.Exec))
+}
+
+// TestTakeoverCountIsBestEffort: a bad base or repo dir answers zero
+// rather than fail the caller — a rough count costs nothing to be
+// quietly wrong, and the CAS stays the safety net either way.
+func TestTakeoverCountIsBestEffort(t *testing.T) {
+	assert.Equal(t, 0,
+		TakeoverCount("/does/not/exist", 7, "main", "HEAD", gitwt.Exec))
+}
+
 // TestLeaseMessage pins the marker body: the kind in the subject, the
 // trailers beneath it, "-" for an empty lane or session, and the base
 // trailer only where a claim carries one.

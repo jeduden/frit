@@ -623,6 +623,33 @@ func ReadMarker(
 	return fetchedMarker(repoDir, opts, tip, run)
 }
 
+// TakeoverCount reads the backoff factor k straight off a plan's work
+// ref: how many takeover markers already sit in the chain since base
+// (F3). Every observer reads the same chain, so every observer
+// computes the same k, and a takeover waits k·T instead of T — the
+// damping that keeps two live but quiet agents from oscillating.
+//
+// A git fault answers zero rather than fail the caller: the count only
+// ever widens the window, so a wrong zero costs cost, never
+// correctness, the same tolerance every part of staleness gets.
+func TakeoverCount(
+	repoDir string, planID int64, base, tip string, run gitwt.Runner,
+) int {
+	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	if err != nil {
+		return 0
+	}
+	want := fmt.Sprintf("plan %d: %s", planID, markerTakeover)
+	n := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == want {
+			n++
+		}
+	}
+
+	return n
+}
+
 // RemoteTip is the tip origin holds for a plan's work ref right now,
 // "" when the ref is absent or the remote could not be read. Unlike a
 // gathered discovery.Plan's HoldTip, which may be this clone's stale

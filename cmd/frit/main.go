@@ -871,7 +871,7 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	if err != nil {
 		return res, err
 	}
-	observeHolds(&res, time.Now())
+	observeHolds(&res, rt, time.Now())
 
 	return res, nil
 }
@@ -882,7 +882,14 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 // the one side effect a read verb owns is this local state file, never
 // a ref — and is best-effort: an unwritable store only delays a
 // takeover, so it fails quiet rather than failing the verb.
-func observeHolds(res *fleet.Result, now time.Time) {
+//
+// The window and sample gap are the repository's own — read off the
+// coordinate the gather already resolved, so a repo declaring its own
+// clock in .frit.yml is watched on it rather than the discovery
+// defaults (F12) — and the threshold backs off by k·T, k the takeover
+// markers already in the chain, so oscillation between two live but
+// quiet agents damps out (F3).
+func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 	path, err := observe.Path()
 	if err != nil {
 		return
@@ -900,14 +907,33 @@ func observeHolds(res *fleet.Result, now time.Time) {
 			delete(state, key)
 			continue
 		}
-		w := discovery.Observe(
-			state[key], p.HoldTip, now, discovery.DefaultSampleGap)
+		window, sampleGap := staleClock(res, p.Repo)
+		w := discovery.Observe(state[key], p.HoldTip, now, sampleGap)
 		state[key] = w
-		p.Stale = discovery.StaleHold(
-			w, now, discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap)
+		threshold := window
+		if coord, ok := res.Coords[p.Repo]; ok {
+			k := claim.TakeoverCount(coord.Path, p.ID, coord.Base, p.HoldTip, rt.git)
+			threshold = time.Duration(k+1) * window
+		}
+		p.Stale = discovery.StaleHold(w, now, threshold, sampleGap)
 		p.StaleFor = w.Span()
 	}
 	_ = observe.Save(path, state)
+}
+
+// staleClock is the staleness window and sample gap to watch a
+// repository's holds on: its own coordinate when the gather resolved
+// one, the discovery defaults otherwise — an ambiguous repository
+// withholds a coordinate entirely, and repocfg.Default already fills
+// a repository declaring nothing with the same defaults, so this only
+// ever falls back for a repository the gather could not place.
+func staleClock(res *fleet.Result, repo string) (time.Duration, time.Duration) {
+	coord, ok := res.Coords[repo]
+	if !ok || coord.TakeoverWindow == 0 {
+		return discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap
+	}
+
+	return coord.TakeoverWindow, coord.SampleGap
 }
 
 // ambiguousRepo is the refusal a mutating verb reports when a plan's

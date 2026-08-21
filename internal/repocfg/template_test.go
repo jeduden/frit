@@ -92,6 +92,15 @@ func TestTemplateWritesTheActiveRemoteKey(t *testing.T) {
 	assert.Contains(t, Template, "remote: origin")
 }
 
+// TestTemplateWritesTheStalenessClockKeys pins that the takeover
+// window and sample gap are written as active settings, built from
+// their literal defaults — unlike base, they have one, so there is
+// nothing to derive and nothing to leave commented (F12).
+func TestTemplateWritesTheStalenessClockKeys(t *testing.T) {
+	assert.Contains(t, Template, "takeover-window: 2h")
+	assert.Contains(t, Template, "sample-gap: 30m")
+}
+
 // TestTemplateLeavesBaseCommented pins that base appears only as a
 // commented example, because its default is derived from git and an
 // active empty value would be wrong.
