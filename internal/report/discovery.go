@@ -1,6 +1,8 @@
 package report
 
 import (
+	"fmt"
+
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/planmeta"
 )
@@ -146,13 +148,21 @@ func (d *FindDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
-// PhaseCard is one phase in the wire form: its number, title and its
-// own status. The number is a string, since a phase may be 3b as well
-// as 3.
+// PhaseCard is one phase in the wire form: its number, title, own
+// status, what its `## Execution` row names, and its own section's
+// prose. The number is a string, since a phase may be 3b as well as
+// 3. Tier and Gate are empty for a phase whose Execution row is
+// missing — see NextDoc's Problems for that gap, rather than reading
+// an empty Tier as "no tier asked for". Status is empty for a phase
+// derived from a `## Phase N` heading rather than a front-matter
+// ledger — section state carries no status, so none is invented.
 type PhaseCard struct {
 	N      string `json:"n"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
+	Tier   string `json:"tier"`
+	Gate   string `json:"gate"`
+	Body   string `json:"body"`
 }
 
 // NextDoc is what `frit next` found: a plan and the first phase of it
@@ -171,6 +181,10 @@ type NextDoc struct {
 }
 
 // NewNext opens a next-phase report for one resolved plan.
+//
+// A phase with no `## Execution` row is reported through Problems
+// rather than rendered with a blank tier and gate as if the plan had
+// asked for nothing: frit never fails over the gap, but it says so.
 func NewNext(root string, plan discovery.Plan) *NextDoc {
 	doc := &NextDoc{
 		header:   newHeader("next"),
@@ -182,6 +196,14 @@ func NewNext(root string, plan discovery.Plan) *NextDoc {
 	if phase, ok := plan.NextPhase(); ok {
 		doc.Phase = phaseCard(phase)
 		doc.HasPhase = true
+		if !phase.HasExecutionRow {
+			doc.Problems = append(doc.Problems, Problem{
+				Repo: plan.Repo,
+				Message: fmt.Sprintf(
+					"plan %d phase %s has no Execution row: no tier, no gate",
+					plan.ID, phase.N),
+			})
+		}
 	}
 
 	return doc
@@ -194,7 +216,10 @@ func (d *NextDoc) AddProblem(repo string, err error) {
 
 // phaseCard projects a phase into its wire shape.
 func phaseCard(p planmeta.Phase) PhaseCard {
-	return PhaseCard{N: string(p.N), Title: p.Title, Status: p.Status}
+	return PhaseCard{
+		N: string(p.N), Title: p.Title, Status: p.Status,
+		Tier: p.Tier, Gate: p.Gate, Body: p.Body,
+	}
 }
 
 // DepCard is one plan in the dependency walk. Found is false for an

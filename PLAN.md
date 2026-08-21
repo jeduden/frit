@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                        |
-| ---------- | ------ | -------------------------------------------------------------------------------------------- |
-| 2608192045 | sonnet | [Enrich next and show so a skill leans on frit's output](plan/2608192045_next-enrichment.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -54,7 +52,7 @@ footer: |
 | 2608191811 | ✅     | sonnet | [Report a checkout stranded on a landed branch](plan/2608191811_report-a-stranded-checkout.md)                |
 | 2608191812 | ✅     | sonnet | [Name who holds a claim when the race is lost](plan/2608191812_name-the-holder-of-a-lost-race.md)             |
 | 2608192020 | ✅     | sonnet | [Ship agent skills that teach frit's own workflow](plan/2608192020_ship-skills.md)                            |
-| 2608192045 | 🔳     | sonnet | [Enrich next and show so a skill leans on frit's output](plan/2608192045_next-enrichment.md)                  |
+| 2608192045 | ✅     | sonnet | [Enrich next and show so a skill leans on frit's output](plan/2608192045_next-enrichment.md)                  |
 | 2608192121 | ✅     | sonnet | [init scaffolds the plan machinery, not just the config](plan/2608192121_init-scaffolds-plan-machinery.md)    |
 | 2608192233 | ✅     | sonnet | [Harden the claim against squash-merges and shared checkouts](plan/2608192233_claim-watertight.md)            |
 | 2608192322 | ✅     | sonnet | [A claimed lane is its own worktree, never the shared clone](plan/2608192322_claim-stands-up-its-worktree.md) |

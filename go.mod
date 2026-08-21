@@ -13,9 +13,12 @@ require (
 )
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/neurosnap/sentences v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )
