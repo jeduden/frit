@@ -92,7 +92,7 @@ type cli struct {
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
-	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
+	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks; --go claims and starts the top."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
@@ -1011,16 +1011,24 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 }
 
 type pickCmd struct {
-	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	N     int    `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	Go    bool   `help:"Claim and start the top plan; resume an unheld in-progress one, skip a lost race to the next."`
+	Phase string `help:"Phase to dispatch under --go; default is the plan's next open phase."`
 	sortFlags
 }
 
 // Run lists the startable plans ranked by how much each unblocks,
-// trimmed to the number asked for.
+// trimmed to the number asked for. With --go it stops listing and starts
+// the top candidate outright — the selection the skill used to make by
+// hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
+	}
+
+	if pc.Go {
+		return pc.start(c, rt, res)
 	}
 
 	list, err := pc.order(discovery.Pick(res.Plans, pc.N))
@@ -1045,6 +1053,44 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 // of startable plans, so the rendering is shared rather than copied.
 func readyView(doc *report.PickDoc) *report.ReadyDoc {
 	return &report.ReadyDoc{Plans: doc.Plans}
+}
+
+// start runs pick --go: walk the ranked candidates and run start's own
+// claim-and-stand-up path on the first that takes. A candidate whose
+// claim loses its race is skipped for the next — the retry the skill
+// used to spell out by hand — so a live hold on the top pick does not
+// stall the fleet. When nothing is startable, or every candidate loses
+// its race, it prints the same empty answer a bare pick gives.
+func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
+	for _, plan := range discovery.Candidates(res.Plans) {
+		doc, lost, err := buildStart(c, rt, res, plan, pc.Phase, "", false, true)
+		if err != nil {
+			return err
+		}
+		if lost {
+			continue
+		}
+
+		return renderStart(c, rt, doc)
+	}
+
+	return pc.emptyStart(c, rt, res)
+}
+
+// emptyStart prints the ranked-list report with no candidate — the same
+// "nothing startable" answer a bare pick gives — for when pick --go
+// finds nothing to start or loses every race.
+func (pc *pickCmd) emptyStart(c *cli, rt *runtime, res fleet.Result) error {
+	doc := report.NewPick(c.Root, hostname())
+	carryProblems(doc, res.Problems, c.All)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, readyView(doc), rt.width)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
 }
 
 type nextCmd struct {

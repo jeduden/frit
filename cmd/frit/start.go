@@ -49,14 +49,44 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	phase, ok := dispatch.Phase(plan.Phases, s.Phase)
+	return startResolved(c, rt, res, plan, s.Phase, s.Note, s.Edit, s.Go)
+}
+
+// startResolved composes and, under doGo, runs the escalation for a plan
+// already chosen — whether start resolved it from a selector or pick
+// ranked it to the top — and renders the result. A lost race is rendered
+// as the refusal it is; only pick --go retries past it.
+func startResolved(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phaseSel, note string, edit, doGo bool,
+) error {
+	doc, _, err := buildStart(c, rt, res, plan, phaseSel, note, edit, doGo)
+	if err != nil {
+		return err
+	}
+
+	return renderStart(c, rt, doc)
+}
+
+// buildStart composes the escalation doc for a plan already chosen and,
+// under doGo, runs start's claim-and-stand-up path. It refuses an
+// unstartable plan and an ambiguous repository the same way for both
+// verbs, so they cannot drift on what "startable" or "started" means.
+// The bool is true when execution lost the claim's race — the one
+// refusal pick --go retries past rather than reports.
+func buildStart(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phaseSel, note string, edit, doGo bool,
+) (*report.StartDoc, bool, error) {
+	phase, ok := dispatch.Phase(plan.Phases, phaseSel)
 	if !ok {
 		if len(plan.Phases) == 0 {
-			return fmt.Errorf(
+			return nil, false, fmt.Errorf(
 				"plan %d carries no phase ledger; pass --phase", plan.ID)
 		}
 
-		return fmt.Errorf("plan %d has no open phase; pass --phase", plan.ID)
+		return nil, false, fmt.Errorf(
+			"plan %d has no open phase; pass --phase", plan.ID)
 	}
 
 	// Refuse before reading the repository off disk: a plan already held
@@ -64,11 +94,11 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
 			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			s.Go)
+			doGo)
 		carryProblems(doc, res.Problems, c.All)
 		doc.Refuse(reason)
 
-		return renderStart(c, rt, doc)
+		return doc, false, nil
 	}
 
 	// The gather withholds a coordinate when two checkouts share the
@@ -78,25 +108,31 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	if !ok {
 		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
 			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			s.Go)
+			doGo)
 		carryProblems(doc, res.Problems, c.All)
 		doc.Refuse(ambiguousRepo(plan.Repo))
 
-		return renderStart(c, rt, doc)
+		return doc, false, nil
 	}
 
 	sc := startContextOf(coord)
-	sp := composeStart(plan, phase, s.Note, sc)
-	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, s.Go)
+	sp := composeStart(plan, phase, note, sc)
+	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 
-	if s.Go {
-		if err := startExecute(rt, doc, plan, sp, sc, s.Edit); err != nil {
-			return err
+	if doGo {
+		if err := startExecute(rt, doc, plan, sp, sc, edit); err != nil {
+			if errors.Is(err, claim.ErrLostRace) {
+				doc.Refuse(lostRaceRefusal(err))
+
+				return doc, true, nil
+			}
+
+			return nil, false, err
 		}
 	}
 
-	return renderStart(c, rt, doc)
+	return doc, false, nil
 }
 
 // startContext is the repository state the escalation reads once: where
@@ -175,11 +211,9 @@ func startExecute(
 		Lane:     sp.Lane,
 		Host:     hostname(),
 	}, rt.git); err != nil {
-		if errors.Is(err, claim.ErrLostRace) {
-			doc.Refuse(lostRaceRefusal(err))
-			return nil
-		}
-
+		// A lost race is returned, not swallowed: buildStart records it as a
+		// refusal for start, and pick --go retries past it to the next
+		// candidate. Every other error is a real fault.
 		return err
 	}
 
