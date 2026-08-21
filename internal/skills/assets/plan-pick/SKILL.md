@@ -8,39 +8,18 @@ description: >-
 ---
 # plan-pick
 
-A lane is a worktree working one plan. The claim is a branch ref frit
-pushes with `--force-with-lease`, so the ref list is the registry — a
-plan's `status:` only reaches the default branch once work merges.
-Claim before you start; the push settles the race, a local look does
-not.
-
-Run `frit <verb>` (from a source checkout, `go run ./cmd/frit`); add
-`--json` to parse.
+The claim is a ref frit force-pushes, so the push — not a local look —
+settles who starts a plan. Run `frit <verb>` (source checkout: `go run
+./cmd/frit`); add `--json` to parse.
 
 ## Method
 
-1. **Look.** `frit pick -n 5` ranks startable plans by how much each
-   unblocks; `frit board` shows who holds each and the live agent.
-   `pick` ranks only fresh plans — when it says nothing startable but
-   `board` shows an in-progress plan nobody holds, its lane merged
-   away. That is a resume, not a fresh pick: skip to step 4.
-2. **Verify the top pick.** `frit show <id>` names any unmet
-   dependency (a blocked plan is not startable); `frit next <id>`
-   names the first unfinished phase and its tier. Then
-   `grep -rn "<symbol>" .` — if the artifact already exists, the work
-   landed; take the next candidate.
-3. **Claim.** `frit claim <id>`. Non-zero exit means someone else
-   holds it; the message names the holder — re-run `pick`, take the
-   next. Never force.
-4. **Start.** `frit start <id> --go` mints the claim and stands the
-   lane up; `--phase N` names the phase when the plan carries no
-   ledger. It resumes an in-progress plan nobody holds as readily as
-   it starts a fresh one. The branch, lane and model are the plan's —
-   frit states them, so report them, never ask which to use.
+**`frit pick --go`** does the whole pick in one verb. It ranks the
+startable plans by unblock weight, takes the top, verifies deps, mints
+the atomic claim, and stands the lane up. It resumes an unheld
+in-progress plan when nothing fresh is startable, and takes the next
+candidate when a claim loses its race. The branch, lane and model are
+the plan's — report them, never ask. `nothing startable` means nothing
+was claimed.
 
-## Notes
-
-- `frit open <id>` focuses a lane's pane; `frit orphans` and `frit
-  stale` report lanes that disagree or have gone quiet. Report a stale
-  claim, never release another's.
-- Which refs count as a claim is declared per repo in `.frit.yml`.
+`frit board` shows who holds what; `frit --help` lists the rest.

@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "command": "doctor",
+  "root": "/fleet",
+  "findings": [
+    {
+      "repo": "atlas",
+      "id": 2608161809,
+      "path": "plan/2608161809_discovery.md",
+      "check": "goal",
+      "message": "section \"## Goal\" has no meaningful body content; add paragraph, list, table, or code content, or add \"<?allow-empty-section?>\" for an intentional empty section"
+    }
+  ],
+  "problems": [
+    {
+      "repo": "busted",
+      "message": "no such directory"
+    }
+  ]
+}

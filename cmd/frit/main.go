@@ -29,6 +29,7 @@ import (
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
+	doctorpkg "github.com/jeduden/frit/internal/doctor"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -92,7 +93,7 @@ type cli struct {
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
-	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
+	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks; --go claims and starts the top."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
@@ -103,6 +104,7 @@ type cli struct {
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
+	Doctor  doctorCmd  `cmd:"" help:"Report plans with a semantic gap: missing Goal, tier, Execution row."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Skills  skillsCmd  `cmd:"" help:"Install the bundled agent skills into .claude/skills."`
@@ -306,6 +308,85 @@ func staleState(presence, hasAgent bool) string {
 		return "live"
 	default:
 		return "abandoned"
+	}
+}
+
+type doctorCmd struct{}
+
+// Help documents doctor's checks and their provenance, so a reader
+// learns what a finding means and where it came from without opening
+// the source — the contract this verb promises to catch, and nothing
+// beyond it.
+func (d *doctorCmd) Help() string {
+	return `doctor scans every plan on disk and lists these gaps:
+
+  goal            a "## Goal" section with no meaningful body content
+  schema          a front-matter field plan/proto.md's schema rejects
+                  (today, only the model tier)
+  execution-row   a phase with no matching row in its "## Execution"
+                  table
+  tier            an Execution row naming a tier that is not haiku,
+                  sonnet or opus
+
+goal and schema are mdsmith's own findings: doctor runs mdsmith as an
+imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
+repository's own plan/proto.md, rather than reimplementing a checker.
+execution-row and tier read the body data frit already parses for
+next and show — mdsmith's schema has no way to see inside a markdown
+table's cells, or cross-reference a table's rows against another
+section's headings.
+
+A repository with no plan/proto.md has nothing to check.`
+}
+
+// Run scans every repository's plan directory for the semantic gaps
+// frit now depends on, read-only — see Help.
+func (d *doctorCmd) Run(c *cli, rt *runtime) error {
+	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewDoctor(c.Root)
+	for _, repo := range repos {
+		cfg, err := repocfg.Load(repo.Path)
+		if err != nil {
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
+		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
+		if err != nil {
+			if errors.Is(err, doctorpkg.ErrNoSchema) {
+				continue
+			}
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
+		doc.AddFindings(repo.Name, findings)
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printDoctor(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// printDoctor writes one row per finding. A repository with nothing
+// wrong contributes no rows, the same convention orphans and stale
+// use to stay short.
+func printDoctor(out io.Writer, doc *report.DoctorDoc) {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, f := range doc.Findings {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n",
+			f.Repo, f.ID, f.Path, f.Check, f.Message)
+	}
+	_ = tw.Flush()
+
+	if len(doc.Findings) == 0 {
+		_, _ = fmt.Fprintln(out, "no semantic gaps found")
 	}
 }
 
@@ -971,16 +1052,24 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 }
 
 type pickCmd struct {
-	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	N     int    `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	Go    bool   `help:"Claim and start the top plan; resume an unheld in-progress one, skip a lost race to the next."`
+	Phase string `help:"Phase to dispatch under --go; default is the plan's next open phase."`
 	sortFlags
 }
 
 // Run lists the startable plans ranked by how much each unblocks,
-// trimmed to the number asked for.
+// trimmed to the number asked for. With --go it stops listing and starts
+// the top candidate outright — the selection the skill used to make by
+// hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
+	}
+
+	if pc.Go {
+		return pc.start(c, rt, res)
 	}
 
 	list, err := pc.order(discovery.Pick(res.Plans, pc.N))
@@ -1005,6 +1094,44 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 // of startable plans, so the rendering is shared rather than copied.
 func readyView(doc *report.PickDoc) *report.ReadyDoc {
 	return &report.ReadyDoc{Plans: doc.Plans}
+}
+
+// start runs pick --go: walk the ranked candidates and run start's own
+// claim-and-stand-up path on the first that takes. A candidate whose
+// claim loses its race is skipped for the next — the retry the skill
+// used to spell out by hand — so a live hold on the top pick does not
+// stall the fleet. When nothing is startable, or every candidate loses
+// its race, it prints the same empty answer a bare pick gives.
+func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
+	for _, plan := range discovery.Candidates(res.Plans) {
+		doc, lost, err := buildStart(c, rt, res, plan, pc.Phase, "", false, true)
+		if err != nil {
+			return err
+		}
+		if lost {
+			continue
+		}
+
+		return renderStart(c, rt, doc)
+	}
+
+	return pc.emptyStart(c, rt, res)
+}
+
+// emptyStart prints the ranked-list report with no candidate — the same
+// "nothing startable" answer a bare pick gives — for when pick --go
+// finds nothing to start or loses every race.
+func (pc *pickCmd) emptyStart(c *cli, rt *runtime, res fleet.Result) error {
+	doc := report.NewPick(c.Root, hostname())
+	carryProblems(doc, res.Problems, c.All)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, readyView(doc), rt.width)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
 }
 
 type nextCmd struct {
@@ -1445,8 +1572,11 @@ func printFind(out io.Writer, doc *report.FindDoc, width int) {
 
 // printNext writes the plan and the phase to pick up, the seed a
 // dispatch verb will one day type for you: a plan id, a phase number,
-// and the tier the plan asks for. A plan with no open phase says why —
-// done, or carrying no phase ledger at all.
+// the tier and gate its Execution row names, and its own section's
+// prose — the phase an executor reads, not just its title. A phase
+// with no Execution row prints a dash rather than the plan's own
+// tier — the gap is said explicitly, in doc.Problems. A plan with no
+// open phase says why — done, or carrying no phase ledger at all.
 func printNext(out io.Writer, doc *report.NextDoc) {
 	p := doc.Plan
 	if !doc.HasPhase {
@@ -1460,9 +1590,24 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\n",
-		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title, modelLabel(p.Model))
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title,
+		modelLabel(doc.Phase.Tier), orDash(doc.Phase.Gate))
 	_ = tw.Flush()
+	if doc.Phase.Body != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Body)
+	}
+}
+
+// orDash names an empty string as a dash, so a blank cell reads as
+// "nothing here" rather than looking like a column the renderer
+// dropped.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+
+	return s
 }
 
 // printShow writes the plan and its upstream dependencies, one plan per

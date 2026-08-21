@@ -19,7 +19,10 @@
   "phase": {
     "n": "2",
     "title": "ready",
-    "status": "🔳"
+    "status": "🔳",
+    "tier": "sonnet",
+    "gate": "test ready lists a startable plan",
+    "body": "Parse the readiness rule and wire it to a verb."
   },
   "has_phase": true,
   "problems": []
