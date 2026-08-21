@@ -392,6 +392,16 @@ func TestMarkerHost(t *testing.T) {
 		"plan:     plan/7-shader-unit.md"
 	assert.Equal(t, "mm-box", markerHost(body))
 	assert.Empty(t, markerHost("real work, no host line"))
+
+	lease := "plan 7: claim\n\n" +
+		"epoch:   1\n" +
+		"nonce:   cafe\n" +
+		"holder:  box-a\n" +
+		"lane:    /lanes/a\n" +
+		"session: -\n" +
+		"base:    abc123"
+	assert.Equal(t, "box-a", markerHost(lease),
+		"a lease marker's holder trailer reads as the host")
 }
 
 // TestBaseBranch reduces every base-ref shape to the remote branch name a

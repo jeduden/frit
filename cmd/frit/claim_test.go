@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,14 +76,20 @@ func TestClaimMintsAPickablePlan(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7")
-	assert.Contains(t, out.String(), "plan/7-shader-unit")
+	assert.Contains(t, out.String(), "branch: plan/7\n",
+		"the work ref is id-only")
 
-	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the claim ref was minted locally")
 	remote, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/heads/plan/7-shader-unit")
+		"refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Contains(t, remote, local, "the same lease is on origin")
+
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", local)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: claim", "the tip is the claim marker")
+	assert.Contains(t, body, "epoch:   1", "a fresh acquisition is epoch 1")
 }
 
 // TestClaimStandsUpItsWorktree is the isolation gate: a successful claim
@@ -101,8 +108,8 @@ func TestClaimStandsUpItsWorktree(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.True(t, rec.verb("worktree", "create"),
 		"a claim stands its lane's worktree up through herdr")
-	assert.True(t, rec.hasArg("plan/7-shader-unit"),
-		"the worktree is checked out on the claim branch")
+	assert.True(t, rec.hasArg("plan/7"),
+		"the worktree is checked out on the id-only claim branch")
 	assert.False(t, rec.verb("agent", "start"),
 		"the agent is start's rung, not claim's")
 	assert.Contains(t, out.String(), "worktree:",
@@ -129,44 +136,75 @@ func TestClaimWarnsWhenTheWorktreeFails(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7", "the lease stands")
 	assert.Contains(t, out.String(), "warning", "a failed worktree warns")
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the atomic lease is minted before the worktree")
 }
 
 // TestLostRaceRefusalNamesTheHolder: the refusal wording distinguishes a
-// landed branch, a claim held on this host, and one held elsewhere, and
-// falls back to the original wording for an unknown or non-race error.
+// landed work ref, a lease held by this machine, and one held elsewhere,
+// and falls back to the original wording for an unknown or non-race
+// error. The facts come off the winner's marker via the HeldError.
 func TestLostRaceRefusalNamesTheHolder(t *testing.T) {
-	lost := func(h claim.Holder) error {
-		return &claim.LostRaceError{PlanID: 7, Holder: h}
-	}
-
 	assert.Equal(t,
 		"the claim branch has already landed; its status is still open, "+
 			"so set plan 7 to ✅",
-		lostRaceRefusal(lost(claim.Holder{Landed: true, Known: true})),
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true, Landed: true}),
 		"a merged holder is named as landed, not a competitor")
 
 	assert.Equal(t, "already held on this host (box-a)",
-		lostRaceRefusal(lost(claim.Holder{
-			Host: "box-a", ThisHost: true, Known: true})),
-		"a claim held on this host names this host")
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true, ThisHolder: true,
+			Marker: claim.Marker{Holder: "box-a"}}),
+		"a lease this machine holds names this host")
 
 	assert.Equal(t, "lost the race to another machine (box-b)",
-		lostRaceRefusal(lost(claim.Holder{Host: "box-b", Known: true})),
-		"a claim held elsewhere names the other machine")
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true,
+			Marker: claim.Marker{Holder: "box-b"}}),
+		"a lease held elsewhere names the other machine")
 
 	assert.Equal(t, "lost the race to another machine",
-		lostRaceRefusal(lost(claim.Holder{})),
-		"an unread holder falls back to the original wording")
+		lostRaceRefusal(&claim.HeldError{PlanID: 7}),
+		"an unread marker falls back to the original wording")
 
 	assert.Equal(t, "lost the race to another machine",
-		lostRaceRefusal(lost(claim.Holder{Known: true})),
-		"a known holder with no host names no machine, not empty parentheses")
+		lostRaceRefusal(&claim.HeldError{PlanID: 7, Known: true}),
+		"a known marker with no holder names no machine, not empty parentheses")
 
 	assert.Equal(t, "lost the race to another machine",
 		lostRaceRefusal(errors.New("some other error")),
-		"a non-LostRaceError falls back too")
+		"a non-HeldError falls back too")
+}
+
+// TestClaimReacquiresAReleasedLease: a work ref whose tip is a release
+// marker is a lease that ended, not a live hold — the plan is claimable
+// again, and the new claim CASes on the release marker at epoch E+1.
+func TestClaimReacquiresAReleasedLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Release(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"a released lease does not read as held")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: claim", "the tip is a fresh claim")
+	assert.Contains(t, body, "epoch:   2", "the re-acquisition reads E+1")
 }
 
 // TestClaimRefusesAHeldPlan: a plan a lane already holds is not
@@ -220,7 +258,7 @@ func TestClaimResumesAnUnheldInProgressPlan(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7")
 	assert.NotContains(t, out.String(), "already in progress")
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the resume mints the hold on the deterministic branch")
 }
 
@@ -238,7 +276,7 @@ func TestClaimEmitsJSON(t *testing.T) {
 
 	assert.Equal(t, "claim", doc.Command)
 	assert.True(t, doc.Claimed)
-	assert.Equal(t, "plan/7-shader-unit", doc.Branch)
+	assert.Equal(t, "plan/7", doc.Branch)
 	assert.Equal(t, int64(7), doc.Plan.ID)
 	assert.NotEmpty(t, doc.Base, "the lease is dated against a base commit")
 	assert.Empty(t, doc.Refused)
@@ -265,7 +303,6 @@ func TestClaimRefusesAnAmbiguousRepoName(t *testing.T) {
 	assert.Contains(t, out.String(), "refused")
 	assert.Contains(t, out.String(), "shared by another checkout")
 
-	_, err := gitCapture(t, repoA, "rev-parse",
-		"refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repoA, "rev-parse", "refs/heads/plan/7")
 	assert.Error(t, err, "no lease was minted in either checkout")
 }

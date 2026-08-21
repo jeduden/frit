@@ -45,7 +45,8 @@ func TestStartComposesTheEscalation(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.Contains(t, got, "dry run")
-	assert.Contains(t, got, "plan/7-shader-unit", "the claim branch")
+	assert.Contains(t, got, "claim:    plan/7  (base",
+		"the claim branch is the id-only work ref")
 	assert.Contains(t, got, "/plan-phase 7 3", "the typed prompt")
 	assert.Contains(t, got, "--model", "the tier maps to an agent arg")
 }
@@ -97,7 +98,8 @@ func TestStartResumesAnUnheldInProgressPlan(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.NotContains(t, got, "refused")
-	assert.Contains(t, got, "plan/7-shader-unit", "the claim branch is prescribed")
+	assert.Contains(t, got, "claim:    plan/7  (base",
+		"the claim branch is prescribed and id-only")
 	assert.Contains(t, got, "dry run")
 }
 
@@ -115,7 +117,7 @@ func TestStartEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(7), doc.Plan.ID)
 	assert.Equal(t, "3", doc.Phase)
 	assert.Equal(t, "claude", doc.Kind)
-	assert.Equal(t, "plan/7-shader-unit", doc.Branch)
+	assert.Equal(t, "plan/7", doc.Branch)
 	assert.Equal(t, "/plan-phase 7 3", doc.Prompt)
 	assert.NotEmpty(t, doc.Base)
 	assert.False(t, doc.Started)
@@ -146,7 +148,7 @@ func TestStartGoRunsTheEscalation(t *testing.T) {
 	assert.False(t, rec.verb("agent", "read"), "start never reads a reply")
 	assert.Contains(t, out.String(), "started plan 7")
 
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "frit minted the claim itself")
 }
 
@@ -193,8 +195,48 @@ func TestStartEditEmptyAbortsBeforeAnythingRuns(t *testing.T) {
 	assert.Contains(t, errb.String(), "empty")
 	assert.False(t, rec.verb("worktree", "create"), "nothing was spawned")
 	_, err := gitCapture(t, repo,
-		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
+		"rev-parse", "--verify", "refs/heads/plan/7")
 	assert.Error(t, err, "no claim was pushed")
+}
+
+// TestStartUnwindReleasesTheLeaseAndNamesTheLane: a handoff that dies
+// after the lane stood up releases the lease with a pushed marker —
+// never a delete, so the next acquire reads epoch E+1 — and the error
+// names the worktree and pane left behind, so what stood up can be
+// found rather than guessed at.
+func TestStartUnwindReleasesTheLeaseAndNamesTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "prompt" {
+			return nil, errors.New("the agent went away")
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a dead handoff is a failure")
+	assert.Contains(t, errb.String(), "atlas-shader-unit",
+		"the error names the worktree that stood up")
+	assert.Contains(t, errb.String(), "wZ:p1",
+		"the error names the pane that stood up")
+
+	remote, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.NotEmpty(t, remote, "the unwind deletes nothing")
+	subject, err := gitCapture(t, repo,
+		"log", "-1", "--format=%s", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: release", subject,
+		"the unwind pushes the release marker")
 }
 
 // TestEditInEditorRunsAMultiWordEditor: a $EDITOR carrying a flag still

@@ -38,6 +38,10 @@ func TestInitWritesPatternsThatCompile(t *testing.T) {
 	id, ok := holds.Match("plan/2608142306-fleet-index")
 	assert.True(t, ok)
 	assert.Equal(t, int64(2608142306), id)
+
+	id, ok = holds.Match("plan/2608142306")
+	assert.True(t, ok, "the id-only work ref the lease mints is a hold")
+	assert.Equal(t, int64(2608142306), id)
 }
 
 func TestInitRefusesToClobberAnEditedFile(t *testing.T) {

@@ -262,3 +262,15 @@ func TestNewNonce(t *testing.T) {
 	assert.NotEmpty(t, a)
 	assert.NotEqual(t, a, b)
 }
+
+// TestMarkerHostReadsALeaseMarker: the current-worktree guard reads
+// the holder off a lease marker too — the id-only subject with the
+// holder trailer — so standing in a checkout another machine leases
+// still refuses the inference.
+func TestMarkerHostReadsALeaseMarker(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "box-a", MarkerHost(work, "plan/7", 7, gitwt.Exec))
+}

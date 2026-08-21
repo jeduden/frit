@@ -720,3 +720,57 @@ func TestPickRanksAndTrims(t *testing.T) {
 	assert.Equal(t, int64(2), doc.Plans[0].ID,
 		"the plan freeing the most downstream work ranks first")
 }
+
+// leaseRef parks refs/heads/plan/<id> on a fresh lease marker of the
+// given kind, child of main's tip — the shape claim.Acquire and
+// claim.Release leave the work ref in.
+func leaseRef(t *testing.T, repo string, id int, kind string) {
+	t.Helper()
+	tree, err := gitCapture(t, repo, "rev-parse", "HEAD^{tree}")
+	require.NoError(t, err)
+	head, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	msg := fmt.Sprintf("plan %d: %s\n\nepoch:   1\nnonce:   cafe\n"+
+		"holder:  box-a\nlane:    -\nsession: -", id, kind)
+	sha, err := gitCapture(t, repo, "commit-tree", tree, "-p", head, "-m", msg)
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "update-ref",
+		fmt.Sprintf("refs/heads/plan/%d", id), sha)
+	require.NoError(t, err)
+}
+
+// TestReadyWithholdsALeaseRef: the id-only work ref the lease mints is
+// a hold under the default patterns, so a plan with a live lease marker
+// on its tip is not offered.
+func TestReadyWithholdsALeaseRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	leaseRef(t, repo, 7, "claim")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"ready", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "nothing startable",
+		"a live lease on the work ref withholds the plan")
+}
+
+// TestReadyOffersAReleasedLease: a work ref whose tip is a release
+// marker is a lease that ended, not a hold — the plan is startable
+// again without any human deleting the ref.
+func TestReadyOffersAReleasedLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	leaseRef(t, repo, 7, "release")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"ready", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Shader unit",
+		"a released lease does not read as a live hold")
+}
