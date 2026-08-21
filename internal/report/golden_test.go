@@ -343,6 +343,9 @@ func goldenStart() *StartDoc {
 func goldenOrphans() *OrphansDoc {
 	doc := NewOrphans("/fleet")
 	doc.AddRepo("atlas", found())
+	doc.AddStale("atlas", []discovery.Plan{
+		{ID: 7, Holds: []string{"plan/7"}, StaleFor: 3 * time.Hour},
+	})
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
 

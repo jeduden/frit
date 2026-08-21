@@ -332,6 +332,27 @@ func TestBoardReportsAMaturedHoldsAge(t *testing.T) {
 	assert.Greater(t, doc.Plans[0].StaleSeconds, int64(0))
 }
 
+// TestOrphansReportsAMaturedHold: the held-stale cell of the
+// verb-state table — orphans names a takeover candidate beside its
+// other kinds, without a second `board` read to spot it.
+func TestOrphansReportsAMaturedHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Underway")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "stale")
+	assert.Contains(t, out.String(), "plan 7")
+}
+
 // TestBoardSortByID orders the board oldest-first, and --reverse flips
 // it, over the command instead of its default status order.
 func TestBoardSortByID(t *testing.T) {

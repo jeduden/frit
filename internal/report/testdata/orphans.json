@@ -72,6 +72,13 @@
           "from": "plan/42-x",
           "to": "plan/42"
         }
+      ],
+      "stale_holds": [
+        {
+          "plan_id": 7,
+          "branch": "plan/7",
+          "stale_seconds": 10800
+        }
       ]
     },
     {
@@ -80,7 +87,8 @@
       "stranded": [],
       "empty": [],
       "prunable": [],
-      "migratable": []
+      "migratable": [],
+      "stale_holds": []
     }
   ],
   "problems": [

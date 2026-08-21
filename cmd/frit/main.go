@@ -156,9 +156,16 @@ func repoLanes(
 type orphansCmd struct{}
 
 // Run reports what is claimed but unstaffed, prepared but unstarted,
-// or already gone.
+// held past its takeover window, or already gone.
 func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+	// The held-stale cell of the verb-state table reads the same
+	// observation fold board and claim use, not lanes.Find's git-ref
+	// sweep, so it needs its own gather beside the lanes walk below.
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -172,6 +179,7 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
+		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
 	}
 
 	if c.JSON {
@@ -181,6 +189,19 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// staleHeld filters one repository's held plans whose takeover window
+// has matured — a takeover candidate nobody has acted on yet.
+func staleHeld(plans []discovery.Plan, repo string) []discovery.Plan {
+	out := make([]discovery.Plan, 0)
+	for _, p := range plans {
+		if p.Repo == repo && p.Held && p.Stale {
+			out = append(out, p)
+		}
+	}
+
+	return out
 }
 
 // printOrphans writes a block per repository with something wrong.
@@ -220,6 +241,11 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, m := range repo.Migratable {
 			_, _ = fmt.Fprintf(tw, "  decorated hold, migrate\tplan %d\t%s → %s\n",
 				m.PlanID, m.From, m.To)
+		}
+		for _, s := range repo.StaleHolds {
+			age := (time.Duration(s.StaleSeconds) * time.Second).Round(time.Minute)
+			_, _ = fmt.Fprintf(tw, "  stale, takeover candidate\tplan %d\t%s (%s)\n",
+				s.PlanID, s.Branch, age)
 		}
 	}
 	_ = tw.Flush()
