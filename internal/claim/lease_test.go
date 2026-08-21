@@ -191,6 +191,97 @@ func TestReleaseLeavesAMarkerAndReacquireBumpsTheEpoch(t *testing.T) {
 		"the new claim is a child of the release marker")
 }
 
+// TestTheLanePersistsItsLeaseToken: acquire and every renewal write
+// the winning tip into the lane's own git dir, so the token survives
+// the process (F9, S3). Release ends the lease, so it leaves the
+// token exactly where the last renewal left it — writing one for a
+// lease being given up would be a lie.
+func TestTheLanePersistsItsLeaseToken(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", work)
+
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, ReadToken(work, opts.PlanID, gitwt.Exec))
+
+	renewed, err := Renew(work, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, ReadToken(work, opts.PlanID, gitwt.Exec))
+
+	released, err := Release(work, opts, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, ReadToken(work, opts.PlanID, gitwt.Exec),
+		"a release does not persist a token for the lease it just ended")
+	_ = released
+}
+
+// TestTakeoverPersistsTheTakingLanesToken: the taking lane's own token
+// is left at the takeover marker, not the tip it seized from.
+func TestTakeoverPersistsTheTakingLanesToken(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+	taken, err := Takeover(second,
+		leaseOptions("box-b", second), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, taken.Tip, ReadToken(second, 7, gitwt.Exec))
+}
+
+// TestResumeIsARenewalWithNoWindow: resume mints the same transition a
+// renewal does — a beat, same epoch, CASed from the lane's own
+// recorded tip — and persists the token like any other renewal. The
+// caller is what skips the staleness window; Resume itself is
+// mechanically Renew.
+func TestResumeIsARenewalWithNoWindow(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", work)
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	resumed, err := Resume(work, opts, lease.Tip, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, lease.Epoch, resumed.Epoch, "resume never bumps the epoch")
+	body := gitCmd(t, work, "log", "-1", "--format=%B", resumed.Tip)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Equal(t, resumed.Tip, ReadToken(work, opts.PlanID, gitwt.Exec))
+}
+
+// TestReadMarkerReadsTheMarkerAtATip: ReadMarker is the exported
+// reader a caller outside the package uses to learn who a tip's
+// marker names — the veto check's way in.
+func TestReadMarkerReadsTheMarkerAtATip(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	opts.Session = "wS:p1"
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+	m, ok := ReadMarker(second, opts, lease.Tip, gitwt.Exec)
+
+	require.True(t, ok)
+	assert.Equal(t, "box-a", m.Holder)
+	assert.Equal(t, "wS:p1", m.Session)
+}
+
+// TestRemoteTipReadsOriginsCurrentTip: RemoteTip is the one ls-remote
+// self-resume needs to compare a persisted token against origin's
+// current view, not this clone's possibly-stale local one.
+func TestRemoteTipReadsOriginsCurrentTip(t *testing.T) {
+	first := originAndClone(t)
+	assert.Equal(t, "", RemoteTip(first, "origin", 7, gitwt.Exec),
+		"no ref, no tip")
+
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, lease.Tip, RemoteTip(first, "origin", 7, gitwt.Exec))
+}
+
 // TestLeaseMessage pins the marker body: the kind in the subject, the
 // trailers beneath it, "-" for an empty lane or session, and the base
 // trailer only where a claim carries one.
