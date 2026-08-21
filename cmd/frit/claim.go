@@ -256,7 +256,7 @@ func mintClaim(
 // tip the refusal read, so no window is needed and a holder that
 // renewed since fails the CAS harmlessly.
 func scavengeLanded(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, coord fleet.Coord, err error,
 ) {
 	var held *claim.HeldError
@@ -273,7 +273,7 @@ func scavengeLanded(
 // not tied to the tip, so it additionally requires a matured window:
 // a live, renewing holder is never scavenged (A2).
 func scavengeGlyph(
-	rt *runtime, doc *report.ClaimDoc,
+	rt *runtime, doc scavengeReporter,
 	plan discovery.Plan, res fleet.Result,
 ) {
 	if !plan.Done() || !plan.Stale || plan.HoldTip == "" {

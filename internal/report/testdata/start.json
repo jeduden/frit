@@ -19,5 +19,8 @@
   "resumed": false,
   "pane": "",
   "refused": "",
+  "scavenged": "",
+  "rescue": "",
+  "warning": "",
   "problems": []
 }

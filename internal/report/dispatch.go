@@ -377,7 +377,15 @@ type StartDoc struct {
 	Pane string `json:"pane"`
 	// Refused is why the escalation was withheld — a plan not startable,
 	// or a claim lost to another machine — empty when start proceeded.
-	Refused  string    `json:"refused"`
+	Refused string `json:"refused"`
+	// Scavenged is the work ref a refusal cleaned up on landed
+	// evidence, "" when nothing was scavenged; Rescue is where its
+	// unlanded work was parked, "" when the chain held nothing a
+	// delete could destroy.
+	Scavenged string `json:"scavenged"`
+	Rescue    string `json:"rescue"`
+	// Warning is a non-fatal failure alongside a scavenge.
+	Warning  string    `json:"warning"`
 	Problems []Problem `json:"problems"`
 }
 
@@ -422,6 +430,16 @@ func (d *StartDoc) MarkStarted(pane string) {
 // on a lease resumed by its own persisted token, rather than one
 // acquired or taken over.
 func (d *StartDoc) MarkResumed() { d.Resumed = true }
+
+// ScavengedRef records the work ref a refusal cleaned up on landed
+// evidence, and where its unlanded work was parked, if anywhere.
+func (d *StartDoc) ScavengedRef(branch, rescue string) {
+	d.Scavenged = branch
+	d.Rescue = rescue
+}
+
+// Warn records a non-fatal failure alongside a scavenge.
+func (d *StartDoc) Warn(reason string) { d.Warning = reason }
 
 // AddProblem records a repository frit could not read.
 func (d *StartDoc) AddProblem(repo string, err error) {

@@ -101,7 +101,10 @@ func buildStart(
 	// definition, whether or not its window has matured.
 	if resumeTip == "" {
 		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
-			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
+			doc := refusedStart(c, res, plan, phase, doGo, reason)
+			scavengeGlyph(rt, doc, plan, res)
+
+			return doc, false, nil
 		}
 	}
 
@@ -122,6 +125,7 @@ func buildStart(
 		if err := startExecute(rt, doc, plan, sp, sc, edit, resumeTip); err != nil {
 			if errors.Is(err, claim.ErrLostRace) {
 				doc.Refuse(lostRaceRefusal(err))
+				scavengeLanded(rt, doc, plan, coord, err)
 
 				return doc, true, nil
 			}

@@ -406,6 +406,51 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 		"the resume is CASed from the lane's own persisted token")
 }
 
+// TestStartScavengesALandedRef: the landed cell of the verb-state
+// table for start — a claim lost to a ref whose work already merged
+// keeps the refusal claim gives, and cleans the leftover ref up the
+// same way, rather than merely refusing and leaving it behind.
+func TestStartScavengesALandedRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _ := landedLeaseRepo(t, root)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "already landed")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the landed ref is scavenged from origin")
+}
+
+// TestStartScavengesADoneGlyphOnlyWhenStale: start's refusal of a done
+// plan whose lingering ref has matured cleans it up too, the same
+// glyph evidence claim scavenges.
+func TestStartScavengesADoneGlyphOnlyWhenStale(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	seedWindow(t, "atlas", 7, tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone,
+		"a done plan's lingering ref is scavenged under a matured window")
+}
+
 // TestEditInEditorRunsAMultiWordEditor: a $EDITOR carrying a flag still
 // launches, so the value is split into a command and its arguments rather
 // than treated as one binary name.
