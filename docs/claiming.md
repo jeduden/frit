@@ -1,11 +1,13 @@
 # How claiming works
 
 frit reads many git repositories and shows the plans in them. It
-changes only one thing: it claims a plan. A claim marks a plan as
-being worked, recorded as a branch on the repository's shared remote,
-so other machines see it once they fetch. This page explains how a
-claim is made, how races resolve, how it can fail, and how to find
-and drop a stale claim.
+changes exactly one thing: the lease on a plan's work ref. A lease
+marks a plan as being worked, recorded on the repository's shared
+remote, so other machines see it once they fetch. This page explains
+how a lease is made and kept alive, how races and takeovers resolve,
+how a fenced lane exits clean, and how to find a lease that needs
+attention. The design record behind every rule here is
+[the lease protocol note](research/lease-protocol.md).
 
 ## The fleet
 
@@ -14,287 +16,285 @@ with `--root` (or `FRIT_ROOT`, or a config file). Most commands read
 the whole fleet; `frit init` writes to one repository you name, and
 `frit version` reads nothing.
 
-## A claim is a branch
+## The work ref is the lease
 
-A git ref is a name pointing at a commit; a branch is a ref. frit
-claims a plan by creating a branch `plan/<id>-<slug>`: the id is the
-plan's id, the slug is the plan file's name without `.md` and without
-everything up to the first underscore. `plan/7_shader-unit.md` claims
-on `plan/7-shader-unit`.
+A git ref is a name pointing at a commit. frit's hold on a plan is one
+ref, `refs/heads/plan/<id>` — the id alone, no slug: `plan/7_shader-unit.md`
+claims on `plan/7`. Nothing local — a title, a slug, a machine's own
+naming choice — ever reaches the name, so two claimants can never mint
+different branches for the same plan.
 
-The branch points at an empty commit — the marker — that changes no
-files. Its job is to exist, so other machines see the plan is taken.
+The ref's tip is the lease token. Every state transition — acquire,
+renew, release, takeover, resume, scavenge — is one server-side CAS
+(`git push --force-with-lease` with an exact expected old value). The
+remote is the sole arbiter; frit never decides holdership from a local
+view, and a failure is classified by what the remote says holds the
+ref now, never by git's error text.
 
-frit finds claims by listing the branches and keeping the ones whose name
-matches a hold pattern. Each repository sets its own patterns in
-`.frit.yml`. frit drops any branch already merged into the repository's
-default branch before it matches, so a finished plan stops showing as
-claimed even though its branch still exists.
+frit finds holds by listing branches and keeping the ones a
+repository's `.frit.yml` `holds` patterns match. The default patterns
+are `plan/{id}` (the shape frit mints) and `plan/{id}-*` (see
+[Legacy holds](#legacy-holds)). frit drops any branch already merged
+into the default branch before it matches, so a finished plan stops
+showing as claimed even though its branch still exists.
 
-frit always mints the fixed shape `plan/<id>-<slug>`; it does not read
-`.frit.yml` when it writes. If a repository changes `holds` to a shape
-that does not also match `plan/{id}-*`, frit will not recognise its own
-claims as holds. Keep at least one pattern that matches `plan/{id}-*`.
+## The marker
 
-## The branch is where the work goes
+Every transition pushes an empty commit — a marker — that changes no
+files. Its trailers are the lease state:
 
-`frit start` mints the claim branch first. Only if that succeeds does it
-ask herdr, in order, to create the worktree, start the agent, send the
-prompt, and focus the pane. An agent commits its work on that same
-branch, on top of the marker. The claim branch and the work branch are
-one branch.
+```text
+plan 7: claim
 
-A plan being worked has two parts under one branch name: the branch that
-claims the plan, and the worktree checked out on it. frit reads the plan
-id out of each branch name and pairs the two by that id. The pair is one
-lane.
+epoch:   1
+nonce:   3f2a9c1e
+holder:  workshop
+lane:    /home/you/git/atlas-shader-unit
+session: -
+base:    3f2a9c1e8b7d4056a1c9e2f0b8d6473a5e1c9f20
+```
 
-If a plan has a claim branch but no worktree, frit reports it as
-unstaffed (see [Finding stale claims](#finding-stale-claims)). The
-reverse — a worktree on a branch with no matching claim — is not reported
-by any command.
+`epoch` increases on every acquisition — acquire, re-acquire, takeover
+— never on a renewal. The current holder's epoch always outranks
+whoever it replaced. `nonce` is fresh on every marker, so a deleted
+and recreated ref can never reuse a SHA a pending check still expects.
+
+`holder`, `lane` and `session` are for reporting — the board and
+`orphans` read them — and never gate a check by themselves. The token
+is the tip SHA, persisted locally on acquire and every renewal; that
+is what a verb's push CASes against, and what lets a lane resume its
+own lease (see [Self-resume](#self-resume)). `base` appears only on a
+claim marker: the base commit the acquisition was dated against.
+
+## Work rides the same ref
+
+`frit start` acquires the lease first. Only if that lands does it ask
+herdr, in order, to create the worktree, start the agent, bind the
+session to the lease, send the prompt, and focus the pane. An agent's
+own commits land on top of the marker, each a renewal at the same
+epoch — the lease ref and the work ref are the same ref.
 
 ## When a plan can be claimed
 
-frit tries to claim a plan only when all of these hold:
+frit tries to acquire a plan only when all of these hold:
 
-- its status is 🔲 not-started, or 🔳 in progress with no branch
-  claiming it — that second case is a resume, and frit re-mints the
-  claim branch for it. ✅ done and ⛔ superseded are refused.
-- no branch already claims it
+- its status is 🔲 not-started, or 🔳 in progress with no ref holding
+  it — that second case is a resume, and frit re-acquires the lease
+  for it. ✅ done and ⛔ superseded are refused.
+- no ref already holds it — unless its lease has matured, which
+  `claim` takes over instead (see [Staleness and
+  takeover](#staleness-and-takeover))
 - every plan it depends on is ✅ done, in the same repository
-- its repository's name is not shared by another checkout under the root
+- its repository's name is not shared by another checkout under the
+  root
 
-If a plan depends on an id frit cannot find, frit counts that dependency
-as not done. The refusal then reads "blocked by a dependency" whether the
-dependency is unfinished or the id does not exist. Run `frit show <id>`
-to tell the two apart.
+If a plan depends on an id frit cannot find, frit counts that
+dependency as not done. The refusal then reads "blocked by a
+dependency" whether the dependency is unfinished or the id does not
+exist. Run `frit show <id>` to tell the two apart.
 
-Passing these checks is not the final word. The claim still has to win
-the push, and another machine can take it first (see [Two machines at
-once](#two-machines-at-once)).
+Passing these checks is not the final word. The acquire still has to
+win the push, and another machine can take it first (see [Two machines
+at once](#two-machines-at-once)).
 
-`frit ready` lists the plans that pass the status and dependency checks.
-`frit pick` lists the same plans in order of how many others each one
-unblocks.
+`frit ready` lists the plans that pass the status and dependency
+checks. `frit pick` lists the same plans in order of how many others
+each one unblocks.
 
 ## Making the claim
 
-`frit claim <plan>` reads the fleet and finds the plan. If the plan can
-be claimed, frit resolves the base commit, builds an empty marker commit
-on it, points the branch at the marker, and pushes the branch to the
-remote. If the plan cannot be claimed, frit writes nothing and prints the
-reason. A third outcome, a hard failure, is covered in [Failures that are
-not refusals](#failures-that-are-not-refusals).
+`frit claim <plan>` reads the fleet and finds the plan. If the plan
+can be acquired, frit resolves the base commit, builds an empty marker
+commit at epoch 1 on it, and pushes the work ref — accepted only if
+the ref does not already exist. If the plan cannot be acquired, frit
+writes nothing and prints the reason. A third outcome, a hard failure,
+is covered in [Failures that are not refusals](#failures-that-are-not-refusals).
 
-The push uses `git push --force-with-lease=<ref>:` with an empty value
-after the colon. That tells git the branch must not already exist on the
-remote. The remote checks this atomically and rejects the push if the
-branch is there. On a shared remote, that check is what stops two
-machines from both taking the plan. The exact steps are below.
-
-## The claim, step by step
-
-To reimplement the claim, run exactly these steps, in this order, inside
-the plan's repository. `<ref>` is `refs/heads/plan/<id>-<slug>`. `<base>`
-is the plan's base ref: the `base:` in `.frit.yml`, or the default
-branch. `<message>` is the marker message shown in [What the marker
-records](#what-the-marker-records).
-
-```text
-1. Resolve the base commit and its tree:
-      base_sha  = git rev-parse <base>
-      base_tree = git rev-parse <base>^{tree}
-   If either fails, stop with an error. Nothing was written.
-
-2. Build the empty marker commit on that base:
-      marker = git commit-tree <base_tree> -p <base_sha> -m <message>
-
-3. Point the local branch at the marker:
-      git update-ref <ref> <marker>
-
-4. Push, claiming the ref only if it does not yet exist:
-      git push --force-with-lease=<ref>: <remote> <marker>:<ref>
-
-5. Decide the outcome. If the push succeeded, CLAIMED. If it failed,
-   read what commit holds the ref on the remote:
-      git ls-remote --heads <remote> <ref>        (output: <sha> <ref>)
-   - the ref holds your marker    -> CLAIMED (the push landed; the
-                                     client error came after the commit)
-   - the ref holds another commit -> LOST RACE
-   - the ref is absent, or
-     ls-remote cannot be read     -> ERROR (a real fault)
-
-6. On LOST RACE or ERROR, delete the local branch so a retry starts
-   clean. On CLAIMED, keep it — the local and remote refs now agree:
-      git update-ref -d <ref>
-```
-
-Step 5 never reads git's error text. The commit holding the ref on the
-remote is the only authoritative signal, so the outcome is deterministic
-across git versions.
+A ref whose tip is a release marker is re-acquired instead: the new
+claim marker is a child of that release marker, at epoch E+1, so
+history is appended, never rewritten. Anything else on the tip is a
+live lease, and the CAS is expected to lose.
 
 ## Two machines at once
 
-Two machines can decide to claim the same plan at the same time. Each one
-read its own local view before either pushed, so each thinks the plan is
-free. Both build the marker locally and push.
+Two machines can decide to claim the same plan at the same time. Each
+read its own local view before either pushed, so each thinks the plan
+is free. Both build a marker locally and push, CAS expecting the ref
+absent.
 
-```mermaid
-sequenceDiagram
-    participant A as machine A
-    participant B as machine B
-    participant R as remote
-    A->>R: push branch, only if it does not exist
-    B->>R: push branch, only if it does not exist
-    R-->>A: accepted, branch created
-    R-->>B: rejected, branch already exists
-    Note over B: lost the race, delete the local branch
+The remote accepts the first push. The second finds the ref already
+there and its CAS fails. The loser re-reads what tip holds the ref
+now and reports "lost the race to another machine", naming it when
+the marker is readable. This arbitration only holds between machines
+pushing to the same remote, and it is the same read-the-tip
+classification every transition uses — a renewal that loses reports
+[fenced](#fencing-and-yield), a takeover that loses reports the live
+holder that beat it.
+
+## Staleness and takeover
+
+An observer records `(ref, tip, first-seen, last-seen, samples)` per
+host, adding a sample whenever a fleet-reading verb fetches the tip. A
+lease is stale once its tip has sat unchanged for more than
+`takeover-window` (T) of the observer's own elapsed time, with no gap
+between samples wider than `sample-gap` (S_max). A gap that wide voids
+the window instead of counting toward it, so an origin outage resets
+every observer rather than triggering a mass takeover on recovery.
+Losing the observer's state file only delays a takeover: an absent
+record reads as "first seen now".
+
+`frit claim` and `frit start` take a matured lease over: a takeover
+marker, epoch E+1, minted as a child of exactly the observed stale
+tip. A holder that was merely quiet renews first and wins the CAS. The
+takeover loses, re-reads, and reports the live holder instead; it
+never retries blindly. A takeover waits `k · T`, not `T`, where `k` is
+the number of takeover markers already in the ref's chain. Every
+observer computes the same `k` from the chain itself, so two
+quiet-but-live agents contending for the same lease damp out instead
+of ping-ponging.
+
+### Liveness veto
+
+Before any of that, a live herdr session bound to the lease vetoes the
+takeover outright, and renews the lease on the holder's behalf — but
+only a positive answer counts. An unreachable host, a dead daemon, or
+an unknown session is no veto, and the takeover proceeds; the window
+alone decides. A read-only verb never renews.
+
+### Self-resume
+
+A lane whose persisted token matches the work ref's current tip, with
+herdr confirming no live session owns that lane, resumes its own lease
+immediately — no window consulted at all. A fleet of one is a lane
+that just restarted, with nobody else around to renew it or vote for
+it. This is what lets it recover as soon as it comes back, rather than
+sit locked out by its own staleness window.
+
+## Fencing and yield
+
+Fencing is the CAS itself. The holder is whoever minted the current
+tip; a lane's own persisted token is what its next push CASes against.
+If the lease moved — a takeover from elsewhere, a hand-edited ref —
+that push loses, the lane is fenced, and the refusal names the mover
+and offers `yield`:
+
+```text
+fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
-The remote accepts the first push and creates the branch. The second push
-finds the branch already there and is rejected. The machine that lost
-deletes its local branch and prints "lost the race". That delete is
-best-effort: if it fails, frit does not report it, and a stray local
-branch can remain. It is safe to delete by hand — the remote never had
-it.
-
-This arbitration only holds between machines pushing to the same
-remote. A failed push is classified by the step-5 read above — what
-commit holds the ref, never git's error text. A lost race exits 0; a
-real fault exits non-zero; both delete the local branch first, so a
-retry starts clean.
+`frit yield <plan>` is that way out: it pushes the fenced lane's local
+divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>`
+(create-only, since a fenced lane holds no lease to CAS on), tears the
+lane's worktree down through herdr, and exits clean. It refuses when
+run from the lane that still holds the live lease — yield is for the
+fenced, not an alias for `frit release`. `frit next` and `frit show`
+list a plan's rescue refs, so parked commits are found again.
 
 ## When a claim is refused
 
-frit refuses a claim it cannot safely make. A refusal is not a failure:
-the command prints the reason and exits 0.
+frit refuses a claim it cannot safely make. A refusal is not a
+failure: the command prints the reason and exits 0.
 
-| Reason                    | What it means                                              |
-| ------------------------- | ---------------------------------------------------------- |
-| already held              | one or more branches already claim the plan; checked first |
-| already done              | its status is ✅                                           |
-| superseded                | its status is ⛔, replaced by another plan                 |
-| blocked by a dependency   | a plan it depends on is not done, or its id does not exist |
-| lost the race             | another machine created the branch first                   |
-| repository name ambiguous | two checkouts under the root share this repo's name        |
+| Reason                    | What it means                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| already held              | a live lease's holder beat this run to the CAS                                  |
+| held by a live session    | a bound herdr session vetoed the takeover (renewed on its behalf when it could) |
+| already done              | its status is ✅                                                                |
+| superseded                | its status is ⛔, replaced by another plan                                      |
+| blocked by a dependency   | a plan it depends on is not done, or its id does not exist                      |
+| lost the race             | another machine's CAS landed first                                              |
+| repository name ambiguous | two checkouts under the root share this repo's name                             |
 
-"already held" is checked before the status reasons, so a plan that is
-both held and done reports "already held". A 🔳 plan nobody holds is
-not refused: frit resumes it by re-minting the claim branch, and the
-push still arbitrates in case a live hold does exist.
+"already held" and the live-session veto are checked before the
+status reasons, so a plan that is both held and done reports the
+hold. A 🔳 plan nobody holds is not refused: frit resumes it by
+re-acquiring the lease, and the push still arbitrates in case a live
+hold does exist.
 
 The last row is a safety stop. frit names each repository by its main
-worktree's directory name. If two repositories under the root have the
-same directory name, frit cannot tell which one the plan is in, and could
-push the branch to the wrong repository. So it pushes to neither and
-prints the reason. This blocks claiming every plan in both repositories.
-Rename one to fix it.
+worktree's directory name. If two repositories under the root have
+the same directory name, frit cannot tell which one the plan is in,
+and could push to the wrong repository. So it pushes to neither and
+prints the reason. This blocks claiming every plan in both
+repositories. Rename one to fix it.
 
-## Re-claiming a merged plan
+## Legacy holds
 
-Merging a claim branch into the default branch does not delete it. The
-branch still exists on the remote. Normally this is harmless: once a
-plan's status is ✅, frit refuses it as "already done" before any push.
+`plan/{id}-*` — the id followed by a slug — is still a hold pattern by
+default. A repository that predates the lease protocol keeps reading
+its old branches as claims with no flag day. frit only ever mints the
+id-only shape now; a repository that narrows `holds` to drop
+`plan/{id}-*` stops recognizing its own history of decorated branches.
+`frit orphans` lists a decorated hold as migratable, naming the
+id-only ref it corresponds to, so the old branches can be retired on
+their own schedule.
 
-But frit checks the plan's status, not the branch's merge state. If a
-branch merged and the status was never set to ✅, frit tries to resume
-it. The push finds the old branch and is rejected; the refusal calls
-the branch landed and suggests setting the status. That advice only
-fits a finished plan. For one with open phases, delete the merged
-branch on the remote instead; the resume then goes through. Set the
-status ✅ when the last phase merges.
+## Parameters
+
+`takeover-window` and `sample-gap` — T and S_max above — live in a
+repository's `.frit.yml`, the same file that declares `holds`, so the
+knobs travel with the repository rather than one machine's config. An
+undeclared repository keeps the defaults, two hours and thirty
+minutes. A value that fails to parse as a duration is a loud error at
+the point `.frit.yml` is read, never a silent fall-back to the
+default.
 
 ## Failures that are not refusals
 
-A refusal exits 0: the plan was simply not this run's to take. A failure
-is different. It exits non-zero, prints a plain error, and writes no
-claim report — not even under `--json`. frit fails, rather than refuses,
-when:
+A refusal exits 0: the plan was simply not this run's to take. A
+failure is different. It exits non-zero, prints a plain error, and
+writes no report — not even under `--json`. frit fails, rather than
+refuses, when:
 
 - the plan selector matches no plan, or more than one
-- frit cannot resolve the base commit — the repository has no `main`, no
-  `master`, no `origin/HEAD`, and no `base:` set in `.frit.yml`
+- frit cannot resolve the base commit — the repository has no `main`,
+  no `master`, no `origin/HEAD`, and no `base:` set in `.frit.yml`
+- `.frit.yml` sets `takeover-window` or `sample-gap` to a value that
+  will not parse as a duration
 - the push fails for a real reason (see [Two machines at
   once](#two-machines-at-once))
 
-A numeric selector that matches no plan id is retried as a text match on
-titles and branches. So `frit claim 42` can resolve to a plan that merely
-mentions 42. Pass an id that exists, or run from inside the plan's
-worktree, where frit infers the plan from the branch.
+A numeric selector that matches no plan id is retried as a text match
+on titles and branches. So `frit claim 42` can resolve to a plan that
+merely mentions 42. Pass an id that exists, or run from inside the
+plan's worktree, where frit infers the plan from the branch.
 
-## Finding stale claims
+## Finding a lease that needs attention
 
-A claim is a branch. If the work stops but the branch stays, the branch
-still says the plan is taken. frit stores nothing about which claims are
-live. It recomputes this on every run. For each repository, it lists the
-branches, drops any already merged into the default branch, and keeps the
-ones matching that repository's own hold patterns. It lists the worktrees
-the same way, and pairs branches with worktrees by plan id.
+frit stores nothing about which leases are live; it recomputes state
+on every run from the ref list and, where reachable, herdr. `frit
+board` shows every outstanding plan with its holder and, for a stale
+one, how long its window has sat matured. `frit orphans` reports what
+no longer adds up:
 
-frit does not run agents or track them. herdr does — a separate
-program managing panes, worktrees and prompts on the machine. frit
-runs `herdr agent list` and reads the panes: each names its agent, if
-any, the agent's status, and its directory. An idle agent still
-counts; a bare terminal does not. frit maps a pane to a plan through
-its directory — worktree root, then branch, then the repository's
-hold pattern.
+| Category    | What it means                                           |
+| ----------- | ------------------------------------------------------- |
+| unstaffed   | a lease with no worktree behind it                      |
+| stranded    | a worktree left standing on a ref that has since landed |
+| empty       | a worktree prepared and never started                   |
+| prunable    | a worktree whose checkout is already gone               |
+| migratable  | a legacy decorated hold, and the id-only ref it maps to |
+| stale holds | a held plan whose takeover window has matured           |
 
-This read is local: frit sees only agents on its own machine. A claim
-is visible everywhere the remote is fetched; a running agent is not.
-If `herdr agent list` fails, frit reports agent state as unknown.
+`frit who` reports which lane has a live agent on it, read from
+herdr's own pane list. A claim is visible everywhere the remote is
+fetched; a running agent, only on its own machine.
 
-Two commands report a claim that no longer matches live work:
+## Landed evidence and scavenge
 
-| Command               | What it reports                                         |
-| --------------------- | ------------------------------------------------------- |
-| `frit orphans`        | a claim branch with no worktree behind it               |
-| `frit stale --days N` | a worktree whose branch has had no new commit in N days |
+Merging a work ref's branch into the default branch does not delete
+it — the ref still exists on the remote. `claim` and `orphans` do not
+wait for a human to notice: evidence that a lease's work has landed is
+enough for `scavenge` to delete the ref, parking any commits that
+never made it to the merge onto a rescue ref first. Evidence tied to
+the observed tip itself — that tip is an ancestor of the default
+branch — needs no staleness window. Evidence that is only the ✅ glyph
+or a missing plan file additionally requires a matured window, so a
+lease that is still being renewed can never be scavenged out from
+under its holder.
 
-`frit stale` then labels each idle worktree using the herdr read above.
-It is `live` if a pane with an agent sits in that worktree. It is
-`abandoned` if none does. It is blank if herdr could not be reached.
-
-To drop a stale claim, delete its branch on the remote and locally:
-
-```sh
-git push origin --delete plan/7-shader-unit
-git branch -D plan/7-shader-unit
-```
-
-The copy on the remote is the one other machines read. Deleting only the
-local branch leaves the plan claimed for everyone else.
-
-`frit start` runs this same delete itself if it mints a claim but then
-fails to set up the worktree. If that delete also fails — for example the
-remote is unreachable at that moment — frit reports it in the error,
-names the branch, and points you at `frit orphans`. It does not leave the
-claim behind without saying so.
-
-## What the marker records
-
-The marker's message records what the claim is for. The branch alone
-then tells the whole story: the worktree path, the host, the base commit,
-and the plan file.
-
-```text
-plan 7: claim atlas-shader-unit
-
-lane:     /home/you/git/atlas-shader-unit
-host:     workshop
-base:     3f2a9c1e8b7d4056a1c9e2f0b8d6473a5e1c9f20
-plan:     plan/7_shader-unit.md
-```
-
-`base` is the commit frit resolved for the plan's base ref — the `base:`
-in `.frit.yml`, or the default branch. With no lane path to record, the
-title and the `lane` line show `-`.
-
-## What changes next
-
-This page describes the claim as it ships today. A redesign is
-planned: the slug leaves the branch name, every push renews the
-lease, a dead agent's plan is detected as stale and taken over
-atomically, and the manual delete above stops being the recovery.
-The design is [the lease protocol note](research/lease-protocol.md);
-the work is plan 2608202144. This page will be rewritten then.
+This page describes the lease protocol as it ships today, closed by
+[plan 2608202144](../plan/2608202144_lease-namespace-claims.md) and
+[plan 2608211326](../plan/2608211326_lease-protocol-completion.md).
+Anything it does not describe — a manual delete, a slug in the branch
+name — is not part of the current mechanism.
