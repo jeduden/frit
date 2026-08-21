@@ -47,12 +47,43 @@ Only death needs the window, and a window that is too short cannot
 corrupt state, because every transition is a CAS; it only wastes
 effort. T is therefore chosen for cost, not for correctness.
 
+## Terms
+
+- **The work ref**: `refs/heads/plan/<id>`, the one ref per plan
+  that is both the claim and the branch the work rides on. Older
+  docs say "claim branch", "work branch" or "hold ref"; in the new
+  design those all name this one ref, and this note calls it the
+  work ref throughout.
+- **Token**: the work ref's tip SHA as a holder last pushed it. The
+  holder's copy persists in the lane's git dir.
+- **Lane**: one worktree on one host, working one plan. Identified
+  by (machine-id, absolute worktree path).
+- **Machine-id**: the host's stable identifier (`/etc/machine-id` on
+  Linux); hostnames rename and collide, so they are display only.
+- **Verb**: a frit subcommand. There is no daemon; every protocol
+  action happens inside some verb run.
+- **Beat**: an empty commit the holder's session pushes to renew the
+  lease when it has no work to push. Minted at most once per R.
+- **Epoch**: a counter in the marker trailers, incremented by each
+  acquisition (acquire, re-acquire, takeover), never by renewal.
+- **k**: the number of takeover markers already in the ref's chain.
+  Read from the chain itself, so every observer computes the same k,
+  and it resets when the ref is deleted.
+- **Landed**: the plan's work has reached origin's default branch.
+- **Matured window**: a staleness observation that satisfies the
+  rule in the Staleness section.
+- **herdr**: the per-host daemon that owns panes, worktrees and
+  prompts; frit reads it for session liveness.
+- **Forge**: the git hosting service (GitHub here), whose merge and
+  branch-delete behavior frit observes but does not control.
+
 ## The protocol
 
-One ref per plan: `refs/heads/plan/<id>` — id only, no slug (S27,
-S50, S51: renames and slug collisions cannot fork the arbitration
-key). The ref carries the claim marker, work commits, beats, release
-and takeover markers in one chain. The lease token is the tip SHA.
+One ref per plan: the work ref, `refs/heads/plan/<id>` — id only, no
+slug (S27, S50, S51: renames and slug collisions cannot fork the
+arbitration key). It carries the claim marker, work commits, beats,
+release and takeover markers in one chain. The lease token is the
+tip SHA.
 
 ```text
 plan <id>: claim | beat | release | takeover
@@ -82,7 +113,11 @@ holdership from a local view.
 | release    | holder's own last tip   | release marker, same epoch           |
 | takeover   | the observed stale tip  | takeover marker, epoch E+1, child    |
 | complete   | own tip, landed on main | ref deleted                          |
-| scavenge   | any tip proven landed   | ref deleted                          |
+| scavenge   | the observed tip*       | ref deleted; unlanded work parked    |
+
+\* Scavenge needs fresh evidence, not landed-proof alone; the
+Scavenge section defines the two evidence classes and when work is
+parked first.
 
 Consequences:
 
@@ -92,9 +127,11 @@ Consequences:
   The taker's lane checks out the takeover marker, inheriting every
   pushed commit; the ref is append-only until deletion — no
   transition force-pushes it backward or rebuilds it from base (A5).
-- The ref is deleted only when its work is landed, so an unwind never
-  deletes work (S9, S25): a failed handoff pushes a release marker
-  instead and reports what it stood up (S73, S47).
+- The ref is deleted only by complete or scavenge, and anything
+  unlanded on it is parked to a rescue ref before the delete, so no
+  deletion loses work (S9, S25). An unwind never deletes: a failed
+  handoff pushes a release marker instead and reports what it stood
+  up (S73, S47).
 - Losing a race, in any transition, means one failed CAS and a
   re-read. No transition retries blindly.
 
@@ -102,9 +139,12 @@ Consequences:
 
 Staleness is observed change, dated on one clock. An observer records
 `(ref, tip, first-seen, last-seen, samples)` in a per-host state
-file. Stale means: the tip unchanged for longer than T of the
-observer's own elapsed time, with at least two samples and no gap
-over S_max between them. A voided window — the observer slept, or
+file, adding a sample whenever a fleet-reading verb fetches the tip.
+Stale means: the samples show one unchanged tip, they span more than
+T of the observer's own elapsed time, and no gap between consecutive
+samples exceeds S_max. S_max must be well below T — the defaults set
+S_max = T/4, so a matured window holds at least five samples. A
+voided window — a gap over S_max, because the observer slept or
 origin was unreachable — restarts, so an origin outage resets every
 observer instead of triggering a mass takeover on recovery (S23, and
 the F5 amplifier). Lost observer state only ever delays a takeover:
@@ -159,8 +199,10 @@ without the lane's recorded tip gets no shortcut, and two clones that
 both carry it serialize on the next CAS — one continues, the other is
 fenced. A lane that lost its local state falls back to the
 observation window like any other claimant. A fleet of one recovers
-as soon as it restarts, and the landed-push lockout clears the same
-way.
+as soon as it restarts. The same path covers a push that landed
+while the client saw an error (S3): the lane's stored token matches
+the tip origin kept, so the next run resumes instead of being locked
+out of its own lease.
 
 ### Scavenge
 
@@ -193,21 +235,24 @@ list rescue refs for a plan, so stranded commits are found again.
 
 Parameters live in `.frit.yml`, a per-repository convention like
 `holds:` (F12): renewal period R, takeover window T, sample-gap bound
-S_max, and takeover backoff — the k-th takeover of one epoch chain
-waits k·T, which damps oscillation between two live but quiet agents
-(F3). T affects cost, not correctness: a takeover of a live holder
-wastes effort but corrupts nothing, and the rescue ref bounds the
-wasted work. T should exceed the longest legitimate quiet stretch;
-R bounds how much never-pushed work a dead host can take with it.
+S_max, and takeover backoff — a takeover waits k·T instead of T,
+where k counts the takeover markers already in the ref's chain, so
+every observer computes the same k and oscillation between two live
+but quiet agents damps out (F3). T affects cost, not correctness: a
+takeover of a live holder wastes effort but corrupts nothing, and
+the rescue ref bounds the wasted work. T should exceed the longest
+legitimate quiet stretch; R bounds how much never-pushed work a dead
+host can take with it.
 
 ## The scenario matrix
 
 Mechanism key: CAS (the transition table), FENCE (same-ref fencing),
 OBS (staleness window), TAKE (takeover), SCAV (scavenge), RESUME
 (self-resume), YIELD (rescue), VETO (herdr precedence), ID (id-only
-ref, machine-id decoration), PARK (rescue before delete), TRUST
-(outside the trust domain: reported by `orphans`/`board`, never
-auto-mutated).
+ref, machine-id identity), PARK (rescue before delete), TRUST (an
+actor inside the trust domain — anyone with write access to origin;
+frit reports what it sees via `orphans` and `board` and does not
+defend against them).
 
 ### Process death, at every lifecycle step
 
@@ -275,28 +320,31 @@ dies with the host.
 
 ### Storage anomalies
 
-| #   | Scenario                        | Outcome and mechanism                                         |
-| --- | ------------------------------- | ------------------------------------------------------------- |
-| S37 | claim ref hand-deleted          | holder's next CAS fails → refuses, reports (FENCE, TRUST)     |
-| S38 | claim ref hand-force-pushed     | as S37; forged markers are TRUST                              |
-| S39 | work ref force-pushed backward  | ABA on a stale takeover CAS; cooperative model, TRUST         |
-| S40 | remote GC reaps deleted markers | marker history is lost; rescue refs keep the work (PARK)      |
-| S41 | remote rewritten or migrated    | every CAS fails safe; fleet re-acquires; TRUST                |
-| S42 | two remotes, split coordination | unsupported: one coordination remote, declared in `.frit.yml` |
-| S43 | origin URL edited mid-lifecycle | observer state keys on remote URL; old windows void (OBS)     |
-| S44 | fork-based flow                 | unsupported, documented; coordination is the shared remote    |
-| S71 | origin restored from backup     | holders' CAS fail → refuse and re-acquire; converges (FENCE)  |
+| #   | Scenario                        | Outcome and mechanism                                              |
+| --- | ------------------------------- | ------------------------------------------------------------------ |
+| S37 | work ref hand-deleted           | holder's next CAS fails → refuses, reports (FENCE, TRUST)          |
+| S38 | work ref hand-force-pushed      | as S37; forged markers are TRUST                                   |
+| S39 | work ref force-pushed backward  | ABA on a stale takeover CAS; cooperative model, TRUST              |
+| S40 | remote GC reaps deleted markers | marker history is lost; rescue refs keep the work (PARK)           |
+| S41 | remote rewritten or migrated    | every CAS fails safe; fleet re-acquires; TRUST                     |
+| S42 | two remotes, split coordination | unsupported: one coordination remote, declared in `.frit.yml`      |
+| S43 | origin URL edited mid-lifecycle | observer state keys on remote URL; old windows void (OBS)          |
+| S44 | fork-based flow                 | unsupported, documented; coordination is the shared remote         |
+| S67 | `fetch --prune` races a read    | one ls-remote snapshot per decision; a failed CAS re-reads (CAS)   |
+| S68 | default branch force-pushed     | ancestry evidence stops matching; glyph evidence remains; TRUST    |
+| S69 | marker body forged              | trailers are reporting only; the token is the fence (FENCE, TRUST) |
+| S71 | origin restored from backup     | holders' CAS fail → refuse and re-acquire; converges (FENCE)       |
 
 ### Identity anomalies
 
-| #   | Scenario                          | Outcome and mechanism                                             |
-| --- | --------------------------------- | ----------------------------------------------------------------- |
-| S45 | two agents, one plan, one host    | one lease, one bound session; the other's verbs refuse (VETO)     |
-| S46 | worktree path reused              | the marker binds plan id, machine and path; mismatch refuses (ID) |
-| S47 | worktree debris fails the handoff | release marker + the error names the path (CAS)                   |
-| S48 | hostname changes                  | identity is machine-id; hostname is decoration (ID)               |
-| S49 | hostname collides                 | as S48; token fencing serializes even cloned machine-ids (A1)     |
-| S66 | NFS-shared clone across hosts     | unsupported, documented: a lane is one host's path                |
+| #   | Scenario                          | Outcome and mechanism                                                                |
+| --- | --------------------------------- | ------------------------------------------------------------------------------------ |
+| S45 | two agents, one plan, one host    | one lease, one bound session; the other's verbs refuse (VETO)                        |
+| S46 | worktree path reused              | the reused lane holds no matching token, so it is a claimant, not the holder (FENCE) |
+| S47 | worktree debris fails the handoff | release marker + the error names the path (CAS)                                      |
+| S48 | hostname changes                  | identity is machine-id; hostname is decoration (ID)                                  |
+| S49 | hostname collides                 | as S48; token fencing serializes even cloned machine-ids (A1)                        |
+| S66 | NFS-shared clone across hosts     | unsupported, documented: a lane is one host's path                                   |
 
 ### Lifecycle anomalies
 
@@ -317,17 +365,17 @@ dies with the host.
 
 ### Cross-layer: herdr and frit disagree
 
-| #   | Scenario                         | Outcome and mechanism                                                      |
-| --- | -------------------------------- | -------------------------------------------------------------------------- |
-| S60 | herdr down at claim time         | lease valid, lane pending; RESUME stands it up later                       |
-| S61 | herdr down at observation        | no veto either way; OBS window governs (VETO)                              |
-| S62 | host unreachable, agents pushing | tip advances → observations reset; no takeover (OBS)                       |
-| S63 | pane alive, lease released       | agent's next CAS fails → fenced → YIELD                                    |
-| S64 | branch repurposed by hand        | verbs check branch ↔ plan id ↔ marker; mismatch refuses (ID)               |
-| S65 | herdr restarts, loses panes      | renewals continue via the agent's own verbs; veto lapses to OBS            |
-| S72 | claim and start race on one host | one winner; the loser's refusal names the winning lane                     |
-| S73 | prompt fails after agent start   | release marker, agent fenced at its first verb, pane reported (CAS, FENCE) |
-| S74 | same plan id in two repos        | lanes key host:repo:id; pane names carry the repo                          |
+| #   | Scenario                         | Outcome and mechanism                                                             |
+| --- | -------------------------------- | --------------------------------------------------------------------------------- |
+| S60 | herdr down at claim time         | lease valid, lane pending; RESUME stands it up later                              |
+| S61 | herdr down at observation        | no veto either way; OBS window governs (VETO)                                     |
+| S62 | host unreachable, agents pushing | tip advances → observations reset; no takeover (OBS)                              |
+| S63 | pane alive, lease released       | agent's next CAS fails → fenced → YIELD                                           |
+| S64 | branch repurposed by hand        | the lane's token no longer matches the tip; verbs refuse to act as holder (FENCE) |
+| S65 | herdr restarts, loses panes      | renewals continue via the agent's own verbs; veto lapses to OBS                   |
+| S72 | claim and start race on one host | one winner; the loser's refusal names the winning lane                            |
+| S73 | prompt fails after agent start   | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)        |
+| S74 | same plan id in two repos        | lanes key host:repo:id; pane names carry the repo                                 |
 
 ### Liveness traps, from the blind liveness attack
 
@@ -340,7 +388,7 @@ dies with the host.
 | F5  | divergent work unmergeable         | takeover records its start tip; YIELD pushes the suffix                       |
 | F6  | done-dominates never fires         | SCAV accepts landed evidence beyond the glyph                                 |
 | F7  | immortal lease, plan gone          | SCAV on plan-nonexistence, PARK first                                         |
-| F8  | chain grows without bound          | beats squash away at merge; renewal rate-limited to R                         |
+| F8  | chain grows without bound          | beats never land: the PR squashes them out; renewal rate-limited to R         |
 | F9  | crash loop locked out of own lease | RESUME by the lane's persisted token, no window                               |
 | F10 | bystander cwd activity renews      | renewal requires the bound live session                                       |
 | F11 | fleet of one heals never           | RESUME is a first-class path in `pick` and `claim`                            |
@@ -371,7 +419,7 @@ dies with the host.
 - External side effects a taken-over holder already fired are not
   un-fired; the epoch is exported for resources that honor fencing
   tokens, and nothing else can use it.
-- The irreducible window (A4): mutations that do not ride the lane
+- The irreducible window (A4): mutations that do not ride the work
   ref — an external side effect, or the PR merge to the default
   branch itself — happen after a fence check that cannot be atomic
   with them. A suspension spanning exactly that gap duplicates the
