@@ -39,6 +39,9 @@ func found() lanes.Orphans {
 				PruneReason: "gitdir file points to non-existent location",
 			},
 		},
+		Migratable: []lanes.Migratable{
+			{PlanID: 42, From: "plan/42-x", To: "plan/42"},
+		},
 	}
 }
 
@@ -64,6 +67,10 @@ func TestOrphansKeepsTheKindsApart(t *testing.T) {
 	assert.Equal(t, "atlas-empty", repo.Empty[0].Name)
 	require.Len(t, repo.Prunable, 1)
 	assert.Equal(t, "atlas-gone", repo.Prunable[0].Name)
+	require.Len(t, repo.Migratable, 1)
+	assert.Equal(t, int64(42), repo.Migratable[0].PlanID)
+	assert.Equal(t, "plan/42-x", repo.Migratable[0].From)
+	assert.Equal(t, "plan/42", repo.Migratable[0].To)
 }
 
 // TestOrphansKeepsCleanRepositories is what the table cannot say. A
@@ -82,6 +89,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.NotNil(t, doc.Repos[0].Stranded)
 	assert.NotNil(t, doc.Repos[0].Empty)
 	assert.NotNil(t, doc.Repos[0].Prunable)
+	assert.NotNil(t, doc.Repos[0].Migratable)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
 }
@@ -92,6 +100,7 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Stranded: []StrandedLane{{}}}.Any())
 	assert.True(t, OrphanRepo{Empty: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Prunable: []Worktree{{}}}.Any())
+	assert.True(t, OrphanRepo{Migratable: []Migratable{{}}}.Any())
 }
 
 func TestOrphansEmitsListsNeverNull(t *testing.T) {

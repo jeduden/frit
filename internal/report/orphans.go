@@ -22,11 +22,20 @@ type OrphansDoc struct {
 // and a prunable one means the checkout is already gone. They call for
 // different responses.
 type OrphanRepo struct {
-	Name      string         `json:"name"`
-	Unstaffed []Lane         `json:"unstaffed"`
-	Stranded  []StrandedLane `json:"stranded"`
-	Empty     []Worktree     `json:"empty"`
-	Prunable  []Worktree     `json:"prunable"`
+	Name       string         `json:"name"`
+	Unstaffed  []Lane         `json:"unstaffed"`
+	Stranded   []StrandedLane `json:"stranded"`
+	Empty      []Worktree     `json:"empty"`
+	Prunable   []Worktree     `json:"prunable"`
+	Migratable []Migratable   `json:"migratable"`
+}
+
+// Migratable is a hold that still reads as a claim but is decorated
+// rather than the id-only shape the lease protocol writes.
+type Migratable struct {
+	PlanID int64  `json:"plan_id"`
+	From   string `json:"from"`
+	To     string `json:"to"`
 }
 
 // Lane is one plan and the refs claiming it.
@@ -54,7 +63,7 @@ type Hold struct {
 // about a repository in good order.
 func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
-		len(r.Empty) > 0 || len(r.Prunable) > 0
+		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0
 }
 
 // NewOrphans opens an orphan report.
@@ -70,11 +79,12 @@ func NewOrphans(root string) *OrphansDoc {
 // AddRepo records what one repository turned up, clean or not.
 func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 	repo := OrphanRepo{
-		Name:      name,
-		Unstaffed: make([]Lane, 0, len(found.Unstaffed)),
-		Stranded:  make([]StrandedLane, 0, len(found.Stranded)),
-		Empty:     worktreesOf(found.Empty),
-		Prunable:  worktreesOf(found.Prunable),
+		Name:       name,
+		Unstaffed:  make([]Lane, 0, len(found.Unstaffed)),
+		Stranded:   make([]StrandedLane, 0, len(found.Stranded)),
+		Empty:      worktreesOf(found.Empty),
+		Prunable:   worktreesOf(found.Prunable),
+		Migratable: make([]Migratable, 0, len(found.Migratable)),
 	}
 
 	for _, lane := range found.Unstaffed {
@@ -83,6 +93,11 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 
 	for _, lane := range found.Stranded {
 		repo.Stranded = append(repo.Stranded, strandedOf(lane))
+	}
+
+	for _, m := range found.Migratable {
+		repo.Migratable = append(repo.Migratable,
+			Migratable{PlanID: m.PlanID, From: m.From, To: m.To})
 	}
 
 	d.Repos = append(d.Repos, repo)

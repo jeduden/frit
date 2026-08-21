@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 3
     title: parameters and the legacy-hold transition
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: the verb-state table through every verb
     status: "🔲"
@@ -214,7 +214,7 @@ Tier is per phase, set by the most demanding ingredient.
       and the veto renews on the holder's behalf.
 - [x] A restarted lane whose token matches origin resumes its lease
       with no window.
-- [ ] T, S_max and k are read per repository; takeover waits k·T.
+- [x] T, S_max and k are read per repository; takeover waits k·T.
 - [ ] Every verb-state cell of the table is a passing test in both
       renderings.
 - [ ] Skills and [docs/claiming.md](../docs/claiming.md) describe

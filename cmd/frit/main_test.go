@@ -463,6 +463,34 @@ func TestOrphansReportsAClaimWithNoCheckout(t *testing.T) {
 	assert.Contains(t, out.String(), "2608142306")
 }
 
+// TestOrphansNamesADecoratedHoldAsAMigrationCandidate: a legacy
+// decorated hold still reads as a claim — the "claimed, no checkout"
+// row stands — and is also named as a migration candidate toward the
+// id-only ref the lease protocol writes.
+func TestOrphansNamesADecoratedHoldAsAMigrationCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	var doc report.OrphansDoc
+
+	stderr := emit(t, &doc, "orphans", "--root", root)
+
+	assert.Empty(t, stderr)
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Migratable, 1)
+	m := doc.Repos[0].Migratable[0]
+	assert.Equal(t, int64(2608142306), m.PlanID)
+	assert.Equal(t, "plan/2608142306-fleet-index", m.From)
+	assert.Equal(t, "plan/2608142306", m.To)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "decorated hold, migrate")
+	assert.Contains(t, out.String(), "plan/2608142306-fleet-index → plan/2608142306")
+}
+
 // TestOrphansIgnoresAMergedClaim is the merged-ref filter end to end:
 // finished work must not read as an abandoned claim.
 func TestOrphansIgnoresAMergedClaim(t *testing.T) {

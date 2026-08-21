@@ -216,6 +216,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 			_, _ = fmt.Fprintf(tw, "  prunable\t%s\t%s\n",
 				wt.Name, wt.PruneReason)
 		}
+		for _, m := range repo.Migratable {
+			_, _ = fmt.Fprintf(tw, "  decorated hold, migrate\tplan %d\t%s → %s\n",
+				m.PlanID, m.From, m.To)
+		}
 	}
 	_ = tw.Flush()
 

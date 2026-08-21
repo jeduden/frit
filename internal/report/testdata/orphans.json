@@ -65,6 +65,13 @@
           "prune_reason": "gitdir file points to non-existent location",
           "has_commit": true
         }
+      ],
+      "migratable": [
+        {
+          "plan_id": 42,
+          "from": "plan/42-x",
+          "to": "plan/42"
+        }
       ]
     },
     {
@@ -72,7 +79,8 @@
       "unstaffed": [],
       "stranded": [],
       "empty": [],
-      "prunable": []
+      "prunable": [],
+      "migratable": []
     }
   ],
   "problems": [
