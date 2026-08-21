@@ -49,6 +49,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"open", goldenOpen()},
 		{"nudge", goldenNudge()},
 		{"claim", goldenClaim()},
+		{"yield", goldenYield()},
 		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
 		{"stale", goldenStale()},
@@ -177,7 +178,7 @@ func goldenPick() *PickDoc {
 // goldenNext pins the next-phase shape: a plan and the first phase of
 // it not done.
 func goldenNext() *NextDoc {
-	return NewNext("/fleet", discovery.Plan{
+	doc := NewNext("/fleet", discovery.Plan{
 		Key: "forge:atlas:2608161809", Repo: "atlas",
 		ID: 2608161809, Status: "🔳",
 		Title: "Discovery — what can I start", Model: "opus",
@@ -192,12 +193,15 @@ func goldenNext() *NextDoc {
 			},
 		},
 	})
+	doc.SetRescue([]string{"refs/frit/rescue/2608161809/box-a"})
+
+	return doc
 }
 
 // goldenShow pins the dependency-walk shape, including an edge frit
 // could not resolve to a known plan.
 func goldenShow() *ShowDoc {
-	return NewShow("/fleet", discovery.DepNode{
+	doc := NewShow("/fleet", discovery.DepNode{
 		Plan: discovery.Plan{
 			Key: "forge:atlas:2608161810", Repo: "atlas",
 			ID: 2608161810, Status: "🔲", Title: "The dispatch ladder",
@@ -219,6 +223,9 @@ func goldenShow() *ShowDoc {
 			},
 		},
 	})
+	doc.SetRescue([]string{"refs/frit/rescue/2608161810/box-a"})
+
+	return doc
 }
 
 // goldenFind pins the search shape: the query echoed, and the matches
@@ -293,6 +300,17 @@ func goldenClaim() *ClaimDoc {
 	doc := NewClaim("/fleet", "atlas", 2608161810,
 		"The dispatch ladder", "plan/2608161810-dispatch-ladder")
 	doc.Minted("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
+
+	return doc
+}
+
+// goldenYield pins the yield shape: a fenced lane's divergence parked
+// to a rescue ref and its worktree torn down.
+func goldenYield() *YieldDoc {
+	doc := NewYield("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "plan/2608161810")
+	doc.Parked("refs/frit/rescue/2608161810/box-a")
+	doc.Torn()
 
 	return doc
 }

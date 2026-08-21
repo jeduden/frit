@@ -188,6 +188,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit open <id>` — focus the pane a plan's lane runs in
 - `go run ./cmd/frit nudge <id>` — dry-run the phase prompt; `--go` sends it
 - `go run ./cmd/frit claim <id>` — mint frit's atomic hold on a startable plan
+- `go run ./cmd/frit yield <id>` — park a fenced lane's work and tear it down
 - `go run ./cmd/frit start <id>` — compose the rung-3 escalation; `--go` runs it
 - `go run ./cmd/frit skills` — install the bundled agent skills
 

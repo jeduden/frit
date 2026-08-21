@@ -201,6 +201,60 @@ func (d *ClaimDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
+// YieldDoc is what `frit yield` did: a fenced lane's local divergence
+// parked to a rescue ref and its worktree torn down through herdr, or
+// the reason nothing was — the lane still holds the live lease, and
+// yield is for the fenced, not an alias for release.
+type YieldDoc struct {
+	header
+	Root   string       `json:"root"`
+	Plan   DispatchPlan `json:"plan"`
+	Branch string       `json:"branch"`
+	// Rescue is the ref local divergence was parked to, "" when yield
+	// was refused.
+	Rescue string `json:"rescue"`
+	// TornDown is whether herdr tore the lane's own worktree down.
+	TornDown bool `json:"torn_down"`
+	// Refused is why nothing was parked or torn down, empty when yield
+	// proceeded.
+	Refused string `json:"refused"`
+	// Warning is a non-fatal failure that left the parked rescue
+	// standing — herdr could not be read, or could not tear the lane
+	// down. Empty when none.
+	Warning  string    `json:"warning"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewYield opens a yield report for a resolved plan and the branch its
+// work ref carries.
+func NewYield(root, repo string, id int64, title, branch string) *YieldDoc {
+	return &YieldDoc{
+		header:   newHeader("yield"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Branch:   branch,
+		Problems: []Problem{},
+	}
+}
+
+// Parked records the rescue ref local divergence was pushed to.
+func (d *YieldDoc) Parked(rescue string) { d.Rescue = rescue }
+
+// Torn records that herdr tore the lane's own worktree down.
+func (d *YieldDoc) Torn() { d.TornDown = true }
+
+// Refuse records why nothing was parked or torn down.
+func (d *YieldDoc) Refuse(reason string) { d.Refused = reason }
+
+// Warn records a non-fatal failure that left the parked rescue
+// standing.
+func (d *YieldDoc) Warn(reason string) { d.Warning = reason }
+
+// AddProblem records a repository frit could not read.
+func (d *YieldDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
 // StartDoc is the full escalation `frit start` composes: the claim it
 // would mint, the worktree and agent herdr would stand up, the tier the
 // plan declares, and the typed prompt it would send.

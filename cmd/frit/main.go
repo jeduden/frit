@@ -26,6 +26,7 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"golang.org/x/term"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
@@ -101,6 +102,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
+	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
@@ -1134,6 +1136,20 @@ func (pc *pickCmd) emptyStart(c *cli, rt *runtime, res fleet.Result) error {
 	return nil
 }
 
+// rescueRefsFor lists a plan's rescue refs, so next and show surface
+// stranded commits alongside the phase or the dependency tree. A plan
+// whose repository coordinate the gather withheld — the ambiguous-name
+// case — has nowhere to read a rescue ref from, so it reads as none
+// rather than guessing a repository.
+func rescueRefsFor(rt *runtime, res fleet.Result, plan discovery.Plan) []string {
+	coord, ok := res.Coords[plan.Repo]
+	if !ok {
+		return []string{}
+	}
+
+	return claim.RescueRefs(coord.Path, coord.Remote, plan.ID, rt.git)
+}
+
 type nextCmd struct {
 	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
 }
@@ -1153,6 +1169,7 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewNext(c.Root, plan)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1183,6 +1200,7 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1582,10 +1600,12 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	if !doc.HasPhase {
 		if p.Status == planmeta.StatusDone {
 			_, _ = fmt.Fprintf(out, "plan %d is done\n", p.ID)
+			printRescue(out, doc.Rescue)
 			return
 		}
 		_, _ = fmt.Fprintf(out, "%s %d  %s  (no phase ledger)\n",
 			p.Repo, p.ID, p.Title)
+		printRescue(out, doc.Rescue)
 		return
 	}
 
@@ -1596,6 +1616,20 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	_ = tw.Flush()
 	if doc.Phase.Body != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Body)
+	}
+	printRescue(out, doc.Rescue)
+}
+
+// printRescue lists a plan's rescue refs, so stranded commits a
+// scavenge or a yield parked are found again. Silent when there are
+// none, the same convention orphans and stale use for a clean report.
+func printRescue(out io.Writer, refs []string) {
+	if len(refs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nrescue refs:")
+	for _, ref := range refs {
+		_, _ = fmt.Fprintf(out, "  %s\n", ref)
 	}
 }
 
@@ -1629,6 +1663,7 @@ func printShow(out io.Writer, doc *report.ShowDoc, all bool) {
 		_, _ = fmt.Fprintln(tw, "  "+emptyDepsNote(all))
 	}
 	_ = tw.Flush()
+	printRescue(out, doc.Rescue)
 }
 
 // printDep writes one dependency node and recurses into its upstreams.

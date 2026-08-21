@@ -14,7 +14,7 @@ depends-on: [2608202144]
 phases:
   - n: 1
     title: yield and rescue refs
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: herdr veto, session binding, self-resume
     status: "🔲"
@@ -208,7 +208,7 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A fenced lane yields: divergence parked, lane torn down, exit
+- [x] A fenced lane yields: divergence parked, lane torn down, exit
       zero; `next` and `show` list the rescue ref.
 - [ ] A stale-held plan with a live bound session is not taken over,
       and the veto renews on the holder's behalf.
