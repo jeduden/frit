@@ -59,4 +59,5 @@ footer: |
 | 2608202144 | ✅     | sonnet | [The hold is the work ref, a self-healing lease](plan/2608202144_lease-namespace-claims.md)                             |
 | 2608211210 | ✅     | sonnet | [pick --go selects the top plan and starts it, so a skill needs one verb](plan/2608211210_pick-go-claims-and-starts.md) |
 | 2608211326 | ✅     | sonnet | [The lease protocol completed through every verb](plan/2608211326_lease-protocol-completion.md)                         |
+| 2608211936 | 🔲     | sonnet | [A blocked scavenge names its rescue ref and what to do next](plan/2608211936_rescue-conflict-guidance.md)              |
 <?/catalog?>
