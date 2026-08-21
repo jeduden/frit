@@ -143,6 +143,11 @@ type ClaimDoc struct {
 	// dependency, or lost to another machine is refused, not leased.
 	Claimed bool   `json:"claimed"`
 	Refused string `json:"refused"`
+	// Resumed reports whether the lane resumed its own lease by its
+	// persisted token rather than acquiring or taking one over — the
+	// self-resume path, which consults no staleness window at all
+	// (F9, F11, S3, S21). It never appears alongside a refusal.
+	Resumed bool `json:"resumed"`
 	// Worktree is the isolated checkout the claim stood up for the lane,
 	// so an agent works it there rather than in the shared clone. Empty
 	// when the lease was refused, or when standing the worktree up failed.
@@ -177,6 +182,13 @@ func NewClaim(
 func (d *ClaimDoc) Minted(baseSHA string) {
 	d.Claimed = true
 	d.Base = baseSHA
+}
+
+// MarkResumed records a lease resumed by its own lane, on the strength
+// of its persisted token rather than a fresh acquire or a takeover.
+func (d *ClaimDoc) MarkResumed() {
+	d.Claimed = true
+	d.Resumed = true
 }
 
 // Stood records the isolated worktree the claim stood up for the lane.
