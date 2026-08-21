@@ -92,7 +92,7 @@ type cli struct {
 	Repos   reposCmd   `cmd:"" help:"List repositories and their worktrees."`
 	Plans   plansCmd   `cmd:"" help:"List plan files found on every ref."`
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
-	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks."`
+	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks; --go claims and starts the top."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
@@ -1012,7 +1012,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 
 type pickCmd struct {
 	N     int    `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
-	Go    bool   `help:"Claim and start the top candidate instead of listing them."`
+	Go    bool   `help:"Claim and start the top plan; resume an unheld in-progress one, skip a lost race to the next."`
 	Phase string `help:"Phase to dispatch under --go; default is the plan's next open phase."`
 	sortFlags
 }

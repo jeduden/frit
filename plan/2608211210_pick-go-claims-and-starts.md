@@ -1,7 +1,7 @@
 ---
 id: 2608211210
 title: pick --go selects the top plan and starts it, so a skill needs one verb
-status: "🔳"
+status: "✅"
 summary: >-
   plan-pick spends most of its tokens making the agent re-run frit's own
   ranking by hand — pick, board, show, next, then start. frit already
@@ -114,7 +114,7 @@ the skill under the kind's line cap. Re-record any JSON golden the new
    --go` resumes an unheld in-progress plan; the actor advances past an
    `ErrLostRace` to the next candidate. Done.
 3. Phase 3 — the `plan-pick` skill drops its by-hand procedure for the
-   one verb; re-dogfood `frit skills`; goldens re-recorded.
+   one verb; re-dogfood `frit skills`; goldens re-recorded. Done.
 
 ## Execution
 
@@ -138,9 +138,10 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A claim that loses its race advances `pick --go` to the next
       candidate instead of surfacing the race to the caller
 - [x] Bare `frit pick` is unchanged: the ranked list, no mutation
-- [ ] The `plan-pick` skill drives one verb to claim-and-start, drops
+- [x] The `plan-pick` skill drives one verb to claim-and-start, drops
       the landed-work grep, and stays under the skill kind's line cap
-- [ ] The JSON goldens `pick --go` touches are re-recorded and the diff
-      read
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The JSON goldens `pick --go` touches are re-recorded and the diff
+      read: it reuses the `StartDoc` and `PickDoc` shapes unchanged, so
+      no golden drifted
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
