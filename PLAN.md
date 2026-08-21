@@ -63,5 +63,6 @@ footer: |
 | 2608212010 | 🔲     | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md) |
 | 2608212011 | 🔲     | sonnet | [The rescue ref carries its tip, so a park never conflicts](plan/2608212011_content-addressed-rescue-refs.md)                   |
 | 2608212203 | 🔲     | sonnet | [Only a minted lease is a hold, and a dead session frees it](plan/2608212203_only-a-lease-is-a-hold.md)                         |
+| 2608212218 | 🔲     | sonnet | [frit reaps the orphans it reports](plan/2608212218_reap-the-orphans.md)                                                        |
 | 2608212346 | 🔲     | sonnet | [A deserted hold is seen and has a way out](plan/2608212346_deserted-hold-recovery.md)                                          |
 <?/catalog?>
