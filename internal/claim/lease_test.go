@@ -274,3 +274,53 @@ func TestMarkerHostReadsALeaseMarker(t *testing.T) {
 
 	assert.Equal(t, "box-a", MarkerHost(work, "plan/7", 7, gitwt.Exec))
 }
+
+// TestTakeoverSeizesAStaleTip: the takeover marker is a child of
+// exactly the observed tip at epoch E+1, so the taker inherits every
+// pushed commit and the old lease can never be confused with the new.
+func TestTakeoverSeizesAStaleTip(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+	taken, err := Takeover(second,
+		leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, taken.Epoch, "the takeover reads epoch E+1")
+	assert.Equal(t, lease.Tip,
+		gitCmd(t, second, "rev-parse", taken.Tip+"^"),
+		"the marker is a child of the observed stale tip")
+	assert.Equal(t, "plan 7: takeover",
+		gitCmd(t, second, "log", "-1", "--format=%s", taken.Tip))
+	remote := gitCmd(t, second, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, taken.Tip, "origin carries the takeover")
+}
+
+// TestTakeoverRacesARenewalOneCASWins: the holder renews between the
+// observation and the takeover; the takeover CASes on the stale tip,
+// loses to the server, re-reads, and names the live holder. The
+// renewal stands untouched.
+func TestTakeoverRacesARenewalOneCASWins(t *testing.T) {
+	first := originAndClone(t)
+	a := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, a, gitwt.Exec)
+	require.NoError(t, err)
+	second := cloneAgain(t, first) // observes lease.Tip, then goes quiet
+
+	renewed, err := Renew(first, a, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Takeover(second,
+		leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the loser re-read the live lease")
+	assert.Equal(t, "box-a", held.Marker.Holder,
+		"the refusal names the holder whose renewal won")
+	remote := gitCmd(t, second, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, renewed.Tip,
+		"the renewal stands; the loser moved nothing")
+}

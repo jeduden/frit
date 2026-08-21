@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -305,4 +308,75 @@ func TestClaimRefusesAnAmbiguousRepoName(t *testing.T) {
 
 	_, err := gitCapture(t, repoA, "rev-parse", "refs/heads/plan/7")
 	assert.Error(t, err, "no lease was minted in either checkout")
+}
+
+// seedWindow writes an observation state whose window over tip has
+// been maturing for span, last confirmed a minute ago — the state a
+// faithful observer holds over a dead holder's unmoving ref.
+func seedWindow(
+	t *testing.T, repo string, id int64, tip string, span time.Duration,
+) {
+	t.Helper()
+	path, err := observe.Path()
+	require.NoError(t, err)
+	now := time.Now()
+	require.NoError(t, observe.Save(path, observe.State{
+		observe.Key(repo, id): discovery.Window{
+			Tip:     tip,
+			First:   now.Add(-span),
+			Last:    now.Add(-time.Minute),
+			Samples: 9,
+		},
+	}))
+}
+
+// TestClaimTakesOverAStaleLease: a held plan whose takeover window has
+// matured is not refused — claim executes the takeover CAS, and the
+// new tip is a takeover marker, child of the stale tip, epoch E+1.
+func TestClaimTakesOverAStaleLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"a matured stale hold is taken over, not refused")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover")
+	assert.Contains(t, body, "epoch:   2", "the takeover reads E+1")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, parent,
+		"the marker is a child of the observed stale tip")
+}
+
+// TestClaimStillRefusesALiveLease: the same held plan with no matured
+// window keeps today's refusal — staleness is the only door in.
+func TestClaimStillRefusesALiveLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
 }

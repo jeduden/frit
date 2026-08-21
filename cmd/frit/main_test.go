@@ -22,6 +22,9 @@ func isolate(t *testing.T) {
 	t.Setenv("FRIT_ROOT", "")
 	t.Setenv("FRIT_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// The per-host state files — presence, observations — go to a
+	// throwaway cache, so a test neither reads nor pollutes the real one.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Chdir(t.TempDir())
 }
 

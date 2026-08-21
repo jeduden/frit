@@ -1,6 +1,8 @@
 package report
 
 import (
+	"time"
+
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/planmeta"
 )
@@ -19,21 +21,28 @@ type PlanCard struct {
 	DependsOn []int64 `json:"depends_on"`
 	Path      string  `json:"path"`
 	Held      bool    `json:"held"`
+	// Stale marks a held plan whose takeover window matured: a takeover
+	// candidate, with the observed unchanged span in seconds so a
+	// consumer applies its own threshold without re-deriving it.
+	Stale        bool  `json:"stale"`
+	StaleSeconds int64 `json:"stale_seconds"`
 }
 
 // cardOf projects a discovery plan into its wire shape.
 func cardOf(p discovery.Plan) PlanCard {
 	return PlanCard{
-		Key:       p.Key,
-		Repo:      p.Repo,
-		ID:        p.ID,
-		Status:    p.Status,
-		Title:     p.Title,
-		Summary:   p.Summary,
-		Model:     p.Model,
-		DependsOn: idsOf(p.DependsOn),
-		Path:      p.Path,
-		Held:      p.Held,
+		Key:          p.Key,
+		Repo:         p.Repo,
+		ID:           p.ID,
+		Status:       p.Status,
+		Title:        p.Title,
+		Summary:      p.Summary,
+		Model:        p.Model,
+		DependsOn:    idsOf(p.DependsOn),
+		Path:         p.Path,
+		Held:         p.Held,
+		Stale:        p.Stale,
+		StaleSeconds: int64(p.StaleFor / time.Second),
 	}
 }
 

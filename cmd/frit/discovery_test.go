@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -773,4 +774,31 @@ func TestReadyOffersAReleasedLease(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "Shader unit",
 		"a released lease does not read as a live hold")
+}
+
+// TestPickListsAStaleLeaseAsTakeover: pick ranks a held plan whose
+// takeover window matured as a candidate, carrying its observed age,
+// while a live-tip hold stays hidden.
+func TestPickListsAStaleLeaseAsTakeover(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Stale lane", nil, "")
+	commitPlan(t, repo, 8, "🔲", "Live lane", nil, "")
+	leaseRef(t, repo, 7, "claim")
+	leaseRef(t, repo, 8, "claim")
+	tip7, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, tip7, 3*time.Hour)
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "--root", root)
+
+	require.Len(t, doc.Plans, 1, "the live-tip hold stays hidden")
+	card := doc.Plans[0]
+	assert.Equal(t, int64(7), card.ID)
+	assert.True(t, card.Held, "a takeover candidate is still a held plan")
+	assert.True(t, card.Stale, "and marked stale, which is why it ranks")
+	assert.GreaterOrEqual(t, card.StaleSeconds, int64(2*60*60),
+		"the observed age rides the card")
 }

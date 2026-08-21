@@ -12,6 +12,7 @@ package claim
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -139,6 +140,14 @@ func Release(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
 	return advance(repoDir, opts, markerRelease, from, run)
+}
+
+// Takeover seizes a stale lease: a takeover marker, child of exactly
+// the observed stale tip, at epoch E+1.
+func Takeover(
+	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
+) (Lease, error) {
+	return Lease{}, errors.New("not implemented")
 }
 
 // Released reports whether a ref tip is a release marker for a plan.
