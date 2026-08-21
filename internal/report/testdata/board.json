@@ -16,6 +16,8 @@
       "holds": [
         "plan/2608161810-dispatch"
       ],
+      "stale": false,
+      "stale_seconds": 0,
       "agent": "claude",
       "agent_status": "working"
     },
@@ -29,6 +31,8 @@
       "model": "sonnet",
       "held": false,
       "holds": [],
+      "stale": false,
+      "stale_seconds": 0,
       "agent": "",
       "agent_status": ""
     }

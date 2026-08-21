@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -305,6 +307,29 @@ func TestBoardEmitsJSON(t *testing.T) {
 	assert.True(t, doc.Plans[0].Held)
 	assert.Equal(t, []string{"plan/100-underway"}, doc.Plans[0].Holds)
 	assert.NotEmpty(t, doc.Plans[0].Host)
+}
+
+// TestBoardReportsAMaturedHoldsAge: the board document carries the
+// same stale flag and age ready and pick already answer with, so a
+// consumer of the board's JSON sees a takeover candidate without a
+// second read.
+func TestBoardReportsAMaturedHoldsAge(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Underway")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	withHerdr(t, herdrReturning())
+	var doc report.BoardDoc
+
+	emit(t, &doc, "board", "--root", root)
+
+	require.Len(t, doc.Plans, 1)
+	assert.True(t, doc.Plans[0].Stale)
+	assert.Greater(t, doc.Plans[0].StaleSeconds, int64(0))
 }
 
 // TestBoardSortByID orders the board oldest-first, and --reverse flips

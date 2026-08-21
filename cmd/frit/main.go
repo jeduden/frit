@@ -1392,7 +1392,7 @@ func boardCell(name string, doc *report.BoardDoc, p report.BoardPlan) string {
 	case "status":
 		return p.Status
 	case "held":
-		return heldLabel(laneShorts(p.Holds, p.ID))
+		return heldCell(p)
 	case "agent":
 		return agentLabel(doc.Presence, p.Agent, p.AgentStatus)
 	default: // title
@@ -1526,6 +1526,20 @@ func laneShorts(holds []string, id int64) []string {
 	}
 
 	return out
+}
+
+// heldCell renders the board's held column: the lane names, with a
+// stale marker and its age appended once the takeover window has
+// matured — the held-stale cell of the verb-state table, told apart
+// from a live hold at a glance rather than by a second read.
+func heldCell(p report.BoardPlan) string {
+	label := heldLabel(laneShorts(p.Holds, p.ID))
+	if !p.Stale {
+		return label
+	}
+
+	age := time.Duration(p.StaleSeconds) * time.Second
+	return fmt.Sprintf("%s (stale %s)", label, age.Round(time.Minute))
 }
 
 // heldLabel names the lane holding a plan, or a dash when nobody does.

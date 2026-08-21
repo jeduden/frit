@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/report"
@@ -29,6 +30,41 @@ func boardWith(title string) *report.BoardDoc {
 	}, "claude", "working")
 
 	return doc
+}
+
+// TestBoardCellNamesAMaturedHoldsAge: the held-stale cell of the
+// verb-state table — a matured hold reads as stale with its age, not
+// merely as held, so a takeover candidate is told apart from a live
+// one at a glance.
+func TestBoardCellNamesAMaturedHoldsAge(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+
+	cell := boardCell("held", doc, doc.Plans[0])
+
+	assert.Contains(t, cell, "plan/100")
+	assert.Contains(t, cell, "stale", "a matured hold reads as stale")
+	assert.Contains(t, cell, "3h", "the age rides beside it")
+}
+
+// TestBoardCellLeavesALiveHoldUnmarked: a fresh hold, window not yet
+// matured, reads as plainly held — the stale marker names only a
+// takeover candidate.
+func TestBoardCellLeavesALiveHoldUnmarked(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+	}, "", "")
+
+	cell := boardCell("held", doc, doc.Plans[0])
+
+	assert.Equal(t, "plan/100", cell,
+		"a live hold carries no stale marker or age")
 }
 
 // TestPrintBoardFitsTheWidthWhenGiven: with a width, no rendered line
