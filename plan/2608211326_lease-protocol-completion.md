@@ -1,7 +1,7 @@
 ---
 id: 2608211326
 title: The lease protocol completed through every verb
-status: "🔲"
+status: "🔳"
 summary: >-
   Plan 2608202144 landed the lease atom, observation and takeover.
   This plan finishes the protocol: yield and rescue refs, the herdr
