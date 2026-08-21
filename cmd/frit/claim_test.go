@@ -496,6 +496,73 @@ func TestClaimTakesOverWhenTheBoundSessionIsGone(t *testing.T) {
 	assert.Contains(t, body, "epoch:   2")
 }
 
+// TestClaimResumesItsOwnLeaseFromThePersistedToken: a lane whose
+// persisted token matches origin's current tip, with no live session
+// bound to it, resumes on the spot — no matured window is seeded, so
+// the ordinary "already held" refusal would otherwise fire (F9, F11,
+// S3, S21).
+func TestClaimResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "resumed plan 7")
+	assert.NotContains(t, got, "refused")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, parent)
+}
+
+// TestResumeIgnoresATokenFromAnotherLane: `claim` run from anywhere
+// other than the plan's own worktree must not go looking for a local
+// token — the ordinary "already held" refusal stands, and no beat is
+// pushed.
+func TestResumeIgnoresATokenFromAnotherLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	// Deliberately not chdir'd into lane: an unrelated directory.
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "already held")
+}
+
 // landedLeaseRepo is a claimable repo whose lease landed: work on the
 // ref merged into main and pushed, the ref left behind, the plan's
 // status still open — landed work with a stale status.

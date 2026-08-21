@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,16 +43,26 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewClaim(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
 
+	// The gather withholds a coordinate when two checkouts share the
+	// plan's repository name; without one there is no repository to mint
+	// the lease in, so refuse rather than guess.
+	coord, ok := res.Coords[plan.Repo]
+
+	// The lane's own lease, resumed on the token it persisted — ahead
+	// of the "already held" refusal below, since the plan a resume
+	// asks about is exactly the one this lane already holds (F9, F11,
+	// S3, S21).
+	cwd, _ := os.Getwd()
+	if ok && resumeOwnLease(rt, doc, plan, coord, cwd) {
+		return renderClaim(c, rt, doc)
+	}
+
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
 		scavengeGlyph(rt, doc, plan, res)
 		return renderClaim(c, rt, doc)
 	}
 
-	// The gather withholds a coordinate when two checkouts share the
-	// plan's repository name; without one there is no repository to mint
-	// the lease in, so refuse rather than guess.
-	coord, ok := res.Coords[plan.Repo]
 	if !ok {
 		doc.Refuse(ambiguousRepo(plan.Repo))
 		return renderClaim(c, rt, doc)
@@ -65,6 +76,78 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	return renderClaim(c, rt, doc)
+}
+
+// resumeOwnLease resumes the lease this very lane already holds, on
+// the proof that survives a process: the token in its own git dir
+// (F9, F11, S3, S21). It is not identity-based — a cloned machine id
+// or a reused lane path carries no matching token, so it gets no
+// shortcut (A1) — and it consults no staleness window at all. Any
+// doubt along the way answers false and falls through to the ordinary
+// path, where the CAS is still the arbiter.
+func resumeOwnLease(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, cwd string,
+) bool {
+	if cwd == "" {
+		return false
+	}
+	// The guard against the CLI being invoked elsewhere: the same
+	// cwd-join-backwards yield's tearDownLane uses to confirm the
+	// calling directory is this exact plan's own lane before trusting
+	// anything local it finds there.
+	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !ok || repo != plan.Repo || id != plan.ID {
+		return false
+	}
+
+	lane := herdr.Resolve(cwd, rt.git).Root
+	if lane == "" {
+		return false
+	}
+	token := claim.ReadToken(lane, plan.ID, rt.git)
+	if token == "" {
+		return false
+	}
+	// Origin is read fresh rather than trusting plan.HoldTip, which is
+	// this clone's possibly-stale local view of the ref: the protocol
+	// states the rule against origin's current tip.
+	tip := claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	if tip == "" || tip != token {
+		return false
+	}
+
+	opts := claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  coord.Remote,
+		Base:    coord.Base,
+		Holder:  hostname(),
+		Lane:    lane,
+		Session: currentSession(rt),
+	}
+	if m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git); ok &&
+		herdr.SessionLive(rt.herdr, m.Session) {
+		return false
+	}
+	if _, err := claim.Resume(coord.Path, opts, token, rt.git); err != nil {
+		return false
+	}
+	doc.MarkResumed()
+
+	return true
+}
+
+// currentSession is the herdr session the calling pane runs, "" when
+// herdr is unreachable or no agent is on it. Best-effort: an unbound
+// lease still holds, it only forgoes the veto until a later renewal
+// binds one.
+func currentSession(rt *runtime) string {
+	pane, err := herdr.CurrentPane(rt.herdr)
+	if err != nil {
+		return ""
+	}
+
+	return pane.Session
 }
 
 // standUpClaimWorktree hands the freshly claimed lane's checkout to
@@ -394,8 +477,14 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(out, "claimed plan %d\n  branch: %s\n  base:   %s\n",
-		doc.Plan.ID, doc.Branch, doc.Base)
+	head := "claimed plan %d\n  branch: %s\n"
+	if doc.Resumed {
+		head = "resumed plan %d\n  branch: %s\n"
+	}
+	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Branch)
+	if doc.Base != "" {
+		_, _ = fmt.Fprintf(out, "  base:   %s\n", doc.Base)
+	}
 	if doc.Worktree != "" {
 		_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Worktree)
 	}
