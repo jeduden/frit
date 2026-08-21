@@ -955,6 +955,13 @@ func carryProblems(doc problemAdder, problems []fleet.Problem, all bool) {
 // start, nudge or open — it refuses an empty selector inferred from a
 // checkout another host holds. A read-only report passes false: refusing
 // a status query hands out no lane and only blocks a harmless read.
+//
+// yield passes false too, but for a third reason, not the read-only
+// one: it acts on the lane, but a foreign hold is exactly the state
+// yield exists to act on — refusing it here would refuse the plan it
+// was built for. Its own StillHeldError check stands in for the guard,
+// refusing the one case that actually needs it: this lane still holding
+// the live lease.
 func resolveSelector(
 	rt *runtime, selector string, plans []discovery.Plan, guardForeign bool,
 ) (discovery.Plan, error) {

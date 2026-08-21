@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 )
@@ -58,12 +60,18 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		var still *claim.StillHeldError
 		if errors.As(err, &still) {
-			doc.Refuse(fmt.Sprintf(
-				"plan %d is still held by this lane; yield is for a "+
-					"fenced lane, use release instead", plan.ID))
+			doc.Refuse("is still held by this lane; yield is for a " +
+				"fenced lane, use release instead")
 			return renderYield(c, rt, doc)
 		}
-		return err
+		// A park conflict is a warning, not a command failure, the same
+		// way scavengeRef treats it: the document still renders, and
+		// under --json nothing is lost to stderr. The lane is left
+		// standing rather than torn down — parking did not succeed, so
+		// tearing the worktree down would discard exactly what it
+		// failed to save.
+		doc.Warn(fmt.Sprintf("park: %v", err))
+		return renderYield(c, rt, doc)
 	}
 	doc.Parked(sc.Rescue)
 
@@ -77,11 +85,24 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 // repository, so reading it from the coordinate's path sees the same
 // ref a fenced lane's own checkout carries. "" when the ref was never
 // fetched or minted locally.
+//
+// `rev-parse --verify --quiet` exits 1, with nothing on stderr, for
+// exactly that absent-ref case — the one failure this reads as "".
+// Any other exit is a real fault (a bad repoPath, a broken git dir),
+// and must not be read as an absent ref: local feeds claim.Yield's
+// still-held check and its park, so a fault silently taken for "" would
+// either misreport a live plan as unheld or park nothing while telling
+// the operator it did.
 func localRef(rt *runtime, repoPath, branch string) (string, error) {
 	out, err := rt.git(repoPath,
 		"rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	if err != nil {
-		return "", nil
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
+
+		return "", err
 	}
 
 	return strings.TrimSpace(string(out)), nil
@@ -93,13 +114,31 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 // by plan — the same metadata read start's escalation never needs, and
 // never an agent read. A herdr frit could not reach, or with no pane
 // open, is a warning: the parked rescue already stands regardless.
+//
+// The pane is still checked against the plan before anything is torn
+// down: yield was given a plan id, not a workspace, and nothing
+// otherwise stops that id from being a different plan than whatever
+// happens to be running in the calling pane — a mistaken or explicit
+// argument would then tear down an unrelated, possibly live, lane. The
+// cwd is resolved back to a repository and plan id the same way an
+// empty selector infers one (fleet.CurrentPlanID); a mismatch, like an
+// unreachable herdr, is a warning that leaves the worktree standing
+// rather than a guess acted on.
 func tearDownLane(rt *runtime, doc *report.YieldDoc) {
 	pane, err := herdr.CurrentPane(rt.herdr)
 	if err != nil {
-		doc.Warn(fmt.Sprintf("herdr pane current: %v", err))
+		doc.Warn(fmt.Sprintf("pane current: %v", err))
 		return
 	}
 	if pane.Workspace == "" {
+		doc.Warn("no pane open to tear down")
+		return
+	}
+	repo, id, ok := fleet.CurrentPlanID(pane.CWD, rt.git, holdsForRoot)
+	if !ok || repo != doc.Plan.Repo || id != doc.Plan.ID {
+		doc.Warn(fmt.Sprintf(
+			"the calling pane is not plan %d's own lane; its worktree "+
+				"was left standing", doc.Plan.ID))
 		return
 	}
 	if err := herdr.WorktreeRemove(rt.herdr, pane.Workspace); err != nil {

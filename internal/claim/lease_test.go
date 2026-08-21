@@ -516,6 +516,48 @@ func TestYieldRefusesTheCurrentHolder(t *testing.T) {
 	assert.Empty(t, rescue, "the live holder's lease is not parked")
 }
 
+// TestYieldWithNoLocalRefIsANoOp: a checkout that never fetched or
+// minted the plan's branch has nothing of its own to rescue. Yield
+// must not read that as "still held" — an absent remote ref reads as
+// "" too, and "" == "" would misreport a plan nobody holds — and must
+// not call park with an empty tip either: park's push turns an empty
+// tip into a delete of the rescue ref, which git accepts as a no-op
+// whether or not the ref exists, so a naive call would silently
+// "succeed" without ever creating a rescue.
+func TestYieldWithNoLocalRefIsANoOp(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+
+	sc, err := Yield(first, opts, "", gitwt.Exec)
+
+	require.NoError(t, err, "no local ref is a no-op, not a refusal")
+	assert.Empty(t, sc.Rescue, "nothing was parked")
+	rescue, lsErr := gitCapture(t, first, "ls-remote", "origin",
+		"refs/frit/rescue/*")
+	require.NoError(t, lsErr)
+	assert.Empty(t, rescue, "no rescue ref was ever created")
+}
+
+// TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp: the same "no
+// local ref" no-op holds even when the plan is genuinely held live by
+// someone else — this checkout simply never fetched it, so it still
+// has nothing of its own to park, and must not fabricate a "parked"
+// rescue for that other holder's work.
+func TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp(t *testing.T) {
+	first := originAndClone(t)
+	_, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	sc, err := Yield(first, leaseOptions("box-b", "/lanes/b"), "", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Empty(t, sc.Rescue, "nothing was parked for a ref never fetched")
+	rescue, lsErr := gitCapture(t, first, "ls-remote", "origin",
+		"refs/frit/rescue/*")
+	require.NoError(t, lsErr)
+	assert.Empty(t, rescue, "no rescue ref was fabricated")
+}
+
 // TestRescueRefsListsEveryMachinesParkedWork: rescue is per plan and
 // per machine, so two parked runs both come back, another plan's
 // rescue ref does not bleed in, and a plan with nothing parked reads

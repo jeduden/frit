@@ -258,9 +258,23 @@ func Scavenge(
 // fenced at all; that is the live holder, and yielding it would
 // silently discard the lease rather than release it, so that case is
 // refused instead (F4, F5).
+//
+// An empty local is its own case, checked first: nothing was ever
+// fetched or minted here, so there is nothing of this lane's own to
+// rescue. It must not fall into the still-held comparison — an absent
+// remote ref reads as "" too, and "" == "" would misreport a plan
+// nobody holds as still held by this lane. It must not reach park
+// either: park's push is tip+":"+rescue, and an empty tip turns that
+// into a delete of the rescue ref, which git accepts whether or not
+// the ref exists — a silent false "parked" for a rescue that was
+// never written.
 func Yield(
 	repoDir string, opts LeaseOptions, local string, run gitwt.Runner,
 ) (Scavenged, error) {
+	if local == "" {
+		return Scavenged{}, nil
+	}
+
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
 	if remoteHolder(repoDir, opts.Remote, ref, run) == local {
 		return Scavenged{}, &StillHeldError{PlanID: opts.PlanID}

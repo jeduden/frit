@@ -14,9 +14,12 @@ import (
 )
 
 // yieldHerdr fakes a herdr socket that answers pane.current with the
-// calling pane's own workspace and records every other call, so a
-// test can assert yield tore its own lane down and read no agent back.
-func yieldHerdr(workspace string) (herdr.Runner, *herdrCalls) {
+// calling pane's own workspace and cwd, and records every other call,
+// so a test can assert yield tore its own lane down and read no agent
+// back. cwd is what tearDownLane resolves back to a plan before it
+// tears anything down, so a test asserting a real teardown must pass
+// the lane's own worktree.
+func yieldHerdr(workspace, cwd string) (herdr.Runner, *herdrCalls) {
 	rec := &herdrCalls{}
 
 	return func(args ...string) ([]byte, error) {
@@ -25,8 +28,9 @@ func yieldHerdr(workspace string) (herdr.Runner, *herdrCalls) {
 		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
 			return []byte(fmt.Sprintf(
-				`{"result":{"pane":{"pane_id":"%s:p1","workspace_id":%q}}}`,
-				workspace, workspace)), nil
+				`{"result":{"pane":{"pane_id":"%s:p1","workspace_id":%q,`+
+					`"cwd":%q}}}`,
+				workspace, workspace, cwd)), nil
 		}
 
 		return nil, nil
@@ -70,8 +74,12 @@ func TestYieldParksAFencedLaneAndTearsItDown(t *testing.T) {
 	require.Equal(t, 0, code, claimed.String())
 
 	fenceWithATakeover(t, repo, 7)
+	// The lane's own worktree sits on the plan's branch — what
+	// tearDownLane resolves the calling pane's cwd back to before it
+	// tears anything down.
+	git(t, repo, "checkout", "-q", "plan/7")
 
-	runner, rec := yieldHerdr("w1A")
+	runner, rec := yieldHerdr("w1A", repo)
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
 
@@ -93,6 +101,88 @@ func TestYieldParksAFencedLaneAndTearsItDown(t *testing.T) {
 		"yield never reads an agent back")
 }
 
+// TestYieldLeavesAnUnrelatedPaneStanding: yield is given a plan id, not
+// a workspace, so nothing stops that id from being a different plan
+// than whatever happens to be running in the calling pane — a mistaken
+// or explicit argument must not tear down an unrelated lane just
+// because the command was typed into its terminal.
+func TestYieldLeavesAnUnrelatedPaneStanding(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	other := claimableRepo(t, root, "borg", 9, "Unrelated work")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	fenceWithATakeover(t, repo, 7)
+
+	// The calling pane sits in a different repository's own lane, on
+	// its own branch — not plan 7's.
+	git(t, other, "checkout", "-q", "-b", "plan/9")
+	runner, rec := yieldHerdr("w1A", other)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "parked",
+		"plan 7's own divergence is still parked")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"the unrelated pane's worktree is left standing")
+	assert.Contains(t, out.String(), "warning",
+		"the mismatch is reported, not silently ignored")
+}
+
+// TestYieldWarnsRatherThanFailsOnAParkConflict: a rescue ref conflict
+// from claim.Yield is not a StillHeldError, so it must not fall through
+// to a raw command failure — that would print to stderr and skip the
+// document entirely, breaking a --json caller and leaving the lane's
+// own worktree torn down with nothing actually saved. It is reported
+// as a warning in the rendered document instead, the way scavengeRef
+// already treats the identical conflict from claim.Scavenge, and the
+// worktree is left standing rather than torn down over an unparked
+// divergence.
+func TestYieldWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	fenceWithATakeover(t, repo, 7)
+
+	// A foreign rescue already parked at the exact ref name this yield
+	// would park to, at a tip that is not plan 7's local divergence —
+	// park's create-only guard refuses to clobber it.
+	foreignTip, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		foreignTip+":refs/frit/rescue/7/"+hostname())
+	require.NoError(t, err)
+
+	git(t, repo, "checkout", "-q", "plan/7")
+	runner, rec := yieldHerdr("w1A", repo)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Empty(t, errb.String(),
+		"under --json (and here) nothing goes to stderr")
+	assert.Contains(t, out.String(), "warning",
+		"the park conflict is reported in the document")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"a failed park leaves the worktree standing")
+}
+
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still
 // matches origin's is not fenced — yield refuses rather than treat
 // itself as an alias for release, and nothing is parked or torn down.
@@ -106,7 +196,7 @@ func TestYieldRefusesTheCurrentHolder(t *testing.T) {
 	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
 	require.Equal(t, 0, code, claimed.String())
 
-	runner, rec := yieldHerdr("w1A")
+	runner, rec := yieldHerdr("w1A", repo)
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
 
