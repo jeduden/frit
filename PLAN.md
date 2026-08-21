@@ -60,4 +60,5 @@ footer: |
 | 2608192233 | ✅     | sonnet | [Harden the claim against squash-merges and shared checkouts](plan/2608192233_claim-watertight.md)            |
 | 2608192322 | ✅     | sonnet | [A claimed lane is its own worktree, never the shared clone](plan/2608192322_claim-stands-up-its-worktree.md) |
 | 2608202144 | 🔳     | sonnet | [The hold is the work ref, a self-healing lease](plan/2608202144_lease-namespace-claims.md)                   |
+| 2608211326 | 🔲     | sonnet | [The lease protocol completed through every verb](plan/2608211326_lease-protocol-completion.md)               |
 <?/catalog?>
