@@ -92,12 +92,14 @@ type FenceError struct {
 
 func (e *FenceError) Error() string {
 	if e.Known && e.Marker.Holder != "" {
-		return fmt.Sprintf("fenced: the work ref for plan %d was moved by %s",
+		return fmt.Sprintf(
+			"fenced: the work ref for plan %d was moved by %s; run yield",
 			e.PlanID, e.Marker.Holder)
 	}
 
 	return fmt.Sprintf(
-		"fenced: the work ref for plan %d moved under the lease", e.PlanID)
+		"fenced: the work ref for plan %d moved under the lease; run yield",
+		e.PlanID)
 }
 
 // VetoError reports a takeover refused because herdr positively

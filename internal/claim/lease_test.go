@@ -152,6 +152,8 @@ func TestRenewAfterAForeignMoveIsFenced(t *testing.T) {
 	require.True(t, fenced.Known, "the mover's marker was read")
 	assert.Equal(t, "box-b", fenced.Marker.Holder, "the fence names the mover")
 	assert.Contains(t, err.Error(), "box-b")
+	assert.Contains(t, err.Error(), "yield",
+		"a fenced-out session's next verb offers yield")
 	remote := gitCmd(t, first, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, foreign, "the fenced holder moved nothing")
 	assert.Equal(t, lease.Tip,
