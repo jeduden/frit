@@ -214,7 +214,7 @@ func startExecute(
 		return err
 	}
 
-	pane, err := standUpLane(rt, plan, sp, sc.repoPath, text)
+	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
 		// The lease is minted but nothing answers behind it. Release it —
 		// a pushed marker, never a delete, so the next acquire reads epoch
@@ -229,9 +229,39 @@ func startExecute(
 
 		return err
 	}
+	bindSession(rt, doc, plan, sp, sc, lease.Tip, session)
 	doc.MarkStarted(pane)
 
 	return nil
+}
+
+// bindSession records the started agent's herdr session on the lease:
+// a beat CASed from the tip the acquire just minted, carrying the
+// session trailer, so a later takeover can ask herdr whether this
+// lease's holder is still alive (F3, S61).
+//
+// A failed bind is a warning, never an abort: the lane is up and
+// working, the lease is valid on the remote, and an unbound lease only
+// forgoes the veto and falls back to the staleness window. Tearing a
+// healthy lane down over a decoration would be the worse failure.
+func bindSession(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
+	sp report.StartPlan, sc startContext, tip, session string,
+) {
+	if session == "" {
+		return
+	}
+	if _, err := claim.Renew(sc.repoPath, claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  sc.remote,
+		Base:    sp.Base,
+		Holder:  hostname(),
+		Lane:    sp.Lane,
+		Session: session,
+	}, tip, rt.git); err != nil {
+		doc.AddProblem(plan.Repo, fmt.Errorf(
+			"bind session %s to %s: %w", session, sp.Branch, err))
+	}
 }
 
 // handoffError names what a failed handoff left behind: the worktree
@@ -275,14 +305,15 @@ func releaseLease(
 }
 
 // standUpLane hands the checkout, the agent, the prompt and the focus to
-// herdr in turn and returns the pane it opened — on failure too, once
-// one exists, so the unwind can name what stood up. Every call here is
-// herdr's — frit spawns nothing it does not hand straight over — and
-// `agent read` is deliberately never among them.
+// herdr in turn and returns the pane it opened, and the herdr session
+// the started agent was given — on failure too, once a pane exists, so
+// the unwind can name what stood up. Every call here is herdr's — frit
+// spawns nothing it does not hand straight over — and `agent read` is
+// deliberately never among them.
 func standUpLane(
 	rt *runtime, plan discovery.Plan, sp report.StartPlan,
 	repoPath, text string,
-) (string, error) {
+) (string, string, error) {
 	pane, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
 		CWD:    repoPath,
 		Branch: sp.Branch,
@@ -291,7 +322,7 @@ func standUpLane(
 		Label:  fmt.Sprintf("plan %d", plan.ID),
 	})
 	if err != nil {
-		return "", fmt.Errorf("worktree create: %w", err)
+		return "", "", fmt.Errorf("worktree create: %w", err)
 	}
 
 	if err := herdr.AgentStart(rt.herdr, herdr.AgentSpec{
@@ -301,17 +332,23 @@ func standUpLane(
 		Model:     sp.Tier,
 		TimeoutMS: startTimeoutMS,
 	}); err != nil {
-		return pane, fmt.Errorf("agent start: %w", err)
+		return pane, "", fmt.Errorf("agent start: %w", err)
 	}
+	// The first moment a session exists: herdr assigns one when the
+	// agent starts, and neither this call nor worktree.create answers
+	// with it, so it is read back off the same agent list every other
+	// read uses. Best-effort — a lookup that fails costs the lease
+	// only its herdr veto, not the lane.
+	session := herdr.PaneSession(rt.herdr, pane)
 
 	if err := herdr.Prompt(rt.herdr, pane, text); err != nil {
-		return pane, fmt.Errorf("prompt: %w", err)
+		return pane, session, fmt.Errorf("prompt: %w", err)
 	}
 	if err := herdr.Focus(rt.herdr, pane); err != nil {
-		return pane, fmt.Errorf("focus: %w", err)
+		return pane, session, fmt.Errorf("focus: %w", err)
 	}
 
-	return pane, nil
+	return pane, session, nil
 }
 
 // openEditor is the seam for --edit: it hands the composed prompt to

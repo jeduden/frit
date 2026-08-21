@@ -17,7 +17,7 @@ phases:
     status: "✅"
   - n: 2
     title: herdr veto, session binding, self-resume
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: parameters and the legacy-hold transition
     status: "🔲"
@@ -210,9 +210,9 @@ Tier is per phase, set by the most demanding ingredient.
 
 - [x] A fenced lane yields: divergence parked, lane torn down, exit
       zero; `next` and `show` list the rescue ref.
-- [ ] A stale-held plan with a live bound session is not taken over,
+- [x] A stale-held plan with a live bound session is not taken over,
       and the veto renews on the holder's behalf.
-- [ ] A restarted lane whose token matches origin resumes its lease
+- [x] A restarted lane whose token matches origin resumes its lease
       with no window.
 - [ ] T, S_max and k are read per repository; takeover waits k·T.
 - [ ] Every verb-state cell of the table is a passing test in both

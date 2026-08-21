@@ -15,8 +15,9 @@ import (
 )
 
 // startHerdr fakes a herdr that answers worktree.create with a pane and
-// records every other call, so a test can assert the escalation ran the
-// right handshake — and, just as important, never read an agent back.
+// agent.list with that same pane bound to a session, and records every
+// other call, so a test can assert the escalation ran the right
+// handshake — and, just as important, never read an agent back.
 func startHerdr() (herdr.Runner, *herdrCalls) {
 	rec := &herdrCalls{}
 
@@ -26,6 +27,11 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wZ:p1",` +
+				`"agent_session":{"value":"sess-1"}}]}}`), nil
 		}
 
 		return nil, nil
@@ -151,6 +157,31 @@ func TestStartGoRunsTheEscalation(t *testing.T) {
 
 	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "frit minted the claim itself")
+}
+
+// TestStartBindsTheSessionOntoTheLease: once the agent is up, start
+// reads its herdr session back and binds it onto the lease with a
+// beat, so a later takeover can ask herdr whether this lease's holder
+// is still alive (F3, S61).
+func TestStartBindsTheSessionOntoTheLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "binding never bumps the epoch")
+	assert.Contains(t, body, "session: sess-1")
 }
 
 // TestStartEditAmendsThePrompt: --edit hands the composed prompt to the
