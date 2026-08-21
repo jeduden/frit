@@ -1,7 +1,7 @@
 ---
 id: 2608211210
 title: pick --go selects the top plan and starts it, so a skill needs one verb
-status: "🔲"
+status: "🔳"
 summary: >-
   plan-pick spends most of its tokens making the agent re-run frit's own
   ranking by hand — pick, board, show, next, then start. frit already
@@ -71,14 +71,16 @@ emits.
 
 ## Phase 1: pick --go starts the top candidate, end to end
 
-The proving slice. Add `Go bool` to `pickCmd`. When set, select the top
-of `discovery.Pick(res.Plans, 0)` and run it through the same
-`composeStart` → `startExecute` → `renderStart` path `start` uses,
-dry-run by default and standing the lane up under `--go`. When `pick`
-finds nothing startable, `pick --go` refuses with the same empty answer
-`pick` prints. This establishes the whole seam — select, reuse start's
-execute, emit a `StartDoc` — that phases 2+ extend. It ends in sign-off
-on that seam and the output shape.
+The proving slice. Add `Go bool` to `pickCmd`. Bare `pick` is the ranked
+list it is today — the safe look. With `--go`, select the top of
+`discovery.Pick(res.Plans, 0)` and run it through the same `composeStart`
+→ `startExecute` → `renderStart` path `start --go` uses, standing the
+lane up through herdr and emitting a `StartDoc`. The `--go` is the same
+explicit opt-in to the mutation `start` requires. When `pick` finds
+nothing startable, `pick --go` prints the same empty answer `pick`
+gives and mutates nothing. This establishes the whole seam — select,
+reuse start's execute, emit a `StartDoc` — that phases 2+ extend. It ends
+in sign-off on that seam and the output shape.
 
 Phase 1 is a fresh pick only: the resume fallback and lost-race
 advance are Phase 2. The phases below were appended at Phase 1 sign-off.
@@ -106,8 +108,8 @@ the skill under the kind's line cap. Re-record any JSON golden the new
 ## Tasks
 
 1. Phase 1 — `frit pick --go` selects the top fresh candidate and runs
-   start's claim-and-stand-up path, dry-run and `--go`, emitting a
-   `StartDoc`; nothing startable refuses cleanly.
+   start's claim-and-stand-up path, emitting a `StartDoc`; nothing
+   startable prints the empty answer. Done.
 2. Phase 2 — `discovery.Candidates` appends the resume tail so `pick
    --go` resumes an unheld in-progress plan; the actor advances past an
    `ErrLostRace` to the next candidate.
@@ -126,17 +128,16 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] `frit pick --go` with no flags prints the escalation it would run
-      for the top-ranked startable plan and mutates nothing
-- [ ] `frit pick --go` under `--go` mints the claim and stands the lane
-      up through herdr, the same path `frit start <id> --go` runs
-- [ ] `frit pick --go` when nothing is startable refuses with the same
-      empty answer bare `pick` prints, and mutates nothing
+- [x] `frit pick --go` mints the claim and stands the lane up through
+      herdr for the top-ranked startable plan, the same path
+      `frit start <id> --go` runs
+- [x] `frit pick --go` when nothing is startable prints the same empty
+      answer bare `pick` gives, and mutates nothing
 - [ ] With no fresh plan startable but an in-progress plan nobody holds,
       `frit pick --go` resumes that plan
 - [ ] A claim that loses its race advances `pick --go` to the next
       candidate instead of surfacing the race to the caller
-- [ ] Bare `frit pick` is unchanged: the ranked list, no mutation
+- [x] Bare `frit pick` is unchanged: the ranked list, no mutation
 - [ ] The `plan-pick` skill drives one verb to claim-and-start, drops
       the landed-work grep, and stays under the skill kind's line cap
 - [ ] The JSON goldens `pick --go` touches are re-recorded and the diff

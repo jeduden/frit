@@ -21,7 +21,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                                   |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 2608211210 | sonnet | [pick --go selects the top plan and starts it, so a skill needs one verb](plan/2608211210_pick-go-claims-and-starts.md) |
 <?/catalog?>
 
 ## All plans
@@ -57,5 +59,5 @@ footer: |
 | 2608192233 | ✅     | sonnet | [Harden the claim against squash-merges and shared checkouts](plan/2608192233_claim-watertight.md)                      |
 | 2608192322 | ✅     | sonnet | [A claimed lane is its own worktree, never the shared clone](plan/2608192322_claim-stands-up-its-worktree.md)           |
 | 2608202144 | 🔲     | sonnet | [The hold is the work ref, a self-healing lease](plan/2608202144_lease-namespace-claims.md)                             |
-| 2608211210 | 🔲     | sonnet | [pick --go selects the top plan and starts it, so a skill needs one verb](plan/2608211210_pick-go-claims-and-starts.md) |
+| 2608211210 | 🔳     | sonnet | [pick --go selects the top plan and starts it, so a skill needs one verb](plan/2608211210_pick-go-claims-and-starts.md) |
 <?/catalog?>

@@ -1011,16 +1011,24 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 }
 
 type pickCmd struct {
-	N int `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	N     int    `short:"n" default:"5" help:"How many candidates to list; 0 for all."`
+	Go    bool   `help:"Claim and start the top candidate instead of listing them."`
+	Phase string `help:"Phase to dispatch under --go; default is the plan's next open phase."`
 	sortFlags
 }
 
 // Run lists the startable plans ranked by how much each unblocks,
-// trimmed to the number asked for.
+// trimmed to the number asked for. With --go it stops listing and starts
+// the top candidate outright — the selection the skill used to make by
+// hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
+	}
+
+	if pc.Go {
+		return pc.start(c, rt, res)
 	}
 
 	list, err := pc.order(discovery.Pick(res.Plans, pc.N))
@@ -1045,6 +1053,28 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 // of startable plans, so the rendering is shared rather than copied.
 func readyView(doc *report.PickDoc) *report.ReadyDoc {
 	return &report.ReadyDoc{Plans: doc.Plans}
+}
+
+// start runs pick --go: rank the startable plans, take the top one, and
+// run start's own claim-and-stand-up path on it. When nothing is
+// startable it prints the same empty answer a bare pick gives and
+// mutates nothing.
+func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
+	ranked := discovery.Pick(res.Plans, 0)
+	if len(ranked) == 0 {
+		doc := report.NewPick(c.Root, hostname())
+		carryProblems(doc, res.Problems, c.All)
+
+		if c.JSON {
+			return report.WriteJSON(rt.stdout, doc)
+		}
+		printReady(rt.stdout, readyView(doc), rt.width)
+		printProblems(rt.stderr, doc.Problems)
+
+		return nil
+	}
+
+	return startResolved(c, rt, res, ranked[0], pc.Phase, "", false, true)
 }
 
 type nextCmd struct {

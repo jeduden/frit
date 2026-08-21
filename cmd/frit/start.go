@@ -49,7 +49,19 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	phase, ok := dispatch.Phase(plan.Phases, s.Phase)
+	return startResolved(c, rt, res, plan, s.Phase, s.Note, s.Edit, s.Go)
+}
+
+// startResolved composes and, under doGo, runs the escalation for a plan
+// already chosen — whether start resolved it from a selector or pick
+// ranked it to the top. It refuses an unstartable plan and an ambiguous
+// repository the same way, so the two verbs share one execute path and
+// cannot drift on what "startable" or "started" means.
+func startResolved(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phaseSel, note string, edit, doGo bool,
+) error {
+	phase, ok := dispatch.Phase(plan.Phases, phaseSel)
 	if !ok {
 		if len(plan.Phases) == 0 {
 			return fmt.Errorf(
@@ -64,7 +76,7 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
 			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			s.Go)
+			doGo)
 		carryProblems(doc, res.Problems, c.All)
 		doc.Refuse(reason)
 
@@ -78,7 +90,7 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	if !ok {
 		doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
 			report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"},
-			s.Go)
+			doGo)
 		carryProblems(doc, res.Problems, c.All)
 		doc.Refuse(ambiguousRepo(plan.Repo))
 
@@ -86,12 +98,12 @@ func (s *startCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	sc := startContextOf(coord)
-	sp := composeStart(plan, phase, s.Note, sc)
-	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, s.Go)
+	sp := composeStart(plan, phase, note, sc)
+	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 
-	if s.Go {
-		if err := startExecute(rt, doc, plan, sp, sc, s.Edit); err != nil {
+	if doGo {
+		if err := startExecute(rt, doc, plan, sp, sc, edit); err != nil {
 			return err
 		}
 	}
