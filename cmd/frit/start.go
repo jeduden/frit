@@ -128,15 +128,13 @@ func startContextOf(coord fleet.Coord) startContext {
 func composeStart(
 	plan discovery.Plan, phase, note string, sc startContext,
 ) report.StartPlan {
-	branch := claim.Branch(plan.ID, plan.Path)
-
 	return report.StartPlan{
 		Phase:  phase,
 		Tier:   plan.Model,
 		Kind:   "claude",
-		Branch: branch,
+		Branch: claim.Branch(plan.ID),
 		Base:   sc.base,
-		Lane:   defaultLanePath(sc.repoPath, plan.ID, branch),
+		Lane:   defaultLanePath(sc.repoPath, plan.Path),
 		Prompt: withNote(dispatch.Command(plan.ID, phase), note),
 	}
 }
@@ -166,15 +164,14 @@ func startExecute(
 		doc.Prompt = text
 	}
 
-	if _, err := claim.Mint(sc.repoPath, claim.Options{
-		Branch:   sp.Branch,
-		Base:     sp.Base,
-		Remote:   sc.remote,
-		PlanID:   plan.ID,
-		PlanFile: plan.Path,
-		Lane:     sp.Lane,
-		Host:     hostname(),
-	}, rt.git); err != nil {
+	lease, err := claim.Acquire(sc.repoPath, claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: sc.remote,
+		Base:   sp.Base,
+		Holder: hostname(),
+		Lane:   sp.Lane,
+	}, rt.git)
+	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
 			return nil
@@ -185,12 +182,14 @@ func startExecute(
 
 	pane, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
-		// The claim was pushed but nothing stood behind it. Unwind it so a
-		// failed handoff does not leave a hold that reads as an abandoned
-		// lane. If the unwind itself fails the claim is still on the remote,
-		// so that is reported alongside the handoff error rather than
-		// swallowed into a silent orphan.
-		if relErr := releaseClaim(rt, sc, sp.Branch); relErr != nil {
+		// The lease is minted but nothing answers behind it. Release it —
+		// a pushed marker, never a delete, so the next acquire reads epoch
+		// E+1 — and name what the dead handoff left standing. If the
+		// release itself fails the lease is still on the remote, so that is
+		// reported alongside the handoff error rather than swallowed into a
+		// silent orphan.
+		err = handoffError(sp.Lane, pane, err)
+		if relErr := releaseLease(rt, sc, plan, sp, lease.Tip); relErr != nil {
 			return errors.Join(err, relErr)
 		}
 
@@ -201,23 +200,49 @@ func startExecute(
 	return nil
 }
 
-// releaseClaim unwinds a claim minted before a handoff that then failed.
-// It returns nil when the claim is gone, and an error naming the still-
-// held ref when the remote delete did not take — so a failed unwind is
-// surfaced and can be found, not left as a silent orphan for the next
-// run to trip over.
-func releaseClaim(rt *runtime, sc startContext, branch string) error {
-	if err := claim.Drop(sc.repoPath, branch, sc.remote, rt.git); err != nil {
+// handoffError names what a failed handoff left behind: the worktree
+// and pane that stood up before the failure, so they can be found and
+// torn down rather than guessed at. A handoff that died before herdr
+// opened a pane left nothing standing and reports the cause alone.
+func handoffError(lane, pane string, err error) error {
+	if pane == "" {
+		return err
+	}
+
+	return fmt.Errorf(
+		"worktree %s and pane %s were stood up and are left behind: %w",
+		lane, pane, err)
+}
+
+// releaseLease unwinds a lease minted before a handoff that then
+// failed: the release transition, a pushed marker rather than a
+// delete, so the plan frees while the history stays for the next
+// acquire to CAS on. It returns nil when the release lands, and an
+// error naming the still-held ref when it did not take — a failed
+// unwind is surfaced and can be found, not left as a silent orphan for
+// the next run to trip over.
+func releaseLease(
+	rt *runtime, sc startContext, plan discovery.Plan,
+	sp report.StartPlan, tip string,
+) error {
+	if _, err := claim.Release(sc.repoPath, claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: sc.remote,
+		Base:   sp.Base,
+		Holder: hostname(),
+		Lane:   sp.Lane,
+	}, tip, rt.git); err != nil {
 		return fmt.Errorf(
-			"claim %s could not be released and is left on the remote; "+
-				"run frit orphans to find it: %w", branch, err)
+			"lease %s could not be released and is left on the remote; "+
+				"run frit orphans to find it: %w", sp.Branch, err)
 	}
 
 	return nil
 }
 
 // standUpLane hands the checkout, the agent, the prompt and the focus to
-// herdr in turn and returns the pane it opened. Every call here is
+// herdr in turn and returns the pane it opened — on failure too, once
+// one exists, so the unwind can name what stood up. Every call here is
 // herdr's — frit spawns nothing it does not hand straight over — and
 // `agent read` is deliberately never among them.
 func standUpLane(
@@ -242,14 +267,14 @@ func standUpLane(
 		Model:     sp.Tier,
 		TimeoutMS: startTimeoutMS,
 	}); err != nil {
-		return "", fmt.Errorf("agent start: %w", err)
+		return pane, fmt.Errorf("agent start: %w", err)
 	}
 
 	if err := herdr.Prompt(rt.herdr, pane, text); err != nil {
-		return "", fmt.Errorf("prompt: %w", err)
+		return pane, fmt.Errorf("prompt: %w", err)
 	}
 	if err := herdr.Focus(rt.herdr, pane); err != nil {
-		return "", fmt.Errorf("focus: %w", err)
+		return pane, fmt.Errorf("focus: %w", err)
 	}
 
 	return pane, nil

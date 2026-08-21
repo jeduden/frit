@@ -24,9 +24,13 @@ const FileName = ".frit.yml"
 // DefaultPlanDir is where plan files live by convention.
 const DefaultPlanDir = "plan"
 
-// DefaultHoldPattern is the canonical claim shape: a branch named for
-// the plan it claims. A repository that uses it needs no config at
-// all; one that decorates the id differently declares its own.
+// LeaseHoldPattern is the work ref the lease protocol mints: id only,
+// so nothing derived from local state reaches the ref name.
+const LeaseHoldPattern = "plan/{id}"
+
+// DefaultHoldPattern is the legacy claim shape: a branch named for the
+// plan it claims with a slug decorating the id. It stays a default so
+// lanes claimed before the lease landed keep reading as holds.
 const DefaultHoldPattern = "plan/{id}-*"
 
 // DefaultRemote is where a claim lease is pushed by convention.
@@ -54,7 +58,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		PlanDir: DefaultPlanDir,
-		Holds:   []string{DefaultHoldPattern},
+		Holds:   []string{LeaseHoldPattern, DefaultHoldPattern},
 		Remote:  DefaultRemote,
 		// Base is left empty on purpose. Its real default is not a
 		// literal but the ref git resolves through the

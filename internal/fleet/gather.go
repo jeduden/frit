@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
@@ -200,6 +201,11 @@ func heldBranches(
 		return nil, err
 	}
 
+	tips := map[string]string{}
+	for _, r := range refs {
+		tips[r.Name] = r.OID
+	}
+
 	held := map[int64][]string{}
 	for _, lane := range lanes.Build(
 		repo.Worktrees, refs, merged, landed, holds) {
@@ -209,6 +215,12 @@ func heldBranches(
 				continue
 			}
 			seen[h.Branch] = true
+			// A tip that is a release marker is a lease that ended, not a
+			// live hold: the ref survives — the protocol deletes nothing —
+			// but the plan is free for the next acquire.
+			if claim.Released(repo.Path, tips[h.Ref], lane.PlanID, run) {
+				continue
+			}
 			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}

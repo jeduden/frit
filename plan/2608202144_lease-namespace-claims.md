@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: the lease atom on the work ref
-    status: "🔳"
+    status: "✅"
   - n: 2
     title: observation, staleness, takeover
     status: "🔲"
@@ -225,7 +225,11 @@ epoch-trailer marker and the four transitions, each a single CAS
 through `gitwt.Runner`. Retarget `claim.Branch` to the id-only name.
 Wire `mintClaim` and the `start` unwind in
 [cmd/frit/claim.go](../cmd/frit/claim.go) and
-[cmd/frit/start.go](../cmd/frit/start.go).
+[cmd/frit/start.go](../cmd/frit/start.go). Two reader-side moves keep
+the no-regression promise while the atom lands: the default hold
+patterns gain `plan/{id}` so the new ref reads as a hold, and
+`heldBranches` skips a ref whose tip is a release marker so a released
+plan frees without a human deleting anything.
 
 Gate: the six RED cases pass; `go test ./...` and the linter stay
 green; the existing claim and start suites still pass against the

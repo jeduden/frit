@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -255,32 +256,68 @@ func TestEditInEditorRunsAMultiWordEditor(t *testing.T) {
 	assert.Equal(t, "/plan-phase 7 3 amended", got)
 }
 
-// TestReleaseClaimSurfacesADanglingClaim: when the unwind's remote delete
-// fails, the claim is still on the remote, and that is reported — naming
-// the ref and pointing at frit orphans — rather than swallowed.
-func TestReleaseClaimSurfacesADanglingClaim(t *testing.T) {
-	rt := &runtime{git: func(_ string, args ...string) ([]byte, error) {
-		if len(args) > 0 && args[0] == "push" {
-			return nil, errors.New("remote hung up")
+// unwindGit fakes the git calls a release transition makes — the
+// marker read, the tree, the marker commit — with the push's outcome
+// injectable, so the unwind's two endings can both be driven.
+func unwindGit(push func() ([]byte, error)) func(string, ...string) ([]byte, error) {
+	return func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "log":
+			return []byte("plan 7: claim\n\nepoch:   1\nnonce:   c\n" +
+				"holder:  h\nlane:    -\nsession: -\n"), nil
+		case "rev-parse":
+			return []byte("treesha\n"), nil
+		case "commit-tree":
+			return []byte("markersha\n"), nil
+		case "push":
+			return push()
 		}
-		return nil, nil // update-ref -d is best-effort and ignored
-	}}
-	sc := startContext{repoPath: "/repo", remote: "origin"}
+		return nil, nil
+	}
+}
 
-	err := releaseClaim(rt, sc, "plan/7-shader-unit")
+// TestReleaseLeaseSurfacesADanglingLease: when the unwind's release
+// push fails, the lease is still live on the remote, and that is
+// reported — naming the ref and pointing at frit orphans — rather than
+// swallowed.
+func TestReleaseLeaseSurfacesADanglingLease(t *testing.T) {
+	rt := &runtime{git: unwindGit(func() ([]byte, error) {
+		return nil, errors.New("remote hung up")
+	})}
+	sc := startContext{repoPath: "/repo", remote: "origin"}
+	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+
+	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "plan/7-shader-unit")
+	assert.Contains(t, err.Error(), "plan/7")
 	assert.Contains(t, err.Error(), "frit orphans")
 }
 
-// TestReleaseClaimIsSilentWhenTheUnwindTakes: a clean release reports
+// TestReleaseLeaseIsSilentWhenTheUnwindTakes: a clean release reports
 // nothing, so only a real leak is ever surfaced.
-func TestReleaseClaimIsSilentWhenTheUnwindTakes(t *testing.T) {
-	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+func TestReleaseLeaseIsSilentWhenTheUnwindTakes(t *testing.T) {
+	rt := &runtime{git: unwindGit(func() ([]byte, error) {
 		return nil, nil
-	}}
-	err := releaseClaim(rt,
-		startContext{repoPath: "/repo", remote: "origin"}, "plan/7-x")
+	})}
+	sc := startContext{repoPath: "/repo", remote: "origin"}
+	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+
+	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
+
 	assert.NoError(t, err)
+}
+
+// TestHandoffError: a failure after the pane stood up names the
+// worktree and the pane; one before it leaves the cause untouched.
+func TestHandoffError(t *testing.T) {
+	cause := errors.New("prompt: boom")
+
+	named := handoffError("/lanes/atlas-x", "wZ:p1", cause)
+	assert.Contains(t, named.Error(), "/lanes/atlas-x")
+	assert.Contains(t, named.Error(), "wZ:p1")
+	assert.True(t, errors.Is(named, cause), "the cause still unwraps")
+
+	assert.Equal(t, cause, handoffError("/lanes/atlas-x", "", cause),
+		"no pane stood up, so there is nothing to name")
 }

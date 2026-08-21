@@ -70,20 +70,14 @@ type Result struct {
 	BaseSHA string
 }
 
-// Branch is the hold branch a plan is claimed on: plan/<id>-<slug>,
-// with the slug taken from the plan file name after its id prefix. It
-// is derived, never stored, so it is the same name the default hold
-// pattern reads back — a lease frit writes is a hold frit finds. A file
-// whose name carries no `<id>_` prefix contributes its whole stem, so
-// the branch is always well formed.
-func Branch(planID int64, planPath string) string {
-	stem := strings.TrimSuffix(filepath.Base(planPath), ".md")
-	slug := stem
-	if i := strings.IndexByte(stem, '_'); i >= 0 {
-		slug = stem[i+1:]
-	}
-
-	return fmt.Sprintf("plan/%d-%s", planID, slug)
+// Branch is the hold branch a plan is claimed on: plan/<id>, id only.
+// Nothing derived from local state — a file name, a slug, a title —
+// reaches the ref, so two machines can never name the same plan
+// differently and a renamed plan file cannot mint a second hold. It is
+// derived, never stored, and the default hold patterns read it back —
+// a lease frit writes is a hold frit finds.
+func Branch(planID int64) string {
+	return leaseBranch(planID)
 }
 
 // Mint leases the hold branch for a plan.
@@ -250,7 +244,9 @@ func MarkerHost(
 func holderMarker(
 	repoDir string, opts Options, tip string, run gitwt.Runner,
 ) (string, bool) {
-	pattern := fmt.Sprintf("^plan %d: claim ", opts.PlanID)
+	// No trailing space after "claim": the legacy subject carries a lane
+	// slug behind it, the lease subject ends there, and both must match.
+	pattern := fmt.Sprintf("^plan %d: claim", opts.PlanID)
 	body, err := trimmed(run(repoDir, "log", "-1",
 		"--grep="+pattern, "--format=%B", tip))
 	if err != nil || body == "" {
@@ -260,14 +256,17 @@ func holderMarker(
 	return body, true
 }
 
-// markerHost reads the host line from a claim marker's body, or "" when
-// there is none — a plain work commit that landed carries no host line,
-// and that absence is not a fault.
+// markerHost reads the holding machine from a claim marker's body, or
+// "" when there is none — a plain work commit that landed carries no
+// such line, and that absence is not a fault. Legacy markers record it
+// as host:, lease markers as holder:; both read as the host.
 func markerHost(body string) string {
 	for _, line := range strings.Split(body, "\n") {
-		if rest, ok := strings.CutPrefix(
-			strings.TrimSpace(line), "host:"); ok {
-			return strings.TrimSpace(rest)
+		for _, key := range []string{"host:", "holder:"} {
+			if rest, ok := strings.CutPrefix(
+				strings.TrimSpace(line), key); ok {
+				return strings.TrimSpace(rest)
+			}
 		}
 	}
 
@@ -317,20 +316,6 @@ func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
 	_, err := run(dir, "merge-base", "--is-ancestor", sha, base)
 
 	return err == nil
-}
-
-// Drop deletes a claim: the local ref and its copy on the remote. It is
-// the legacy unwind for a claim that was minted but could not be stood
-// up. The lease protocol replaces it with Release, which pushes a
-// marker and deletes nothing; Drop remains only until the last caller
-// is rewired. It is best-effort on the local side and reports the
-// remote delete, which is the one that matters.
-func Drop(repoDir, branch, remote string, run gitwt.Runner) error {
-	ref := "refs/heads/" + branch
-	_, _ = run(repoDir, "update-ref", "-d", ref)
-	_, err := run(repoDir, "push", "--quiet", remote, "--delete", ref)
-
-	return err
 }
 
 // markerMessage builds the lease's commit body.

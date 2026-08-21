@@ -36,7 +36,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	branch := claim.Branch(plan.ID, plan.Path)
+	branch := claim.Branch(plan.ID)
 	doc := report.NewClaim(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
 
@@ -54,7 +54,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if err := mintClaim(rt, doc, plan, branch, coord); err != nil {
+	if err := mintClaim(rt, doc, plan, coord); err != nil {
 		return err
 	}
 	if doc.Claimed {
@@ -74,7 +74,7 @@ func standUpClaimWorktree(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, branch string, coord fleet.Coord,
 ) {
-	path := defaultLanePath(coord.Path, plan.ID, branch)
+	path := defaultLanePath(coord.Path, plan.Path)
 	if _, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
 		CWD:    coord.Path,
 		Branch: branch,
@@ -88,7 +88,7 @@ func standUpClaimWorktree(
 	doc.Stood(path)
 }
 
-// mintClaim writes the lease from the coordinate the gather already
+// mintClaim acquires the lease from the coordinate the gather already
 // resolved — the repository path, its remote and the base — so the
 // claim reads them off the one fleet walk rather than a second one. A
 // lost race is the one expected non-fatal outcome — another machine got
@@ -96,16 +96,14 @@ func standUpClaimWorktree(
 // than surfaced as a command failure; a git fault is returned.
 func mintClaim(
 	rt *runtime, doc *report.ClaimDoc,
-	plan discovery.Plan, branch string, coord fleet.Coord,
+	plan discovery.Plan, coord fleet.Coord,
 ) error {
-	minted, err := claim.Mint(coord.Path, claim.Options{
-		Branch:   branch,
-		Base:     coord.Base,
-		Remote:   coord.Remote,
-		PlanID:   plan.ID,
-		PlanFile: plan.Path,
-		Lane:     defaultLanePath(coord.Path, plan.ID, branch),
-		Host:     hostname(),
+	minted, err := claim.Acquire(coord.Path, claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: coord.Remote,
+		Base:   coord.Base,
+		Holder: hostname(),
+		Lane:   defaultLanePath(coord.Path, plan.Path),
 	}, rt.git)
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
@@ -119,29 +117,31 @@ func mintClaim(
 	return nil
 }
 
-// lostRaceRefusal names who holds a plan whose claim push lost, from the
-// holder facts claim.Mint read off the winning ref's marker. A branch
-// that already landed, a claim held on this host, and one held elsewhere
-// each read differently; an unread marker falls back to the original
-// wording so a missing or malformed body never changes the outcome.
+// lostRaceRefusal names who holds a plan whose acquire lost, from the
+// facts claim.Acquire read off the winning lease's marker. A work ref
+// that already landed, a lease this machine holds, and one held
+// elsewhere each read differently; an unread marker falls back to the
+// original wording so a missing or malformed body never changes the
+// outcome.
 func lostRaceRefusal(err error) string {
-	var lost *claim.LostRaceError
-	if !errors.As(err, &lost) || !lost.Holder.Known {
+	var held *claim.HeldError
+	if !errors.As(err, &held) || !held.Known {
 		return "lost the race to another machine"
 	}
 
-	switch h := lost.Holder; {
-	case h.Landed:
+	switch {
+	case held.Landed:
 		return fmt.Sprintf(
 			"the claim branch has already landed; its status is still open, "+
-				"so set plan %d to ✅", lost.PlanID)
-	case h.ThisHost:
-		return fmt.Sprintf("already held on this host (%s)", h.Host)
-	case h.Host != "":
-		return fmt.Sprintf("lost the race to another machine (%s)", h.Host)
+				"so set plan %d to ✅", held.PlanID)
+	case held.ThisHolder:
+		return fmt.Sprintf("already held on this host (%s)", held.Marker.Holder)
+	case held.Marker.Holder != "":
+		return fmt.Sprintf(
+			"lost the race to another machine (%s)", held.Marker.Holder)
 	default:
-		// The marker was read but carried no host — a malformed body. Name
-		// no machine rather than print an empty pair of parentheses.
+		// The marker was read but carried no holder — a malformed body.
+		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
 }
@@ -181,12 +181,18 @@ func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 }
 
 // defaultLanePath is where the lane's worktree lives by convention: a
-// sibling of the repository named for it, `<repo>-<slug>`. frit does not
-// create it — that is herdr's worktree.create — but the marker records
-// it so the lane's history names where the work will live, the same
-// path the dispatch ladder hands to herdr.
-func defaultLanePath(repoPath string, id int64, branch string) string {
-	slug := strings.TrimPrefix(branch, fmt.Sprintf("plan/%d-", id))
+// sibling of the repository named for it, `<repo>-<slug>`, with the
+// slug taken from the plan file name after its id prefix — the branch
+// carries the id alone, so the human-readable name comes from the
+// file. frit does not create it — that is herdr's worktree.create —
+// but the marker records it so the lane's history names where the work
+// will live, the same path the dispatch ladder hands to herdr.
+func defaultLanePath(repoPath, planPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(planPath), ".md")
+	slug := stem
+	if i := strings.IndexByte(stem, '_'); i >= 0 {
+		slug = stem[i+1:]
+	}
 
 	return filepath.Join(filepath.Dir(repoPath),
 		filepath.Base(repoPath)+"-"+slug)

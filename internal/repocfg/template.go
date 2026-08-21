@@ -48,6 +48,7 @@ plan-dir: ` + DefaultPlanDir + `
 #
 # An empty list says this repository has no claims at all.
 holds:
+  - "` + LeaseHoldPattern + `"
   - "` + DefaultHoldPattern + `"
 
 # The git remote a claim lease is pushed to.

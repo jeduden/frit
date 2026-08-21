@@ -29,4 +29,5 @@ plan-dir: plan
 #
 # An empty list says this repository has no claims at all.
 holds:
+  - "plan/{id}"
   - "plan/{id}-*"
