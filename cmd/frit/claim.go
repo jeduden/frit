@@ -6,11 +6,13 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -91,20 +93,23 @@ func standUpClaimWorktree(
 // mintClaim acquires the lease from the coordinate the gather already
 // resolved — the repository path, its remote and the base — so the
 // claim reads them off the one fleet walk rather than a second one. A
-// lost race is the one expected non-fatal outcome — another machine got
-// there first — so it is carried in the document as a refusal rather
-// than surfaced as a command failure; a git fault is returned.
+// held plan whose takeover window matured is seized through the
+// takeover CAS instead of acquired. A lost race is the one expected
+// non-fatal outcome — another machine got there first, or a quiet
+// holder renewed — so it is carried in the document as a refusal
+// rather than surfaced as a command failure; a git fault is returned.
 func mintClaim(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, coord fleet.Coord,
 ) error {
-	minted, err := claim.Acquire(coord.Path, claim.LeaseOptions{
+	opts := claim.LeaseOptions{
 		PlanID: plan.ID,
 		Remote: coord.Remote,
 		Base:   coord.Base,
 		Holder: hostname(),
 		Lane:   defaultLanePath(coord.Path, plan.Path),
-	}, rt.git)
+	}
+	minted, err := mintOrTakeOver(rt, plan, coord, opts)
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
@@ -115,6 +120,45 @@ func mintClaim(
 	doc.Minted(minted.BaseSHA)
 
 	return nil
+}
+
+// mintOrTakeOver runs the transition the plan's state calls for:
+// takeover when the hold is observed stale, acquire otherwise. A
+// takeover CASes on exactly the tip the window observed; when a
+// renewal wins that race the loser re-reads and resets — the fresh tip
+// is folded into the observation store, so the window honestly starts
+// over on what actually holds the ref.
+func mintOrTakeOver(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord,
+	opts claim.LeaseOptions,
+) (claim.Lease, error) {
+	if !plan.Held || !plan.Stale {
+		return claim.Acquire(coord.Path, opts, rt.git)
+	}
+
+	lease, err := claim.Takeover(coord.Path, opts, plan.HoldTip, rt.git)
+	var held *claim.HeldError
+	if errors.As(err, &held) && held.Tip != "" {
+		resetWindow(plan, held.Tip, time.Now())
+	}
+
+	return lease, err
+}
+
+// resetWindow restarts a plan's observation window on the tip a lost
+// takeover re-read, so the store watches what actually holds the ref
+// rather than re-offering a takeover the server already refused.
+// Best-effort, like all observation.
+func resetWindow(plan discovery.Plan, tip string, now time.Time) {
+	path, err := observe.Path()
+	if err != nil {
+		return
+	}
+	state := observe.Load(path)
+	key := observe.Key(plan.Repo, plan.ID)
+	state[key] = discovery.Observe(
+		discovery.Window{}, tip, now, discovery.DefaultSampleGap)
+	_ = observe.Save(path, state)
 }
 
 // lostRaceRefusal names who holds a plan whose acquire lost, from the

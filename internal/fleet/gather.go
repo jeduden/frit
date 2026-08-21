@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
@@ -83,7 +84,8 @@ func Gather(
 	}
 	ambiguous := map[string]bool{}
 	for _, repo := range repos {
-		entries, held, coord, problems, err := gatherRepo(host, repo, run, pipe)
+		entries, held, leaseTips, coord, problems, err := gatherRepo(
+			host, repo, run, pipe)
 		if err != nil {
 			res.Problems = append(res.Problems,
 				Problem{Repo: repo.Name, Err: err})
@@ -92,7 +94,8 @@ func Gather(
 		res.Problems = append(res.Problems, problems...)
 		recordCoord(&res, ambiguous, repo.Name, coord)
 		for _, e := range entries {
-			res.Plans = append(res.Plans, planOf(repo.Name, e, held))
+			res.Plans = append(res.Plans,
+				planOf(repo.Name, e, held, leaseTips))
 		}
 	}
 
@@ -136,15 +139,17 @@ func recordCoord(
 func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner,
-) ([]index.Entry, map[int64][]string, Coord, []Problem, error) {
+) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
+	[]Problem, error,
+) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
@@ -158,13 +163,14 @@ func gatherRepo(
 		})
 	}
 
-	held, err := heldBranches(
+	held, leaseTips, err := heldBranches(
 		repo, cfg, preferred, index.LandedIDs(entries, preferred), run)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
-	return entries, held, coordOf(repo, cfg, preferred), problems, nil
+	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
+		problems, nil
 }
 
 // coordOf resolves the lease coordinate from what the gather already
@@ -183,22 +189,25 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 // the same holds the orphan report is built on, merged refs already
 // filtered out so landed work does not read as a live claim. The branch
 // names are the lanes a holder works the plan on, deduplicated so a
-// claim pushed to a remote does not read as two.
+// claim pushed to a remote does not read as two. Beside the branches it
+// returns each plan's lease tip — the commit its id-only work ref
+// points at — which is what the staleness observer watches and exactly
+// what a takeover CASes on.
 func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
 	landed map[int64]bool, run gitwt.Runner,
-) (map[int64][]string, error) {
+) (map[int64][]string, map[int64]string, error) {
 	holds, err := cfg.Compiled()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	merged, err := gitobj.MergedRefs(repo.Path, preferred, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tips := map[string]string{}
@@ -207,10 +216,12 @@ func heldBranches(
 	}
 
 	held := map[int64][]string{}
+	leaseTips := map[int64]string{}
 	for _, lane := range lanes.Build(
 		repo.Worktrees, refs, merged, landed, holds) {
 		seen := map[string]bool{}
 		for _, h := range lane.Holds {
+			recordLeaseTip(leaseTips, lane.PlanID, h, tips)
 			if seen[h.Branch] {
 				continue
 			}
@@ -225,13 +236,32 @@ func heldBranches(
 		}
 	}
 
-	return held, nil
+	return held, leaseTips, nil
+}
+
+// recordLeaseTip files the tip of a plan's id-only work ref. When both
+// a local and a remote-tracking copy exist the remote-tracking one
+// wins: origin is the arbiter, and its copy is the lease being
+// observed. Decorated legacy holds are skipped — only the lease ref is
+// observed or taken over.
+func recordLeaseTip(
+	leaseTips map[int64]string, planID int64, h lanes.Hold,
+	tips map[string]string,
+) {
+	if h.Branch != claim.Branch(planID) || tips[h.Ref] == "" {
+		return
+	}
+	if leaseTips[planID] == "" ||
+		strings.HasPrefix(h.Ref, "refs/remotes/") {
+		leaseTips[planID] = tips[h.Ref]
+	}
 }
 
 // planOf projects a plan's authoritative version into the discovery
 // view, tagging it held when a lane claims its id.
 func planOf(
 	repoName string, e index.Entry, held map[int64][]string,
+	leaseTips map[int64]string,
 ) discovery.Plan {
 	v := e.Primary()
 	holds := held[e.Key.ID]
@@ -251,6 +281,7 @@ func planOf(
 		Branches:  shortBranches(e),
 		Held:      len(holds) > 0,
 		Holds:     holds,
+		HoldTip:   leaseTips[e.Key.ID],
 	}
 }
 

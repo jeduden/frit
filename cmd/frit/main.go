@@ -35,6 +35,7 @@ import (
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/presence"
@@ -783,7 +784,44 @@ func hostname() string {
 // gatherFleet reads every repository's plans and holds into the view
 // the discovery verbs share.
 func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
-	return fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+	if err != nil {
+		return res, err
+	}
+	observeHolds(&res, time.Now())
+
+	return res, nil
+}
+
+// observeHolds folds this run's view of every held work ref into the
+// per-host observation store and marks the plans whose takeover window
+// has matured. Observation piggybacks on every fleet-reading verb —
+// the one side effect a read verb owns is this local state file, never
+// a ref — and is best-effort: an unwritable store only delays a
+// takeover, so it fails quiet rather than failing the verb.
+func observeHolds(res *fleet.Result, now time.Time) {
+	path, err := observe.Path()
+	if err != nil {
+		return
+	}
+	state := observe.Load(path)
+	for i := range res.Plans {
+		p := &res.Plans[i]
+		key := observe.Key(p.Repo, p.ID)
+		if !p.Held || p.HoldTip == "" {
+			// A plan no longer held needs no window; dropping it keeps
+			// the state to what this host actually watches.
+			delete(state, key)
+			continue
+		}
+		w := discovery.Observe(
+			state[key], p.HoldTip, now, discovery.DefaultSampleGap)
+		state[key] = w
+		p.Stale = discovery.StaleHold(
+			w, now, discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap)
+		p.StaleFor = w.Span()
+	}
+	_ = observe.Save(path, state)
 }
 
 // ambiguousRepo is the refusal a mutating verb reports when a plan's

@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: observation, staleness, takeover
-    status: "🔲"
+    status: "✅"
 ---
 # The hold is the work ref, a self-healing lease
 
@@ -261,7 +261,12 @@ becomes a pure function over (window, now, T, S_max) in
 [internal/discovery](../internal/discovery/discovery.go). The
 takeover transition lands in
 [internal/claim](../internal/claim/claim.go), and `pick` and `claim`
-are wired in [cmd/frit](../cmd/frit/main.go).
+are wired in [cmd/frit](../cmd/frit/main.go). One reading of the
+research note is narrowed: read verbs observe the local view of the
+remote-tracking work ref rather than fetching, so they stay offline;
+a takeover against a tip origin has since moved simply loses its CAS,
+and the loser folds the re-read tip back into the store so the window
+restarts on what actually holds the ref.
 
 Gate: the six RED cases pass as table-driven tests with explicit
 times; no test sleeps; goldens for `pick --json` re-recorded and the

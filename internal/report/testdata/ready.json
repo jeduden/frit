@@ -16,7 +16,9 @@
         2608161809
       ],
       "path": "plan/2608161810_dispatch-ladder.md",
-      "held": false
+      "held": false,
+      "stale": false,
+      "stale_seconds": 0
     }
   ],
   "problems": [

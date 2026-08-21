@@ -12,7 +12,9 @@
     "model": "opus",
     "depends_on": [],
     "path": "plan/2608161809_discovery-readiness-verbs.md",
-    "held": false
+    "held": false,
+    "stale": false,
+    "stale_seconds": 0
   },
   "phase": {
     "n": "2",

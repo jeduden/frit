@@ -15,7 +15,9 @@
       "model": "opus",
       "depends_on": [],
       "path": "plan/12_raymarch-gas-giants.md",
-      "held": false
+      "held": false,
+      "stale": false,
+      "stale_seconds": 0
     }
   ],
   "problems": []

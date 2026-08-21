@@ -146,8 +146,9 @@ func goldenReady() *ReadyDoc {
 	return doc
 }
 
-// goldenPick pins the ranked-candidate shape, two startable plans in
-// the order pick ranked them.
+// goldenPick pins the ranked-candidate shape: a startable plan, and a
+// matured takeover — a held plan whose lease has been observed stale,
+// carrying the observed age a consumer applies its own threshold to.
 func goldenPick() *PickDoc {
 	doc := NewPick("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{
@@ -163,6 +164,8 @@ func goldenPick() *PickDoc {
 			Key: "forge:orrery:7", Repo: "orrery", ID: 7, Status: "🔲",
 			Title: "Shader unit tests", Model: "sonnet",
 			Path: "plan/7_shader-unit-tests.md",
+			Held: true, Holds: []string{"plan/7"},
+			Stale: true, StaleFor: 3 * time.Hour,
 		},
 	})
 

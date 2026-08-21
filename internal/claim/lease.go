@@ -12,7 +12,6 @@ package claim
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -22,9 +21,10 @@ import (
 
 // The marker kinds, as they appear in the subject line.
 const (
-	markerClaim   = "claim"
-	markerBeat    = "beat"
-	markerRelease = "release"
+	markerClaim    = "claim"
+	markerBeat     = "beat"
+	markerRelease  = "release"
+	markerTakeover = "takeover"
 )
 
 // LeaseOptions describes the lease transitions on a plan's work ref:
@@ -142,12 +142,40 @@ func Release(
 	return advance(repoDir, opts, markerRelease, from, run)
 }
 
-// Takeover seizes a stale lease: a takeover marker, child of exactly
-// the observed stale tip, at epoch E+1.
+// Takeover seizes a stale lease: a takeover marker minted as a child
+// of exactly the observed stale tip, at epoch E+1, CASed so the server
+// arbitrates. A holder that was merely quiet renews first and wins —
+// the takeover then loses the CAS, re-reads, and the returned
+// HeldError names the live holder; the loser moves nothing and retries
+// never, it just resets to observing.
 func Takeover(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
-	return Lease{}, errors.New("not implemented")
+	m, ok := fetchedMarker(repoDir, opts, from, run)
+	if !ok {
+		return Lease{}, fmt.Errorf(
+			"no lease marker for plan %d is reachable from %s",
+			opts.PlanID, from)
+	}
+	marker, err := mintMarker(
+		repoDir, markerTakeover, from, opts, m.Epoch+1, "", run)
+	if err != nil {
+		return Lease{}, err
+	}
+
+	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	lost, tip, err := casPush(repoDir, ref, opts, marker, from, run)
+	if err != nil {
+		return Lease{}, fmt.Errorf(
+			"push takeover for plan %d: %w", opts.PlanID, err)
+	}
+	if lost {
+		return Lease{}, heldError(repoDir, opts, tip, run)
+	}
+
+	return Lease{
+		Branch: leaseBranch(opts.PlanID), Tip: marker, Epoch: m.Epoch + 1,
+	}, nil
 }
 
 // Released reports whether a ref tip is a release marker for a plan.
