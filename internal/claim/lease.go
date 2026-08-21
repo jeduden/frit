@@ -439,6 +439,26 @@ func Released(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 		subject == fmt.Sprintf("plan %d: %s", planID, markerRelease)
 }
 
+// Held reports whether a ref carries a minted lease anywhere in its
+// history: a claim or takeover marker, the two kinds that establish
+// an acquisition rather than merely renew or end one. A ref that
+// matches the holds patterns by name alone, with neither reachable,
+// is a name match, not a hold — a hand-made branch must not block
+// the plan it happens to name. The legacy decorated claim, whose
+// subject carries a lane slug behind the kind, is tolerated the same
+// way holderMarker already tolerates it: the pattern matches the
+// prefix, not the whole line. An unreadable tip reads as not held,
+// which fails safe for a fleet walk: it costs a plan wrongly offered
+// as startable, never a live lease wrongly seized.
+func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
+	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
+	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
+	body, err := trimmed(run(repoDir, "log", "-1",
+		"--grep="+claimPattern, "--grep="+takeoverPattern, "--format=%s", tip))
+
+	return err == nil && body != ""
+}
+
 // leaseBranch is the work ref's branch name: plan/<id>, id only, so
 // nothing derived from local state — a slug, a title — reaches the ref
 // and two machines can never name the same plan differently.

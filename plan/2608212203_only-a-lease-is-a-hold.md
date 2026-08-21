@@ -1,7 +1,7 @@
 ---
 id: 2608212203
 title: Only a minted lease is a hold, and a dead session frees it
-status: "🔲"
+status: "🔳"
 summary: >-
   Two tooling gaps let a dead pane strand a plan. frit reads any ref
   matching the holds patterns as a live claim, so a hand-made
@@ -15,7 +15,7 @@ depends-on: []
 phases:
   - n: 1
     title: a hold is a minted lease, not a name match
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: a confirmed-dead session frees its plan now
     status: "🔲"

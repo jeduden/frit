@@ -208,9 +208,12 @@ func TestBoardShowsUnfinishedWithHolderAndAgent(t *testing.T) {
 	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
 
 	// A worktree on the hold branch, one commit ahead so the claim is
-	// live rather than merged.
+	// live rather than merged. The claim marker beneath the wip commit
+	// is what makes this an actual hold, not merely a name match
+	// (2608212203).
 	wt := filepath.Join(root, "atlas-100")
 	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-underway", wt)
+	git(t, wt, "commit", "--allow-empty", "-q", "-m", "plan 100: claim")
 	require.NoError(t, os.WriteFile(
 		filepath.Join(wt, "work.txt"), []byte("wip\n"), 0o600))
 	git(t, wt, "add", "-A")

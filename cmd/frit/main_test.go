@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jeduden/frit/internal/report"
@@ -419,16 +421,33 @@ func TestPlansHonoursEachRepositorysPlanDir(t *testing.T) {
 	assert.Contains(t, out.String(), "1 plan")
 }
 
-// claimBranch commits one file on a branch named for a plan and
-// returns to main, leaving the branch unmerged and with no worktree.
+// claimBranch mints a claim marker and then one work commit on a
+// branch named for a plan, and returns to main, leaving the branch
+// unmerged and with no worktree. The marker is what makes the branch
+// read as an actual hold rather than a bare name match (2608212203).
 func claimBranch(t *testing.T, repo, branch string) {
 	t.Helper()
+	id := claimBranchPlanID(t, branch)
 	git(t, repo, "checkout", "-q", "-b", branch)
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: claim", id))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
 	git(t, repo, "add", "-A")
 	git(t, repo, "commit", "-q", "-m", "work on "+branch)
 	git(t, repo, "checkout", "-q", "main")
+}
+
+// claimBranchPlanID reads the plan id off the leading plan/<id>[-slug]
+// segment of a hold branch name.
+func claimBranchPlanID(t *testing.T, branch string) int64 {
+	t.Helper()
+	rest := strings.TrimPrefix(branch, "plan/")
+	digits, _, _ := strings.Cut(rest, "-")
+	id, err := strconv.ParseInt(digits, 10, 64)
+	require.NoError(t, err, "branch %q must start with plan/<id>", branch)
+
+	return id
 }
 
 // landPlan commits a plan file on the default branch with a given

@@ -239,6 +239,13 @@ func heldBranches(
 			if claim.Released(repo.Path, tips[h.Ref], lane.PlanID, run) {
 				continue
 			}
+			// A ref matching the holds pattern by name alone, with no
+			// claim or takeover marker reachable, is not a lease frit
+			// ever minted — a hand-made branch must not block the plan
+			// it names.
+			if !claim.Held(repo.Path, tips[h.Ref], lane.PlanID, run) {
+				continue
+			}
 			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}
