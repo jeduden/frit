@@ -182,7 +182,7 @@ the command prints the reason and exits 0.
 "already held" is checked before the status reasons, so a plan that is
 both held and done reports "already held". A 🔳 plan nobody holds is
 not refused: frit resumes it by re-minting the claim branch, and the
-push still arbitrates if a live hold exists after all.
+push still arbitrates in case a live hold does exist.
 
 The last row is a safety stop. frit names each repository by its main
 worktree's directory name. If two repositories under the root have the
@@ -200,9 +200,9 @@ plan's status is ✅, frit refuses it as "already done" before any push.
 But frit checks the plan's status, not the branch's merge state. If a
 branch merged and the status was never set to ✅, frit tries to resume
 it. The push finds the old branch and is rejected; the refusal calls
-the branch landed and suggests setting the status. Right for a
-finished plan — not for one with open phases: there, delete the
-merged branch on the remote and the resume goes through. Set the
+the branch landed and suggests setting the status. That advice only
+fits a finished plan. For one with open phases, delete the merged
+branch on the remote instead; the resume then goes through. Set the
 status ✅ when the last phase merges.
 
 ## Failures that are not refusals
@@ -292,9 +292,9 @@ title and the `lane` line show `-`.
 
 ## What changes next
 
-This page describes the claim as it ships today. A planned redesign
-replaces its weakest parts: the slug leaves the branch name, every
-push renews the lease, a dead agent's plan is observed stale and taken
-over atomically, and the manual delete above stops being the recovery.
-The record is [the lease protocol note](research/lease-protocol.md);
-the work is plan 2608202144. This page is rewritten when that lands.
+This page describes the claim as it ships today. A redesign is
+planned: the slug leaves the branch name, every push renews the
+lease, a dead agent's plan is detected as stale and taken over
+atomically, and the manual delete above stops being the recovery.
+The design is [the lease protocol note](research/lease-protocol.md);
+the work is plan 2608202144. This page will be rewritten then.

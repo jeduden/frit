@@ -1,13 +1,12 @@
 # The lease protocol: dead-agent detection over a git remote
 
-2026-08-21. The design record behind plan 2608202144. Method: a
-ten-finding adversarial code review of the previous claim design,
-then four blind agents, none seeing the others' work — a scenario
-enumerator (S1..S75), an independent protocol designer, a safety
-attacker (A1..A8) and a liveness attacker (F1..F12). Everything below
-survived, or was reshaped by, those reports. The plan carries the
-implementable contract; this note carries the full enumeration and
-the reasoning.
+2026-08-21. The design record behind plan 2608202144. The method was
+a ten-finding adversarial code review of the previous claim design,
+followed by four blind agents that did not see each other's work: a
+scenario enumerator (S1..S75), an independent protocol designer, a
+safety attacker (A1..A8) and a liveness attacker (F1..F12). The plan
+holds the implementable contract; this note holds the full
+enumeration and the reasoning behind it.
 
 ## The problem
 
@@ -20,32 +19,33 @@ blocked its plan until a human released it, holdership was inferred
 from branch ancestry and status emoji, and the hold ref embedded a
 slug computed from possibly-stale local state.
 
-Requirements set by the operator: detect dead agents; heal without
-human or agent intervention; enumerate every scenario with its
-mitigation; every verb behaves predictably and testably in every
-reachable state.
+The requirements: detect dead agents; recover without human or agent
+intervention; enumerate every scenario with its mitigation; make
+every verb behave predictably and testably in every reachable state.
 
-## Three insights that shaped the protocol
+## What shaped the protocol
 
 **One ref, not two.** A separate claims ref leaves a check-then-act
 gap between verifying the lease and pushing work (safety attack A4:
 not closable within the substrate, since refs are non-transactional).
-When the work ref *is* the lease, the takeover CAS and the holder's
-push contend on one ref the server serializes. There is no window
-between revoked and fenced for anything that rides the ref.
+When the work ref is also the lease, the takeover CAS and the
+holder's push contend on one ref that the server serializes. For
+anything that goes through the ref, there is no window between
+losing the lease and being fenced.
 
-**Healing must be passive.** A takeover path an agent must choose to
-run never runs: `pick` hides held plans (F1), and observation state
-that lives in a session dies with it (F2), so the staleness clock
-never completes. Observation is therefore a side effect of every
-fleet-reading verb, persisted per host, and `pick` itself surfaces
-matured takeovers as candidates.
+**Healing has to be passive.** A takeover path that an agent has to
+choose to run in practice never runs: `pick` hides held plans (F1),
+and observation state kept in a session dies with it (F2), so the
+staleness clock never completes. Observation therefore happens as a
+side effect of every fleet-reading verb, is persisted per host, and
+`pick` itself lists matured takeovers as candidates.
 
-**Landed is observable; dead is only inferable.** A merged plan needs
-no staleness window — the evidence is on origin, so scavenge fires
-immediately and idempotently. Only death needs the window, and a
-too-short window can never corrupt state (every transition is CAS),
-only waste effort. T is tuned for economics, never for safety.
+**Merged work can be read; a dead agent can only be inferred.**
+Whether a plan's work has merged is a fact on origin, so scavenge
+acts on it immediately and idempotently, with no staleness window.
+Only death needs the window, and a window that is too short cannot
+corrupt state, because every transition is a CAS; it only wastes
+effort. T is therefore chosen for cost, not for correctness.
 
 ## The protocol
 
@@ -64,10 +64,11 @@ session: <herdr id>     the pane the lease is bound to; "-" if none
 base:    <sha>          claim marker only, the freshly fetched base
 ```
 
-The nonce is load-bearing (A3): SHA-based CAS is ABA-proof only if no
-two commits can ever hash alike. Deterministic marker content would
-let a delete-and-recreate reuse a SHA that a pending takeover or
-release still expects, firing a stale CAS against a fresh lease.
+The nonce is required for correctness (A3). SHA-based CAS is only
+ABA-proof if no two commits can hash alike. With deterministic marker
+content, a delete followed by a recreate could reuse a SHA that a
+pending takeover or release still expects, and that stale CAS would
+then fire against a fresh lease.
 
 Every transition is one server-side CAS (`--force-with-lease` with an
 exact expected value). The server is the arbiter; frit never decides
@@ -83,7 +84,7 @@ holdership from a local view.
 | complete   | own tip, landed on main | ref deleted                          |
 | scavenge   | any tip proven landed   | ref deleted                          |
 
-Consequences that do the safety work:
+Consequences:
 
 - A takeover marker is a **child of the old tip**. The zombie's local
   history becomes a sibling: its CAS push fails on a moved tip, and
@@ -106,10 +107,10 @@ observer's own elapsed time, with at least two samples and no gap
 over S_max between them. A voided window — the observer slept, or
 origin was unreachable — restarts, so an origin outage resets every
 observer instead of triggering a mass takeover on recovery (S23, and
-the F5 amplifier). Lost observer state only ever delays takeover:
-absent state reads as "first seen now", so amnesia is safe by
-construction (F2 is answered by persistence, its loss by this rule).
-Marker timestamps are never compared across machines (S33–S36).
+the F5 amplifier). Lost observer state only ever delays a takeover:
+absent state reads as "first seen now", so losing the file is safe
+(persistence answers F2; this rule covers losing it anyway). Marker
+timestamps are never compared across machines (S33–S36).
 
 ### Fencing
 
@@ -128,7 +129,7 @@ tip (A7).
 
 The guarantee: no verb-mediated mutation lands after a takeover,
 with no window, because revocation and mutation contend on one
-server-serialized ref. The non-guarantee, stated plainly: raw
+server-serialized ref. What it does not guarantee: raw
 `git push --force`, pushes to other refs, and external side effects
 are outside the fence (S37–S39, S68, S69, A8). Write access to
 origin is the trust domain.
@@ -157,23 +158,25 @@ disk, not the identity strings (A1): a cloned machine or reused path
 without the lane's recorded tip gets no shortcut, and two clones that
 both carry it serialize on the next CAS — one continues, the other is
 fenced. A lane that lost its local state falls back to the
-observation window like any other claimant. The fleet of one heals at
-crash speed, and the landed-push lockout heals itself.
+observation window like any other claimant. A fleet of one recovers
+as soon as it restarts, and the landed-push lockout clears the same
+way.
 
 ### Scavenge
 
 Landed is evidence on origin, and the evidence must be fresh against
 the tip it deletes (A2). Two classes:
 
-- **Ancestry evidence is tip-coupled**: the observed tip is itself an
-  ancestor of the default branch, and the CAS expects exactly that
-  tip. A holder that has since renewed moved the tip, so the delete
-  fails honestly.
+- **Ancestry evidence is tied to the tip**: the observed tip is
+  itself an ancestor of the default branch, and the CAS expects
+  exactly that tip. A holder that has since renewed moved the tip,
+  so the delete fails.
 - **Glyph and plan-gone evidence** (✅ on the default branch, or no
-  plan file there) is decoupled from the tip, so it additionally
+  plan file there) is not tied to the tip, so it additionally
   requires a matured staleness window on the lease. A live, renewing
-  holder can never be scavenged, and the reopen race — stale ✅ read
-  at t, fresh lease minted at t+1 — collapses (A2, A6).
+  holder can never be scavenged, and the reopen race (a stale ✅
+  read, then a fresh lease minted a moment later) is closed (A2,
+  A6).
 
 A ref carrying unlanded work commits is parked to
 `refs/frit/rescue/<id>/<machine-id>` before deletion, so scavenge
@@ -182,20 +185,20 @@ never destroys work. Retries are idempotent CAS.
 ### Yield
 
 A fenced lane runs `frit yield` (F4, F5): push local divergence to
-the rescue ref (create-only, no lease needed — it is not a hold),
-tear the lane down via herdr, exit clean. `next` and `show` list
-rescue refs for a plan so stranded commits re-enter the flow.
+the rescue ref (create-only, no lease needed, since it is not a
+hold), tear the lane down via herdr, and exit. `next` and `show`
+list rescue refs for a plan, so stranded commits are found again.
 
 ### Parameters
 
 Parameters live in `.frit.yml`, a per-repository convention like
 `holds:` (F12): renewal period R, takeover window T, sample-gap bound
 S_max, and takeover backoff — the k-th takeover of one epoch chain
-waits k·T, damping ping-pong between two live-but-quiet agents (F3).
-Choosing T is economics, not safety: a CAS takeover of a live holder
-wastes effort but corrupts nothing, and the wasted work is bounded by
-the rescue ref. T must dominate the longest legitimate quiet stretch;
-R bounds the loss window for never-pushed work.
+waits k·T, which damps oscillation between two live but quiet agents
+(F3). T affects cost, not correctness: a takeover of a live holder
+wastes effort but corrupts nothing, and the rescue ref bounds the
+wasted work. T should exceed the longest legitimate quiet stretch;
+R bounds how much never-pushed work a dead host can take with it.
 
 ## The scenario matrix
 
@@ -211,7 +214,7 @@ auto-mutated).
 | #   | Scenario                                 | Outcome and mechanism                                     |
 | --- | ---------------------------------------- | --------------------------------------------------------- |
 | S1  | killed before local ref write            | nothing shared happened; retry is clean (CAS)             |
-| S2  | killed after local write, before push    | origin never saw it; another claim wins honestly (CAS)    |
+| S2  | killed after local write, before push    | origin never saw it; another claim can win (CAS)          |
 | S3  | killed mid-push, server committed        | RESUME: same lane reclaims instantly; else OBS→TAKE       |
 | S4  | killed before worktree creation          | RESUME on the same host; elsewhere OBS→TAKE               |
 | S5  | killed between worktree and agent start  | as S4; board shows held lane, no session                  |
@@ -224,15 +227,14 @@ auto-mutated).
 | S12 | killed after merge, before status flip   | SCAV on landed evidence, no window needed                 |
 | S13 | status flipped on branch, not merged     | evidence reads origin's default branch only (SCAV)        |
 
-S11 is the one real loss, bounded by R: what was never pushed dies
-with the host. R is the price of durability, and beats make the gap
-explicit.
+S11 is the one real loss, and R bounds it: what was never pushed
+dies with the host.
 
 ### Host death, suspension, zombies
 
 | #   | Scenario                              | Outcome and mechanism                                              |
 | --- | ------------------------------------- | ------------------------------------------------------------------ |
-| S14 | power loss mid-push                   | as S3; local repo damage is that host's own concern                |
+| S14 | power loss mid-push                   | as S3; any local repo damage stays local                           |
 | S15 | host dies holding a claim, never back | OBS→TAKE after T; no human needed                                  |
 | S16 | host resurrected days later           | FENCE: sibling history, every push rejected; YIELD                 |
 | S17 | suspended weeks, plan re-claimed      | FENCE as S16; divergence parked by YIELD                           |
@@ -245,7 +247,7 @@ explicit.
 | --- | -------------------------------- | ----------------------------------------------------------------- |
 | S20 | worker partitioned mid-work      | renewals fail → holder self-fences fast; OBS→TAKE; YIELD on heal  |
 | S21 | push landed during partition     | RESUME recognizes the lane's own token on heal                    |
-| S22 | observer partitioned             | display carries observed-at age; advice never mutates (OBS)       |
+| S22 | observer partitioned             | display carries the observed-at age; nothing mutates (OBS)        |
 | S23 | everyone partitioned, origin up  | all windows void on heal; no mass takeover (OBS S_max)            |
 | S24 | asymmetric: push ok, fetch fails | classification degrades to unknown and says so; CAS still decides |
 | S25 | stale unwind delete after heal   | no unleased deletes exist; release is CAS on own tip              |
@@ -256,7 +258,7 @@ explicit.
 | --- | ------------------------------------ | ----------------------------------------------------------- |
 | S26 | N claimants, one plan                | one CAS winner; losers read the marker and report (CAS)     |
 | S27 | rename between two claimants         | ID: the ref has no slug; one ref, one winner                |
-| S28 | human deletes ref mid-claim          | TRUST; the retry claims a free ref honestly                 |
+| S28 | human deletes ref mid-claim          | TRUST; the retry claims the now-free ref                    |
 | S29 | release races a loser's read         | loser reports unknown holder, retries; CAS decides          |
 | S30 | zombie vs new claimant on one branch | FENCE: sibling history, non-fast-forward                    |
 | S31 | orphan report vs sleeping host       | report only; TAKE waits for OBS window; VETO if host wakes  |
@@ -278,7 +280,7 @@ explicit.
 | S37 | claim ref hand-deleted          | holder's next CAS fails → refuses, reports (FENCE, TRUST)     |
 | S38 | claim ref hand-force-pushed     | as S37; forged markers are TRUST                              |
 | S39 | work ref force-pushed backward  | ABA on a stale takeover CAS; cooperative model, TRUST         |
-| S40 | remote GC reaps deleted markers | forensics degrade; rescue refs keep the work (PARK)           |
+| S40 | remote GC reaps deleted markers | marker history is lost; rescue refs keep the work (PARK)      |
 | S41 | remote rewritten or migrated    | every CAS fails safe; fleet re-acquires; TRUST                |
 | S42 | two remotes, split coordination | unsupported: one coordination remote, declared in `.frit.yml` |
 | S43 | origin URL edited mid-lifecycle | observer state keys on remote URL; old windows void (OBS)     |
@@ -309,7 +311,7 @@ explicit.
 | S56 | local branch deleted by hand    | origin is the only authority verbs consult (CAS)              |
 | S57 | plan re-opened after done       | old ref scavenged if landed; fresh acquire (SCAV, CAS)        |
 | S58 | released before the PR merges   | window of duplicate claim; human process, TRUST               |
-| S59 | status flipped ✅ early by hand | dependents unblock on a lie; TRUST, `doctor`'s concern        |
+| S59 | status flipped ✅ early by hand | dependents unblock too early; TRUST, `doctor`'s concern       |
 | S70 | claim dated against an old base | acquire fetches the base at claim time (CAS)                  |
 | S75 | default branch renamed          | evidence follows origin's HEAD, refreshed per read            |
 
@@ -357,47 +359,47 @@ explicit.
 | A7  | self-race read as eviction             | re-read on failed renewal; refuse only a foreign tip      |
 | A8  | renewal and takeover identical on wire | in the trust domain; reported, not fought                 |
 
-## Residual risks, stated plainly
+## Residual risks
 
 - Raw git against origin — force-pushes, hand deletes, forged
   markers, history rewrites — is inside the trust domain of write
-  access and outside the fence. frit reports what it sees; it never
-  fights a human for a ref (S37–S44, S69). A forge-side branch
-  protection rule on `plan/*` would shrink this and is recommended,
-  never required.
-- Work never pushed dies with its host (S11). Bounded by R.
+  access and outside the fence. frit reports what it sees; it does
+  not contend with a person for a ref (S37–S44, S69). A forge-side
+  branch protection rule on `plan/*` would shrink this and is
+  recommended, never required.
+- Work never pushed dies with its host (S11). R bounds the loss.
 - External side effects a taken-over holder already fired are not
   un-fired; the epoch is exported for resources that honor fencing
   tokens, and nothing else can use it.
 - The irreducible window (A4): mutations that do not ride the lane
   ref — an external side effect, or the PR merge to the default
   branch itself — happen after a fence check that cannot be atomic
-  with them. A suspension spanning exactly that gap yields a
-  duplicated effect. The fence keeps every ref mutation safe; for the
-  rest, the window is accepted, shrunk by the veto and backoff, and
-  loud when it happens.
+  with them. A suspension spanning exactly that gap duplicates the
+  effect. The fence keeps every ref mutation safe; for the rest, the
+  window is accepted, made smaller by the veto and backoff, and
+  visible when it happens.
 - A forward clock step inside a valid window can fire an early
-  takeover. Safe, wasteful, damped by backoff (S35).
-- Healing needs ambient verb activity somewhere in the fleet. A fully
-  idle fleet reaps nothing — and wants nothing.
+  takeover. That is safe but wasteful, and backoff damps it (S35).
+- Healing needs some verb activity somewhere in the fleet. A fully
+  idle fleet reaps nothing; it also has nobody waiting for the plan.
 
 ## Rejected alternatives
 
 - **A separate claims namespace** (`refs/frit/claims/<id>`): the
-  first redesign draft. Killed by A4 — the check-then-act gap between
-  the claims ref and the work branch is not closable when refs are
-  non-transactional. The single-ref design removes the gap instead of
-  narrowing it.
-- **TTL leases on wall clocks**: revokes a slow-but-alive agent on
-  the strength of clocks no two machines share. Staleness here is
+  first redesign draft. Dropped after A4: the check-then-act gap
+  between the claims ref and the work branch cannot be closed when
+  refs are non-transactional. The single-ref design removes the gap
+  instead of narrowing it.
+- **TTL leases on wall clocks**: this revokes a slow but alive agent
+  on the strength of clocks no two machines share. Staleness here is
   observed non-change on one clock, and even then a wrong call is
   CAS-safe.
 - **Identity-based self-recognition** (host, or host+lane strings):
-  admits cloned machines and reused paths as the same holder with no
-  race needed (A1). The token is the identity.
+  this admits cloned machines and reused paths as the same holder,
+  with no race needed (A1). The token is the identity.
 - **Renewal keyed to activity in the lane directory**: bystanders
-  renew a corpse's lease forever (F10). Renewal requires the bound
-  session.
+  would keep renewing a dead agent's lease (F10). Renewal requires
+  the bound session.
 - **A daemon**: would make observation continuous, but frit has no
   daemon and herdr already fills the per-host liveness role; piggyback
   observation plus persisted windows reaches the same healing with
