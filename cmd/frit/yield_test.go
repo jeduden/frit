@@ -53,6 +53,8 @@ func fenceWithATakeover(t *testing.T, repo string, planID int64) {
 	tmp := t.TempDir()
 	other := filepath.Join(tmp, "elsewhere")
 	git(t, tmp, "clone", "-q", origin, other)
+	git(t, other, "config", "user.email", "elsewhere@example.com")
+	git(t, other, "config", "user.name", "frit-test-elsewhere")
 	_, err = claim.Takeover(other, claim.LeaseOptions{
 		PlanID: planID, Remote: "origin", Base: "origin/main",
 		Holder: "elsewhere", Lane: "/lanes/x",
