@@ -1055,26 +1055,42 @@ func readyView(doc *report.PickDoc) *report.ReadyDoc {
 	return &report.ReadyDoc{Plans: doc.Plans}
 }
 
-// start runs pick --go: rank the startable plans, take the top one, and
-// run start's own claim-and-stand-up path on it. When nothing is
-// startable it prints the same empty answer a bare pick gives and
-// mutates nothing.
+// start runs pick --go: walk the ranked candidates and run start's own
+// claim-and-stand-up path on the first that takes. A candidate whose
+// claim loses its race is skipped for the next — the retry the skill
+// used to spell out by hand — so a live hold on the top pick does not
+// stall the fleet. When nothing is startable, or every candidate loses
+// its race, it prints the same empty answer a bare pick gives.
 func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
-	ranked := discovery.Pick(res.Plans, 0)
-	if len(ranked) == 0 {
-		doc := report.NewPick(c.Root, hostname())
-		carryProblems(doc, res.Problems, c.All)
-
-		if c.JSON {
-			return report.WriteJSON(rt.stdout, doc)
+	for _, plan := range discovery.Candidates(res.Plans) {
+		doc, lost, err := buildStart(c, rt, res, plan, pc.Phase, "", false, true)
+		if err != nil {
+			return err
 		}
-		printReady(rt.stdout, readyView(doc), rt.width)
-		printProblems(rt.stderr, doc.Problems)
+		if lost {
+			continue
+		}
 
-		return nil
+		return renderStart(c, rt, doc)
 	}
 
-	return startResolved(c, rt, res, ranked[0], pc.Phase, "", false, true)
+	return pc.emptyStart(c, rt, res)
+}
+
+// emptyStart prints the ranked-list report with no candidate — the same
+// "nothing startable" answer a bare pick gives — for when pick --go
+// finds nothing to start or loses every race.
+func (pc *pickCmd) emptyStart(c *cli, rt *runtime, res fleet.Result) error {
+	doc := report.NewPick(c.Root, hostname())
+	carryProblems(doc, res.Problems, c.All)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printReady(rt.stdout, readyView(doc), rt.width)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
 }
 
 type nextCmd struct {

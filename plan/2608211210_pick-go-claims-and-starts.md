@@ -112,7 +112,7 @@ the skill under the kind's line cap. Re-record any JSON golden the new
    startable prints the empty answer. Done.
 2. Phase 2 — `discovery.Candidates` appends the resume tail so `pick
    --go` resumes an unheld in-progress plan; the actor advances past an
-   `ErrLostRace` to the next candidate.
+   `ErrLostRace` to the next candidate. Done.
 3. Phase 3 — the `plan-pick` skill drops its by-hand procedure for the
    one verb; re-dogfood `frit skills`; goldens re-recorded.
 
@@ -133,9 +133,9 @@ Tier is per phase, set by the most demanding ingredient.
       `frit start <id> --go` runs
 - [x] `frit pick --go` when nothing is startable prints the same empty
       answer bare `pick` gives, and mutates nothing
-- [ ] With no fresh plan startable but an in-progress plan nobody holds,
+- [x] With no fresh plan startable but an in-progress plan nobody holds,
       `frit pick --go` resumes that plan
-- [ ] A claim that loses its race advances `pick --go` to the next
+- [x] A claim that loses its race advances `pick --go` to the next
       candidate instead of surfacing the race to the caller
 - [x] Bare `frit pick` is unchanged: the ranked list, no mutation
 - [ ] The `plan-pick` skill drives one verb to claim-and-start, drops
