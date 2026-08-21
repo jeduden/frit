@@ -194,6 +194,20 @@ func mintOrTakeOver(
 		return claim.Acquire(coord.Path, opts, rt.git)
 	}
 
+	// Held and matured: the one place a herdr veto can change the
+	// answer. The marker is read from the exact tip the window matured
+	// on and Takeover CASes against, so the veto and the takeover
+	// reason about the same state; if origin moved since, the takeover
+	// loses its CAS below and resetWindow handles it as always.
+	if m, ok := claim.ReadMarker(coord.Path, opts, plan.HoldTip, rt.git); ok &&
+		herdr.SessionLive(rt.herdr, m.Session) {
+		return claim.Lease{}, &claim.VetoError{
+			PlanID:  plan.ID,
+			Marker:  m,
+			Renewed: beatForHolder(rt, coord, opts, m, plan.HoldTip),
+		}
+	}
+
 	lease, err := claim.Takeover(coord.Path, opts, plan.HoldTip, rt.git)
 	var held *claim.HeldError
 	if errors.As(err, &held) && held.Tip != "" {
@@ -201,6 +215,34 @@ func mintOrTakeOver(
 	}
 
 	return lease, err
+}
+
+// beatForHolder renews a vetoed lease on its own holder's behalf: a
+// beat CASed from the observed tip, same epoch. It reports whether the
+// push landed, so the refusal does not claim a renewal it did not
+// make.
+//
+// Every identity trailer is copied off the holder's marker, never
+// taken from this run: the beat renews the holder's lease, not this
+// machine's, and stamping this run's own holder and lane on it would
+// make the ref claim a holder it does not have — the identity
+// confusion A1 and F10 warn against, and the wrong answer for board
+// and orphans.
+func beatForHolder(
+	rt *runtime, coord fleet.Coord, opts claim.LeaseOptions,
+	m claim.Marker, tip string,
+) bool {
+	beatOpts := claim.LeaseOptions{
+		PlanID:  opts.PlanID,
+		Remote:  opts.Remote,
+		Base:    opts.Base,
+		Holder:  m.Holder,
+		Lane:    m.Lane,
+		Session: m.Session,
+	}
+	_, err := claim.Renew(coord.Path, beatOpts, tip, rt.git)
+
+	return err == nil
 }
 
 // resetWindow restarts a plan's observation window on the tip a lost
@@ -226,6 +268,11 @@ func resetWindow(plan discovery.Plan, tip string, now time.Time) {
 // original wording so a missing or malformed body never changes the
 // outcome.
 func lostRaceRefusal(err error) string {
+	var veto *claim.VetoError
+	if errors.As(err, &veto) {
+		return vetoRefusal(veto)
+	}
+
 	var held *claim.HeldError
 	if !errors.As(err, &held) || !held.Known {
 		return "lost the race to another machine"
@@ -246,6 +293,23 @@ func lostRaceRefusal(err error) string {
 		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
+}
+
+// vetoRefusal names the live holder a takeover was refused for, and
+// says whether its lease was renewed on its behalf — the refusal must
+// not claim a renewal that did not land.
+func vetoRefusal(veto *claim.VetoError) string {
+	who := veto.Marker.Holder
+	if who == "" || who == "-" {
+		who = "another machine"
+	}
+	if veto.Renewed {
+		return fmt.Sprintf(
+			"is held by a live agent session on %s; "+
+				"its lease was renewed on its behalf", who)
+	}
+
+	return fmt.Sprintf("is held by a live agent session on %s", who)
 }
 
 // claimRefusal reports why a plan cannot be claimed, or "" when it can.
