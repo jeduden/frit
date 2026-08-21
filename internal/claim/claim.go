@@ -281,10 +281,16 @@ func markerHost(body string) string {
 // machine as a live competitor. A base that cannot be fetched falls back
 // to the local view rather than failing the classification.
 func landed(repoDir string, opts Options, tip string, run gitwt.Runner) bool {
-	base := opts.Base
-	if branch := baseBranch(opts.Base, opts.Remote); branch != "" {
+	return landedTip(repoDir, opts.Base, opts.Remote, tip, run)
+}
+
+// landedTip is the landed check itself, shared with the lease path,
+// which carries its base and remote outside an Options.
+func landedTip(repoDir, baseRef, remote, tip string, run gitwt.Runner) bool {
+	base := baseRef
+	if branch := baseBranch(baseRef, remote); branch != "" {
 		if _, err := run(repoDir, "fetch", "--quiet",
-			opts.Remote, branch); err == nil {
+			remote, branch); err == nil {
 			base = "FETCH_HEAD"
 		}
 	}
