@@ -320,20 +320,21 @@ dies with the host.
 
 ### Storage anomalies
 
-| #   | Scenario                        | Outcome and mechanism                                              |
-| --- | ------------------------------- | ------------------------------------------------------------------ |
-| S37 | work ref hand-deleted           | holder's next CAS fails → refuses, reports (FENCE, TRUST)          |
-| S38 | work ref hand-force-pushed      | as S37; forged markers are TRUST                                   |
-| S39 | work ref force-pushed backward  | ABA on a stale takeover CAS; cooperative model, TRUST              |
-| S40 | remote GC reaps deleted markers | marker history is lost; rescue refs keep the work (PARK)           |
-| S41 | remote rewritten or migrated    | every CAS fails safe; fleet re-acquires; TRUST                     |
-| S42 | two remotes, split coordination | unsupported: one coordination remote, declared in `.frit.yml`      |
-| S43 | origin URL edited mid-lifecycle | observer state keys on remote URL; old windows void (OBS)          |
-| S44 | fork-based flow                 | unsupported, documented; coordination is the shared remote         |
-| S67 | `fetch --prune` races a read    | one ls-remote snapshot per decision; a failed CAS re-reads (CAS)   |
-| S68 | default branch force-pushed     | ancestry evidence stops matching; glyph evidence remains; TRUST    |
-| S69 | marker body forged              | trailers are reporting only; the token is the fence (FENCE, TRUST) |
-| S71 | origin restored from backup     | holders' CAS fail → refuse and re-acquire; converges (FENCE)       |
+| #   | Scenario                                | Outcome and mechanism                                                                                                                                                         |
+| --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S37 | work ref hand-deleted                   | holder's next CAS fails → refuses, reports (FENCE, TRUST)                                                                                                                     |
+| S38 | work ref hand-force-pushed              | as S37; forged markers are TRUST                                                                                                                                              |
+| S39 | work ref force-pushed backward          | ABA on a stale takeover CAS; cooperative model, TRUST                                                                                                                         |
+| S40 | remote GC reaps deleted markers         | marker history is lost; rescue refs keep the work (PARK)                                                                                                                      |
+| S41 | remote rewritten or migrated            | every CAS fails safe; fleet re-acquires; TRUST                                                                                                                                |
+| S42 | two remotes, split coordination         | unsupported: one coordination remote, declared in `.frit.yml`                                                                                                                 |
+| S43 | origin URL edited mid-lifecycle         | observer state keys on remote URL; old windows void (OBS)                                                                                                                     |
+| S44 | fork-based flow                         | unsupported, documented; coordination is the shared remote                                                                                                                    |
+| S67 | `fetch --prune` races a read            | one ls-remote snapshot per decision; a failed CAS re-reads (CAS)                                                                                                              |
+| S68 | default branch force-pushed             | ancestry evidence stops matching; glyph evidence remains; TRUST                                                                                                               |
+| S69 | marker body forged                      | trailers are reporting only; the token is the fence (FENCE, TRUST)                                                                                                            |
+| S71 | origin restored from backup             | holders' CAS fail → refuse and re-acquire; converges (FENCE)                                                                                                                  |
+| S78 | two parks from one lane, different tips | the create-only rescue ref collides on the second park; each tip gets its own content-addressed ref, so parks never conflict, and `orphans` lists leftover rescue refs (PARK) |
 
 ### Identity anomalies
 
@@ -365,17 +366,19 @@ dies with the host.
 
 ### Cross-layer: herdr and frit disagree
 
-| #   | Scenario                         | Outcome and mechanism                                                             |
-| --- | -------------------------------- | --------------------------------------------------------------------------------- |
-| S60 | herdr down at claim time         | lease valid, lane pending; RESUME stands it up later                              |
-| S61 | herdr down at observation        | no veto either way; OBS window governs (VETO)                                     |
-| S62 | host unreachable, agents pushing | tip advances → observations reset; no takeover (OBS)                              |
-| S63 | pane alive, lease released       | agent's next CAS fails → fenced → YIELD                                           |
-| S64 | branch repurposed by hand        | the lane's token no longer matches the tip; verbs refuse to act as holder (FENCE) |
-| S65 | herdr restarts, loses panes      | renewals continue via the agent's own verbs; veto lapses to OBS                   |
-| S72 | claim and start race on one host | one winner; the loser's refusal names the winning lane                            |
-| S73 | prompt fails after agent start   | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)        |
-| S74 | same plan id in two repos        | lanes key host:repo:id; pane names carry the repo                                 |
+| #   | Scenario                            | Outcome and mechanism                                                                                                                                         |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S60 | herdr down at claim time            | lease valid, lane pending; RESUME stands it up later                                                                                                          |
+| S61 | herdr down at observation           | no veto either way; OBS window governs (VETO)                                                                                                                 |
+| S62 | host unreachable, agents pushing    | tip advances → observations reset; no takeover (OBS)                                                                                                          |
+| S63 | pane alive, lease released          | agent's next CAS fails → fenced → YIELD                                                                                                                       |
+| S64 | branch repurposed by hand           | the lane's token no longer matches the tip; verbs refuse to act as holder (FENCE)                                                                             |
+| S65 | herdr restarts, loses panes         | renewals continue via the agent's own verbs; veto lapses to OBS                                                                                               |
+| S72 | claim and start race on one host    | one winner; the loser's refusal names the winning lane                                                                                                        |
+| S73 | prompt fails after agent start      | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)                                                                                    |
+| S74 | same plan id in two repos           | lanes key host:repo:id; pane names carry the repo                                                                                                             |
+| S76 | pane gone before the window matures | no live session, window not matured, token cannot self-resume: a silent dead end. `orphans` names the deserted hold from the veto, not the window (VETO, OBS) |
+| S77 | deserted lane on its own host       | the dead host sees local commits ahead of origin; a verb rebuilds the pane in place, or yield parks the suffix when resume is declined (RESUME, YIELD)        |
 
 ### Liveness traps, from the blind liveness attack
 

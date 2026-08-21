@@ -62,4 +62,5 @@ footer: |
 | 2608211936 | 🔲     | sonnet | [A blocked scavenge names its rescue ref and what to do next](plan/2608211936_rescue-conflict-guidance.md)                      |
 | 2608212010 | 🔲     | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md) |
 | 2608212011 | 🔲     | sonnet | [The rescue ref carries its tip, so a park never conflicts](plan/2608212011_content-addressed-rescue-refs.md)                   |
+| 2608212346 | 🔲     | sonnet | [A deserted hold is seen and has a way out](plan/2608212346_deserted-hold-recovery.md)                                          |
 <?/catalog?>
