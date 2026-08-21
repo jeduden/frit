@@ -23,8 +23,8 @@ Detect dead agents and recover their plans automatically. A plan is
 held exactly while its work ref on origin advances under its holder's
 CAS pushes. A holder that stops advancing is observed stale on a
 single clock and taken over atomically. A zombie that resumes is
-rejected by the git server itself, not by advice. No enumerated
-scenario requires a human to unwedge the fleet.
+rejected by the git server itself. No enumerated scenario needs a
+human to recover the fleet.
 
 ## Context
 
@@ -45,8 +45,8 @@ safety attacker, a liveness attacker. The full record is
 [docs/research/lease-protocol.md](../docs/research/lease-protocol.md)
 — 75 scenarios, 12 liveness traps and 8 safety attacks, each with
 its mitigation, plus the rejected alternatives. The protocol below
-is the contract distilled from it. Citations like S27, F9 and A2
-point into that record.
+is the contract distilled from it. Citations such as S27, F9 and A2
+refer to entries in that record.
 
 ### Reuse
 
@@ -85,10 +85,10 @@ session: <herdr id>     the pane the lease is bound to; "-" if none
 base:    <sha>          claim marker only, the freshly fetched base
 ```
 
-The nonce is load-bearing (A3). SHA-based CAS is ABA-proof only if
-no two commits can ever hash alike. A deterministic marker could be
-recreated at an old SHA, and a pending takeover would fire against
-the fresh lease.
+The nonce is required for correctness (A3). SHA-based CAS is only
+ABA-proof if no two commits can hash alike. A deterministic marker
+could be recreated at an old SHA, and a pending takeover would then
+fire against the fresh lease.
 
 Every transition is one server-side CAS (`--force-with-lease` with
 an exact expected value). The server is the arbiter; frit never
@@ -104,8 +104,7 @@ decides holdership from a local view.
 | complete   | own tip, landed on main | ref deleted                          |
 | scavenge   | any tip proven landed   | ref deleted                          |
 
-The rules that carry the safety and healing, each argued and
-attacked in the research note:
+The rules, each argued and attacked in the research note:
 
 - **Append-only until deletion.** A takeover marker is a child of
   the old tip, so the taker inherits every pushed commit and a
@@ -127,7 +126,7 @@ attacked in the research note:
   veto; a fenced session's next verb offers `yield` (F3, F10, S61).
 - **Self-resume by token.** A lane whose persisted token matches
   origin's tip, with no live session on it, resumes with no window
-  (F9, F11, S3). The fleet of one heals at crash speed.
+  (F9, F11, S3). A fleet of one recovers as soon as it restarts.
 - **Scavenge on fresh evidence.** Tip-coupled ancestry deletes by
   CAS on exactly the observed tip; glyph or plan-gone evidence also
   requires a matured window, so a renewing holder can never be
@@ -137,9 +136,9 @@ attacked in the research note:
   `refs/frit/rescue/<id>/<machine-id>`, tears down via herdr, and
   exits clean; `next` and `show` list rescue refs (F4, F5).
 - **Parameters travel with the repo.** R, T, S_max and the k·T
-  takeover backoff live in `.frit.yml` (F12, F3). Choosing T is
-  economics, never safety: a wrong takeover is CAS-safe and its
-  waste is bounded by the rescue ref.
+  takeover backoff live in `.frit.yml` (F12, F3). T affects cost,
+  never correctness: a wrong takeover is CAS-safe, and the rescue
+  ref bounds the wasted work.
 
 ## Verb behavior, by state
 
