@@ -102,7 +102,7 @@ decides holdership from a local view.
 | release    | holder's own last tip   | release marker, same epoch           |
 | takeover   | the observed stale tip  | takeover marker, epoch E+1, child    |
 | complete   | own tip, landed on main | ref deleted                          |
-| scavenge   | any tip proven landed   | ref deleted                          |
+| scavenge   | the observed tip        | ref deleted; unlanded work parked    |
 
 The rules, each argued and attacked in the research note:
 
@@ -117,8 +117,9 @@ The rules, each argued and attacked in the research note:
   (A7). Raw git and external side effects are outside the fence and
   inside the trust domain (A8).
 - **Staleness is observed non-change on one clock.** Persisted
-  per-host windows over the tip; two samples minimum, no gap over
-  S_max, T of the observer's own elapsed time (F1, F2, S23, S33–36).
+  per-host windows over the tip: samples spanning more than T with
+  no gap over S_max, where S_max is well below T — the defaults set
+  S_max = T/4 (F1, F2, S23, S33–36).
   Observation piggybacks on every fleet-reading verb, and `pick`
   surfaces matured takeovers.
 - **Liveness precedence.** A positively live bound herdr session
@@ -147,17 +148,17 @@ States of a plan's ref: absent, held-live (bound session or fresh
 tip), held-stale (window matured), held-own (the lane's token
 matches), released, landed-evidence.
 
-| Verb       | absent     | held-live           | held-stale       | held-own         | released      | landed           |
-| ---------- | ---------- | ------------------- | ---------------- | ---------------- | ------------- | ---------------- |
-| `claim`    | acquire    | refuse, name        | take over        | resume           | re-acquire    | scavenge, refuse |
-| `start`    | claim+lane | refuse, name        | take over+lane   | resume lane      | re-acquire    | scavenge, refuse |
-| `release`  | no-op, say | refuse foreign      | refuse, say wait | release marker   | no-op, say    | scavenge         |
-| `yield`    | teardown   | refuse (not fenced) | n/a              | park when fenced | teardown      | teardown         |
-| `pick`     | rank       | hide                | rank as takeover | rank as resume   | rank          | hide, scavenge   |
-| `ready`    | list       | hide                | list, marked     | list, marked     | list          | hide, scavenge   |
-| `board`    | show free  | show holder+age     | show stale+age   | show own         | show released | show landing     |
-| `orphans`  | —          | check lane          | report stale     | report lane gap  | report        | report ref       |
-| work verbs | refuse     | CAS or fence        | CAS or fence     | CAS renew        | refuse        | refuse           |
+| Verb       | absent        | held-live       | held-stale       | held-own        | released      | landed           |
+| ---------- | ------------- | --------------- | ---------------- | --------------- | ------------- | ---------------- |
+| `claim`    | acquire       | refuse, name    | take over        | resume          | re-acquire    | scavenge, refuse |
+| `start`    | claim+lane    | refuse, name    | take over+lane   | resume lane     | re-acquire    | scavenge, refuse |
+| `release`  | no-op, say    | refuse foreign  | refuse, say wait | release marker  | no-op, say    | scavenge         |
+| `yield`    | park+teardown | park+teardown   | park+teardown    | refuse: holder  | park+teardown | park+teardown    |
+| `pick`     | rank          | hide            | rank as takeover | rank as resume  | rank          | hide, flag       |
+| `ready`    | list          | hide            | list, marked     | list, marked    | list          | hide, flag       |
+| `board`    | show free     | show holder+age | show stale+age   | show own        | show released | show landing     |
+| `orphans`  | —             | check lane      | report stale     | report lane gap | report        | report ref       |
+| work verbs | refuse        | CAS or fence    | CAS or fence     | CAS renew       | refuse        | refuse           |
 
 Every cell is a test: a scripted runner for what origin answers, an
 explicit `now`, a state-file fixture, and the asserted output shape
@@ -226,14 +227,15 @@ legacy read path.
 ## Phase 2: observation, staleness, takeover
 
 Healing becomes passive. Every fleet-reading verb records what it
-saw; `pick` presents matured takeovers and executes them through the
-same CAS table.
+saw; `pick` presents matured takeovers, and `claim` executes them
+through the same CAS table. Read verbs never mutate: a landed hold
+they notice is flagged for the next mutating verb to scavenge.
 
 RED, pure over an injected clock and a state-file fixture:
 
-- Two observations of one tip, T apart, no gap over S_max: stale;
-  `claim` performs the takeover CAS and the marker is a child of the
-  stale tip with epoch E+1.
+- Observations of one unchanged tip spanning more than T, every gap
+  under S_max: stale; `claim` performs the takeover CAS and the
+  marker is a child of the stale tip with epoch E+1.
 - The tip moves between observations: the window resets.
 - A gap over S_max voids the window: no takeover, and the state says
   why.
