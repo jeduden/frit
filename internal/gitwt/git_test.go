@@ -68,6 +68,57 @@ func TestCommonDirPropagatesGitFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestGitDirTrimsTrailingNewline(t *testing.T) {
+	var got []string
+	run := fakeRunner("/repo/.git\n", nil, &got)
+
+	dir, err := GitDir("/repo", run)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/repo/.git", dir)
+	assert.Equal(t, []string{
+		"/repo", "rev-parse", "--path-format=absolute", "--git-dir",
+	}, got)
+}
+
+func TestGitDirPropagatesGitFailure(t *testing.T) {
+	var got []string
+	run := fakeRunner("", errors.New("boom"), &got)
+
+	_, err := GitDir("/nope", run)
+
+	require.Error(t, err)
+}
+
+// TestGitDirIsPerWorktree: a linked worktree's git dir is its own —
+// nested under the main repository's — while its common dir is the
+// same as the main worktree's. Per-lane state, like the lease token,
+// belongs under the git dir so two lanes never share one file.
+func TestGitDirIsPerWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	main := initRepo(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	git(t, main, "worktree", "add", "-q", "-b", "feature", linked, "main")
+
+	mainDir, err := GitDir(main, Exec)
+	require.NoError(t, err)
+	linkedDir, err := GitDir(linked, Exec)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, mainDir, linkedDir,
+		"each worktree has its own git dir")
+
+	common, err := CommonDir(linked, Exec)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(linkedDir, common+"/worktrees/"),
+		"a linked worktree's git dir sits under the shared common dir")
+
+	_, err = GitDir(t.TempDir(), Exec)
+	assert.Error(t, err, "a non-repository directory errors")
+}
+
 func TestExecReportsStderrOnFailure(t *testing.T) {
 	dir := t.TempDir()
 
