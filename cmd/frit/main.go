@@ -945,11 +945,31 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		if coord, ok := res.Coords[p.Repo]; ok {
 			k := claim.TakeoverCount(coord.Path, p.ID, coord.Base, p.HoldTip, rt.git)
 			threshold = time.Duration(k+1) * window
+			p.Dead = deadSession(rt, coord, *p)
 		}
 		p.Stale = discovery.StaleHold(w, now, threshold, sampleGap)
 		p.StaleFor = w.Span()
 	}
 	_ = observe.Save(path, state)
+}
+
+// deadSession reports whether a held plan's bound session herdr
+// positively confirms is gone (S76): the marker at the tip the fleet
+// already observed names who to ask, and only a herdr that actually
+// answered may say so — see herdr.SessionDead. An unheld plan or one
+// whose marker cannot be read answers false, falling back to the
+// staleness window exactly as before this signal existed.
+func deadSession(rt *runtime, coord fleet.Coord, p discovery.Plan) bool {
+	if !p.Held {
+		return false
+	}
+	m, ok := claim.ReadMarker(coord.Path,
+		claim.LeaseOptions{PlanID: p.ID, Remote: coord.Remote}, p.HoldTip, rt.git)
+	if !ok {
+		return false
+	}
+
+	return herdr.SessionDead(rt.herdr, m.Session)
 }
 
 // staleClock is the staleness window and sample gap to watch a

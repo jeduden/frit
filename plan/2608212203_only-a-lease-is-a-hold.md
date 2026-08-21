@@ -1,7 +1,7 @@
 ---
 id: 2608212203
 title: Only a minted lease is a hold, and a dead session frees it
-status: "🔳"
+status: "✅"
 summary: >-
   Two tooling gaps let a dead pane strand a plan. frit reads any ref
   matching the holds patterns as a live claim, so a hand-made
@@ -18,7 +18,7 @@ phases:
     status: "✅"
   - n: 2
     title: a confirmed-dead session frees its plan now
-    status: "🔲"
+    status: "✅"
 ---
 # Only a minted lease is a hold, and a dead session frees it
 
@@ -126,11 +126,11 @@ from written assertions.
 
 ## Acceptance Criteria
 
-- [ ] A markerless `plan/<id>` branch does not read as a hold
-- [ ] A frit-minted lease, at the marker or ahead of it, still holds
-- [ ] A legacy decorated hold still reads as held
-- [ ] A confirmed-dead bound session frees its plan with no window
-- [ ] A live bound session is never taken over
-- [ ] herdr unreachable falls back to the staleness window
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] A markerless `plan/<id>` branch does not read as a hold
+- [x] A frit-minted lease, at the marker or ahead of it, still holds
+- [x] A legacy decorated hold still reads as held
+- [x] A confirmed-dead bound session frees its plan with no window
+- [x] A live bound session is never taken over
+- [x] herdr unreachable falls back to the staleness window
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

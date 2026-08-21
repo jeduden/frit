@@ -317,24 +317,26 @@ func scavengeRef(
 }
 
 // mintOrTakeOver runs the transition the plan's state calls for:
-// takeover when the hold is observed stale, acquire otherwise. A
-// takeover CASes on exactly the tip the window observed; when a
-// renewal wins that race the loser re-reads and resets — the fresh tip
-// is folded into the observation store, so the window honestly starts
-// over on what actually holds the ref.
+// takeover when the hold is observed stale or its bound session
+// herdr confirms gone (S76), acquire otherwise. A takeover CASes on
+// exactly the tip the window observed; when a renewal wins that race
+// the loser re-reads and resets — the fresh tip is folded into the
+// observation store, so the window honestly starts over on what
+// actually holds the ref.
 func mintOrTakeOver(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord,
 	opts claim.LeaseOptions,
 ) (claim.Lease, error) {
-	if !plan.Held || !plan.Stale {
+	if !plan.Held || (!plan.Stale && !plan.Dead) {
 		return claim.Acquire(coord.Path, opts, rt.git)
 	}
 
-	// Held and matured: the one place a herdr veto can change the
-	// answer. The marker is read from the exact tip the window matured
-	// on and Takeover CASes against, so the veto and the takeover
-	// reason about the same state; if origin moved since, the takeover
-	// loses its CAS below and resetWindow handles it as always.
+	// Held and (matured or confirmed dead): the one place a herdr veto
+	// can change the answer. The marker is read from the exact tip the
+	// window matured on and Takeover CASes against, so the veto and the
+	// takeover reason about the same state; if origin moved since, the
+	// takeover loses its CAS below and resetWindow handles it as
+	// always.
 	if m, ok := claim.ReadMarker(coord.Path, opts, plan.HoldTip, rt.git); ok &&
 		herdr.SessionLive(rt.herdr, m.Session) {
 		return claim.Lease{}, &claim.VetoError{
