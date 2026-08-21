@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 4
     title: the verb-state table through every verb
-    status: "🔲"
+    status: "✅"
   - n: 5
     title: skills and docs rewritten to shipped behavior
     status: "🔲"
@@ -215,7 +215,7 @@ Tier is per phase, set by the most demanding ingredient.
 - [x] A restarted lane whose token matches origin resumes its lease
       with no window.
 - [x] T, S_max and k are read per repository; takeover waits k·T.
-- [ ] Every verb-state cell of the table is a passing test in both
+- [x] Every verb-state cell of the table is a passing test in both
       renderings.
 - [ ] Skills and [docs/claiming.md](../docs/claiming.md) describe
       only shipped behavior; the manual-delete recovery and
