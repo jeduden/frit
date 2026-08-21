@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "command": "yield",
+  "root": "/fleet",
+  "plan": {
+    "repo": "atlas",
+    "id": 2608161810,
+    "title": "The dispatch ladder"
+  },
+  "branch": "plan/2608161810",
+  "rescue": "refs/frit/rescue/2608161810/box-a",
+  "torn_down": true,
+  "refused": "",
+  "warning": "",
+  "problems": []
+}

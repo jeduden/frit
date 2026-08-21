@@ -454,3 +454,129 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
 	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
 }
+
+// localWork commits one file on the plan's work ref without pushing —
+// the local divergence a fenced lane still carries after it lost a
+// race it never fetched.
+func localWork(t *testing.T, repo string) string {
+	t.Helper()
+	gitCmd(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte("wip\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "unlanded work")
+	tip := gitCmd(t, repo, "rev-parse", "refs/heads/plan/7")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	return tip
+}
+
+// TestYieldParksLocalDivergenceOfAFencedLane: a lane fenced out by a
+// takeover still carries the local commits it made before losing the
+// race; yield parks that divergence to the rescue ref, create-only,
+// without touching the work ref the takeover now holds.
+func TestYieldParksLocalDivergenceOfAFencedLane(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+	local := localWork(t, first)
+
+	second := cloneAgain(t, first)
+	_, err = Takeover(
+		second, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	sc, err := Yield(first, opts, local, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "refs/frit/rescue/7/box-a", sc.Rescue,
+		"the rescue ref is named for the plan and the fenced lane")
+	rescue := gitCmd(t, first, "ls-remote", "origin", sc.Rescue)
+	assert.Contains(t, rescue, local, "the divergence is parked")
+	remote := gitCmd(t, first, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.NotContains(t, remote, local,
+		"the takeover still holds the work ref; yield never CASes it")
+}
+
+// TestYieldRefusesTheCurrentHolder: a lane whose local tip still
+// matches origin's is not fenced — yield is for the fenced, not an
+// alias for release — so it refuses and parks nothing.
+func TestYieldRefusesTheCurrentHolder(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Yield(first, opts, lease.Tip, gitwt.Exec)
+
+	var still *StillHeldError
+	require.ErrorAs(t, err, &still)
+	rescue := gitCmd(t, first, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue, "the live holder's lease is not parked")
+}
+
+// TestYieldWithNoLocalRefIsANoOp: a checkout that never fetched or
+// minted the plan's branch has nothing of its own to rescue. Yield
+// must not read that as "still held" — an absent remote ref reads as
+// "" too, and "" == "" would misreport a plan nobody holds — and must
+// not call park with an empty tip either: park's push turns an empty
+// tip into a delete of the rescue ref, which git accepts as a no-op
+// whether or not the ref exists, so a naive call would silently
+// "succeed" without ever creating a rescue.
+func TestYieldWithNoLocalRefIsANoOp(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+
+	sc, err := Yield(first, opts, "", gitwt.Exec)
+
+	require.NoError(t, err, "no local ref is a no-op, not a refusal")
+	assert.Empty(t, sc.Rescue, "nothing was parked")
+	rescue, lsErr := gitCapture(t, first, "ls-remote", "origin",
+		"refs/frit/rescue/*")
+	require.NoError(t, lsErr)
+	assert.Empty(t, rescue, "no rescue ref was ever created")
+}
+
+// TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp: the same "no
+// local ref" no-op holds even when the plan is genuinely held live by
+// someone else — this checkout simply never fetched it, so it still
+// has nothing of its own to park, and must not fabricate a "parked"
+// rescue for that other holder's work.
+func TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp(t *testing.T) {
+	first := originAndClone(t)
+	_, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	sc, err := Yield(first, leaseOptions("box-b", "/lanes/b"), "", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Empty(t, sc.Rescue, "nothing was parked for a ref never fetched")
+	rescue, lsErr := gitCapture(t, first, "ls-remote", "origin",
+		"refs/frit/rescue/*")
+	require.NoError(t, lsErr)
+	assert.Empty(t, rescue, "no rescue ref was fabricated")
+}
+
+// TestRescueRefsListsEveryMachinesParkedWork: rescue is per plan and
+// per machine, so two parked runs both come back, another plan's
+// rescue ref does not bleed in, and a plan with nothing parked reads
+// as empty.
+func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	_, err = Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+	gitCmd(t, work, "push", "-q", "origin", tip+":refs/frit/rescue/7/box-c")
+
+	refs := RescueRefs(work, "origin", 7, gitwt.Exec)
+
+	assert.Equal(t,
+		[]string{"refs/frit/rescue/7/box-b", "refs/frit/rescue/7/box-c"},
+		refs)
+	assert.Empty(t, RescueRefs(work, "origin", 8, gitwt.Exec),
+		"another plan's rescue refs do not bleed in")
+}

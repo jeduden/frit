@@ -85,6 +85,45 @@ func parseWorktreePane(data []byte) (string, error) {
 	return env.Result.RootPane.PaneID, nil
 }
 
+// CurrentPane reads the pane a command is itself running in: metadata
+// herdr already tracks about its own terminal, not an agent read. Yield
+// uses it to find the workspace its own fenced lane is running in,
+// since worktree.remove takes only that handle.
+func CurrentPane(runner Runner) (Pane, error) {
+	out, err := runner("pane", "current")
+	if err != nil {
+		return Pane{}, err
+	}
+
+	return parseCurrentPane(out)
+}
+
+// parseCurrentPane reads the pane out of a pane.current response,
+// reusing the same narrowing agent list already does — the wire shape
+// is the one rawPane record either way.
+func parseCurrentPane(data []byte) (Pane, error) {
+	var env struct {
+		Result struct {
+			Pane rawPane `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &env); err != nil {
+		return Pane{}, fmt.Errorf("herdr pane current: %w", err)
+	}
+
+	return env.Result.Pane.pane(), nil
+}
+
+// WorktreeRemove asks herdr to tear a worktree checkout down by the
+// workspace it is open in — the only handle worktree.remove takes, so
+// a caller resolves the workspace (CurrentPane, for the lane it is
+// itself running in) before calling this.
+func WorktreeRemove(runner Runner, workspaceID string) error {
+	_, err := runner("worktree", "remove", "--workspace", workspaceID, "--json")
+
+	return err
+}
+
 // AgentSpec is the agent to start: its kind, the pane to start it in, the
 // tier the plan declares, and how long to wait for it to come up.
 type AgentSpec struct {

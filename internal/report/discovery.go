@@ -185,6 +185,10 @@ type NextDoc struct {
 	Plan     PlanCard  `json:"plan"`
 	Phase    PhaseCard `json:"phase"`
 	HasPhase bool      `json:"has_phase"`
+	// Rescue lists the plan's rescue refs — where a scavenge or a
+	// yield parked work that never landed — so stranded commits are
+	// found again. Empty when nothing has ever been parked.
+	Rescue   []string  `json:"rescue"`
 	Problems []Problem `json:"problems"`
 }
 
@@ -199,6 +203,7 @@ func NewNext(root string, plan discovery.Plan) *NextDoc {
 		Root:     root,
 		Plan:     cardOf(plan),
 		Phase:    PhaseCard{},
+		Rescue:   []string{},
 		Problems: []Problem{},
 	}
 	if phase, ok := plan.NextPhase(); ok {
@@ -221,6 +226,9 @@ func NewNext(root string, plan discovery.Plan) *NextDoc {
 func (d *NextDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// SetRescue records the plan's rescue refs.
+func (d *NextDoc) SetRescue(refs []string) { d.Rescue = refs }
 
 // phaseCard projects a phase into its wire shape.
 func phaseCard(p planmeta.Phase) PhaseCard {
@@ -252,8 +260,13 @@ type ShowDoc struct {
 	// document-level fact because show is about one plan; the tree
 	// underneath it is what blocks that plan. Empty when the plan
 	// carries no Goal section.
-	Goal     string    `json:"goal"`
-	Tree     DepCard   `json:"tree"`
+	Goal string  `json:"goal"`
+	Tree DepCard `json:"tree"`
+	// Rescue lists the shown plan's rescue refs — where a scavenge or
+	// a yield parked work that never landed — so stranded commits are
+	// found again. Like Goal, it is a fact about the shown plan, not
+	// the dependency tree beneath it.
+	Rescue   []string  `json:"rescue"`
 	Problems []Problem `json:"problems"`
 }
 
@@ -264,6 +277,7 @@ func NewShow(root string, tree discovery.DepNode) *ShowDoc {
 		Root:     root,
 		Goal:     tree.Plan.Goal,
 		Tree:     depCard(tree),
+		Rescue:   []string{},
 		Problems: []Problem{},
 	}
 }
@@ -272,6 +286,9 @@ func NewShow(root string, tree discovery.DepNode) *ShowDoc {
 func (d *ShowDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// SetRescue records the shown plan's rescue refs.
+func (d *ShowDoc) SetRescue(refs []string) { d.Rescue = refs }
 
 // depCard projects a dependency node and its subtree into wire shape,
 // keeping the list empty rather than null at every level.

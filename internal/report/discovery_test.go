@@ -46,3 +46,27 @@ func TestNewNextReportsAMissingExecutionRowAsAProblem(t *testing.T) {
 	assert.Contains(t, doc.Problems[0].Message, "phase 2")
 	assert.Contains(t, doc.Problems[0].Message, "no Execution row")
 }
+
+// TestNextCarriesRescueRefsForStrandedCommits: next lists a plan's
+// rescue refs, so commits a scavenge or a yield parked are found
+// again — and a plan with none reads as an empty list, never null.
+func TestNextCarriesRescueRefsForStrandedCommits(t *testing.T) {
+	doc := NewNext("/fleet", discovery.Plan{Repo: "atlas", ID: 7})
+	assert.Equal(t, []string{}, doc.Rescue, "no rescue refs by default")
+
+	doc.SetRescue([]string{"refs/frit/rescue/7/box-a"})
+	assert.Equal(t, []string{"refs/frit/rescue/7/box-a"}, doc.Rescue)
+}
+
+// TestShowCarriesRescueRefsForStrandedCommits: show carries the same
+// list for the plan it resolved, so "what blocks this" and "what is
+// stranded on this" are answered from the one document.
+func TestShowCarriesRescueRefsForStrandedCommits(t *testing.T) {
+	doc := NewShow("/fleet", discovery.DepNode{
+		Plan: discovery.Plan{Repo: "atlas", ID: 7}, Found: true,
+	})
+	assert.Equal(t, []string{}, doc.Rescue, "no rescue refs by default")
+
+	doc.SetRescue([]string{"refs/frit/rescue/7/box-a"})
+	assert.Equal(t, []string{"refs/frit/rescue/7/box-a"}, doc.Rescue)
+}

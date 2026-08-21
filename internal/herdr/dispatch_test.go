@@ -126,3 +126,58 @@ func TestAgentStartOmitsModelWhenEmpty(t *testing.T) {
 	assert.NotContains(t, got, "--model")
 	assert.NotContains(t, got, "--")
 }
+
+// TestCurrentPaneReadsTheWorkspaceOfTheCallingPane: yield tears down
+// the lane it is itself running in, so it asks herdr which pane and
+// workspace that is rather than an agent read.
+func TestCurrentPaneReadsTheWorkspaceOfTheCallingPane(t *testing.T) {
+	var got []string
+	runner := func(args ...string) ([]byte, error) {
+		got = args
+
+		return []byte(`{"result":{"pane":{"pane_id":"w1A:p1",` +
+			`"workspace_id":"w1A","cwd":"/lane"}}}`), nil
+	}
+
+	pane, err := CurrentPane(runner)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"pane", "current"}, got)
+	assert.Equal(t, "w1A:p1", pane.PaneID)
+	assert.Equal(t, "w1A", pane.Workspace)
+	assert.Equal(t, "/lane", pane.CWD)
+}
+
+// TestCurrentPaneReturnsTheRunnerError surfaces a socket frit could not
+// reach rather than reporting an empty workspace as a fact.
+func TestCurrentPaneReturnsTheRunnerError(t *testing.T) {
+	want := errors.New("no socket")
+	_, err := CurrentPane(func(...string) ([]byte, error) {
+		return nil, want
+	})
+	assert.ErrorIs(t, err, want)
+}
+
+// TestWorktreeRemoveTargetsTheWorkspace tears a checkout down by the
+// workspace herdr opened it in — the only handle worktree.remove takes.
+func TestWorktreeRemoveTargetsTheWorkspace(t *testing.T) {
+	var got []string
+	runner := func(args ...string) ([]byte, error) {
+		got = args
+
+		return nil, nil
+	}
+
+	require.NoError(t, WorktreeRemove(runner, "w1A"))
+	assert.Equal(t,
+		[]string{"worktree", "remove", "--workspace", "w1A", "--json"}, got)
+}
+
+// TestWorktreeRemoveReturnsTheRunnerError surfaces a failed teardown
+// rather than reporting the lane gone when it is not.
+func TestWorktreeRemoveReturnsTheRunnerError(t *testing.T) {
+	want := errors.New("workspace busy")
+	err := WorktreeRemove(func(...string) ([]byte, error) {
+		return nil, want
+	}, "w1A")
+	assert.ErrorIs(t, err, want)
+}

@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -97,6 +98,19 @@ func (e *FenceError) Error() string {
 
 	return fmt.Sprintf(
 		"fenced: the work ref for plan %d moved under the lease", e.PlanID)
+}
+
+// StillHeldError reports a yield run from the lane that still holds
+// the live lease: nothing is fenced, so there is nothing to rescue.
+// Yield is for the fenced, not an alias for release.
+type StillHeldError struct {
+	PlanID int64
+}
+
+func (e *StillHeldError) Error() string {
+	return fmt.Sprintf(
+		"plan %d is still held by this lane; yield is for a fenced lane, "+
+			"use release instead", e.PlanID)
 }
 
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
@@ -234,6 +248,73 @@ func Scavenge(
 	_, _ = run(repoDir, "update-ref", "-d", ref)
 
 	return res, nil
+}
+
+// Yield ends a fenced lane's stake in a plan without racing the work
+// ref itself: whatever this lane's own copy of it carries — local is
+// the lane's recorded tip — is parked to the rescue ref, create-only,
+// the same park a scavenge runs. It never CASes the work ref, so a
+// lane whose local tip still matches origin's current tip is not
+// fenced at all; that is the live holder, and yielding it would
+// silently discard the lease rather than release it, so that case is
+// refused instead (F4, F5).
+//
+// An empty local is its own case, checked first: nothing was ever
+// fetched or minted here, so there is nothing of this lane's own to
+// rescue. It must not fall into the still-held comparison — an absent
+// remote ref reads as "" too, and "" == "" would misreport a plan
+// nobody holds as still held by this lane. It must not reach park
+// either: park's push is tip+":"+rescue, and an empty tip turns that
+// into a delete of the rescue ref, which git accepts whether or not
+// the ref exists — a silent false "parked" for a rescue that was
+// never written.
+func Yield(
+	repoDir string, opts LeaseOptions, local string, run gitwt.Runner,
+) (Scavenged, error) {
+	if local == "" {
+		return Scavenged{}, nil
+	}
+
+	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	if remoteHolder(repoDir, opts.Remote, ref, run) == local {
+		return Scavenged{}, &StillHeldError{PlanID: opts.PlanID}
+	}
+
+	rescue := rescueRef(opts.PlanID, opts.Holder)
+	if err := park(repoDir, opts, rescue, local, run); err != nil {
+		return Scavenged{}, err
+	}
+
+	return Scavenged{Rescue: rescue}, nil
+}
+
+// RescueRefs lists the rescue refs a plan's scavenges and yields have
+// parked work to, one per machine that ever parked, so stranded
+// commits are found again. The remote is read directly — a rescue ref
+// is pushed straight to origin and never fetched into a local branch —
+// and an unreadable remote answers an empty list rather than a fault,
+// the same tolerance every discovery read gives a repository it cannot
+// reach.
+func RescueRefs(
+	repoDir, remote string, planID int64, run gitwt.Runner,
+) []string {
+	pattern := fmt.Sprintf("refs/frit/rescue/%d/*", planID)
+	out, err := run(repoDir, "ls-remote", remote, pattern)
+	if err != nil {
+		return []string{}
+	}
+
+	refs := []string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		refs = append(refs, fields[1])
+	}
+	sort.Strings(refs)
+
+	return refs
 }
 
 // rescueRef names where scavenge and yield park a plan's unlanded

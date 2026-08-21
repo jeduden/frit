@@ -25,5 +25,8 @@
     "body": "Parse the readiness rule and wire it to a verb."
   },
   "has_phase": true,
+  "rescue": [
+    "refs/frit/rescue/2608161809/box-a"
+  ],
   "problems": []
 }
