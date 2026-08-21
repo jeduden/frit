@@ -313,12 +313,13 @@ func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
 	return err == nil
 }
 
-// Release drops a claim: the local ref and its copy on the remote. It is
-// the unwind for a claim that was minted but could not be stood up — a
-// worktree or agent that failed to come up behind it — so a half-built
-// lane does not read as an abandoned hold. It is best-effort on the local
-// side and reports the remote delete, which is the one that matters.
-func Release(repoDir, branch, remote string, run gitwt.Runner) error {
+// Drop deletes a claim: the local ref and its copy on the remote. It is
+// the legacy unwind for a claim that was minted but could not be stood
+// up. The lease protocol replaces it with Release, which pushes a
+// marker and deletes nothing; Drop remains only until the last caller
+// is rewired. It is best-effort on the local side and reports the
+// remote delete, which is the one that matters.
+func Drop(repoDir, branch, remote string, run gitwt.Runner) error {
 	ref := "refs/heads/" + branch
 	_, _ = run(repoDir, "update-ref", "-d", ref)
 	_, err := run(repoDir, "push", "--quiet", remote, "--delete", ref)

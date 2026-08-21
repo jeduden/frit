@@ -5,6 +5,9 @@ status: '"🔲" | "🔳" | "✅" | "⛔"'
 summary: 'string | *""'
 model: '"haiku" | "sonnet" | "opus" | *""'
 depends-on: '[...int] | *[]'
+phases: >-
+  [...{n: int | string, title: string & != "",
+  status: "🔲" | "🔳" | "✅" | "⛔"}] | *[]
 ---
 <?require
 filename: "[0-9]*_*.md"

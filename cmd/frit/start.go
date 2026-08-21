@@ -207,7 +207,7 @@ func startExecute(
 // surfaced and can be found, not left as a silent orphan for the next
 // run to trip over.
 func releaseClaim(rt *runtime, sc startContext, branch string) error {
-	if err := claim.Release(sc.repoPath, branch, sc.remote, rt.git); err != nil {
+	if err := claim.Drop(sc.repoPath, branch, sc.remote, rt.git); err != nil {
 		return fmt.Errorf(
 			"claim %s could not be released and is left on the remote; "+
 				"run frit orphans to find it: %w", branch, err)

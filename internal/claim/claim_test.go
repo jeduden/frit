@@ -522,15 +522,15 @@ func TestMintWinningPathReadsNoHolder(t *testing.T) {
 	}
 }
 
-// TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
-// locally or on the remote for a lane that never stood up.
-func TestReleaseDropsTheClaim(t *testing.T) {
+// TestDropDeletesTheClaim: a minted legacy claim can be unwound, leaving
+// no ref locally or on the remote for a lane that never stood up.
+func TestDropDeletesTheClaim(t *testing.T) {
 	work := originAndClone(t)
 	_, err := Mint(work, sampleOptions(), gitwt.Exec)
 	require.NoError(t, err)
 
 	require.NoError(t,
-		Release(work, "plan/7-shader-unit", "origin", gitwt.Exec))
+		Drop(work, "plan/7-shader-unit", "origin", gitwt.Exec))
 
 	_, localErr := gitCapture(t, work,
 		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")

@@ -1,7 +1,7 @@
 ---
 id: 2608202144
 title: The hold is the work ref, a self-healing lease
-status: "🔲"
+status: "🔳"
 summary: >-
   A verified review found the claim not watertight: the hold ref
   embeds a slug derived from local state, holdership is inferred from
@@ -14,6 +14,13 @@ summary: >-
   scenario and its mitigation, is docs/research/lease-protocol.md.
 model: sonnet
 depends-on: []
+phases:
+  - n: 1
+    title: the lease atom on the work ref
+    status: "🔳"
+  - n: 2
+    title: observation, staleness, takeover
+    status: "🔲"
 ---
 # The hold is the work ref, a self-healing lease
 
