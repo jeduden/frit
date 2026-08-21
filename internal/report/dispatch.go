@@ -295,6 +295,11 @@ type StartDoc struct {
 	// They differ on a refusal: --go on an unstartable plan runs nothing.
 	Go      bool `json:"go"`
 	Started bool `json:"started"`
+	// Resumed reports whether the escalation ran on the lane's own
+	// lease, resumed by its persisted token rather than acquired or
+	// taken over — the self-resume path (F9, F11, S3, S21). It never
+	// appears alongside a refusal.
+	Resumed bool `json:"resumed"`
 	// Pane is the pane herdr opened and the agent runs in, set only once
 	// the escalation has run.
 	Pane string `json:"pane"`
@@ -340,6 +345,11 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
 }
+
+// MarkResumed records that the escalation is standing the lane back up
+// on a lease resumed by its own persisted token, rather than one
+// acquired or taken over.
+func (d *StartDoc) MarkResumed() { d.Resumed = true }
 
 // AddProblem records a repository frit could not read.
 func (d *StartDoc) AddProblem(repo string, err error) {

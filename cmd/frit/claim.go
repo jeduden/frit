@@ -80,41 +80,71 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 
 // resumeOwnLease resumes the lease this very lane already holds, on
 // the proof that survives a process: the token in its own git dir
-// (F9, F11, S3, S21). It is not identity-based — a cloned machine id
-// or a reused lane path carries no matching token, so it gets no
-// shortcut (A1) — and it consults no staleness window at all. Any
-// doubt along the way answers false and falls through to the ordinary
-// path, where the CAS is still the arbiter.
+// (F9, F11, S3, S21). Any doubt along the way answers false and falls
+// through to the ordinary path, where the CAS is still the arbiter.
 func resumeOwnLease(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, coord fleet.Coord, cwd string,
 ) bool {
-	if cwd == "" {
+	lane, tip, ok := resumeToken(rt, plan, coord, cwd)
+	if !ok {
 		return false
+	}
+	opts := claim.LeaseOptions{
+		PlanID:  plan.ID,
+		Remote:  coord.Remote,
+		Base:    coord.Base,
+		Holder:  hostname(),
+		Lane:    lane,
+		Session: currentSession(rt),
+	}
+	if _, err := claim.Resume(coord.Path, opts, tip, rt.git); err != nil {
+		return false
+	}
+	doc.MarkResumed()
+
+	return true
+}
+
+// resumeToken resolves this lane's own already-held lease from its
+// persisted token, when every condition for a self-resume holds: the
+// calling directory is this exact plan's own lane, its token still
+// matches origin's current tip, and no live session vetoes the resume
+// (F9, F11, S3, S21). It is not identity-based — a cloned machine id
+// or a reused lane path carries no matching token, so it gets no
+// shortcut (A1) — and it consults no staleness window at all. ok is
+// false when any condition fails, leaving the ordinary mint path as
+// the arbiter. Shared by claim, which stops here, and start, which
+// resumes and then still stands the lane up.
+func resumeToken(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
+) (lane, tip string, ok bool) {
+	if cwd == "" {
+		return "", "", false
 	}
 	// The guard against the CLI being invoked elsewhere: the same
 	// cwd-join-backwards yield's tearDownLane uses to confirm the
 	// calling directory is this exact plan's own lane before trusting
 	// anything local it finds there.
-	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
-	if !ok || repo != plan.Repo || id != plan.ID {
-		return false
+	repo, id, idOK := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !idOK || repo != plan.Repo || id != plan.ID {
+		return "", "", false
 	}
 
-	lane := herdr.Resolve(cwd, rt.git).Root
+	lane = herdr.Resolve(cwd, rt.git).Root
 	if lane == "" {
-		return false
+		return "", "", false
 	}
 	token := claim.ReadToken(lane, plan.ID, rt.git)
 	if token == "" {
-		return false
+		return "", "", false
 	}
 	// Origin is read fresh rather than trusting plan.HoldTip, which is
 	// this clone's possibly-stale local view of the ref: the protocol
 	// states the rule against origin's current tip.
-	tip := claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
 	if tip == "" || tip != token {
-		return false
+		return "", "", false
 	}
 
 	opts := claim.LeaseOptions{
@@ -125,16 +155,12 @@ func resumeOwnLease(
 		Lane:    lane,
 		Session: currentSession(rt),
 	}
-	if m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git); ok &&
+	if m, mOK := claim.ReadMarker(coord.Path, opts, tip, rt.git); mOK &&
 		herdr.SessionLive(rt.herdr, m.Session) {
-		return false
+		return "", "", false
 	}
-	if _, err := claim.Resume(coord.Path, opts, token, rt.git); err != nil {
-		return false
-	}
-	doc.MarkResumed()
 
-	return true
+	return lane, tip, true
 }
 
 // currentSession is the herdr session the calling pane runs, "" when

@@ -16,6 +16,7 @@
   "prompt": "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
   "go": false,
   "started": false,
+  "resumed": false,
   "pane": "",
   "refused": "",
   "problems": []
