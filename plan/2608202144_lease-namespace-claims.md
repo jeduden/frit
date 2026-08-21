@@ -185,8 +185,9 @@ in both renderings. No sleeps, no real network, no real clock.
 3. (determined after Phase 1: scavenge with evidence and park; yield
    and rescue refs; herdr veto, session binding and self-resume;
    parameters in `.frit.yml` and the legacy-hold transition; the
-   verb-state table wired through every verb; skills updated to the
-   new claim story.)
+   verb-state table wired through every verb; skills and
+   [docs/claiming.md](../docs/claiming.md) rewritten to the shipped
+   lease behavior.)
 
 ## Phase 1: the lease atom on the work ref
 
@@ -285,5 +286,8 @@ Tier is per phase, set by the most demanding ingredient.
       with a scripted runner and an explicit clock; no test sleeps
 - [ ] Every mechanism in the research note's scenario matrix traces
       to at least one test named for it
+- [ ] [docs/claiming.md](../docs/claiming.md) describes the shipped
+      lease behavior — its manual-delete recovery and slug-branch
+      prose are gone, and its "what changes next" note with them
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
