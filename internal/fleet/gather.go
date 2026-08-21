@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
@@ -82,7 +84,8 @@ func Gather(
 	}
 	ambiguous := map[string]bool{}
 	for _, repo := range repos {
-		entries, held, coord, problems, err := gatherRepo(host, repo, run, pipe)
+		entries, held, leaseTips, coord, problems, err := gatherRepo(
+			host, repo, run, pipe)
 		if err != nil {
 			res.Problems = append(res.Problems,
 				Problem{Repo: repo.Name, Err: err})
@@ -91,7 +94,8 @@ func Gather(
 		res.Problems = append(res.Problems, problems...)
 		recordCoord(&res, ambiguous, repo.Name, coord)
 		for _, e := range entries {
-			res.Plans = append(res.Plans, planOf(repo.Name, e, held))
+			res.Plans = append(res.Plans,
+				planOf(repo.Name, e, held, leaseTips))
 		}
 	}
 
@@ -135,15 +139,17 @@ func recordCoord(
 func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner,
-) ([]index.Entry, map[int64][]string, Coord, []Problem, error) {
+) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
+	[]Problem, error,
+) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
@@ -157,13 +163,14 @@ func gatherRepo(
 		})
 	}
 
-	held, err := heldBranches(
+	held, leaseTips, err := heldBranches(
 		repo, cfg, preferred, index.LandedIDs(entries, preferred), run)
 	if err != nil {
-		return nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, err
 	}
 
-	return entries, held, coordOf(repo, cfg, preferred), problems, nil
+	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
+		problems, nil
 }
 
 // coordOf resolves the lease coordinate from what the gather already
@@ -182,22 +189,30 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 // the same holds the orphan report is built on, merged refs already
 // filtered out so landed work does not read as a live claim. The branch
 // names are the lanes a holder works the plan on, deduplicated so a
-// claim pushed to a remote does not read as two.
+// claim pushed to a remote does not read as two. Beside the branches it
+// returns each plan's lease tip — the commit its id-only work ref
+// points at — which is what the staleness observer watches and exactly
+// what a takeover CASes on.
 func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
 	landed map[int64]bool, run gitwt.Runner,
-) (map[int64][]string, error) {
+) (map[int64][]string, map[int64]string, error) {
 	holds, err := cfg.Compiled()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	merged, err := gitobj.MergedRefs(repo.Path, preferred, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	tips := map[string]string{}
+	for _, r := range refs {
+		tips[r.Name] = r.OID
 	}
 
 	held := map[int64][]string{}
@@ -209,17 +224,49 @@ func heldBranches(
 				continue
 			}
 			seen[h.Branch] = true
+			// A tip that is a release marker is a lease that ended, not a
+			// live hold: the ref survives — the protocol deletes nothing —
+			// but the plan is free for the next acquire.
+			if claim.Released(repo.Path, tips[h.Ref], lane.PlanID, run) {
+				continue
+			}
 			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}
 
-	return held, nil
+	return held, leaseTips(refs, holds), nil
+}
+
+// leaseTips maps each plan to the tip of its id-only work ref — read
+// off the raw ref list, not the hold filters, because the observer
+// watches the ref itself and scavenge needs the tip of exactly the
+// states the filters drop: released, merged, landed. When both a
+// local and a remote-tracking copy exist the remote-tracking one
+// wins: origin is the arbiter, and its copy is the lease observed.
+func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
+	tips := map[int64]string{}
+	for _, r := range refs {
+		branch, ok := r.Branch()
+		if !ok {
+			continue
+		}
+		id, ok := holds.Match(branch)
+		if !ok || branch != claim.Branch(id) || r.OID == "" {
+			continue
+		}
+		if tips[id] == "" || strings.HasPrefix(r.Name, "refs/remotes/") {
+			tips[id] = r.OID
+		}
+	}
+
+	return tips
 }
 
 // planOf projects a plan's authoritative version into the discovery
 // view, tagging it held when a lane claims its id.
 func planOf(
 	repoName string, e index.Entry, held map[int64][]string,
+	leaseTips map[int64]string,
 ) discovery.Plan {
 	v := e.Primary()
 	holds := held[e.Key.ID]
@@ -239,6 +286,7 @@ func planOf(
 		Branches:  shortBranches(e),
 		Held:      len(holds) > 0,
 		Holds:     holds,
+		HoldTip:   leaseTips[e.Key.ID],
 	}
 }
 

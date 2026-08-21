@@ -33,7 +33,7 @@ func TestPickGoStartsTheTopCandidate(t *testing.T) {
 	assert.False(t, rec.verb("agent", "read"), "pick never reads a reply")
 	assert.Contains(t, out.String(), "started plan 7")
 
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "frit minted the claim itself")
 }
 
@@ -49,7 +49,7 @@ func TestPickGoAdvancesPastALostRace(t *testing.T) {
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
 	git(t, repo, "push", "-q", "origin",
-		"main:refs/heads/plan/7-shader-unit")
+		"main:refs/heads/plan/7")
 	runner, rec := startHerdr()
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer

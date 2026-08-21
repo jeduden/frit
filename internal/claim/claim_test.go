@@ -84,17 +84,12 @@ func sampleOptions() Options {
 	}
 }
 
-// TestBranchDerivesTheHoldName: the lease branch is plan/<id>-<slug>,
-// with the slug taken from the plan file after its id prefix. A file
-// with no underscore contributes its whole stem.
-func TestBranchDerivesTheHoldName(t *testing.T) {
-	assert.Equal(t, "plan/7-shader-unit",
-		Branch(7, "plan/7_shader-unit.md"))
-	assert.Equal(t, "plan/2608161810-dispatch-ladder",
-		Branch(2608161810, "plan/2608161810_dispatch-ladder.md"))
-	assert.Equal(t, "plan/42-notes",
-		Branch(42, "docs/notes.md"),
-		"a file with no id prefix contributes its whole stem")
+// TestBranchIsTheIdOnlyWorkRef: the hold branch is plan/<id> and
+// carries nothing derived from local state, so a renamed plan file
+// still names the same ref on every machine.
+func TestBranchIsTheIdOnlyWorkRef(t *testing.T) {
+	assert.Equal(t, "plan/7", Branch(7))
+	assert.Equal(t, "plan/2608161810", Branch(2608161810))
 }
 
 // TestMintCreatesTheLease: the claim ref is minted both locally and on
@@ -392,6 +387,16 @@ func TestMarkerHost(t *testing.T) {
 		"plan:     plan/7-shader-unit.md"
 	assert.Equal(t, "mm-box", markerHost(body))
 	assert.Empty(t, markerHost("real work, no host line"))
+
+	lease := "plan 7: claim\n\n" +
+		"epoch:   1\n" +
+		"nonce:   cafe\n" +
+		"holder:  box-a\n" +
+		"lane:    /lanes/a\n" +
+		"session: -\n" +
+		"base:    abc123"
+	assert.Equal(t, "box-a", markerHost(lease),
+		"a lease marker's holder trailer reads as the host")
 }
 
 // TestBaseBranch reduces every base-ref shape to the remote branch name a
@@ -520,25 +525,6 @@ func TestMintWinningPathReadsNoHolder(t *testing.T) {
 			[]string{"ls-remote", "fetch", "log", "merge-base"}, c,
 			"the winning path reads no holder")
 	}
-}
-
-// TestReleaseDropsTheClaim: a minted claim can be unwound, leaving no ref
-// locally or on the remote for a lane that never stood up.
-func TestReleaseDropsTheClaim(t *testing.T) {
-	work := originAndClone(t)
-	_, err := Mint(work, sampleOptions(), gitwt.Exec)
-	require.NoError(t, err)
-
-	require.NoError(t,
-		Release(work, "plan/7-shader-unit", "origin", gitwt.Exec))
-
-	_, localErr := gitCapture(t, work,
-		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
-	assert.Error(t, localErr, "the local ref is gone")
-	remote, err := gitCapture(t, work,
-		"ls-remote", "origin", "refs/heads/plan/7-shader-unit")
-	require.NoError(t, err)
-	assert.Empty(t, remote, "the remote ref is gone")
 }
 
 // TestMarkerMessage pins the exact commit body, including the empty-Lane

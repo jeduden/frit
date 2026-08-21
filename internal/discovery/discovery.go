@@ -10,6 +10,7 @@ package discovery
 
 import (
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/planmeta"
 )
@@ -52,6 +53,16 @@ type Plan struct {
 	// Holds are the branch names that claim this plan, the lanes a
 	// holder works it on. Empty when nobody holds it.
 	Holds []string
+	// HoldTip is the commit the plan's id-only work ref points at, ""
+	// when no lease ref exists. It is what the staleness observer
+	// watches and exactly what a takeover CASes on.
+	HoldTip string
+	// Stale reports a held plan whose takeover window has matured: the
+	// tip sat unchanged for more than the window under sound sampling,
+	// so the hold is a takeover candidate.
+	Stale bool
+	// StaleFor is how long the tip has been observed unchanged.
+	StaleFor time.Duration
 }
 
 // NotStarted reports a plan nobody has begun.

@@ -3,12 +3,17 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,14 +80,20 @@ func TestClaimMintsAPickablePlan(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7")
-	assert.Contains(t, out.String(), "plan/7-shader-unit")
+	assert.Contains(t, out.String(), "branch: plan/7\n",
+		"the work ref is id-only")
 
-	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the claim ref was minted locally")
 	remote, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/heads/plan/7-shader-unit")
+		"refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Contains(t, remote, local, "the same lease is on origin")
+
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", local)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: claim", "the tip is the claim marker")
+	assert.Contains(t, body, "epoch:   1", "a fresh acquisition is epoch 1")
 }
 
 // TestClaimStandsUpItsWorktree is the isolation gate: a successful claim
@@ -101,8 +112,8 @@ func TestClaimStandsUpItsWorktree(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.True(t, rec.verb("worktree", "create"),
 		"a claim stands its lane's worktree up through herdr")
-	assert.True(t, rec.hasArg("plan/7-shader-unit"),
-		"the worktree is checked out on the claim branch")
+	assert.True(t, rec.hasArg("plan/7"),
+		"the worktree is checked out on the id-only claim branch")
 	assert.False(t, rec.verb("agent", "start"),
 		"the agent is start's rung, not claim's")
 	assert.Contains(t, out.String(), "worktree:",
@@ -129,44 +140,75 @@ func TestClaimWarnsWhenTheWorktreeFails(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7", "the lease stands")
 	assert.Contains(t, out.String(), "warning", "a failed worktree warns")
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the atomic lease is minted before the worktree")
 }
 
 // TestLostRaceRefusalNamesTheHolder: the refusal wording distinguishes a
-// landed branch, a claim held on this host, and one held elsewhere, and
-// falls back to the original wording for an unknown or non-race error.
+// landed work ref, a lease held by this machine, and one held elsewhere,
+// and falls back to the original wording for an unknown or non-race
+// error. The facts come off the winner's marker via the HeldError.
 func TestLostRaceRefusalNamesTheHolder(t *testing.T) {
-	lost := func(h claim.Holder) error {
-		return &claim.LostRaceError{PlanID: 7, Holder: h}
-	}
-
 	assert.Equal(t,
 		"the claim branch has already landed; its status is still open, "+
 			"so set plan 7 to ✅",
-		lostRaceRefusal(lost(claim.Holder{Landed: true, Known: true})),
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true, Landed: true}),
 		"a merged holder is named as landed, not a competitor")
 
 	assert.Equal(t, "already held on this host (box-a)",
-		lostRaceRefusal(lost(claim.Holder{
-			Host: "box-a", ThisHost: true, Known: true})),
-		"a claim held on this host names this host")
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true, ThisHolder: true,
+			Marker: claim.Marker{Holder: "box-a"}}),
+		"a lease this machine holds names this host")
 
 	assert.Equal(t, "lost the race to another machine (box-b)",
-		lostRaceRefusal(lost(claim.Holder{Host: "box-b", Known: true})),
-		"a claim held elsewhere names the other machine")
+		lostRaceRefusal(&claim.HeldError{
+			PlanID: 7, Known: true,
+			Marker: claim.Marker{Holder: "box-b"}}),
+		"a lease held elsewhere names the other machine")
 
 	assert.Equal(t, "lost the race to another machine",
-		lostRaceRefusal(lost(claim.Holder{})),
-		"an unread holder falls back to the original wording")
+		lostRaceRefusal(&claim.HeldError{PlanID: 7}),
+		"an unread marker falls back to the original wording")
 
 	assert.Equal(t, "lost the race to another machine",
-		lostRaceRefusal(lost(claim.Holder{Known: true})),
-		"a known holder with no host names no machine, not empty parentheses")
+		lostRaceRefusal(&claim.HeldError{PlanID: 7, Known: true}),
+		"a known marker with no holder names no machine, not empty parentheses")
 
 	assert.Equal(t, "lost the race to another machine",
 		lostRaceRefusal(errors.New("some other error")),
-		"a non-LostRaceError falls back too")
+		"a non-HeldError falls back too")
+}
+
+// TestClaimReacquiresAReleasedLease: a work ref whose tip is a release
+// marker is a lease that ended, not a live hold — the plan is claimable
+// again, and the new claim CASes on the release marker at epoch E+1.
+func TestClaimReacquiresAReleasedLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Release(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"a released lease does not read as held")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: claim", "the tip is a fresh claim")
+	assert.Contains(t, body, "epoch:   2", "the re-acquisition reads E+1")
 }
 
 // TestClaimRefusesAHeldPlan: a plan a lane already holds is not
@@ -220,7 +262,7 @@ func TestClaimResumesAnUnheldInProgressPlan(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "claimed plan 7")
 	assert.NotContains(t, out.String(), "already in progress")
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "the resume mints the hold on the deterministic branch")
 }
 
@@ -238,7 +280,7 @@ func TestClaimEmitsJSON(t *testing.T) {
 
 	assert.Equal(t, "claim", doc.Command)
 	assert.True(t, doc.Claimed)
-	assert.Equal(t, "plan/7-shader-unit", doc.Branch)
+	assert.Equal(t, "plan/7", doc.Branch)
 	assert.Equal(t, int64(7), doc.Plan.ID)
 	assert.NotEmpty(t, doc.Base, "the lease is dated against a base commit")
 	assert.Empty(t, doc.Refused)
@@ -265,7 +307,186 @@ func TestClaimRefusesAnAmbiguousRepoName(t *testing.T) {
 	assert.Contains(t, out.String(), "refused")
 	assert.Contains(t, out.String(), "shared by another checkout")
 
-	_, err := gitCapture(t, repoA, "rev-parse",
-		"refs/heads/plan/7-shader-unit")
+	_, err := gitCapture(t, repoA, "rev-parse", "refs/heads/plan/7")
 	assert.Error(t, err, "no lease was minted in either checkout")
+}
+
+// seedWindow writes an observation state whose window over tip has
+// been maturing for span, last confirmed a minute ago — the state a
+// faithful observer holds over a dead holder's unmoving ref.
+func seedWindow(
+	t *testing.T, repo string, id int64, tip string, span time.Duration,
+) {
+	t.Helper()
+	path, err := observe.Path()
+	require.NoError(t, err)
+	now := time.Now()
+	require.NoError(t, observe.Save(path, observe.State{
+		observe.Key(repo, id): discovery.Window{
+			Tip:     tip,
+			First:   now.Add(-span),
+			Last:    now.Add(-time.Minute),
+			Samples: 9,
+		},
+	}))
+}
+
+// TestClaimTakesOverAStaleLease: a held plan whose takeover window has
+// matured is not refused — claim executes the takeover CAS, and the
+// new tip is a takeover marker, child of the stale tip, epoch E+1.
+func TestClaimTakesOverAStaleLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"a matured stale hold is taken over, not refused")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover")
+	assert.Contains(t, body, "epoch:   2", "the takeover reads E+1")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, parent,
+		"the marker is a child of the observed stale tip")
+}
+
+// TestClaimStillRefusesALiveLease: the same held plan with no matured
+// window keeps today's refusal — staleness is the only door in.
+func TestClaimStillRefusesALiveLease(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+}
+
+// landedLeaseRepo is a claimable repo whose lease landed: work on the
+// ref merged into main and pushed, the ref left behind, the plan's
+// status still open — landed work with a stale status.
+func landedLeaseRepo(t *testing.T, root string) (string, string) {
+	t.Helper()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte("done\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "work on plan 7")
+	git(t, repo, "push", "-q", "origin", "plan/7")
+	git(t, repo, "checkout", "-q", "main")
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land plan 7", "plan/7")
+	git(t, repo, "push", "-q", "origin", "main")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+
+	return repo, tip
+}
+
+// TestClaimScavengesALandedRef: a claim lost to a ref whose work
+// already merged keeps today's refusal wording — and cleans the
+// leftover ref up, ancestry evidence tied to the very tip it deletes.
+func TestClaimScavengesALandedRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _ := landedLeaseRepo(t, root)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "already landed",
+		"the refusal keeps today's wording")
+	assert.Contains(t, out.String(), "set plan 7 to ✅")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the landed ref is scavenged from origin")
+	rescue, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/frit/rescue/*")
+	require.NoError(t, err)
+	assert.Empty(t, rescue, "everything landed; there is nothing to park")
+}
+
+// doneGlyphRepo builds a repo whose plan is ✅ on main while a
+// live-looking lease ref lingers — the squash-merge shape ancestry
+// evidence cannot see. Returns the repo and the lingering tip.
+func doneGlyphRepo(t *testing.T, root string) (string, string) {
+	t.Helper()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "✅", "Shader unit", nil, "")
+	origin := filepath.Join(t.TempDir(), "atlas-origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	return repo, lease.Tip
+}
+
+// TestClaimScavengesADoneGlyphOnlyWhenStale: glyph evidence — ✅ on
+// the default branch — is not tied to the tip, so the scavenge fires
+// only under a matured window. A fresh window leaves the ref alone,
+// so a live, renewing holder is never scavenged.
+func TestClaimScavengesADoneGlyphOnlyWhenStale(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	seedWindow(t, "atlas", 7, tip, 3*time.Hour)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone,
+		"a done plan's lingering ref is scavenged under a matured window")
+}
+
+// TestClaimLeavesADoneGlyphWithAFreshWindow: the same shape without a
+// matured window is left alone — the holder may just be quiet.
+func TestClaimLeavesADoneGlyphWithAFreshWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, tip := doneGlyphRepo(t, root)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	remote, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, remote, tip, "a fresh window leaves the ref alone")
 }

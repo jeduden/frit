@@ -23,7 +23,8 @@ func TestDefaultIsTheCanonicalConvention(t *testing.T) {
 	got := Default()
 
 	assert.Equal(t, "plan", got.PlanDir)
-	assert.Equal(t, []string{"plan/{id}-*"}, got.Holds)
+	assert.Equal(t, []string{"plan/{id}", "plan/{id}-*"}, got.Holds,
+		"the lease's id-only ref and the decorated legacy shape both count")
 }
 
 // TestDefaultRemoteIsOriginAndBaseIsDerived pins that a lease pushes to

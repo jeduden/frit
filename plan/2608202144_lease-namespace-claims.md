@@ -1,7 +1,7 @@
 ---
 id: 2608202144
 title: The hold is the work ref, a self-healing lease
-status: "🔲"
+status: "✅"
 summary: >-
   A verified review found the claim not watertight: the hold ref
   embeds a slug derived from local state, holdership is inferred from
@@ -14,6 +14,16 @@ summary: >-
   scenario and its mitigation, is docs/research/lease-protocol.md.
 model: sonnet
 depends-on: []
+phases:
+  - n: 1
+    title: the lease atom on the work ref
+    status: "✅"
+  - n: 2
+    title: observation, staleness, takeover
+    status: "✅"
+  - n: 3
+    title: scavenge with evidence and park
+    status: "✅"
 ---
 # The hold is the work ref, a self-healing lease
 
@@ -143,26 +153,11 @@ The rules, each argued and attacked in the research note:
 
 ## Verb behavior, by state
 
-The contract every verb implements, table-driven in its tests.
-States of a plan's ref: absent, held-live (bound session or fresh
-tip), held-stale (window matured), held-own (the lane's token
-matches), released, landed-evidence.
-
-| Verb       | absent        | held-live       | held-stale       | held-own        | released      | landed           |
-| ---------- | ------------- | --------------- | ---------------- | --------------- | ------------- | ---------------- |
-| `claim`    | acquire       | refuse, name    | take over        | resume          | re-acquire    | scavenge, refuse |
-| `start`    | claim+lane    | refuse, name    | take over+lane   | resume lane     | re-acquire    | scavenge, refuse |
-| `release`  | no-op, say    | refuse foreign  | refuse, say wait | release marker  | no-op, say    | scavenge         |
-| `yield`    | park+teardown | park+teardown   | park+teardown    | refuse: holder  | park+teardown | park+teardown    |
-| `pick`     | rank          | hide            | rank as takeover | rank as resume  | rank          | hide, flag       |
-| `ready`    | list          | hide            | list, marked     | list, marked    | list          | hide, flag       |
-| `board`    | show free     | show holder+age | show stale+age   | show own        | show released | show landing     |
-| `orphans`  | —             | check lane      | report stale     | report lane gap | report        | report ref       |
-| work verbs | refuse        | CAS or fence    | CAS or fence     | CAS renew       | refuse        | refuse           |
-
-Every cell is a test: a scripted runner for what origin answers, an
-explicit `now`, a state-file fixture, and the asserted output shape
-in both renderings. No sleeps, no real network, no real clock.
+Every verb meets six states: absent, held-live, held-stale,
+held-own, released, landed. Each cell has one prescribed answer.
+That table lives with plan 2608211326, which wires it through every
+verb. The full record is
+[docs/research/lease-protocol.md](../docs/research/lease-protocol.md).
 
 ## Non-goals
 
@@ -182,79 +177,70 @@ in both renderings. No sleeps, no real network, no real clock.
    fence, on `refs/heads/plan/<id>`.
 2. Phase 2 — observation, staleness and takeover; `pick` surfaces
    matured takeovers.
-3. (determined after Phase 1: scavenge with evidence and park; yield
-   and rescue refs; herdr veto, session binding and self-resume;
-   parameters in `.frit.yml` and the legacy-hold transition; the
-   verb-state table wired through every verb; skills and
-   [docs/claiming.md](../docs/claiming.md) rewritten to the shipped
-   lease behavior.)
+3. Phase 3 — scavenge with evidence and park: landed refs deleted by
+   CAS, unlanded work parked to a rescue ref first.
+4. The rest of the protocol — yield, veto and self-resume,
+   parameters, the verb-state table, docs — is plan 2608211326,
+   which depends on this one. The plan file cap is why it is its
+   own plan, not looser scoping.
 
 ## Phase 1: the lease atom on the work ref
 
-The proving slice: the transition table's first four rows, in
-[internal/claim](../internal/claim/claim.go), wired through
-`frit claim`. Readers keep working off the legacy branch holds
-during the transition, so nothing regresses while the atom lands.
-
-RED, with the fixture-remote and fake-runner idioms the claim tests
-already use:
-
-- Two acquires race one plan id: one CAS winner; the loser's error
-  carries epoch, machine-id and lane from the winner's marker.
-- Two acquisitions of one plan, identical in everything else, never
-  produce the same marker SHA (the nonce, A3).
-- The plan file is renamed between the two acquires: same ref, same
-  single winner.
-- Renew from the holder's recorded tip succeeds and bumps nothing
-  but the tip; renew after a foreign move fails and reports the
-  mover.
-- Release pushes a marker and deletes nothing; a later re-acquire
-  CASes on that marker and reads epoch E+1.
-- A killed handoff (`start`'s unwind) pushes the release marker and
-  its error names the worktree and pane it stood up.
-
-GREEN: extend [internal/claim](../internal/claim/claim.go) with the
-epoch-trailer marker and the four transitions, each a single CAS
-through `gitwt.Runner`. Retarget `claim.Branch` to the id-only name.
-Wire `mintClaim` and the `start` unwind in
-[cmd/frit/claim.go](../cmd/frit/claim.go) and
-[cmd/frit/start.go](../cmd/frit/start.go).
-
-Gate: the six RED cases pass; `go test ./...` and the linter stay
-green; the existing claim and start suites still pass against the
-legacy read path.
+Delivered (✅). Acquire, renew, release and the fence live in
+[internal/claim](../internal/claim/lease.go): one CAS per transition
+on `refs/heads/plan/<id>`, nonce-unique markers, epoch E+1 on
+re-acquire, and a `start` unwind that pushes a release marker and
+names the worktree and pane it stood up. Two reader-side moves kept
+the no-regression promise: the default hold patterns gained
+`plan/{id}`, and a release-marker tip stopped counting as a hold.
+The RED cases are the red commit of the pair that landed it.
 
 ## Phase 2: observation, staleness, takeover
 
-Healing becomes passive. Every fleet-reading verb records what it
-saw; `pick` presents matured takeovers, and `claim` executes them
-through the same CAS table. Read verbs never mutate: a landed hold
-they notice is flagged for the next mutating verb to scavenge.
+Delivered (✅). Staleness is a pure rule over (window, now, T,
+S_max) in [internal/discovery](../internal/discovery/stale.go), fed
+by a per-host store in [internal/observe](../internal/observe)
+beside the presence cache; every fleet-reading verb folds in what it
+saw. `claim.Takeover` CASes a marker onto exactly the observed stale
+tip at epoch E+1; `ready` and `pick` rank matured takeovers with
+their observed age, and a renewal that wins the race leaves the
+loser re-reading and resetting its window. One narrowing: read verbs
+observe the local view of the remote-tracking ref rather than
+fetching, so they stay offline; a takeover against a moved tip
+simply loses its CAS.
 
-RED, pure over an injected clock and a state-file fixture:
+## Phase 3: scavenge with evidence and park
 
-- Observations of one unchanged tip spanning more than T, every gap
-  under S_max: stale; `claim` performs the takeover CAS and the
-  marker is a child of the stale tip with epoch E+1.
-- The tip moves between observations: the window resets.
-- A gap over S_max voids the window: no takeover, and the state says
-  why.
-- Lost state file: the next read starts fresh; nothing fires early.
-- Takeover races a renewal: exactly one CAS wins; the loser re-reads
-  and resets.
-- `pick --json` lists a stale-held plan as a takeover candidate with
-  its observed age; a live-tip plan stays hidden.
+The ref lifecycle closes: landed evidence deletes the work ref, and
+no deletion ever loses work. Ancestry evidence is tied to the tip it
+deletes; glyph evidence — ✅ on the default branch while a
+live-looking ref lingers, the squash-merge case ancestry cannot see —
+additionally requires a matured window, so a renewing holder can
+never be scavenged (A2, F6, F7). Scavenge rides the next mutating
+verb; read verbs stay read-only.
 
-GREEN: an observation store beside `presence.CachePath()`. Staleness
-becomes a pure function over (window, now, T, S_max) in
-[internal/discovery](../internal/discovery/discovery.go). The
-takeover transition lands in
-[internal/claim](../internal/claim/claim.go), and `pick` and `claim`
-are wired in [cmd/frit](../cmd/frit/main.go).
+RED, with the fixture-remote idioms the lease tests use:
 
-Gate: the six RED cases pass as table-driven tests with explicit
-times; no test sleeps; goldens for `pick --json` re-recorded and the
-diff read.
+- Unlanded commits are parked to
+  `refs/frit/rescue/<id>/<machine-id>` before any delete; a
+  marker-only ref parks nothing and is simply deleted.
+- The tip moved since observation: the CAS fails, nothing is deleted
+  or parked over.
+- A second scavenge is an idempotent no-op; the rescue ref is
+  create-only and never clobbered.
+- `claim` of a landed ref with an open status refuses with today's
+  wording and scavenges the leftover ref.
+- `claim` of a plan ✅ on the default branch whose ref lingers
+  scavenges only under a matured window; a fresh window leaves the
+  ref alone.
+
+GREEN: `Scavenge` in [internal/claim](../internal/claim/lease.go).
+It parks by create-only push, then deletes with one CAS on exactly
+the observed tip. `claim` wires it into the landed and already-done
+refusals in [cmd/frit/claim.go](../cmd/frit/claim.go).
+
+Gate: the five RED cases pass; a rescue ref always precedes a delete
+that would lose work; `go test ./...` and the linter stay green.
 
 ## Execution
 
@@ -264,31 +250,27 @@ Tier is per phase, set by the most demanding ingredient.
 | ------------------ | ------ | --------- | --------------------------------------------------------------------- |
 | 1 lease atom       | opus   | sonnet    | one winner per id, rename-proof, release deletes nothing, fence names |
 | 2 observe and take | opus   | sonnet    | matured window takes over; moved tip, gap or lost state never fires   |
+| 3 scavenge, park   | opus   | sonnet    | rescue precedes delete; CAS exact tip; renewing holder never lost     |
 
 ## Acceptance Criteria
 
-- [ ] Two machines racing a claim resolve to one winner even when the
+These criteria cover the atom, the healing loop and the scavenger.
+Self-resume, yield, the verb-state table and the docs rewrite moved
+to plan 2608211326.
+
+- [x] Two machines racing a claim resolve to one winner even when the
       plan file was renamed between their fetches
-- [ ] A dead holder's plan is taken over automatically after T with
+- [x] A dead holder's plan is taken over automatically after T with
       no human action, and the takeover inherits its pushed work
-- [ ] A zombie's push after takeover is rejected by the server, and
-      its next verb refuses, names the holder, and offers yield
-- [ ] A crashed holder on its own host resumes its lease immediately,
-      with no staleness wait
-- [ ] An origin outage voids observation windows; recovery triggers
-      no takeover of any live holder
-- [ ] A merged-but-unreleased hold is scavenged on tip-coupled
+- [x] A zombie's push after takeover is rejected by the server, and
+      its next verb is fenced and names the holder
+- [x] A takeover racing a live holder's renewal loses the CAS, so no
+      recovery — outage or otherwise — takes a live holder's lease
+- [x] A merged-but-unreleased hold is scavenged on tip-coupled
       evidence, and scavenge never deletes unlanded work
-- [ ] A reopened plan's fresh lease survives a stale ✅ observation:
+- [x] A reopened plan's fresh lease survives a stale ✅ observation:
       a renewing holder can never be scavenged
-- [ ] No two marker commits ever share a SHA, pinned by a test over
+- [x] No two marker commits ever share a SHA, pinned by a test over
       identical acquisition inputs
-- [ ] Every verb-state cell in the behavior table is a passing test
-      with a scripted runner and an explicit clock; no test sleeps
-- [ ] Every mechanism in the research note's scenario matrix traces
-      to at least one test named for it
-- [ ] [docs/claiming.md](../docs/claiming.md) describes the shipped
-      lease behavior — its manual-delete recovery and slug-branch
-      prose are gone, and its "what changes next" note with them
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

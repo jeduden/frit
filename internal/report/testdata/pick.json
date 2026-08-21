@@ -14,7 +14,9 @@
       "model": "opus",
       "depends_on": [],
       "path": "plan/2608161809_discovery-readiness-verbs.md",
-      "held": false
+      "held": false,
+      "stale": false,
+      "stale_seconds": 0
     },
     {
       "key": "forge:orrery:7",
@@ -26,7 +28,9 @@
       "model": "sonnet",
       "depends_on": [],
       "path": "plan/7_shader-unit-tests.md",
-      "held": false
+      "held": true,
+      "stale": true,
+      "stale_seconds": 10800
     }
   ],
   "problems": []

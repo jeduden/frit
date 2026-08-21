@@ -6,11 +6,13 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -36,12 +38,13 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	branch := claim.Branch(plan.ID, plan.Path)
+	branch := claim.Branch(plan.ID)
 	doc := report.NewClaim(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
 
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
+		scavengeGlyph(rt, doc, plan, res)
 		return renderClaim(c, rt, doc)
 	}
 
@@ -54,7 +57,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if err := mintClaim(rt, doc, plan, branch, coord); err != nil {
+	if err := mintClaim(rt, doc, plan, coord); err != nil {
 		return err
 	}
 	if doc.Claimed {
@@ -74,7 +77,7 @@ func standUpClaimWorktree(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, branch string, coord fleet.Coord,
 ) {
-	path := defaultLanePath(coord.Path, plan.ID, branch)
+	path := defaultLanePath(coord.Path, plan.Path)
 	if _, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
 		CWD:    coord.Path,
 		Branch: branch,
@@ -88,28 +91,30 @@ func standUpClaimWorktree(
 	doc.Stood(path)
 }
 
-// mintClaim writes the lease from the coordinate the gather already
+// mintClaim acquires the lease from the coordinate the gather already
 // resolved — the repository path, its remote and the base — so the
 // claim reads them off the one fleet walk rather than a second one. A
-// lost race is the one expected non-fatal outcome — another machine got
-// there first — so it is carried in the document as a refusal rather
-// than surfaced as a command failure; a git fault is returned.
+// held plan whose takeover window matured is seized through the
+// takeover CAS instead of acquired. A lost race is the one expected
+// non-fatal outcome — another machine got there first, or a quiet
+// holder renewed — so it is carried in the document as a refusal
+// rather than surfaced as a command failure; a git fault is returned.
 func mintClaim(
 	rt *runtime, doc *report.ClaimDoc,
-	plan discovery.Plan, branch string, coord fleet.Coord,
+	plan discovery.Plan, coord fleet.Coord,
 ) error {
-	minted, err := claim.Mint(coord.Path, claim.Options{
-		Branch:   branch,
-		Base:     coord.Base,
-		Remote:   coord.Remote,
-		PlanID:   plan.ID,
-		PlanFile: plan.Path,
-		Lane:     defaultLanePath(coord.Path, plan.ID, branch),
-		Host:     hostname(),
-	}, rt.git)
+	opts := claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: coord.Remote,
+		Base:   coord.Base,
+		Holder: hostname(),
+		Lane:   defaultLanePath(coord.Path, plan.Path),
+	}
+	minted, err := mintOrTakeOver(rt, plan, coord, opts)
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
+			scavengeLanded(rt, doc, plan, coord, err)
 			return nil
 		}
 		return err
@@ -119,29 +124,126 @@ func mintClaim(
 	return nil
 }
 
-// lostRaceRefusal names who holds a plan whose claim push lost, from the
-// holder facts claim.Mint read off the winning ref's marker. A branch
-// that already landed, a claim held on this host, and one held elsewhere
-// each read differently; an unread marker falls back to the original
-// wording so a missing or malformed body never changes the outcome.
+// scavengeLanded cleans the ref behind a lost race whose winner has
+// already merged into the base — ancestry evidence, tied to the very
+// tip the refusal read, so no window is needed and a holder that
+// renewed since fails the CAS harmlessly.
+func scavengeLanded(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, err error,
+) {
+	var held *claim.HeldError
+	if !errors.As(err, &held) || !held.Landed || held.Tip == "" {
+		return
+	}
+	scavengeRef(rt, doc, plan, coord, held.Tip)
+}
+
+// scavengeGlyph cleans a lingering ref whose plan is already done on
+// the default branch — the squash-merge shape ancestry cannot see.
+// The hold filters already dropped such a ref, so Held is false here;
+// the ref itself still stands, carried by HoldTip. Glyph evidence is
+// not tied to the tip, so it additionally requires a matured window:
+// a live, renewing holder is never scavenged (A2).
+func scavengeGlyph(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, res fleet.Result,
+) {
+	if !plan.Done() || !plan.Stale || plan.HoldTip == "" {
+		return
+	}
+	coord, ok := res.Coords[plan.Repo]
+	if !ok {
+		return
+	}
+	scavengeRef(rt, doc, plan, coord, plan.HoldTip)
+}
+
+// scavengeRef runs the scavenge and records what it did beside the
+// refusal. A failure is a warning, never a command failure: the
+// refusal already stands, and the ref will be met again.
+func scavengeRef(
+	rt *runtime, doc *report.ClaimDoc,
+	plan discovery.Plan, coord fleet.Coord, tip string,
+) {
+	sc, err := claim.Scavenge(coord.Path, claim.LeaseOptions{
+		PlanID: plan.ID,
+		Remote: coord.Remote,
+		Base:   coord.Base,
+		Holder: hostname(),
+		Lane:   defaultLanePath(coord.Path, plan.Path),
+	}, tip, rt.git)
+	if err != nil {
+		doc.Warn(fmt.Sprintf("scavenge: %v", err))
+		return
+	}
+	doc.ScavengedRef(claim.Branch(plan.ID), sc.Rescue)
+}
+
+// mintOrTakeOver runs the transition the plan's state calls for:
+// takeover when the hold is observed stale, acquire otherwise. A
+// takeover CASes on exactly the tip the window observed; when a
+// renewal wins that race the loser re-reads and resets — the fresh tip
+// is folded into the observation store, so the window honestly starts
+// over on what actually holds the ref.
+func mintOrTakeOver(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord,
+	opts claim.LeaseOptions,
+) (claim.Lease, error) {
+	if !plan.Held || !plan.Stale {
+		return claim.Acquire(coord.Path, opts, rt.git)
+	}
+
+	lease, err := claim.Takeover(coord.Path, opts, plan.HoldTip, rt.git)
+	var held *claim.HeldError
+	if errors.As(err, &held) && held.Tip != "" {
+		resetWindow(plan, held.Tip, time.Now())
+	}
+
+	return lease, err
+}
+
+// resetWindow restarts a plan's observation window on the tip a lost
+// takeover re-read, so the store watches what actually holds the ref
+// rather than re-offering a takeover the server already refused.
+// Best-effort, like all observation.
+func resetWindow(plan discovery.Plan, tip string, now time.Time) {
+	path, err := observe.Path()
+	if err != nil {
+		return
+	}
+	state := observe.Load(path)
+	key := observe.Key(plan.Repo, plan.ID)
+	state[key] = discovery.Observe(
+		discovery.Window{}, tip, now, discovery.DefaultSampleGap)
+	_ = observe.Save(path, state)
+}
+
+// lostRaceRefusal names who holds a plan whose acquire lost, from the
+// facts claim.Acquire read off the winning lease's marker. A work ref
+// that already landed, a lease this machine holds, and one held
+// elsewhere each read differently; an unread marker falls back to the
+// original wording so a missing or malformed body never changes the
+// outcome.
 func lostRaceRefusal(err error) string {
-	var lost *claim.LostRaceError
-	if !errors.As(err, &lost) || !lost.Holder.Known {
+	var held *claim.HeldError
+	if !errors.As(err, &held) || !held.Known {
 		return "lost the race to another machine"
 	}
 
-	switch h := lost.Holder; {
-	case h.Landed:
+	switch {
+	case held.Landed:
 		return fmt.Sprintf(
 			"the claim branch has already landed; its status is still open, "+
-				"so set plan %d to ✅", lost.PlanID)
-	case h.ThisHost:
-		return fmt.Sprintf("already held on this host (%s)", h.Host)
-	case h.Host != "":
-		return fmt.Sprintf("lost the race to another machine (%s)", h.Host)
+				"so set plan %d to ✅", held.PlanID)
+	case held.ThisHolder:
+		return fmt.Sprintf("already held on this host (%s)", held.Marker.Holder)
+	case held.Marker.Holder != "":
+		return fmt.Sprintf(
+			"lost the race to another machine (%s)", held.Marker.Holder)
 	default:
-		// The marker was read but carried no host — a malformed body. Name
-		// no machine rather than print an empty pair of parentheses.
+		// The marker was read but carried no holder — a malformed body.
+		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
 }
@@ -181,12 +283,18 @@ func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 }
 
 // defaultLanePath is where the lane's worktree lives by convention: a
-// sibling of the repository named for it, `<repo>-<slug>`. frit does not
-// create it — that is herdr's worktree.create — but the marker records
-// it so the lane's history names where the work will live, the same
-// path the dispatch ladder hands to herdr.
-func defaultLanePath(repoPath string, id int64, branch string) string {
-	slug := strings.TrimPrefix(branch, fmt.Sprintf("plan/%d-", id))
+// sibling of the repository named for it, `<repo>-<slug>`, with the
+// slug taken from the plan file name after its id prefix — the branch
+// carries the id alone, so the human-readable name comes from the
+// file. frit does not create it — that is herdr's worktree.create —
+// but the marker records it so the lane's history names where the work
+// will live, the same path the dispatch ladder hands to herdr.
+func defaultLanePath(repoPath, planPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(planPath), ".md")
+	slug := stem
+	if i := strings.IndexByte(stem, '_'); i >= 0 {
+		slug = stem[i+1:]
+	}
 
 	return filepath.Join(filepath.Dir(repoPath),
 		filepath.Base(repoPath)+"-"+slug)
@@ -210,6 +318,15 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
+		if doc.Scavenged != "" {
+			_, _ = fmt.Fprintf(out, "  scavenged: %s\n", doc.Scavenged)
+		}
+		if doc.Rescue != "" {
+			_, _ = fmt.Fprintf(out, "  rescued:   %s\n", doc.Rescue)
+		}
+		if doc.Warning != "" {
+			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+		}
 		return
 	}
 

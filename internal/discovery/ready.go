@@ -3,7 +3,8 @@ package discovery
 import "sort"
 
 // Ready returns the plans that can be started now: not yet begun,
-// claimed by nobody, and with every dependency done.
+// claimed by nobody, and with every dependency done — plus the matured
+// takeovers, held plans whose lease has been observed stale.
 //
 // This is the question the whole index exists to answer, and it cannot
 // be answered from one file. A dependency names a plan id, resolved
@@ -20,7 +21,7 @@ func Ready(plans []Plan) []Plan {
 
 	out := make([]Plan, 0)
 	for _, p := range plans {
-		if p.Held || !p.NotStarted() {
+		if !candidate(p) {
 			continue
 		}
 		if allDone(p, done) {
@@ -31,6 +32,18 @@ func Ready(plans []Plan) []Plan {
 	sortByRepoID(out)
 
 	return out
+}
+
+// candidate is the per-plan half of the readiness rule: a fresh start
+// — not begun, held by nobody — or a matured takeover, a held plan
+// whose lease reads stale and whose work is still outstanding. A
+// live-tip hold stays hidden.
+func candidate(p Plan) bool {
+	if p.Held {
+		return p.Stale && p.Unfinished()
+	}
+
+	return p.NotStarted()
 }
 
 // doneByRepo indexes which plan ids are done, keyed by repository so a
