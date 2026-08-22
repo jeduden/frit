@@ -17,6 +17,13 @@ func TestCommandNamesThePlanAndPhase(t *testing.T) {
 		Command(100, "3b"), "a split phase keeps its literal token")
 }
 
+// TestCommandTrimsAnEmptyPhase: a phase-less plan's seed names only the
+// plan, with no trailing space — the plan-phase skill defaults the
+// phase itself.
+func TestCommandTrimsAnEmptyPhase(t *testing.T) {
+	assert.Equal(t, "/plan-phase 2608220941", Command(2608220941, ""))
+}
+
 // TestPhasePrefersTheOverride: an explicit --phase wins, so a person can
 // aim at a phase the ledger has not reached.
 func TestPhasePrefersTheOverride(t *testing.T) {
@@ -38,9 +45,23 @@ func TestPhaseFallsToTheLedger(t *testing.T) {
 	assert.Equal(t, "2", got, "the first open phase")
 }
 
-// TestPhaseHasNoneWithoutLedgerOrOverride: a plan with no ledger and no
-// override cannot name a phase, and says so rather than guessing.
-func TestPhaseHasNoneWithoutLedgerOrOverride(t *testing.T) {
-	_, ok := Phase(nil, "")
+// TestPhaseWithNoLedgerDispatchesTheWholePlan: a plan with no ledger
+// and no override has no slice to name — it is dispatched whole, with
+// an empty phase, rather than refused.
+func TestPhaseWithNoLedgerDispatchesTheWholePlan(t *testing.T) {
+	got, ok := Phase(nil, "")
+	assert.True(t, ok)
+	assert.Empty(t, got)
+}
+
+// TestPhaseWithEveryPhaseDoneReportsNoneOpen: a phased ledger whose
+// every phase is done has genuinely nothing left to send, unlike a
+// plan with no ledger at all.
+func TestPhaseWithEveryPhaseDoneReportsNoneOpen(t *testing.T) {
+	phases := []planmeta.Phase{
+		{N: "1", Status: planmeta.StatusDone},
+		{N: "2", Status: planmeta.StatusDone},
+	}
+	_, ok := Phase(phases, "")
 	assert.False(t, ok)
 }

@@ -52,6 +52,8 @@ func TestGoldenShapes(t *testing.T) {
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
 		{"start", goldenStart()},
+		{"start-wholeplan", goldenStartWholePlan()},
+		{"nudge-wholeplan", goldenNudgeWholePlan()},
 		{"orphans", goldenOrphans()},
 		{"reap", goldenReap()},
 		{"stale", goldenStale()},
@@ -339,6 +341,31 @@ func goldenStart() *StartDoc {
 			Lane:   "/fleet/atlas-dispatch-ladder",
 			Prompt: "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
 		}, false)
+}
+
+// goldenStartWholePlan pins the phase-less escalation shape: a plan
+// small enough to land in one go carries no phase ledger, so start
+// dispatches it whole rather than demanding --phase.
+func goldenStartWholePlan() *StartDoc {
+	return NewStart("/fleet", "atlas", 2608220941, "One-shot fix",
+		StartPlan{
+			Tier: "sonnet", Kind: "claude",
+			Branch: "plan/2608220941",
+			Base:   "refs/remotes/origin/main",
+			Lane:   "/fleet/atlas-one-shot-fix",
+			Prompt: "/plan-phase 2608220941",
+		}, false)
+}
+
+// goldenNudgeWholePlan is goldenStartWholePlan's counterpart for
+// nudge: the same phase-less plan, dispatched into an idle lane.
+func goldenNudgeWholePlan() *NudgeDoc {
+	doc := NewNudge("/fleet", "atlas", 2608220941,
+		"One-shot fix", "", "sonnet",
+		"/plan-phase 2608220941", false)
+	doc.SetTarget("wC:p1")
+
+	return doc
 }
 
 func goldenOrphans() *OrphansDoc {

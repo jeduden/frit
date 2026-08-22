@@ -142,11 +142,6 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 
 	phase, ok := dispatch.Phase(plan.Phases, n.Phase)
 	if !ok {
-		if len(plan.Phases) == 0 {
-			return fmt.Errorf(
-				"plan %d carries no phase ledger; pass --phase", plan.ID)
-		}
-
 		return fmt.Errorf(
 			"plan %d has no open phase; pass --phase", plan.ID)
 	}
