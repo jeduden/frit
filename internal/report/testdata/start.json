@@ -18,6 +18,7 @@
   "started": false,
   "resumed": false,
   "pane": "",
+  "handoff": "preview",
   "refused": "",
   "scavenged": "",
   "rescue": "",

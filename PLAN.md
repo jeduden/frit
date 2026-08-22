@@ -65,7 +65,7 @@ footer: |
 | 2608212203 | ✅     | sonnet | [Only a minted lease is a hold, and a dead session frees it](plan/2608212203_only-a-lease-is-a-hold.md)                         |
 | 2608212218 | 🔲     | sonnet | [frit reaps the orphans it reports](plan/2608212218_reap-the-orphans.md)                                                        |
 | 2608212223 | 🔲     | sonnet | [A thin skill fronts every frit verb an agent uses](plan/2608212223_a-skill-fronts-every-verb.md)                               |
-| 2608212236 | 🔲     | sonnet | [A --go dispatch reads as a handoff, not a to-do](plan/2608212236_dispatch-reads-as-a-handoff.md)                               |
+| 2608212236 | ✅     | sonnet | [A --go dispatch reads as a handoff, not a to-do](plan/2608212236_dispatch-reads-as-a-handoff.md)                               |
 | 2608212346 | 🔲     | sonnet | [A deserted hold is seen and has a way out](plan/2608212346_deserted-hold-recovery.md)                                          |
 | 2608220940 | 🔲     | sonnet | [Scavenge never deletes a branch a worktree still stands on](plan/2608220940_scavenge-spares-a-checked-out-branch.md)           |
 | 2608220941 | 🔲     | sonnet | [A fetched remote-tracking ref outrunning main is named](plan/2608220941_stale-default-branch-is-named.md)                      |

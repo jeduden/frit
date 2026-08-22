@@ -1,7 +1,7 @@
 ---
 id: 2608212236
 title: A --go dispatch reads as a handoff, not a to-do
-status: "🔲"
+status: "✅"
 summary: >-
   After `frit start`/`pick --go`, the output reuses the dry-run's
   recipe shape: an `agent:` and `prompt:` line an orchestrating agent
@@ -126,13 +126,13 @@ guarded by string and golden assertions.
 
 ## Acceptance Criteria
 
-- [ ] A `--go` dispatch shows `running:` and a "don't run it here"
+- [x] A `--go` dispatch shows `running:` and a "don't run it here"
       directive naming the plan id
-- [ ] A `--go` dispatch does not invite the reader to re-run with
+- [x] A `--go` dispatch does not invite the reader to re-run with
       `--go`
-- [ ] The dry-run and refusal text is unchanged
-- [ ] `StartDoc` JSON always carries `handoff`, valued running for a
+- [x] The dry-run and refusal text is unchanged
+- [x] `StartDoc` JSON always carries `handoff`, valued running for a
       live dispatch, preview for a dry run, none for a refusal
-- [ ] `pick --go` and `start --go` are both fixed by the one printer
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `pick --go` and `start --go` are both fixed by the one printer
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
