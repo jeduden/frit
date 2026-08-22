@@ -1,7 +1,7 @@
 ---
 id: 2608212236
 title: A --go dispatch reads as a handoff, not a to-do
-status: "🔲"
+status: "🔳"
 summary: >-
   After `frit start`/`pick --go`, the output reuses the dry-run's
   recipe shape: an `agent:` and `prompt:` line an orchestrating agent

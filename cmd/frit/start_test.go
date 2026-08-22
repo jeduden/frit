@@ -156,10 +156,43 @@ func TestStartGoRunsTheEscalation(t *testing.T) {
 		"the composed prompt goes to the new pane")
 	assert.True(t, rec.verb("agent", "focus", "wZ:p1"))
 	assert.False(t, rec.verb("agent", "read"), "start never reads a reply")
-	assert.Contains(t, out.String(), "started plan 7")
+	got := out.String()
+	assert.Contains(t, got, "started plan 7")
+	assert.Contains(t, got, "running:  /plan-phase 7 3",
+		"a live dispatch relabels the prompt as running")
+	assert.NotContains(t, got, "prompt:",
+		"a live dispatch does not read as a recipe")
+	assert.Contains(t, got, "wZ:p1", "the directive names the pane")
+	assert.Contains(t, got, "do not run it here",
+		"the directive tells the reader not to run the prompt themselves")
+	assert.Contains(t, got, "plan 7",
+		"the don't-run-it-here directive names the plan id")
+	assert.NotContains(t, got, "run again with --go",
+		"a live dispatch does not invite a re-run")
 
 	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err, "frit minted the claim itself")
+}
+
+// TestStartDryRunKeepsTheRecipe is the counter-case to
+// TestStartGoRunsTheEscalation: without --go nothing is dispatched, so the
+// output stays a recipe the reader is meant to run — prompt:, the
+// run-again-with---go invitation, and no handoff directive.
+func TestStartDryRunKeepsTheRecipe(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "prompt:   /plan-phase 7 3")
+	assert.Contains(t, got, "run again with --go to execute")
+	assert.NotContains(t, got, "running:")
+	assert.NotContains(t, got, "do not run it here")
 }
 
 // TestStartBindsTheSessionOntoTheLease: once the agent is up, start
