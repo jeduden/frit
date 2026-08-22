@@ -18,6 +18,9 @@ phases:
   - n: 1
     title: orphans surfaces a dead lane its own token hides
     status: "✅"
+  - n: 2
+    title: the S77 park-first guard fires from outside the lane
+    status: "🔲"
 ---
 # The supervisor acts on a lane it does not stand in
 
@@ -93,11 +96,12 @@ route depends on. The reuse seam is
 
 1. `orphans` surfaces a herdr-confirmed-dead hold whose only resumable
    checkout is its own dead lane's, instead of hiding it.
-2. (determined after Phase 1) A supervisor way-out verb that acts on a
-   surfaced deserted lane from the primary — resume in place when the
-   checkout is clean, else park the suffix (S77) and retire it —
-   lifting the `inOwnLane` gate for a herdr-confirmed-dead hold.
-3. (determined after Phase 1) Teardown of a deserted lane's surviving
+2. The supervisor way out for a surfaced deserted lane from the
+   primary — resume in place when the checkout is clean, else park the
+   suffix (S77) first — realized not as a new verb but as the S77
+   park-first guard firing from outside the lane, so the takeover
+   `claim`/`start` already run becomes safe to use as the resume.
+3. (determined after Phase 2) Teardown of a deserted lane's surviving
    checkout from the primary, and the harder `!Stale && !Dead` cell —
    an acknowledged supervisor override or a tightened liveness read.
 
@@ -137,16 +141,82 @@ Gate: the four RED cases pass; the deserted and stale-held kinds do
 not collide; the JSON key is always present as `[]`; `go test ./...`
 and `mdsmith check .` are clean.
 
+## Phase 2: the S77 park-first guard fires from outside the lane
+
+The supervisor's way out is the verbs frit already has, not a new
+one. For a herdr-confirmed-dead, unmatured hold, `claim` and `start`
+already run the right transition from the primary. `mintOrTakeOver`
+in [cmd/frit/claim.go](../cmd/frit/claim.go) seizes it at epoch E+1,
+live-session veto intact. `yield <id>` already parks the branch's
+local suffix from any clone, because `localRef` and `claim.Yield`
+read shared git state, never cwd. The missing piece is the S77
+guard. `desertedRefusal` is `inOwnLane`-gated, so a takeover from
+the primary silently orphans whatever the dead lane committed past
+its token (gap 3). Phase 2 adds the guard's cwd-free sibling in
+front of the takeover. It refuses when the plan branch's local tip
+diverges from the hold tip, and names `frit yield <id>` as the park.
+Clean means the local `plan/<id>` ref is absent, equal to, or an
+ancestor of the tip the takeover would CAS on; the ref is shared by
+every worktree, so the primary reads it. Uncommitted working-tree
+dirt stays out of scope, exactly as it does for `yield` itself. The
+takeover that then proceeds is the resume in place: same branch,
+epoch E+1, herdr standing the pane back up at the conventional lane
+path.
+
+RED, against the real-repo-plus-fake-herdr fixtures
+`deserted_test.go` already builds, in [cmd/frit](../cmd/frit):
+
+- A held plan, herdr confirms its bound session gone, window not
+  matured, one local commit on the plan branch past the hold tip:
+  `claim <id>` run outside the lane refuses and names
+  `frit yield <id>`. Today it takes over and orphans the commit.
+- The same fixture through `start <id> --go`: the same refusal — the
+  two verbs share the guard, as they share `desertedRefusal`.
+- The same hold with the plan branch clean at the hold tip:
+  `claim <id>` from the primary takes it over at epoch E+1 — the
+  resume-in-place path, pinned against regression.
+- The same clean hold whose bound session herdr answers live: the
+  veto still refuses and names the holder — the guard adds no route
+  past `mintOrTakeOver`'s live-session check.
+- From inside the lane, the existing wording still wins:
+  `TestStartNamesYieldForADesertedLaneOnThisHost` passes unchanged.
+
+GREEN: a `parkFirstRefusal` beside `desertedRefusal`, called from
+claim's `Run` and `buildStart` right after the own-lane refusal. It
+is skipped when the gather withheld the coordinate; the
+ambiguous-repo refusal already stands there. For a held, dead,
+unmatured plan it reads `localRef`
+([cmd/frit/yield.go](../cmd/frit/yield.go)). Then it asks
+`git -C <dir> merge-base --is-ancestor` — plumbing, exit code only —
+whether that tip is reachable from `plan.HoldTip`. Divergence
+refuses. Nothing in [internal/claim](../internal/claim) changes:
+takeover, veto and park are composed, not extended. No new verb
+means no new skill. The plan-tidy asset in
+[internal/skills/assets](../internal/skills/assets) does gain the
+supervisor route, within its token budget: orphans' deserted row →
+`yield <id>` from the primary, then `claim <id>`. The dogfood copies
+are regenerated so `TestDogfoodCopiesMatchCanonical` stays green.
+
+Deferred to Phase 3 with task 3: teardown of the surviving checkout
+from the primary. A surviving lane at a non-default path, honored
+when the pane is stood back up, is deferred with it.
+
+Gate: the five RED cases pass; the live-session veto is pinned by
+its own case; `go test ./...` and `mdsmith check .` are clean.
+
 ## Execution
 
 Tier is per phase, set by the most demanding ingredient. Phase 1
 implements from written assertions against a settled seam, so it is a
-sonnet slice; the design of the supervisor route stays opus and is
-declared once Phase 1 shows the real shape.
+sonnet slice; the design of the supervisor route stayed opus and is
+now recorded in Phase 2 itself. Phase 2 composes existing primitives
+behind one new refusal, so its implementation is a sonnet slice for
+the same reason Phase 1's was.
 
 | Phase                 | Design | Implement | Gate that catches a wrong answer                                  |
 | --------------------- | ------ | --------- | ----------------------------------------------------------------- |
 | 1 orphans surfaces it | opus   | sonnet    | four RED cases pass; deserted and stale-held kinds do not collide |
+| 2 park-first guard    | opus   | sonnet    | an unparked suffix refuses takeover from outside; the veto stands |
 
 ## Acceptance Criteria
 
@@ -156,5 +226,14 @@ declared once Phase 1 shows the real shape.
 - [x] A behind-the-tip deserted lane still lists, with no regression
 - [x] A matured hold stays a stale-held candidate, not a deserted hold
 - [x] The `--json` deserted key is always present as `[]`
+- [ ] `frit claim <id>` run outside the lane refuses a dead,
+      unmatured hold whose branch carries an unparked suffix, naming
+      `frit yield <id>`
+- [ ] `frit start <id>` shares that refusal through the same guard
+- [ ] A clean deserted hold is taken over from the primary at epoch
+      E+1 — resume in place
+- [ ] A live bound session still vetoes that takeover
+- [ ] plan-tidy names the supervisor route; dogfood copies match the
+      canonical assets
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
