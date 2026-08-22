@@ -61,6 +61,26 @@ func TestStartComposesTheEscalation(t *testing.T) {
 	assert.Contains(t, got, "--model", "the tier maps to an agent arg")
 }
 
+// TestStartGoDispatchesAPhaselessPlan: a plan small enough to land in
+// one go carries no phase ledger. buildStart dispatches it whole,
+// composing /plan-phase <id> with no --phase and no error, instead of
+// demanding one.
+func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7")
+	assert.True(t, rec.verb("agent", "prompt", "wZ:p1", "/plan-phase 7"),
+		"the whole-plan prompt carries no phase token")
+}
+
 // TestStartFoldsInTheNote: a --note rides the composed prompt beneath the
 // slash command, so the subject stays the tool's.
 func TestStartFoldsInTheNote(t *testing.T) {
