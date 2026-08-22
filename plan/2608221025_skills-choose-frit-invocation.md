@@ -1,7 +1,7 @@
 ---
 id: 2608221025
 title: The installer chooses how a laid-down skill invokes frit
-status: "🔲"
+status: "🔳"
 summary: >-
   `frit skills` copies its assets verbatim, so every laid-down skill
   hardcodes a bare `frit` and carries a source-checkout parenthetical
