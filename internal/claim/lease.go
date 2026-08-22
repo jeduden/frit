@@ -686,10 +686,10 @@ func mintMarker(
 // casPush is the one server-side arbitration every transition rides:
 // push the marker over the expected old value — "" means the ref must
 // be absent — and classify a failure by what actually holds the ref on
-// the remote, never by git's stderr (see Mint for why). lost reports a
-// CAS the remote decided against us, with the tip that beat it; an
-// error is a real fault. The remote is the truth either way, so the
-// local copy of the ref is synced on a win and untouched on a loss.
+// the remote, never by git's stderr (see remoteHolderErr for why). lost
+// reports a CAS the remote decided against us, with the tip that beat
+// it; an error is a real fault. The remote is the truth either way, so
+// the local copy of the ref is synced on a win and untouched on a loss.
 func casPush(
 	repoDir, ref string, opts LeaseOptions, marker, expected string,
 	run gitwt.Runner,

@@ -1,7 +1,7 @@
 ---
 id: 2608221559
 title: Remove the superseded Mint claim path
-status: "🔳"
+status: "✅"
 summary: >-
   claim.Mint is the pre-lease single-marker claim, superseded by the
   lease protocol's Acquire in commit d559318 and called only by its
@@ -21,7 +21,7 @@ phases:
     status: "✅"
   - n: 2
     title: Delete the dead Mint cluster and correct S79
-    status: "🔲"
+    status: "✅"
 ---
 # Remove the superseded Mint claim path
 
@@ -157,12 +157,12 @@ Context above.
 
 ## Acceptance Criteria
 
-- [ ] `claim.Mint` and its exclusive types are gone from the tree
-- [ ] `MarkerHost` behaves identically, proven by its unchanged tests
-- [ ] The live lease path (`Acquire`, `Renew`, `Release`, `Takeover`)
+- [x] `claim.Mint` and its exclusive types are gone from the tree
+- [x] `MarkerHost` behaves identically, proven by its unchanged tests
+- [x] The live lease path (`Acquire`, `Renew`, `Release`, `Takeover`)
       is untouched
-- [ ] S79 in
+- [x] S79 in
       [docs/research/lease-protocol.md](../docs/research/lease-protocol.md)
       names scavenge alone and records the Mint removal
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

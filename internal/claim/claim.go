@@ -12,7 +12,6 @@ package claim
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/jeduden/frit/internal/gitwt"
@@ -24,52 +23,6 @@ import (
 // apart from a git fault, and report it rather than crash on it.
 var ErrLostRace = errors.New("lost the race")
 
-// Holder describes who holds the ref that won a lost push, read from its
-// marker. It turns the refusal's guess into a fact: a claim held on this
-// host reads differently from one held elsewhere, and a ref already
-// merged into the base is landed work with a stale status, not a
-// competitor. Known is false when the marker could not be read, so the
-// caller falls back to the original wording rather than misreport.
-type Holder struct {
-	Host     string // the host recorded in the holder's marker; "" if none
-	ThisHost bool   // the holder's host is this run's host
-	Landed   bool   // the holder's ref is merged into the base
-	Known    bool   // the marker was read; false → fall back to old wording
-}
-
-// LostRaceError reports a claim that lost the push and carries who holds
-// the ref. It wraps ErrLostRace, so a caller can still test the sentinel
-// with errors.Is while reading the Holder with errors.As.
-type LostRaceError struct {
-	PlanID int64
-	Holder Holder
-}
-
-func (e *LostRaceError) Error() string {
-	return fmt.Sprintf(
-		"lost the race for plan %d: the claim ref already exists", e.PlanID)
-}
-
-func (e *LostRaceError) Unwrap() error { return ErrLostRace }
-
-// Options describes the lease to mint.
-type Options struct {
-	Branch   string // the hold branch to mint, e.g. "plan/7-shader-unit"
-	Base     string // the ref the lease is dated against, e.g. "origin/main"
-	Remote   string // e.g. "origin"
-	PlanID   int64
-	PlanFile string // repo-relative plan file path, recorded in the marker
-	Lane     string // worktree path the claim is for; may be "" (recorded in the marker)
-	Host     string // machine name recorded in the marker
-}
-
-// Result is the minted lease: the branch that now holds the plan and the
-// base commit it was dated against.
-type Result struct {
-	Branch  string
-	BaseSHA string
-}
-
 // Branch is the hold branch a plan is claimed on: plan/<id>, id only.
 // Nothing derived from local state — a file name, a slug, a title —
 // reaches the ref, so two machines can never name the same plan
@@ -78,85 +31,6 @@ type Result struct {
 // a lease frit writes is a hold frit finds.
 func Branch(planID int64) string {
 	return leaseBranch(planID)
-}
-
-// Mint leases the hold branch for a plan.
-//
-// The marker is an empty commit — the same tree as Base — so the claim
-// touches no file; it exists only to carry a ref. The push uses
-// --force-with-lease with an empty expected value, which requires the
-// ref to be absent on the remote: that is the atomic arbitration. When
-// the push loses, the local ref is rolled back before the error returns
-// so a retry starts from a clean state.
-func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
-	baseSHA, err := trimmed(run(repoDir, "rev-parse", opts.Base))
-	if err != nil {
-		return Result{}, err
-	}
-
-	tree, err := trimmed(run(repoDir, "rev-parse", opts.Base+"^{tree}"))
-	if err != nil {
-		return Result{}, err
-	}
-
-	marker, err := trimmed(run(repoDir, "commit-tree", tree,
-		"-p", baseSHA, "-m", markerMessage(opts, baseSHA)))
-	if err != nil {
-		return Result{}, err
-	}
-
-	ref := "refs/heads/" + opts.Branch
-	if _, err := run(repoDir, "update-ref", ref, marker); err != nil {
-		return Result{}, err
-	}
-
-	// The empty expected value after the colon means the remote ref must
-	// not already exist; the server rejects the push if it does.
-	if _, err := run(repoDir, "push",
-		"--force-with-lease="+ref+":",
-		opts.Remote, marker+":"+ref); err != nil {
-		// A failed push has three outcomes, told apart by what commit holds
-		// the ref on the remote — never by git's stderr, which the project
-		// rule forbids parsing and which a hook can fill with misleading
-		// wording like "already exists".
-		holderSHA := remoteHolder(repoDir, opts.Remote, ref, run)
-		switch holderSHA {
-		case marker:
-			// Our own marker is on the remote: the push landed even though
-			// the client reported an error, e.g. a connection dropped after
-			// the ref transaction committed. The claim is ours, so keep the
-			// local ref and report success rather than orphan it as a race
-			// lost to a machine that is really us.
-			return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
-		case "":
-			// Nothing on the remote, or it could not be read: the push left
-			// no ref, so this is a real fault. Roll the local ref back so a
-			// retry starts clean, unless a worktree is standing on it.
-			if !checkedOut(repoDir, opts.Branch, run) {
-				_, _ = run(repoDir, "update-ref", "-d", ref)
-			}
-
-			return Result{}, fmt.Errorf(
-				"push claim for plan %d: %w", opts.PlanID, err)
-		default:
-			// A different commit holds the ref: another machine won, or our
-			// own branch already landed with a status never set to ✅. Roll
-			// the local ref back, then read the holder's marker so the
-			// refusal can name who really holds the plan rather than always
-			// blaming a machine that may not be there. A worktree standing
-			// on the branch is spared the same way.
-			if !checkedOut(repoDir, opts.Branch, run) {
-				_, _ = run(repoDir, "update-ref", "-d", ref)
-			}
-
-			return Result{}, &LostRaceError{
-				PlanID: opts.PlanID,
-				Holder: readHolder(repoDir, opts, holderSHA, run),
-			}
-		}
-	}
-
-	return Result{Branch: opts.Branch, BaseSHA: baseSHA}, nil
 }
 
 // remoteHolder returns the commit the hold ref points at on the remote,
@@ -198,40 +72,6 @@ func remoteHolderErr(
 	}
 
 	return fields[0], nil
-}
-
-// readHolder names who holds the ref that won a lost push. It reads the
-// holder's marker for the host that took the claim, and asks whether the
-// holder's work is already merged into the base — landed work whose status
-// was never set to ✅. Both are on the already-slow failure path, so
-// naming a holder costs nothing on the winning push.
-//
-// An unreadable marker yields the zero Holder, whose Known is false, so
-// the caller falls back to the original wording rather than misreport.
-func readHolder(
-	repoDir string, opts Options, tip string, run gitwt.Runner,
-) Holder {
-	body, ok := holderMarker(repoDir, opts.PlanID, tip, run)
-	if !ok {
-		// The holder's commits may not be local — a claim from another
-		// machine was never fetched. Bring the branch in once, then retry
-		// before falling back to the original wording.
-		if _, err := run(repoDir, "fetch", "--quiet",
-			opts.Remote, "refs/heads/"+opts.Branch); err != nil {
-			return Holder{}
-		}
-		if body, ok = holderMarker(repoDir, opts.PlanID, tip, run); !ok {
-			return Holder{}
-		}
-	}
-	host := markerHost(body)
-
-	return Holder{
-		Host:     host,
-		ThisHost: host != "" && host == opts.Host,
-		Landed:   landed(repoDir, opts, tip, run),
-		Known:    true,
-	}
 }
 
 // MarkerHost reads the host recorded in the claim marker for a plan on a
@@ -294,18 +134,7 @@ func markerHost(body string) string {
 	return ""
 }
 
-// landed reports whether the holder's work has reached the default branch
-// on the remote — merged work whose branch was left behind with a status
-// never set to ✅. It refreshes the base from the remote first, so a stale
-// local view of the default branch does not read a claim merged on another
-// machine as a live competitor. A base that cannot be fetched falls back
-// to the local view rather than failing the classification.
-func landed(repoDir string, opts Options, tip string, run gitwt.Runner) bool {
-	return landedTip(repoDir, opts.Base, opts.Remote, tip, run)
-}
-
-// landedTip is the landed check itself, shared with the lease path,
-// which carries its base and remote outside an Options.
+// landedTip is the landed check shared with the lease path.
 func landedTip(repoDir, baseRef, remote, tip string, run gitwt.Runner) bool {
 	return isAncestor(repoDir, tip, freshBase(repoDir, baseRef, remote, run), run)
 }
@@ -344,29 +173,6 @@ func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
 	_, err := run(dir, "merge-base", "--is-ancestor", sha, base)
 
 	return err == nil
-}
-
-// markerMessage builds the lease's commit body.
-//
-// The body records what the claim is for so the ref alone tells the full
-// story: the lane it holds, the host that took it, the base it was dated
-// against and the plan file it belongs to. An empty Lane records "-" for
-// both the title and the lane line rather than filepath.Base's ".".
-func markerMessage(opts Options, baseSHA string) string {
-	lane := opts.Lane
-	base := filepath.Base(lane)
-	if lane == "" {
-		lane = "-"
-		base = "-"
-	}
-
-	return fmt.Sprintf(
-		"plan %d: claim %s\n\n"+
-			"lane:     %s\n"+
-			"host:     %s\n"+
-			"base:     %s\n"+
-			"plan:     %s",
-		opts.PlanID, base, lane, opts.Host, baseSHA, opts.PlanFile)
 }
 
 // trimmed drops the trailing newline git prints after a hash, passing an
