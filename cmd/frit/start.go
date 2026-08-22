@@ -100,6 +100,16 @@ func buildStart(
 	// resumable own lease skips this refusal — it is startable by
 	// definition, whether or not its window has matured.
 	if resumeTip == "" {
+		// A deserted hold read from this exact lane is named before the
+		// ordinary readiness check ever runs: S76 already makes a dead,
+		// unmatured hold Ready for a takeover from elsewhere, but taking
+		// it over from its own dead lane would leave whatever that lane
+		// committed locally, past its persisted token, orphaned rather
+		// than parked — yield is the way out, not a silent takeover
+		// (S77).
+		if reason := desertedRefusal(rt, plan); reason != "" {
+			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
+		}
 		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 			doc := refusedStart(c, res, plan, phase, doGo, reason)
 			scavengeGlyph(rt, doc, plan, res)
@@ -156,6 +166,28 @@ func startResumeTip(
 	}
 
 	return tip
+}
+
+// desertedRefusal names the yield that retires a deserted hold read
+// from its own lane: herdr confirms the bound session gone, the
+// takeover window has not matured, and this exact worktree is the one
+// that held it — a deserted hold, and the one place a bare takeover
+// would silently orphan whatever it committed past its persisted
+// token (S77). "" outside that exact case, leaving the ordinary
+// readiness refusal as the arbiter — a matured window is staleHeld's
+// own cell, orphans.go, and a takeover from elsewhere is unaffected.
+func desertedRefusal(rt *runtime, plan discovery.Plan) string {
+	if !plan.Dead || plan.Stale {
+		return ""
+	}
+	cwd, _ := os.Getwd()
+	if !inOwnLane(rt, plan, cwd) {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"deserted hold: its token cannot self-resume; "+
+			"run `frit yield %d` to retire this lane", plan.ID)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

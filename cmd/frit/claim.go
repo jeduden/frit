@@ -181,6 +181,20 @@ func ownToken(
 	return lane, tip, true
 }
 
+// inOwnLane reports whether cwd is this exact plan's own worktree —
+// ownToken's identity check, without requiring its token to still
+// match origin's tip. It is the seam a deserted-hold refusal needs:
+// telling "not my lane" apart from "my lane, but its token can no
+// longer resume it" (S77).
+func inOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	repo, id, idOK := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+
+	return idOK && repo == plan.Repo && id == plan.ID
+}
+
 // currentSession is the herdr session the calling pane runs, "" when
 // herdr is unreachable or no agent is on it. Best-effort: an unbound
 // lease still holds, it only forgoes the veto until a later renewal

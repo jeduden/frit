@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 
@@ -104,4 +105,49 @@ func TestDesertedHeldDoesNotCollideWithAMaturedStaleHold(t *testing.T) {
 
 	assert.Empty(t, got, "a matured hold is staleHeld's cell, not desertedHeld's")
 	assert.Len(t, staleHeld([]discovery.Plan{plan}, "atlas"), 1)
+}
+
+// TestStartNamesYieldForADesertedLaneOnThisHost: run from the lane's
+// own worktree, herdr confirms the bound session gone, and the ref
+// has moved past this lane's own persisted token — self-resume cannot
+// recover it, so start refuses and names yield rather than blindly
+// taking its own dead lane over and orphaning whatever it committed
+// locally (S77).
+func TestStartNamesYieldForADesertedLaneOnThisHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	// Somebody else moves the ref past the token this lane persisted.
+	ghost := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "ghost", Lane: "/lanes/ghost",
+		Session: "wGhost:p1"}
+	_, err = claim.Takeover(repo, ghost, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "started plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "holder:  ghost",
+		"the dead lane's own ref was never seized")
 }
