@@ -326,6 +326,42 @@ func TestNudgeGoSendsTheComposedCommand(t *testing.T) {
 	assert.Contains(t, out.String(), "sent")
 }
 
+// TestNudgeDispatchesAPhaselessPlan: a plan small enough to land in one
+// go carries no phase ledger. nudge dispatches it whole, composing
+// /plan-phase <id> with no --phase and no error, instead of demanding
+// one.
+func TestNudgeDispatchesAPhaselessPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"), "dry-run sends nothing")
+	assert.Contains(t, out.String(), "/plan-phase 7",
+		"the whole-plan prompt carries no phase token")
+}
+
+// TestNudgeRefusesAnAllDonePhasedPlan: a phased ledger whose every
+// phase is done has genuinely nothing left to send, unlike a plan
+// with no ledger at all — it still refuses.
+func TestNudgeRefusesAnAllDonePhasedPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 7, "🔳", "Shader unit", "✅", "✅")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "has no open phase")
+}
+
 // TestNudgeRefusesABusyLane: an agent that is working is not
 // interrupted, even with --go.
 func TestNudgeRefusesABusyLane(t *testing.T) {

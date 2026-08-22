@@ -26,3 +26,21 @@ func TestStartHandoffTracksTheThreeTransitions(t *testing.T) {
 	assert.Equal(t, "none", refused.Handoff,
 		"a refusal runs nothing")
 }
+
+// TestNewStartRendersAnEmptyPhaseAsWholePlan: a phase-less plan is
+// dispatched as one whole-plan prompt, so its doc reports that rather
+// than a blank phase cell — blank reads as a missing field, not a
+// deliberate whole-plan dispatch.
+func TestNewStartRendersAnEmptyPhaseAsWholePlan(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Prompt: "/plan-phase 7"}, true)
+	assert.Equal(t, WholePlanPhase, doc.Phase)
+}
+
+// TestNewNudgeRendersAnEmptyPhaseAsWholePlan is NewStart's rule for
+// nudge's document.
+func TestNewNudgeRendersAnEmptyPhaseAsWholePlan(t *testing.T) {
+	doc := NewNudge("/fleet", "atlas", 7, "Shader unit",
+		"", "sonnet", "/plan-phase 7", true)
+	assert.Equal(t, WholePlanPhase, doc.Phase)
+}

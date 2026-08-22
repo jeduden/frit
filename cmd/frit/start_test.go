@@ -81,6 +81,24 @@ func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
 		"the whole-plan prompt carries no phase token")
 }
 
+// TestStartRefusesAnAllDonePhasedPlan: a phased ledger whose every
+// phase is done has genuinely nothing left to send, unlike a plan
+// with no ledger at all — it still refuses, and never mints a claim.
+func TestStartRefusesAnAllDonePhasedPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 7, "🔳", "Shader unit", "✅", "✅")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "has no open phase")
+	_, err := gitCapture(t, repo, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.Error(t, err, "no claim was pushed for the refused plan")
+}
+
 // TestStartFoldsInTheNote: a --note rides the composed prompt beneath the
 // slash command, so the subject stays the tool's.
 func TestStartFoldsInTheNote(t *testing.T) {
