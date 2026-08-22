@@ -103,11 +103,21 @@ rebuilds the pane in place. When the token is behind origin's tip, the
 verb names the `yield` that retires the lane, parking any suffix to a
 rescue ref rather than leaving a dead end (S77).
 
-RED cases and the exact verb are determined after Phase 1 fixes the
-detection shape. The gate is that a deserted lane on this host is
-resumed with no manual branch surgery, and one whose tip cannot
-resume is pointed at `yield`; the verb-state table gains no silent
-cell.
+RED, against the same fake-herdr idiom: run from a deserted lane's own
+worktree whose token is behind origin's tip, `start` refuses and names
+`yield` instead of taking the lane over from itself
+(`TestStartNamesYieldForADesertedLaneOnThisHost`). The same lane with
+a resumable token is unaffected. `startResumeTip` already recovers it
+ahead of the refusal.
+
+GREEN: `desertedRefusal` in [start.go](../cmd/frit/start.go). It is
+gated on `inOwnLane` in [claim.go](../cmd/frit/claim.go) — the
+identity check `ownToken` already makes, reused rather than
+reimplemented. `claim` shares the same `mintOrTakeOver` transition
+`start` does, so it reads the same refusal before its own readiness
+check. The gate is that a deserted lane on this host is resumed with
+no manual branch surgery, and one whose tip cannot resume is pointed
+at `yield`; the verb-state table gains no silent cell.
 
 ## Execution
 

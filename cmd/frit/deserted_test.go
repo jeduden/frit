@@ -43,7 +43,7 @@ func TestDesertedHeldListsATokenBehindTheTip(t *testing.T) {
 	}
 	worktrees := []gitwt.Worktree{{Path: lane, Branch: "plan/7"}}
 
-	got := desertedHeld(rt, []discovery.Plan{plan}, "atlas", worktrees, coord, true)
+	got := desertedHeld(rt, []discovery.Plan{plan}, "atlas", worktrees, coord)
 
 	require.Len(t, got, 1)
 	assert.Equal(t, int64(7), got[0].ID)
@@ -57,7 +57,7 @@ func TestDesertedHeldExcludesALiveBoundSession(t *testing.T) {
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Dead: false}
 
 	got := desertedHeld(
-		rt, []discovery.Plan{plan}, "atlas", nil, fleet.Coord{}, true)
+		rt, []discovery.Plan{plan}, "atlas", nil, fleet.Coord{})
 
 	assert.Empty(t, got)
 }
@@ -86,7 +86,7 @@ func TestDesertedHeldExcludesAResumableToken(t *testing.T) {
 	}
 	worktrees := []gitwt.Worktree{{Path: lane, Branch: "plan/7"}}
 
-	got := desertedHeld(rt, []discovery.Plan{plan}, "atlas", worktrees, coord, true)
+	got := desertedHeld(rt, []discovery.Plan{plan}, "atlas", worktrees, coord)
 
 	assert.Empty(t, got, "self-resume can recover it, so it is not a dead end")
 }
@@ -101,10 +101,35 @@ func TestDesertedHeldDoesNotCollideWithAMaturedStaleHold(t *testing.T) {
 	}
 
 	got := desertedHeld(
-		rt, []discovery.Plan{plan}, "atlas", nil, fleet.Coord{}, true)
+		rt, []discovery.Plan{plan}, "atlas", nil, fleet.Coord{})
 
 	assert.Empty(t, got, "a matured hold is staleHeld's cell, not desertedHeld's")
 	assert.Len(t, staleHeld([]discovery.Plan{plan}, "atlas"), 1)
+}
+
+// TestDesertedRefusalExcludesAnUnheldPlan: Dead is only ever herdr's
+// answer about a bound session, which observeHolds only reads for a
+// held plan — but desertedRefusal reads Dead and Stale alone, with no
+// Held check of its own. Even from this exact lane, an unheld plan
+// must not manufacture a "deserted hold" refusal, so the check does
+// not rest solely on that upstream invariant holding forever.
+func TestDesertedRefusalExcludesAnUnheldPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane, Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	t.Chdir(lane)
+	rt := &runtime{git: gitwt.Exec}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: false, Dead: true}
+
+	got := desertedRefusal(rt, plan, lane)
+
+	assert.Empty(t, got, "nobody holds this plan, so there is nothing to yield")
 }
 
 // TestStartNamesYieldForADesertedLaneOnThisHost: run from the lane's

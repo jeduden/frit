@@ -180,9 +180,14 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		}
 		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
 		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
-		coord, coordOK := res.Coords[repo.Name]
-		doc.AddDeserted(repo.Name, desertedHeld(
-			rt, res.Plans, repo.Name, repo.Worktrees, coord, coordOK))
+		// Without a coordinate there is no origin to compare a token
+		// against, so a repository the gather could not place — the
+		// ambiguous-name case — contributes no deserted candidates
+		// rather than guessing at one.
+		if coord, ok := res.Coords[repo.Name]; ok {
+			doc.AddDeserted(repo.Name, desertedHeld(
+				rt, res.Plans, repo.Name, repo.Worktrees, coord))
+		}
 	}
 
 	if c.JSON {
@@ -214,17 +219,15 @@ func staleHeld(plans []discovery.Plan, repo string) []discovery.Plan {
 // not matured (a matured hold is staleHeld's instead, S76), and no
 // worktree of this repository holds a token that still matches
 // origin's tip — the resume shortcut ownToken already checks, reused
-// here rather than reimplemented (F9, F11, S3, S21). Without a
-// coordinate there is no origin to compare a token against, so every
-// plan reads as undetermined rather than guessed at.
+// here rather than reimplemented (F9, F11, S3, S21). The caller skips
+// this call entirely when the gather withheld a coordinate for an
+// ambiguous repository, so there is no coordOK left for this function
+// itself to check.
 func desertedHeld(
 	rt *runtime, plans []discovery.Plan, repo string,
-	worktrees []gitwt.Worktree, coord fleet.Coord, coordOK bool,
+	worktrees []gitwt.Worktree, coord fleet.Coord,
 ) []discovery.Plan {
 	out := make([]discovery.Plan, 0)
-	if !coordOK {
-		return out
-	}
 	for _, p := range plans {
 		if p.Repo != repo || !p.Held || !p.Dead || p.Stale {
 			continue

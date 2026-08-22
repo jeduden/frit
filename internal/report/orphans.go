@@ -139,35 +139,39 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 	d.Repos = append(d.Repos, repo)
 }
 
+// repoIndex finds a repository already recorded by AddRepo, so the
+// Add* methods that file a plan into one of its cells share the one
+// lookup rather than each walking d.Repos itself.
+func (d *OrphansDoc) repoIndex(name string) (int, bool) {
+	for i := range d.Repos {
+		if d.Repos[i].Name == name {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
 // AddStale records the plans in one repository whose lease has
 // matured, beside the kinds AddRepo already recorded for it — the
 // held-stale cell of the verb-state table, read from the same
 // observation fold board and claim use rather than lanes.Find's
 // git-ref sweep. A no-op when AddRepo was never called for the name.
 func (d *OrphansDoc) AddStale(name string, plans []discovery.Plan) {
-	for i := range d.Repos {
-		if d.Repos[i].Name != name {
-			continue
-		}
-		for _, p := range plans {
-			d.Repos[i].StaleHolds = append(
-				d.Repos[i].StaleHolds, staleHoldOf(p))
-		}
-
+	i, ok := d.repoIndex(name)
+	if !ok {
 		return
+	}
+	for _, p := range plans {
+		d.Repos[i].StaleHolds = append(d.Repos[i].StaleHolds, staleHoldOf(p))
 	}
 }
 
 // staleHoldOf projects a matured plan into its wire shape.
 func staleHoldOf(p discovery.Plan) StaleHold {
-	branch := ""
-	if len(p.Holds) > 0 {
-		branch = p.Holds[0]
-	}
-
 	return StaleHold{
 		PlanID:       p.ID,
-		Branch:       branch,
+		Branch:       firstHold(p),
 		StaleSeconds: int64(p.StaleFor / time.Second),
 		Dead:         p.Dead,
 	}
@@ -179,26 +183,29 @@ func staleHoldOf(p discovery.Plan) StaleHold {
 // verb-state table, distinct from the matured StaleHolds cell. A
 // no-op when AddRepo was never called for the name.
 func (d *OrphansDoc) AddDeserted(name string, plans []discovery.Plan) {
-	for i := range d.Repos {
-		if d.Repos[i].Name != name {
-			continue
-		}
-		for _, p := range plans {
-			d.Repos[i].Deserted = append(d.Repos[i].Deserted, desertedOf(p))
-		}
-
+	i, ok := d.repoIndex(name)
+	if !ok {
 		return
+	}
+	for _, p := range plans {
+		d.Repos[i].Deserted = append(d.Repos[i].Deserted, desertedOf(p))
 	}
 }
 
 // desertedOf projects a deserted plan into its wire shape.
 func desertedOf(p discovery.Plan) Deserted {
-	branch := ""
+	return Deserted{PlanID: p.ID, Branch: firstHold(p)}
+}
+
+// firstHold is the branch a plan's report rows name it by: the first
+// of its holds, or "" when it carries none. StaleHold and Deserted
+// both read a held plan down to one representative branch this way.
+func firstHold(p discovery.Plan) string {
 	if len(p.Holds) > 0 {
-		branch = p.Holds[0]
+		return p.Holds[0]
 	}
 
-	return Deserted{PlanID: p.ID, Branch: branch}
+	return ""
 }
 
 // AddProblem records a repository whose lanes could not be read.

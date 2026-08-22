@@ -93,7 +93,8 @@ func buildStart(
 	// plan's repository name; without one there is no repository to stand
 	// the lane in, so a resume cannot be checked either.
 	coord, coordOK := res.Coords[plan.Repo]
-	resumeTip := startResumeTip(rt, plan, coord, coordOK)
+	cwd, _ := os.Getwd()
+	resumeTip := startResumeTip(rt, plan, coord, coordOK, cwd)
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess. A
@@ -107,7 +108,7 @@ func buildStart(
 		// committed locally, past its persisted token, orphaned rather
 		// than parked — yield is the way out, not a silent takeover
 		// (S77).
-		if reason := desertedRefusal(rt, plan); reason != "" {
+		if reason := desertedRefusal(rt, plan, cwd); reason != "" {
 			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
 		}
 		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
@@ -154,12 +155,11 @@ func buildStart(
 // the resume conditions hold; start's ordinary claim path is then the
 // arbiter.
 func startResumeTip(
-	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
 ) string {
 	if !coordOK {
 		return ""
 	}
-	cwd, _ := os.Getwd()
 	_, tip, ok := resumeToken(rt, plan, coord, cwd)
 	if !ok {
 		return ""
@@ -169,18 +169,21 @@ func startResumeTip(
 }
 
 // desertedRefusal names the yield that retires a deserted hold read
-// from its own lane: herdr confirms the bound session gone, the
-// takeover window has not matured, and this exact worktree is the one
-// that held it — a deserted hold, and the one place a bare takeover
-// would silently orphan whatever it committed past its persisted
-// token (S77). "" outside that exact case, leaving the ordinary
-// readiness refusal as the arbiter — a matured window is staleHeld's
-// own cell, orphans.go, and a takeover from elsewhere is unaffected.
-func desertedRefusal(rt *runtime, plan discovery.Plan) string {
-	if !plan.Dead || plan.Stale {
+// from its own lane: the plan is held, herdr confirms the bound
+// session gone, the takeover window has not matured, and this exact
+// worktree is the one that held it — a deserted hold, and the one
+// place a bare takeover would silently orphan whatever it committed
+// past its persisted token (S77). Held is checked explicitly here
+// rather than assumed from Dead: observeHolds happens to set Dead
+// only for a held plan today, but this refusal reads its own inputs
+// rather than lean on that as an unstated invariant. "" outside that
+// exact case, leaving the ordinary readiness refusal as the arbiter —
+// a matured window is staleHeld's own cell, orphans.go, and a
+// takeover from elsewhere is unaffected.
+func desertedRefusal(rt *runtime, plan discovery.Plan, cwd string) string {
+	if !plan.Held || !plan.Dead || plan.Stale {
 		return ""
 	}
-	cwd, _ := os.Getwd()
 	if !inOwnLane(rt, plan, cwd) {
 		return ""
 	}
