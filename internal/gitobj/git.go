@@ -45,6 +45,7 @@ func DefaultRef(dir string, run gitwt.Runner) string {
 	}
 
 	for _, candidate := range []string{
+		"refs/remotes/origin/main", "refs/remotes/origin/master",
 		"refs/heads/main", "refs/heads/master",
 	} {
 		if _, err := run(dir, "rev-parse", "--verify", "--quiet",

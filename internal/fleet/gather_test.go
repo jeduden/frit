@@ -251,6 +251,38 @@ func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
 // Dead mature and send claim's takeover at the bare ref regardless,
 // which does not exist, turning the attempt into a raw push failure
 // instead of a graceful refusal.
+// TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags pins
+// S84/S85: a working checkout's local main advances only on an
+// explicit merge or pull, so it routinely lags the remote-tracking
+// default a squash merge actually lands on. origin/main carries plan
+// 7 at done while the local main still carries it not-started, and
+// origin/HEAD is unset. The plan's claim branch still exists — a
+// squash merge does not delete it — but the plan must read as
+// landed, not held.
+func TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	gitCmd(t, repo, "checkout", "-q", "--detach", "main")
+	body := "---\nid: 7\ntitle: Shader unit\nstatus: \"✅\"\n---\n# Shader unit\n"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "plan", "plan.md"), []byte(body), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "land plan 7 (squash)")
+	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.False(t, planByID(t, res, 7).Held,
+		"a squash-landed plan reads as landed though local main lags")
+}
+
 func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
 	root := t.TempDir()
 	repo := repoWithPlan(t, root, "atlas", 7)
