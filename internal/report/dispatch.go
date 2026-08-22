@@ -375,6 +375,12 @@ type StartDoc struct {
 	// Pane is the pane herdr opened and the agent runs in, set only once
 	// the escalation has run.
 	Pane string `json:"pane"`
+	// Handoff is the one axis a consumer keys on instead of re-deriving
+	// "the prompt is not mine" from started/refused: "running" once the
+	// prompt is dispatched to a spawned agent now executing it,
+	// "preview" for a dry run the caller would cause with --go, "none"
+	// when the escalation was refused and nothing runs.
+	Handoff string `json:"handoff"`
 	// Refused is why the escalation was withheld — a plan not startable,
 	// or a claim lost to another machine — empty when start proceeded.
 	Refused string `json:"refused"`
@@ -413,17 +419,22 @@ func NewStart(
 		Lane:     sp.Lane,
 		Prompt:   sp.Prompt,
 		Go:       wantGo,
+		Handoff:  "preview",
 		Problems: []Problem{},
 	}
 }
 
 // Refuse records why the escalation was withheld, leaving Started false.
-func (d *StartDoc) Refuse(reason string) { d.Refused = reason }
+func (d *StartDoc) Refuse(reason string) {
+	d.Refused = reason
+	d.Handoff = "none"
+}
 
 // MarkStarted records that the escalation ran and the pane it stood up.
 func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
+	d.Handoff = "running"
 }
 
 // MarkResumed records that the escalation is standing the lane back up
