@@ -113,6 +113,21 @@ func TestInstallWritesPlanTidy(t *testing.T) {
 	}
 }
 
+// TestPlanNewFrontsDoctor guards the standing rule CLAUDE.md records:
+// a new agent-facing verb ships with the thin skill that fronts it.
+// doctor checks exactly what plan-new already shapes a plan to
+// satisfy — a Goal, a tier, an Execution row — so its mention lives
+// there rather than in a fifth skill.
+func TestPlanNewFrontsDoctor(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-new/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-new skill: %v", err)
+	}
+	if !contains(string(data), "frit doctor") {
+		t.Fatal("plan-new skill does not mention `frit doctor`")
+	}
+}
+
 // TestShippedSkillNamesFritOnPath guards the load-bearing content
 // detail: a shipped skill runs where frit is a binary on PATH, so its
 // commands must read `frit`, not `go run ./cmd/frit`.
