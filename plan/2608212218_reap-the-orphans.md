@@ -114,6 +114,29 @@ nothing useful. A hold Scavenge cannot drop — fenced by another
 machine since it was observed, or already gone — is refused with the
 reason it read. Neither case is a hard command failure.
 
+The drop is gated on abandonment evidence, not on the missing
+checkout. "Claimed, no local checkout" proves nothing by itself. The
+checkout may be another machine's, or the claim seconds old with its
+stand-up still pending. `lanes.Build` already filters landed refs, so
+an unstaffed hold is by construction a live-looking lease. What earns
+the drop is the lease protocol's own evidence: a matured staleness
+window, or a bound session herdr confirms dead. That is the same gate
+`discovery.Ready` and takeover honor. Reap gathers the fleet beside
+its repo walk, exactly as `orphans` does, to read that evidence. A
+live lease is refused, with a pointer at `release` and `claim`.
+
+The stranded delete honors the same park-before-delete rule.
+Ordinary-merge evidence is tied to the tip — an ancestor of the base
+loses nothing to `branch -D`. The squash-merge glyph is not: a
+follow-up commit the squash never carried would be destroyed. So the
+branch tip's unlanded work is parked through `claim.ParkUnlanded`
+before the delete — the park half of a scavenge, exported for exactly
+this. A park that cannot happen refuses the whole teardown. The dry
+run previews the rescue ref, so `--go` never moves work the report did
+not name. As groundwork, `claim.Scavenge` also stopped reading a
+failed `ls-remote` as an absent ref. An unreadable remote is now a
+surfaced fault, not a silent no-op that cleans the local ref.
+
 A prunable or never-started worktree is torn down the same primitive
 way a stranded checkout is: `git worktree remove`. Its branch is left
 alone. Unlike a landed lane's, a prunable or empty checkout's branch
@@ -135,12 +158,13 @@ resolvable commit. That refusal is carried back as a `RefusedWorktree`
 rather than a command failure, so one ambiguous worktree never stops
 the rest of a repository from being reaped.
 
-Gate: an unstaffed hold is dropped on `--go` with its unlanded work
-parked first. A decorated or fenced one is refused. A prunable and a
-never-started worktree are each reaped on `--go`. The S79 shape is
-refused rather than destroyed. `--json` carries every new kind's list
-as `[]` when empty. `go test ./...`, `go vet`, `golangci-lint run` and
-`mdsmith check .` are clean.
+Gate: a stale or dead unstaffed hold is dropped on `--go` with its
+unlanded work parked first; a live, decorated or fenced one is
+refused. A squash-landed branch's tip is parked before its delete. A
+prunable and a never-started worktree are each reaped on `--go`. The
+S79 shape is refused rather than destroyed. `--json` carries every new
+kind's list as `[]` when empty. `go test ./...`, `go vet`,
+`golangci-lint run` and `mdsmith check .` are clean.
 
 ## Execution
 
@@ -157,8 +181,10 @@ is settled here, so both phases implement from written assertions.
 - [x] `frit reap` removes a landed checkout and deletes its branch
 - [x] It is a dry-run by default; it acts only on `--go`
 - [x] A branch frit does not read as landed is refused, not deleted
-- [x] A squash-merged branch is read as landed and reaped
-- [x] A claimed-no-checkout hold is dropped, unlanded work parked
+- [x] A squash-merged branch is read as landed and reaped, its tip
+      parked first
+- [x] A claimed-no-checkout hold that is stale or dead is dropped,
+      unlanded work parked; a live lease is refused
 - [x] `--json` carries the reaped and refused sets, always present
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
