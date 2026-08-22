@@ -347,6 +347,9 @@ func goldenOrphans() *OrphansDoc {
 	doc.AddStale("atlas", []discovery.Plan{
 		{ID: 7, Holds: []string{"plan/7"}, StaleFor: 3 * time.Hour},
 	})
+	doc.AddDeserted("atlas", []discovery.Plan{
+		{ID: 9, Holds: []string{"plan/9"}},
+	})
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
 

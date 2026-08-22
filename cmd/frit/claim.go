@@ -57,6 +57,17 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
+	// A deserted hold read from this exact lane is named before the
+	// ordinary readiness check ever runs, the same guard start's
+	// buildStart applies: S76 already makes a dead, unmatured hold
+	// Ready for a takeover from elsewhere, but taking it over from its
+	// own dead lane would leave whatever that lane committed locally,
+	// past its persisted token, orphaned rather than parked (S77).
+	if reason := desertedRefusal(rt, plan, cwd); reason != "" {
+		doc.Refuse(reason)
+		return renderClaim(c, rt, doc)
+	}
+
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
 		scavengeGlyph(rt, doc, plan, res)
@@ -150,15 +161,11 @@ func resumeToken(
 func ownToken(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
 ) (lane, tip string, ok bool) {
-	if cwd == "" {
-		return "", "", false
-	}
 	// The guard against the CLI being invoked elsewhere: the same
 	// cwd-join-backwards yield's tearDownLane uses to confirm the
 	// calling directory is this exact plan's own lane before trusting
 	// anything local it finds there.
-	repo, id, idOK := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
-	if !idOK || repo != plan.Repo || id != plan.ID {
+	if !inOwnLane(rt, plan, cwd) {
 		return "", "", false
 	}
 
@@ -179,6 +186,20 @@ func ownToken(
 	}
 
 	return lane, tip, true
+}
+
+// inOwnLane reports whether cwd is this exact plan's own worktree —
+// ownToken's identity check, without requiring its token to still
+// match origin's tip. It is the seam a deserted-hold refusal needs:
+// telling "not my lane" apart from "my lane, but its token can no
+// longer resume it" (S77).
+func inOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	repo, id, idOK := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+
+	return idOK && repo == plan.Repo && id == plan.ID
 }
 
 // currentSession is the herdr session the calling pane runs, "" when

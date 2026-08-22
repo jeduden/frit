@@ -1,7 +1,7 @@
 ---
 id: 2608212346
 title: A deserted hold is seen and has a way out
-status: "🔲"
+status: "✅"
 summary: >-
   A held lane whose bound session herdr can no longer see, and whose
   token cannot self-resume because it is absent or behind origin's
@@ -16,10 +16,10 @@ depends-on: []
 phases:
   - n: 1
     title: orphans names the deserted hold
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: a verb resumes or retires it
-    status: "🔲"
+    status: "✅"
 ---
 # A deserted hold is seen and has a way out
 
@@ -61,7 +61,9 @@ were added there for this work.
 ## Tasks
 
 1. Surface the deserted hold as an `orphans` kind, from the veto.
-2. (determined after Phase 1)
+2. `start` names `yield` for a deserted hold read from its own lane,
+   ahead of the ordinary readiness refusal, so a bare takeover never
+   orphans what that lane committed past its persisted token.
 
 ## Phase 1: orphans names the deserted hold
 
@@ -101,11 +103,21 @@ rebuilds the pane in place. When the token is behind origin's tip, the
 verb names the `yield` that retires the lane, parking any suffix to a
 rescue ref rather than leaving a dead end (S77).
 
-RED cases and the exact verb are determined after Phase 1 fixes the
-detection shape. The gate is that a deserted lane on this host is
-resumed with no manual branch surgery, and one whose tip cannot
-resume is pointed at `yield`; the verb-state table gains no silent
-cell.
+RED, against the same fake-herdr idiom: run from a deserted lane's own
+worktree whose token is behind origin's tip, `start` refuses and names
+`yield` instead of taking the lane over from itself
+(`TestStartNamesYieldForADesertedLaneOnThisHost`). The same lane with
+a resumable token is unaffected. `startResumeTip` already recovers it
+ahead of the refusal.
+
+GREEN: `desertedRefusal` in [start.go](../cmd/frit/start.go). It is
+gated on `inOwnLane` in [claim.go](../cmd/frit/claim.go) — the
+identity check `ownToken` already makes, reused rather than
+reimplemented. `claim` shares the same `mintOrTakeOver` transition
+`start` does, so it reads the same refusal before its own readiness
+check. The gate is that a deserted lane on this host is resumed with
+no manual branch surgery, and one whose tip cannot resume is pointed
+at `yield`; the verb-state table gains no silent cell.
 
 ## Execution
 
@@ -120,10 +132,10 @@ implement from written assertions.
 
 ## Acceptance Criteria
 
-- [ ] `frit orphans` lists a deserted hold before the window matures
-- [ ] A live bound session or a resumable token keeps it off the list
-- [ ] One verb resumes a deserted lane in place, no branch surgery
-- [ ] A behind-the-tip lane is pointed at `yield`, not left dead
-- [ ] S76 and S77 read true against the shipped behavior
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `frit orphans` lists a deserted hold before the window matures
+- [x] A live bound session or a resumable token keeps it off the list
+- [x] One verb resumes a deserted lane in place, no branch surgery
+- [x] A behind-the-tip lane is pointed at `yield`, not left dead
+- [x] S76 and S77 read true against the shipped behavior
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

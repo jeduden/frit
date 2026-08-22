@@ -194,6 +194,14 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		}
 		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
 		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
+		// Without a coordinate there is no origin to compare a token
+		// against, so a repository the gather could not place — the
+		// ambiguous-name case — contributes no deserted candidates
+		// rather than guessing at one.
+		if coord, ok := res.Coords[repo.Name]; ok {
+			doc.AddDeserted(repo.Name, desertedHeld(
+				rt, res.Plans, repo.Name, repo.Worktrees, coord))
+		}
 	}
 
 	if c.JSON {
@@ -205,18 +213,64 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// staleHeld filters one repository's held plans ready for a takeover —
-// a matured window, a bound session herdr confirms is gone, or both —
-// a candidate nobody has acted on yet.
+// staleHeld filters one repository's held plans whose takeover window
+// has matured — a candidate nobody has acted on yet. A bound session
+// herdr confirms is gone, ahead of that window, is desertedHeld's own
+// cell instead; the two never collide.
 func staleHeld(plans []discovery.Plan, repo string) []discovery.Plan {
 	out := make([]discovery.Plan, 0)
 	for _, p := range plans {
-		if p.Repo == repo && p.Held && (p.Stale || p.Dead) {
+		if p.Repo == repo && p.Held && p.Stale {
 			out = append(out, p)
 		}
 	}
 
 	return out
+}
+
+// desertedHeld filters one repository's held plans that are a dead
+// end: herdr confirms the bound session gone, the takeover window has
+// not matured (a matured hold is staleHeld's instead, S76), and no
+// worktree of this repository holds a token that still matches
+// origin's tip — the resume shortcut ownToken already checks, reused
+// here rather than reimplemented (F9, F11, S3, S21). The caller skips
+// this call entirely when the gather withheld a coordinate for an
+// ambiguous repository, so there is no coordOK left for this function
+// itself to check.
+func desertedHeld(
+	rt *runtime, plans []discovery.Plan, repo string,
+	worktrees []gitwt.Worktree, coord fleet.Coord,
+) []discovery.Plan {
+	out := make([]discovery.Plan, 0)
+	for _, p := range plans {
+		if p.Repo != repo || !p.Held || !p.Dead || p.Stale {
+			continue
+		}
+		if resumableFromAnyLane(rt, p, worktrees, coord) {
+			continue
+		}
+		out = append(out, p)
+	}
+
+	return out
+}
+
+// resumableFromAnyLane reports whether some worktree of this
+// repository carries its own persisted token still matching origin's
+// tip for the plan — the same proof ownToken reads from a single
+// lane's cwd, tried here against every worktree on this host rather
+// than one directory, since orphans is not run from inside any one
+// lane.
+func resumableFromAnyLane(
+	rt *runtime, p discovery.Plan, worktrees []gitwt.Worktree, coord fleet.Coord,
+) bool {
+	for _, wt := range worktrees {
+		if _, _, ok := ownToken(rt, p, coord, wt.Path); ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // printOrphans writes a block per repository with something wrong.
@@ -261,6 +315,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 			age := (time.Duration(s.StaleSeconds) * time.Second).Round(time.Minute)
 			_, _ = fmt.Fprintf(tw, "  stale, takeover candidate\tplan %d\t%s (%s)\n",
 				s.PlanID, s.Branch, age)
+		}
+		for _, d := range repo.Deserted {
+			_, _ = fmt.Fprintf(tw, "  deserted, session gone\tplan %d\t%s\n",
+				d.PlanID, d.Branch)
 		}
 	}
 	_ = tw.Flush()

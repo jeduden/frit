@@ -660,6 +660,52 @@ func TestResumeIgnoresATokenFromAnotherLane(t *testing.T) {
 	assert.Contains(t, out.String(), "already held")
 }
 
+// TestClaimNamesYieldForADesertedLaneOnThisHost: run from the lane's
+// own worktree, herdr confirms the bound session gone, and the ref has
+// moved past this lane's own persisted token — self-resume cannot
+// recover it, so claim refuses and names yield rather than silently
+// seizing its own dead lane's ref and orphaning whatever it committed
+// locally past the persisted token (S77). start already refuses this
+// exact case; claim reaches the same takeover path through
+// mintOrTakeOver and needs the identical guard.
+func TestClaimNamesYieldForADesertedLaneOnThisHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	// Somebody else moves the ref past the token this lane persisted.
+	ghost := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "ghost", Lane: "/lanes/ghost",
+		Session: "wGhost:p1"}
+	_, err = claim.Takeover(repo, ghost, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "claimed plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "holder:  ghost",
+		"the dead lane's own ref was never seized")
+}
+
 // landedLeaseRepo is a claimable repo whose lease landed: work on the
 // ref merged into main and pushed, the ref left behind, the plan's
 // status still open — landed work with a stale status.

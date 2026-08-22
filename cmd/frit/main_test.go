@@ -596,20 +596,20 @@ func TestObserveHoldsLeavesDeadFalseWhenHerdrIsUnreachable(t *testing.T) {
 	assert.False(t, res.Plans[0].Dead)
 }
 
-// TestStaleHeldIncludesADeadSessionsHold: staleHeld feeds the orphan
-// report's takeover-candidate bucket, so a plan whose session herdr
-// confirms gone belongs there even with no matured window.
-func TestStaleHeldIncludesADeadSessionsHold(t *testing.T) {
+// TestStaleHeldExcludesADeadSessionWithNoMaturedWindow: a bound
+// session herdr confirms gone is desertedHeld's own cell, not
+// staleHeld's — the two kinds never collide (2608212346).
+func TestStaleHeldExcludesADeadSessionWithNoMaturedWindow(t *testing.T) {
 	plans := []discovery.Plan{
 		{Repo: "atlas", ID: 1, Held: true, Dead: true},
-		{Repo: "atlas", ID: 2, Held: true},
-		{Repo: "orrery", ID: 3, Held: true, Dead: true},
+		{Repo: "atlas", ID: 2, Held: true, Stale: true},
+		{Repo: "orrery", ID: 3, Held: true, Stale: true},
 	}
 
 	got := staleHeld(plans, "atlas")
 
 	require.Len(t, got, 1)
-	assert.Equal(t, int64(1), got[0].ID)
+	assert.Equal(t, int64(2), got[0].ID)
 }
 
 func TestOrphansReportsAClaimWithNoCheckout(t *testing.T) {
