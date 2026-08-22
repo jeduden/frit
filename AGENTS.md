@@ -127,8 +127,18 @@ suite of Claude Code planning skills into a repository's
 `.claude/skills`. A repo frit indexes then carries the workflow an
 agent loads to work its plans. The suite is `plan-pick` (find and
 claim the next lane), `plan-phase` (execute one phase test-first),
-`plan-new` (author a plan that conforms to `plan/proto.md`), and
-`plan-sync` (reconcile statuses against git).
+`plan-new` (author a plan that conforms to `plan/proto.md`),
+`plan-sync` (reconcile statuses against git), and `plan-tidy` (read
+`orphans`/`stale`, act with `yield`/`release`, never raw git). Health
+verbs are folded into whichever skill already owns that shape of plan
+health, rather than each drawing its own skill: `doctor`'s checks are
+what `plan-new` already shapes a plan to satisfy, so its call lives
+there.
+
+Every agent-facing verb ships with the thin skill — new or folded —
+that fronts it, in the same change that adds the verb. A verb an agent
+can only reach through hand-run git or a bare `frit --help` scan is
+the gap this rule exists to close.
 
 The skills are embedded in the binary from
 [internal/skills](internal/skills), so a shipped frit needs no

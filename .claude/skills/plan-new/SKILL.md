@@ -38,7 +38,11 @@ mdsmith and an editor, not a frit verb.
    implement tier.
 6. **Lint and index.** `mdsmith check plan/<file>` (fix line length 80
    and long sentences), `mdsmith fix PLAN.md`, then `mdsmith check .`.
-7. **Commit** the plan file and PLAN.md together: `plan <id>: <title>`.
+7. **Health-check.** `frit doctor` scans every plan on disk, so check
+   its output for this plan's id: no missing Goal, no Execution row
+   short of a phase, no tier `plan/proto.md` rejects. Fix the plan,
+   not the check.
+8. **Commit** the plan file and PLAN.md together: `plan <id>: <title>`.
 
 ## Notes
 
