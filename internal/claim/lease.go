@@ -250,7 +250,16 @@ func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
-	switch now := remoteHolder(repoDir, opts.Remote, ref, run); now {
+	now, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
+	if err != nil {
+		// An unreadable remote is a fault, not an absent ref: reading it
+		// as "gone" would delete the local copy of a lease the remote
+		// still carries and report a no-op that never happened.
+		return Scavenged{}, fmt.Errorf(
+			"read %s from %s for plan %d: %w",
+			ref, opts.Remote, opts.PlanID, err)
+	}
+	switch now {
 	case "":
 		// Already gone — an earlier run, or another machine's, finished
 		// the job. Clean the stale local copy and report a no-op.

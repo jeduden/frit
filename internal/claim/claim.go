@@ -166,19 +166,33 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 //
 // Reading "" on an unreadable remote folds the unconfirmable case into a
 // real fault, which fails safe: a retry re-attempts the push cleanly.
+// A caller for whom "gone" and "unreadable" must not fold together — a
+// scavenge deciding whether a ref is safely absent — uses
+// remoteHolderErr instead.
 func remoteHolder(repoDir, remote, ref string, run gitwt.Runner) string {
+	sha, _ := remoteHolderErr(repoDir, remote, ref, run)
+
+	return sha
+}
+
+// remoteHolderErr is remoteHolder with the read fault kept apart from
+// the absent ref: ("", nil) is a remote that answered and has no such
+// ref, while an error is a remote that could not be read at all.
+func remoteHolderErr(
+	repoDir, remote, ref string, run gitwt.Runner,
+) (string, error) {
 	// No --heads filter: callers pass a full ref name, and the lease
 	// path also reads refs outside refs/heads — the rescue refs.
 	out, err := run(repoDir, "ls-remote", remote, ref)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
-		return ""
+		return "", nil
 	}
 
-	return fields[0]
+	return fields[0], nil
 }
 
 // readHolder names who holds the ref that won a lost push. It reads the
