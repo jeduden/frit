@@ -68,6 +68,11 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
+	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
+		doc.Refuse(reason)
+		return renderClaim(c, rt, doc)
+	}
+
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 		doc.Refuse(reason)
 		scavengeGlyph(rt, doc, plan, res)

@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: the S77 park-first guard fires from outside the lane
-    status: "🔲"
+    status: "✅"
 ---
 # The supervisor acts on a lane it does not stand in
 
@@ -226,14 +226,14 @@ the same reason Phase 1's was.
 - [x] A behind-the-tip deserted lane still lists, with no regression
 - [x] A matured hold stays a stale-held candidate, not a deserted hold
 - [x] The `--json` deserted key is always present as `[]`
-- [ ] `frit claim <id>` run outside the lane refuses a dead,
+- [x] `frit claim <id>` run outside the lane refuses a dead,
       unmatured hold whose branch carries an unparked suffix, naming
       `frit yield <id>`
-- [ ] `frit start <id>` shares that refusal through the same guard
-- [ ] A clean deserted hold is taken over from the primary at epoch
+- [x] `frit start <id>` shares that refusal through the same guard
+- [x] A clean deserted hold is taken over from the primary at epoch
       E+1 — resume in place
-- [ ] A live bound session still vetoes that takeover
-- [ ] plan-tidy names the supervisor route; dogfood copies match the
+- [x] A live bound session still vetoes that takeover
+- [x] plan-tidy names the supervisor route; dogfood copies match the
       canonical assets
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
