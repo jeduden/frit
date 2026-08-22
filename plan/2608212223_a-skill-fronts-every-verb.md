@@ -15,7 +15,7 @@ depends-on: []
 phases:
   - n: 1
     title: a teardown skill fronts the cleanup verbs
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: cover the rest and record the rule
     status: "🔲"
@@ -109,10 +109,10 @@ the shape is fixed.
 
 ## Acceptance Criteria
 
-- [ ] A `plan-tidy` skill fronts yield, release, orphans and stale
-- [ ] It says: read with orphans/stale, act with frit, never raw git
-- [ ] The skill passes the mdsmith skill kind, both copies
-- [ ] `frit skills` regenerates the dogfooded copy, idempotently
+- [x] A `plan-tidy` skill fronts yield, release, orphans and stale
+- [x] It says: read with orphans/stale, act with frit, never raw git
+- [x] The skill passes the mdsmith skill kind, both copies
+- [x] `frit skills` regenerates the dogfooded copy, idempotently
 - [ ] doctor is fronted by a skill
 - [ ] CLAUDE.md records that a new verb ships with its skill
 - [ ] All tests pass: `go test ./...`
