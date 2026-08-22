@@ -152,7 +152,11 @@ each skill at 650 heuristic tokens — the coarse line cap bounds bulk,
 the token budget bounds the real cost. Both the canonical assets and
 the installed copies are linted. Uniqueness of the skill `name` is
 scoped to the assets, because the dogfooded copies carry those same
-names by design.
+names by design. It also caps file and section length, tightens
+sentence and word caps, and bans filler prose (reasons in
+[.mdsmith.yml](.mdsmith.yml)). `directory-structure` is the one
+global rule: a stray `.md` under `internal/skills/assets`, baked into
+the binary, fails.
 
 ## The JSON Contract
 

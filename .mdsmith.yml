@@ -37,6 +37,20 @@ rules:
     pad: 1
   no-trailing-punctuation-in-heading: true
   no-emphasis-as-heading: true
+  # Global, not kind-scoped: a stray markdown file dropped anywhere
+  # else — notably under internal/skills/assets, which `all:embed`
+  # would bake straight into the binary — fails the lint. This is
+  # directory-granular, not filename-granular: it stops a markdown
+  # file in an undeclared directory, but a second markdown file
+  # dropped beside an already-allowed one still passes.
+  directory-structure:
+    allowed:
+      - "."
+      - "docs/**"
+      - "plan/**"
+      - ".claude/skills/**"
+      - "internal/scaffold/assets/**"
+      - "internal/skills/assets/*/*"
   cross-file-reference-integrity:
     strict: true
   # Plan ids are the minute-precision UTC creation time, so two
@@ -81,12 +95,13 @@ kinds:
     # Skills frit ships: the canonical text in
     # internal/skills/assets/<name>/SKILL.md, and its dogfooded copy in
     # .claude/skills/<name>/SKILL.md that `frit skills` writes. A skill
-    # is a procedure an agent follows under time pressure, so two rules
-    # are the point of linting it. Readability stays ON — padded prose
-    # costs a skimmed reader a missed step. And a hard length cap keeps
-    # it token-cheap: it loads into a working session, so every line is
-    # paid for. Both frit's shipped skills sit far under the cap today,
-    # so this is a live constraint, not aspiration.
+    # is a procedure an agent follows under time pressure, and it loads
+    # into a working session, so every line is paid for. Readability
+    # stays ON — padded prose costs a skimmed reader a missed step —
+    # and every rule below forces a skill to earn its bytes: file and
+    # section length, token budget, paragraph shape, and a filler ban.
+    # All four shipped skills sit under every cap today with modest
+    # headroom, so these are live constraints, not aspiration.
     path-pattern: "{internal/skills/assets,.claude/skills}/*/SKILL.md"
     rules:
       required-frontmatter:
@@ -99,8 +114,10 @@ kinds:
         include:
           - "internal/skills/assets/*/SKILL.md"
       table-readability: false
+      # Tightened further, toward the real ceiling: the largest
+      # skill today is 56 lines.
       max-file-length:
-        max: 80
+        max: 65
       # A skill loads into a working session, so tokens are the real
       # cost, not lines. 650 heuristic tokens is well above the
       # largest skill today (plan-phase, about 552) with headroom to
@@ -108,6 +125,31 @@ kinds:
       token-budget:
         mode: heuristic
         max: 650
+      paragraph-structure:
+        max-sentences: 6
+        max-words-per-sentence: 35
+      # No `## Method` sprawls: the longest section today is 33 lines.
+      max-section-length:
+        per-level:
+          1: 10
+          2: 40
+      # Filler that pads a skill without adding a step. None of the
+      # four shipped skills use any of these phrases today.
+      forbidden-text:
+        contains:
+          - "in order to"
+          - "please note"
+          - "it is important to"
+          - "as mentioned"
+      forbidden-paragraph-starts:
+        starts:
+          - "Please note"
+          - "It is important to"
+          - "As mentioned"
+      # duplicated-content (MDS037) is explicitly rejected here: the
+      # .claude/skills copy is byte-identical to its asset by design
+      # (Phase 1's pin), so it would false-fire across the whole
+      # suite. Left disabled, which is also its repo-wide default.
 
 # Order matters: proto applies first so plan/proto.md also picks up
 # the plan kind, whose required-structure.schema points back at the
