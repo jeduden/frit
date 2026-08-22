@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: DefaultRef prefers the remote-tracking default over local heads
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Landed detection is proven against a lagging local main
     status: "🔲"
