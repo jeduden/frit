@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -277,11 +279,31 @@ func holdRef(t *testing.T, repo string, id int64) (string, error) {
 		fmt.Sprintf("refs/heads/plan/%d", id))
 }
 
-// TestReapDropsAnUnstaffedHoldWithGo: a plan claimed on its canonical
-// id-only ref but never staffed with a real worktree — a claim whose
-// herdr worktree stand-up never happened, the shape a faked herdr
-// leaves behind — has its hold dropped under --go.
-func TestReapDropsAnUnstaffedHoldWithGo(t *testing.T) {
+// deadHold claims plan 7's canonical hold bound to a herdr session and
+// then installs a herdr whose pane list carries no such session — the
+// dead-holder shape (S61 family): the binding is positive evidence the
+// agent is gone, no staleness window consulted. This is the one
+// abandonment evidence a test can produce without aging a window.
+func deadHold(t *testing.T, repo string) {
+	t.Helper()
+	_, err := claim.Acquire(repo, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x", Session: "wS:p9",
+	}, gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id":       "wO:p1",
+		"agent_session": map[string]any{"value": "wOther:sess"},
+	}))
+}
+
+// TestReapRefusesAFreshUnstaffedHold: "claimed, no local checkout" is
+// not abandonment evidence — the checkout may be another machine's,
+// or the claim seconds old with its worktree stand-up still pending.
+// A hold whose lease is neither observed stale nor confirmed dead is
+// refused, exactly the gate discovery.Ready and takeover honor.
+func TestReapRefusesAFreshUnstaffedHold(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
@@ -298,27 +320,47 @@ func TestReapDropsAnUnstaffedHoldWithGo(t *testing.T) {
 	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "7")
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "stale or dead")
 	_, err = holdRef(t, repo, 7)
-	assert.Error(t, err, "the unstaffed hold no longer resolves")
+	assert.NoError(t, err, "a live lease survives reap --go")
 }
 
-// TestReapWithoutGoLeavesTheHoldStanding: the same unstaffed hold,
-// without --go, is untouched.
+// TestReapDropsADeadSessionsHoldWithGo: a hold whose bound session
+// herdr positively confirms gone is abandoned by the protocol's own
+// evidence, and --go drops it through the scavenge.
+func TestReapDropsADeadSessionsHoldWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	deadHold(t, repo)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "dropped")
+	_, err := holdRef(t, repo, 7)
+	assert.Error(t, err, "the dead session's hold no longer resolves")
+	gone, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the hold is gone from origin too")
+}
+
+// TestReapWithoutGoLeavesTheHoldStanding: the same dead-session hold,
+// without --go, is reported as a would-drop and left untouched.
 func TestReapWithoutGoLeavesTheHoldStanding(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
-	cr, _ := startHerdr()
-	withHerdr(t, cr)
-	var claimed bytes.Buffer
-	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
-	require.Equal(t, 0, code, claimed.String())
+	deadHold(t, repo)
 
 	var out, errb bytes.Buffer
-	code = run([]string{"reap", "--root", root}, &out, &errb)
+	code := run([]string{"reap", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "would drop")
 	_, err := holdRef(t, repo, 7)
 	assert.NoError(t, err, "nothing is dropped without --go")
 }
@@ -363,11 +405,11 @@ func TestReapRefusesEveryDecoratedHoldOnAnUnstaffedLane(t *testing.T) {
 	assert.Contains(t, out.String(), "plan/2608142306-other-slug")
 }
 
-// TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine: the hold moved
-// since reap observed its tip — another machine took it over — so the
-// scavenge CAS loses and reap refuses rather than drop a lease that
-// may be actively renewing.
-func TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine(t *testing.T) {
+// TestReapRefusesAHoldAnotherMachineTookOver: a takeover winner is a
+// live holder — fresh marker, no matured window, no dead session — so
+// reap refuses it the same way it refuses any live lease; the CAS
+// inside the scavenge is the second line of defense, not the first.
+func TestReapRefusesAHoldAnotherMachineTookOver(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
@@ -386,22 +428,18 @@ func TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine(t *testing.T) {
 	assert.Contains(t, out.String(), "refused")
 	tip, err := holdRef(t, repo, 7)
 	require.NoError(t, err)
-	assert.NotEmpty(t, tip, "the fenced hold is left standing")
+	assert.NotEmpty(t, tip, "the taken-over hold is left standing")
 }
 
 // TestReapParksUnlandedWorkBeforeDroppingTheHold: real work landed on
-// the hold ref itself before its worktree vanished — a crashed
-// machine, say — so reap must park it to a rescue ref before the hold
-// is dropped, never discard it.
+// the hold ref itself before its holder died — a crashed machine, say
+// — so reap must park it to a rescue ref before the hold is dropped,
+// never discard it.
 func TestReapParksUnlandedWorkBeforeDroppingTheHold(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
-	cr, _ := startHerdr()
-	withHerdr(t, cr)
-	var claimed bytes.Buffer
-	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
-	require.Equal(t, 0, code, claimed.String())
+	deadHold(t, repo)
 
 	git(t, repo, "checkout", "-q", "plan/7")
 	require.NoError(t, os.WriteFile(
@@ -412,7 +450,7 @@ func TestReapParksUnlandedWorkBeforeDroppingTheHold(t *testing.T) {
 	git(t, repo, "checkout", "-q", "main")
 
 	var out, errb bytes.Buffer
-	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
