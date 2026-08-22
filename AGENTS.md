@@ -147,16 +147,28 @@ companion files. Writing them is scaffolding of the same class as
 to clobber an edited skill without `--force`. The canonical text lives
 in `internal/skills/assets`; frit's own `.claude/skills` is the output
 of `frit skills`, regenerated from the bundle rather than hand-kept, so
-it never drifts from what ships. A shipped skill names `frit`, because
-it lands where frit is a binary on `PATH`, not `go run ./cmd/frit`.
+it never drifts from what ships.
+`TestDogfoodCopiesMatchCanonical` in
+[internal/skills/skills_test.go](internal/skills/skills_test.go) pins
+that claim. It fails the moment the dogfood copy and the canonical
+asset diverge by a single byte. The precedent is
+`TestShippedProtoMatchesRepo`, which pins the embedded plan proto the
+same way. A shipped skill names `frit`, because it lands where frit is
+a binary on `PATH`, not `go run ./cmd/frit`.
 
 A skill is read under time pressure and loaded into a working session,
 so it must stay skimmable and token-cheap. The `skill` kind in
-[.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, and a
-hard line cap keeps every skill short. Both the canonical assets and
+[.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, a
+hard line cap keeps every skill short, and MDS028 `token-budget` caps
+each skill at 650 heuristic tokens — the coarse line cap bounds bulk,
+the token budget bounds the real cost. Both the canonical assets and
 the installed copies are linted. Uniqueness of the skill `name` is
 scoped to the assets, because the dogfooded copies carry those same
-names by design.
+names by design. It also caps file and section length, tightens
+sentence and word caps, and bans filler prose (reasons in
+[.mdsmith.yml](.mdsmith.yml)). `directory-structure` is the one
+global rule: a stray `.md` under `internal/skills/assets`, baked into
+the binary, fails.
 
 ## The JSON Contract
 

@@ -1,7 +1,7 @@
 ---
 id: 2608221227
 title: 'Guard the skill bundle: no drift, tiny, bounded in the binary'
-status: '🔲'
+status: '✅'
 summary: >-
   Pin the dogfooded .claude/skills copies byte-equal to the canonical
   assets, cap each skill's token budget, and tighten every suitable
@@ -11,13 +11,13 @@ depends-on: []
 phases:
   - n: 1
     title: 'Pin the dogfood copies byte-equal to canonical'
-    status: '🔲'
+    status: '✅'
   - n: 2
     title: "Cap each skill's token budget"
-    status: '🔲'
+    status: '✅'
   - n: 3
     title: 'Tighten every suitable lean rule'
-    status: '🔲'
+    status: '✅'
 ---
 # Guard the skill bundle: no drift, tiny, bounded in the binary
 
@@ -183,15 +183,15 @@ implements from a written assertion. A loud gate — a Go test or
 
 ## Acceptance Criteria
 
-- [ ] Drift between an asset and its `.claude/skills` copy fails
+- [x] Drift between an asset and its `.claude/skills` copy fails
       `go test ./internal/skills`
-- [ ] A skill over 650 heuristic tokens fails `mdsmith check .`
-- [ ] Every suitable lean rule is on the skill kind; a violating skill
+- [x] A skill over 650 heuristic tokens fails `mdsmith check .`
+- [x] Every suitable lean rule is on the skill kind; a violating skill
       fails `mdsmith check .`
-- [ ] A stray `.md` under `internal/skills/assets` fails
+- [x] A stray `.md` under `internal/skills/assets` fails
       `mdsmith check .` via directory-structure
-- [ ] The `skill` kind comment records the adopted rules and the one
+- [x] The `skill` kind comment records the adopted rules and the one
       rejected one with reasons
-- [ ] CLAUDE.md's Shipping Skills section names all three guards
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] CLAUDE.md's Shipping Skills section names all three guards
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
