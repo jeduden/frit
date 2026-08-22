@@ -16,7 +16,7 @@ depends-on: []
 phases:
   - n: 1
     title: reap a landed checkout
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: reap the remaining orphan kinds
     status: "🔲"
@@ -38,20 +38,29 @@ live in [orphans.go](../internal/report/orphans.go) and are found by
 [lanes.Find](../internal/lanes/lanes.go): stranded (landed, still
 checked out), unstaffed (claimed, no checkout), empty and prunable.
 
-The verb does not invent teardown. `yield` in
-[yield.go](../cmd/frit/yield.go) already parks a lane's divergence to
-a rescue ref and tears its worktree down through herdr. `claim.Scavenge`
-in [lease.go](../internal/claim/lease.go) already drops a work ref on
-landed evidence, parking any unlanded commits first. Reap composes
-these over the orphan set rather than adding a new teardown.
+The verb does not invent teardown. `claim.Scavenge` in
+[lease.go](../internal/claim/lease.go) already drops a work ref on
+landed evidence, parking any unlanded commits first; Phase 2 reuses it
+for the claimed-no-checkout kind. Phase 1's kind — a stranded
+checkout — has no such ref left to CAS against by definition, so it
+tears down with plain git porcelain instead: `git worktree remove`
+then `git branch -D`, in that order, since git refuses to delete a
+branch any worktree still has checked out. `yield`'s herdr-based
+teardown in [yield.go](../cmd/frit/yield.go) does not fit here either:
+it tears down the *calling pane's own* live workspace, and a stranded
+lane has no live pane to key that on.
 
 The delete gate is frit's own landed check, not a raw ancestor test.
-`landed` and `landedTip` in [claim.go](../internal/claim/claim.go)
-read origin's default branch and count squash-merged work as landed,
-where `git merge-base --is-ancestor` would not. That is the authority
-reap deletes on. Reap follows the house rule for a mutating verb: a
-dry-run by default, acting only on `--go`, exactly like `nudge` and
-`start`.
+It is the same two facts `repoLanes` already joins the claims
+against: `gitobj.MergedRefs`'s ancestry, and `index.LandedIDs`'s
+default-branch plan status — the signal that closes the squash-merge
+gap ancestry cannot see. [internal/reap](../internal/reap) re-checks a
+stranded lane's own branch against that evidence per worktree, rather
+than trust the lane's stranded classification alone. A branch whose
+ref was simply dropped by hand — no merge, no landed status — is
+refused, not reaped, even though `lanes.Find` already calls the lane
+stranded. Reap follows the house rule for a mutating verb: a dry-run
+by default, acting only on `--go`, exactly like `nudge` and `start`.
 
 ## Tasks
 
@@ -78,9 +87,12 @@ RED, against the fixture idiom the lanes tests use:
 - A squash-merged branch that is not an ancestor of the base: read as
   landed and reaped, because the landed check is the authority.
 
-GREEN: a `reap` command that reuses `lanes.Find` for the set, the
-landed check in [claim](../internal/claim) for the gate, and the
-worktree teardown `yield` already uses. Its report is a document in
+GREEN: a `reap` command that reuses `lanes.Find` for the set.
+[internal/reap](../internal/reap)'s `Decide` re-checks each stranded
+worktree's own branch against the caller's landed evidence and gates
+the teardown; `git worktree remove` then `git branch -D` do the
+teardown itself, since no live pane or work ref is guaranteed to key a
+herdr or `claim.Scavenge` teardown on. Its report is a document in
 [report](../internal/report), rendered as a table and as `--json`
 with every key present.
 

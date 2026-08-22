@@ -53,6 +53,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"yield", goldenYield()},
 		{"start", goldenStart()},
 		{"orphans", goldenOrphans()},
+		{"reap", goldenReap()},
 		{"stale", goldenStale()},
 		{"doctor", goldenDoctor()},
 		{"who", goldenWho()},
@@ -347,6 +348,37 @@ func goldenOrphans() *OrphansDoc {
 		{ID: 7, Holds: []string{"plan/7"}, StaleFor: 3 * time.Hour},
 	})
 	doc.AddRepo("clean", lanes.Orphans{})
+	doc.AddProblem("broken", errors.New("no such worktree"))
+
+	return doc
+}
+
+// goldenReap pins the reap shape: a landed checkout reaped, one
+// refused because frit does not read its branch as landed, a clean
+// repository, and a repository reap could not read.
+func goldenReap() *ReapDoc {
+	doc := NewReap("/fleet", true)
+	doc.AddRepo("atlas", []ReapedLane{
+		{
+			PlanID: 2608142306,
+			Worktree: Worktree{
+				Path: "/fleet/atlas-fleet-index", Name: "atlas-fleet-index",
+				Branch: "plan/2608142306-fleet-index",
+			},
+			Branch: "plan/2608142306-fleet-index",
+		},
+	}, []RefusedLane{
+		{
+			PlanID: 2608161808,
+			Worktree: Worktree{
+				Path: "/fleet/atlas-herdr-join", Name: "atlas-herdr-join",
+				Branch: "plan/2608161808-herdr-join",
+			},
+			Branch: "plan/2608161808-herdr-join",
+			Reason: "frit does not read this branch as landed",
+		},
+	})
+	doc.AddRepo("clean", nil, nil)
 	doc.AddProblem("broken", errors.New("no such worktree"))
 
 	return doc

@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "command": "reap",
+  "root": "/fleet",
+  "go": true,
+  "repos": [
+    {
+      "name": "atlas",
+      "reaped": [
+        {
+          "plan_id": 2608142306,
+          "worktree": {
+            "path": "/fleet/atlas-fleet-index",
+            "name": "atlas-fleet-index",
+            "head": "",
+            "branch": "plan/2608142306-fleet-index",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": false
+          },
+          "branch": "plan/2608142306-fleet-index"
+        }
+      ],
+      "refused": [
+        {
+          "plan_id": 2608161808,
+          "worktree": {
+            "path": "/fleet/atlas-herdr-join",
+            "name": "atlas-herdr-join",
+            "head": "",
+            "branch": "plan/2608161808-herdr-join",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": false
+          },
+          "branch": "plan/2608161808-herdr-join",
+          "reason": "frit does not read this branch as landed"
+        }
+      ]
+    },
+    {
+      "name": "clean",
+      "reaped": [],
+      "refused": []
+    }
+  ],
+  "problems": [
+    {
+      "repo": "broken",
+      "message": "no such worktree"
+    }
+  ]
+}

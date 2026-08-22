@@ -106,6 +106,7 @@ type cli struct {
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
 	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
+	Reap    reapCmd    `cmd:"" help:"Tear down what orphans reports; dry-run unless --go."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Doctor  doctorCmd  `cmd:"" help:"Report plans with a semantic gap: missing Goal, tier, Execution row."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
@@ -114,28 +115,40 @@ type cli struct {
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
 
+// landedEvidence is the two facts a landed check for a ref or a plan
+// rides on: Merged is an ordinary merge's ancestry, keyed by full ref
+// name; ByPlanID is the default branch's own plan status, the signal
+// that closes the squash-merge gap ancestry cannot see.
+type landedEvidence struct {
+	Merged   map[string]bool
+	ByPlanID map[int64]bool
+}
+
 // repoLanes joins one repository's claims to its checkouts, reading
-// that repository's own hold patterns.
+// that repository's own hold patterns, alongside the landed evidence
+// that joined them — reap's own delete gate re-checks a stranded
+// lane's branch against this same evidence rather than trust the
+// classification alone.
 func repoLanes(
 	repo discover.Repo, rt *runtime,
-) ([]lanes.Lane, error) {
+) ([]lanes.Lane, landedEvidence, error) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, err
+		return nil, landedEvidence{}, err
 	}
 	holds, err := cfg.Compiled()
 	if err != nil {
-		return nil, err
+		return nil, landedEvidence{}, err
 	}
 
 	refs, err := gitobj.Refs(repo.Path, rt.git)
 	if err != nil {
-		return nil, err
+		return nil, landedEvidence{}, err
 	}
 	preferred := gitobj.DefaultRef(repo.Path, rt.git)
 	merged, err := gitobj.MergedRefs(repo.Path, preferred, rt.git)
 	if err != nil {
-		return nil, err
+		return nil, landedEvidence{}, err
 	}
 
 	// A squash-merge lands a plan without leaving its branch an ancestor
@@ -145,12 +158,13 @@ func repoLanes(
 	// orphan report the same plan walk the fleet already runs.
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, rt.git, rt.gitPipe)
 	if err != nil {
-		return nil, err
+		return nil, landedEvidence{}, err
 	}
 	entries, _ := index.Build("", repo.Name, preferred, files)
 	landed := index.LandedIDs(entries, preferred)
+	evidence := landedEvidence{Merged: merged, ByPlanID: landed}
 
-	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), nil
+	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), evidence, nil
 }
 
 type orphansCmd struct{}
@@ -172,7 +186,7 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewOrphans(c.Root)
 	for _, repo := range repos {
-		built, err := repoLanes(repo, rt)
+		built, _, err := repoLanes(repo, rt)
 		if err != nil {
 			// One unreadable repository must not blind the rest.
 			doc.AddProblem(repo.Name, err)
