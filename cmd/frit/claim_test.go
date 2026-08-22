@@ -246,9 +246,9 @@ func TestClaimRefusesABlockedPlan(t *testing.T) {
 // TestClaimResumesAnUnheldInProgressPlan: an in-progress plan whose lane
 // vanished — 🔳 on main, held by nobody — is resumable, not refused. The
 // branch, lane and tier are already prescribed; only the "already in
-// progress" guard blocked a resume. frit re-mints the hold on the
-// deterministic branch, and Mint's force-with-lease stays the arbiter of
-// a live hold.
+// progress" guard blocked a resume. frit re-acquires the hold on the
+// deterministic branch, and Acquire's force-with-lease stays the
+// arbiter of a live hold.
 func TestClaimResumesAnUnheldInProgressPlan(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()

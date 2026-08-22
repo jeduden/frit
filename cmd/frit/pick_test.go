@@ -37,6 +37,26 @@ func TestPickGoStartsTheTopCandidate(t *testing.T) {
 	require.NoError(t, err, "frit minted the claim itself")
 }
 
+// TestPickGoDispatchesAPhaselessTopCandidate: pick's "one verb, never
+// ask" contract must hold even when the top-ranked candidate carries no
+// phase ledger — it claims and starts it, composing /plan-phase <id>,
+// with no --phase and no error.
+func TestPickGoDispatchesAPhaselessTopCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "prompt", "wZ:p1", "/plan-phase 7"),
+		"the whole-plan prompt carries no phase token")
+	assert.Contains(t, out.String(), "started plan 7")
+}
+
 // TestPickGoAdvancesPastALostRace: when the top candidate's claim loses
 // its race to another machine, pick --go takes the next candidate rather
 // than surfacing the race — the retry the skill used to spell out by

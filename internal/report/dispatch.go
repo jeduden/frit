@@ -2,6 +2,12 @@ package report
 
 import "github.com/jeduden/frit/internal/herdr"
 
+// WholePlanPhase is what a dispatch doc reports in Phase for a plan
+// that carries no ledger: the whole plan is the dispatch, so an empty
+// phase renders as this label rather than a blank cell that would
+// otherwise read as a missing field.
+const WholePlanPhase = "whole plan"
+
 // The dispatch documents are what the ladder's mutating verbs report.
 // Unlike the read-only board, these commands act — they focus a pane,
 // send a composed prompt, or stand a lane up — so their documents say
@@ -96,6 +102,10 @@ func NewNudge(
 	root string, repo string, id int64, title,
 	phase, tier, prompt string, wantGo bool,
 ) *NudgeDoc {
+	if phase == "" {
+		phase = WholePlanPhase
+	}
+
 	return &NudgeDoc{
 		header:   newHeader("nudge"),
 		Root:     root,
@@ -407,11 +417,16 @@ func NewStart(
 	root string, repo string, id int64, title string,
 	sp StartPlan, wantGo bool,
 ) *StartDoc {
+	phase := sp.Phase
+	if phase == "" {
+		phase = WholePlanPhase
+	}
+
 	return &StartDoc{
 		header:   newHeader("start"),
 		Root:     root,
 		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
-		Phase:    sp.Phase,
+		Phase:    phase,
 		Tier:     sp.Tier,
 		Kind:     sp.Kind,
 		Branch:   sp.Branch,

@@ -80,11 +80,6 @@ func buildStart(
 ) (*report.StartDoc, bool, error) {
 	phase, ok := dispatch.Phase(plan.Phases, phaseSel)
 	if !ok {
-		if len(plan.Phases) == 0 {
-			return nil, false, fmt.Errorf(
-				"plan %d carries no phase ledger; pass --phase", plan.ID)
-		}
-
 		return nil, false, fmt.Errorf(
 			"plan %d has no open phase; pass --phase", plan.ID)
 	}
