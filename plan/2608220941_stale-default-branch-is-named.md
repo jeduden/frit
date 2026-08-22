@@ -1,7 +1,7 @@
 ---
 id: 2608220941
 title: A fetched remote-tracking ref outrunning main is named
-status: "🔲"
+status: "🔳"
 summary: >-
   frit's discovery reads never fetch, so a repo whose local default
   branch has fallen behind its own already-fetched remote-tracking ref
