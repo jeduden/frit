@@ -1,7 +1,7 @@
 ---
 id: 2608212223
 title: A thin skill fronts every frit verb an agent uses
-status: "🔳"
+status: "✅"
 summary: >-
   The shipped suite fronts finding, running, authoring and syncing
   plans. The teardown, cleanup and health verbs — yield, release,
@@ -18,7 +18,7 @@ phases:
     status: "✅"
   - n: 2
     title: cover the rest and record the rule
-    status: "🔲"
+    status: "✅"
 ---
 # A thin skill fronts every frit verb an agent uses
 
@@ -54,7 +54,8 @@ once plan 2608212218 lands it.
 ## Tasks
 
 1. Ship a teardown skill fronting yield, release, orphans and stale.
-2. (determined after Phase 1)
+2. Front doctor and record the ships-with-its-skill rule in
+   CLAUDE.md.
 
 ## Phase 1: a teardown skill fronts the cleanup verbs
 
@@ -84,17 +85,27 @@ second run.
 
 ## Phase 2: cover the rest and record the rule
 
-The remaining agent-facing verb without a skill is doctor. It is
-fronted, either by its own thin skill or folded into `plan-new` and
-`plan-sync` where plan health already lives — decided after Phase 1
-fixes the skill shape. `reap` is added to `plan-tidy` once plan
-2608212218 ships the verb. The standing rule is written into
-[CLAUDE.md](../CLAUDE.md): a new agent-facing verb ships with the thin
-skill that fronts it, in the same change.
+The remaining agent-facing verb without a skill is doctor. Its checks
+— a missing Goal, a short Execution row, a rejected tier — are exactly
+what `plan-new` already shapes a plan to satisfy, so its call folds
+into `plan-new`'s existing lint step rather than a fifth skill. `reap`
+is added to `plan-tidy` once plan 2608212218 ships the verb — out of
+scope here, that plan has not landed yet. The standing rule is written
+into [CLAUDE.md](../CLAUDE.md): a new agent-facing verb ships with the
+thin skill that fronts it, in the same change.
 
-RED and the exact placement are settled after Phase 1. The gate is
-that every agent-facing verb maps to a skill, the mapping is checked,
-and CLAUDE.md records the rule so a future verb cannot ship skill-less.
+RED: `internal/skills`'s `TestPlanNewFrontsDoctor` asserts the bundled
+`plan-new` skill mentions `frit doctor`; it fails until that step is
+written.
+
+GREEN: `plan-new/SKILL.md` gains a health-check step running `frit
+doctor` after `mdsmith check`. `frit skills` regenerates the dogfooded
+copy. CLAUDE.md's Shipping Skills section names `plan-tidy`, doctor's
+folded placement, and the standing rule.
+
+Gate: every agent-facing verb maps to a skill (`plan-tidy` for
+teardown, `plan-new` for doctor); `TestPlanNewFrontsDoctor` and
+`go test ./...` pass; CLAUDE.md records the rule.
 
 ## Execution
 
@@ -113,7 +124,7 @@ the shape is fixed.
 - [x] It says: read with orphans/stale, act with frit, never raw git
 - [x] The skill passes the mdsmith skill kind, both copies
 - [x] `frit skills` regenerates the dogfooded copy, idempotently
-- [ ] doctor is fronted by a skill
-- [ ] CLAUDE.md records that a new verb ships with its skill
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] doctor is fronted by a skill
+- [x] CLAUDE.md records that a new verb ships with its skill
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
