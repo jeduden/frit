@@ -1,7 +1,7 @@
 ---
 id: 2608221537
 title: The dispatch ladder starts a phase-less plan instead of demanding --phase
-status: "🔲"
+status: "🔳"
 summary: >-
   proto.md blesses a plan "small enough to land in one go" with no
   phases and no Execution table, and `next`/`show`/the plan-phase
@@ -13,7 +13,7 @@ summary: >-
 model: sonnet
 depends-on: []
 phases:
-  - {n: 1, title: "buildStart dispatches a phase-less plan", status: "🔲"}
+  - {n: 1, title: "buildStart dispatches a phase-less plan", status: "✅"}
   - {n: 2, title: "nudge dispatches it; all-done still refuses", status: "🔲"}
 ---
 # The dispatch ladder starts a phase-less plan instead of demanding --phase
