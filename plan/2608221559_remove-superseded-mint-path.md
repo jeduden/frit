@@ -1,7 +1,7 @@
 ---
 id: 2608221559
 title: Remove the superseded Mint claim path
-status: "🔲"
+status: "🔳"
 summary: >-
   claim.Mint is the pre-lease single-marker claim, superseded by the
   lease protocol's Acquire in commit d559318 and called only by its
@@ -18,7 +18,7 @@ depends-on: []
 phases:
   - n: 1
     title: Sever the live MarkerHost path from the Mint-era Options
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Delete the dead Mint cluster and correct S79
     status: "🔲"

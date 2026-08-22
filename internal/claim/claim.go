@@ -211,7 +211,7 @@ func remoteHolderErr(
 func readHolder(
 	repoDir string, opts Options, tip string, run gitwt.Runner,
 ) Holder {
-	body, ok := holderMarker(repoDir, opts, tip, run)
+	body, ok := holderMarker(repoDir, opts.PlanID, tip, run)
 	if !ok {
 		// The holder's commits may not be local — a claim from another
 		// machine was never fetched. Bring the branch in once, then retry
@@ -220,7 +220,7 @@ func readHolder(
 			opts.Remote, "refs/heads/"+opts.Branch); err != nil {
 			return Holder{}
 		}
-		if body, ok = holderMarker(repoDir, opts, tip, run); !ok {
+		if body, ok = holderMarker(repoDir, opts.PlanID, tip, run); !ok {
 			return Holder{}
 		}
 	}
@@ -246,7 +246,7 @@ func readHolder(
 func MarkerHost(
 	repoDir, branch string, planID int64, run gitwt.Runner,
 ) string {
-	body, ok := holderMarker(repoDir, Options{PlanID: planID}, branch, run)
+	body, ok := holderMarker(repoDir, planID, branch, run)
 	if !ok {
 		return ""
 	}
@@ -263,11 +263,11 @@ func MarkerHost(
 // top of it. ok is false when no such marker is reachable — a non-frit
 // branch on the hold ref, or objects not yet in the local store.
 func holderMarker(
-	repoDir string, opts Options, tip string, run gitwt.Runner,
+	repoDir string, planID int64, tip string, run gitwt.Runner,
 ) (string, bool) {
 	// No trailing space after "claim": the legacy subject carries a lane
 	// slug behind it, the lease subject ends there, and both must match.
-	pattern := fmt.Sprintf("^plan %d: claim", opts.PlanID)
+	pattern := fmt.Sprintf("^plan %d: claim", planID)
 	body, err := trimmed(run(repoDir, "log", "-1",
 		"--grep="+pattern, "--format=%B", tip))
 	if err != nil || body == "" {

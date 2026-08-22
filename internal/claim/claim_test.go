@@ -448,18 +448,18 @@ func TestHolderMarker(t *testing.T) {
 	found := func(_ string, _ ...string) ([]byte, error) {
 		return []byte("plan 7: claim x\n\nhost:     mm-box\n"), nil
 	}
-	body, ok := holderMarker("/r", sampleOptions(), "tip", found)
+	body, ok := holderMarker("/r", 7, "tip", found)
 	require.True(t, ok)
 	assert.Contains(t, body, "host:     mm-box")
 
 	missing := func(_ string, _ ...string) ([]byte, error) {
 		return nil, errors.New("bad object tip")
 	}
-	_, ok = holderMarker("/r", sampleOptions(), "tip", missing)
+	_, ok = holderMarker("/r", 7, "tip", missing)
 	assert.False(t, ok)
 
 	empty := func(_ string, _ ...string) ([]byte, error) { return nil, nil }
-	_, ok = holderMarker("/r", sampleOptions(), "tip", empty)
+	_, ok = holderMarker("/r", 7, "tip", empty)
 	assert.False(t, ok, "an empty body is not a marker")
 }
 
