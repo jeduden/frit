@@ -20,8 +20,8 @@ stale.
 
 ## Method
 
-1. **Load the phase.** `frit next <id>` reports the first phase not
-   done — its own body, tier and gate; `frit show <id>` gives the
+1. **Load the phase.** `{{frit}} next <id>` reports the first phase not
+   done — its own body, tier and gate; `{{frit}} show <id>` gives the
    Goal and any blocker. Nothing else opens the plan file — except
    inside the plan's own held lane, before its work has merged: `next`
    and `show` read the default branch's copy, so a phase this lane
@@ -45,7 +45,7 @@ stale.
    and report with evidence. Do not improvise a design or weaken a
    check to reach green.
 6. **Fenced.** A commit refused as "fenced" means this lane's lease
-   moved under it — run `frit yield`, don't fight the CAS.
+   moved under it — run `{{frit}} yield`, don't fight the CAS.
 
 ## Notes
 

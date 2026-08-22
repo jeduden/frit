@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -13,7 +14,7 @@ import (
 func TestInstallWritesSkills(t *testing.T) {
 	dir := t.TempDir()
 
-	paths, err := Install(dir, false)
+	paths, err := Install(dir, false, "")
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestInstallWritesSkills(t *testing.T) {
 func TestInstallRefusesToClobber(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := Install(dir, false); err != nil {
+	if _, err := Install(dir, false, ""); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
@@ -61,7 +62,7 @@ func TestInstallRefusesToClobber(t *testing.T) {
 		t.Fatalf("editing skill: %v", err)
 	}
 
-	_, err := Install(dir, false)
+	_, err := Install(dir, false, "")
 	if !errors.Is(err, ErrExists) {
 		t.Fatalf("second Install error = %v, want ErrExists", err)
 	}
@@ -80,7 +81,7 @@ func TestInstallRefusesToClobber(t *testing.T) {
 func TestInstallForceOverwrites(t *testing.T) {
 	dir := t.TempDir()
 
-	if _, err := Install(dir, false); err != nil {
+	if _, err := Install(dir, false, ""); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
@@ -89,7 +90,7 @@ func TestInstallForceOverwrites(t *testing.T) {
 		t.Fatalf("editing skill: %v", err)
 	}
 
-	if _, err := Install(dir, true); err != nil {
+	if _, err := Install(dir, true, ""); err != nil {
 		t.Fatalf("forced Install: %v", err)
 	}
 
@@ -112,8 +113,8 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading plan-new skill: %v", err)
 	}
-	if !contains(string(data), "frit doctor") {
-		t.Fatal("plan-new skill does not mention `frit doctor`")
+	if !contains(string(data), "{{frit}} doctor") {
+		t.Fatal("plan-new skill does not mention `{{frit}} doctor`")
 	}
 }
 
@@ -122,7 +123,7 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 // commands must read `frit`, not `go run ./cmd/frit`.
 func TestShippedSkillNamesFritOnPath(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Install(dir, false); err != nil {
+	if _, err := Install(dir, false, ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -142,9 +143,12 @@ func TestShippedSkillNamesFritOnPath(t *testing.T) {
 }
 
 // TestDogfoodCopiesMatchCanonical pins frit's own .claude/skills, the
-// dogfooded output of Install, byte-equal to the embedded assets it
-// came from. CLAUDE.md claims the two trees never drift; this is what
-// enforces that rather than leaving it to hand-checking.
+// dogfooded output of Install, against the embedded assets it came
+// from. CLAUDE.md claims the two trees never drift; this is what
+// enforces that rather than leaving it to hand-checking. The dogfood
+// copies are the output of `frit skills --via "go run ./cmd/frit"`,
+// so the canonical asset's {{frit}} token is substituted before the
+// comparison — a drift in anything else still fails.
 func TestDogfoodCopiesMatchCanonical(t *testing.T) {
 	files, err := bundledFiles()
 	if err != nil {
@@ -159,6 +163,7 @@ func TestDogfoodCopiesMatchCanonical(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading canonical asset %s: %v", rel, err)
 		}
+		want := strings.ReplaceAll(string(canonical), invokeToken, "go run ./cmd/frit")
 
 		dogfood := filepath.Join("..", "..", ".claude", "skills", rel)
 		got, err := os.ReadFile(dogfood)
@@ -166,8 +171,58 @@ func TestDogfoodCopiesMatchCanonical(t *testing.T) {
 			t.Fatalf("reading dogfood copy %s: %v", dogfood, err)
 		}
 
-		if string(got) != string(canonical) {
+		if string(got) != want {
 			t.Fatalf("%s has drifted from %s", dogfood, rel)
+		}
+	}
+}
+
+// TestInstallSubstitutesInvoke checks that Install replaces the
+// {{frit}} token in a skill's command spans with the chosen
+// invocation, and leaves a prose mention of frit as a bare word.
+func TestInstallSubstitutesInvoke(t *testing.T) {
+	dir := t.TempDir()
+
+	if _, err := Install(dir, false, "mise exec -- frit"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	target := filepath.Join(dir, ".claude", "skills", "plan-pick", "SKILL.md")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading skill: %v", err)
+	}
+
+	body := string(data)
+	if !contains(body, "mise exec -- frit pick") {
+		t.Fatal("command span was not substituted with the chosen invocation")
+	}
+	if !contains(body, "frit force-pushes") {
+		t.Fatal("prose mention of frit was altered")
+	}
+	if contains(body, "mise exec -- frit force-pushes") {
+		t.Fatal("prose mention of frit was substituted like a command")
+	}
+}
+
+// TestInstallDefaultInvokeIsFrit checks that an empty invoke and an
+// explicit "frit" both keep the command reading bare `frit pick`, so
+// TestShippedSkillNamesFritOnPath's contract holds for either
+// spelling of the default.
+func TestInstallDefaultInvokeIsFrit(t *testing.T) {
+	for _, invoke := range []string{"", "frit"} {
+		dir := t.TempDir()
+		if _, err := Install(dir, false, invoke); err != nil {
+			t.Fatalf("Install(%q): %v", invoke, err)
+		}
+
+		target := filepath.Join(dir, ".claude", "skills", "plan-pick", "SKILL.md")
+		data, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatalf("reading skill: %v", err)
+		}
+		if !contains(string(data), "frit pick") {
+			t.Fatalf("Install(%q) does not read `frit pick`", invoke)
 		}
 	}
 }

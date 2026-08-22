@@ -1,7 +1,7 @@
 ---
 id: 2608221025
 title: The installer chooses how a laid-down skill invokes frit
-status: "🔲"
+status: "✅"
 summary: >-
   `frit skills` copies its assets verbatim, so every laid-down skill
   hardcodes a bare `frit` and carries a source-checkout parenthetical
@@ -14,10 +14,10 @@ model: sonnet
 phases:
   - n: 1
     title: skills substitute a chosen invocation
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the shipped guidance names the choice
-    status: "🔲"
+    status: "✅"
 depends-on: []
 ---
 # The installer chooses how a laid-down skill invokes frit
@@ -141,16 +141,16 @@ is prose plus a help string.
 
 ## Acceptance Criteria
 
-- [ ] `frit skills --via "mise exec -- frit"` writes skills whose
+- [x] `frit skills --via "mise exec -- frit"` writes skills whose
       commands read `mise exec -- frit <verb>`
-- [ ] A prose mention of frit in a skill stays a bare word after any
+- [x] A prose mention of frit in a skill stays a bare word after any
       `--via` value
-- [ ] `frit skills` with no `--via` writes `frit <verb>`, and
+- [x] `frit skills` with no `--via` writes `frit <verb>`, and
       `TestShippedSkillNamesFritOnPath` stays green
-- [ ] The shipped assets no longer carry the source-checkout
+- [x] The shipped assets no longer carry the source-checkout
       parenthetical; the dogfooded copies regenerate cleanly
-- [ ] `CLAUDE.md` and `frit skills --help` name the `--via` seam, and
+- [x] `CLAUDE.md` and `frit skills --help` name the `--via` seam, and
       the help shows example invocations (`frit`, `mise exec -- frit`,
       `go run ./cmd/frit`)
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

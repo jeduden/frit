@@ -16,8 +16,8 @@ needs direct evidence; anything less is reported, never guessed.
 ## Method
 
 1. **Enumerate.** `mdsmith list query 'status: "🔲"' plan/` and again
-   for `"🔳"`. `frit plans` reads each plan's status off every ref for
-   cross-lane context.
+   for `"🔳"`. `go run ./cmd/frit plans` reads each plan's status off every ref
+   for cross-lane context.
 2. **Gather evidence per plan.** The id is the filename prefix.
 
    ```sh

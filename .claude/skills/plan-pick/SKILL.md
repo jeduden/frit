@@ -9,12 +9,12 @@ description: >-
 # plan-pick
 
 The claim is a ref frit force-pushes, so the push — not a local look —
-settles who starts a plan. Run `frit <verb>` (source checkout: `go run
-./cmd/frit`); add `--json` to parse.
+settles who starts a plan. Run `go run ./cmd/frit <verb>`; add `--json` to
+parse.
 
 ## Method
 
-**`frit pick --go`** does the whole pick in one verb. It ranks the
+**`go run ./cmd/frit pick --go`** does the whole pick in one verb. It ranks the
 startable plans by unblock weight, takes the top, verifies deps, mints
 the atomic claim, and stands the lane up. It resumes an unheld
 in-progress plan when nothing fresh is startable, and takes the next
@@ -22,4 +22,5 @@ candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
 
-`frit board` shows who holds what; `frit --help` lists the rest.
+`go run ./cmd/frit board` shows who holds what.
+`go run ./cmd/frit --help` lists the rest.

@@ -136,20 +136,20 @@ to clobber an edited skill without `--force`. The canonical text lives
 in `internal/skills/assets`; frit's own `.claude/skills` is the output
 of `frit skills`, regenerated from the bundle rather than hand-kept, so
 it never drifts from what ships.
-`TestDogfoodCopiesMatchCanonical` in
-[internal/skills/skills_test.go](internal/skills/skills_test.go) pins
-that claim. It fails the moment the dogfood copy and the canonical
-asset diverge by a single byte. The precedent is
-`TestShippedProtoMatchesRepo`, which pins the embedded plan proto the
-same way. A shipped skill names `frit`, because it lands where frit is
-a binary on `PATH`, not `go run ./cmd/frit`.
+
+A shipped skill's commands read `{{frit}}`, substituted by `--via` at
+install time. The default is bare `frit`, a binary on `PATH`. A repo
+that pins frit with mise, or builds it locally, passes its own. frit's
+own `.claude/skills` regenerate with `--via "go run ./cmd/frit"`,
+guarded by `TestDogfoodCopiesMatchCanonical` in
+[internal/skills/skills_test.go](internal/skills/skills_test.go): it
+fills the token, then fails if a dogfood copy diverges.
 
 A skill is read under time pressure and loaded into a working session,
 so it must stay skimmable and token-cheap. The `skill` kind in
 [.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, a
 hard line cap keeps every skill short, and MDS028 `token-budget` caps
-each skill at 650 heuristic tokens — the coarse line cap bounds bulk,
-the token budget bounds the real cost. Both the canonical assets and
+each skill at 650 heuristic tokens. Both the canonical assets and
 the installed copies are linted. Uniqueness of the skill `name` is
 scoped to the assets, because the dogfooded copies carry those same
 names by design. It also caps file and section length, tightens

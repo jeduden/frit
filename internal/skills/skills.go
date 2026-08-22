@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // ErrExists reports that a skill file already exists at the target.
@@ -36,14 +37,28 @@ var assets embed.FS
 // Claude Code reads skills from.
 var destRoot = filepath.Join(".claude", "skills")
 
+// invokeToken marks a command span in an asset that names how to run
+// frit. Install replaces it with the caller's chosen invocation; the
+// prose that names frit the tool is never tokened, so it survives
+// untouched.
+const invokeToken = "{{frit}}"
+
 // Install writes every bundled skill into repoDir under
 // .claude/skills/<name>/SKILL.md, mirroring the embedded tree, and
 // returns the written paths sorted.
 //
+// invoke is substituted for every invokeToken in each asset's bytes,
+// so the laid-down skill's commands read invoke <verb> instead of the
+// token. An empty invoke means bare frit.
+//
 // It refuses to clobber an existing skill file unless force is set. On
 // that refusal it writes nothing further and returns ErrExists, so a
 // re-run without force is inert rather than half-applied.
-func Install(repoDir string, force bool) ([]string, error) {
+func Install(repoDir string, force bool, invoke string) ([]string, error) {
+	if invoke == "" {
+		invoke = "frit"
+	}
+
 	files, err := bundledFiles()
 	if err != nil {
 		return nil, err
@@ -66,6 +81,7 @@ func Install(repoDir string, force bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		data = []byte(strings.ReplaceAll(string(data), invokeToken, invoke))
 
 		dst := filepath.Join(repoDir, destRoot, rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
