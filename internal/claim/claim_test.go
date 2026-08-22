@@ -146,6 +146,30 @@ func TestMintLosesTheRaceAndRollsBack(t *testing.T) {
 		"the local ref was rolled back after losing the race")
 }
 
+// TestMintRollbackSparesABranchCheckedOutInALinkedWorktree: the same
+// hazard Scavenge has, on Mint's rollback window — a linked worktree
+// standing on the branch Mint is about to roll back must not have its
+// HEAD deleted out from under it, even though the claim was still
+// correctly lost.
+func TestMintRollbackSparesABranchCheckedOutInALinkedWorktree(t *testing.T) {
+	first := originAndClone(t)
+	second := cloneAgain(t, first)
+	gitCmd(t, second, "branch", "plan/7-shader-unit")
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitCmd(t, second, "worktree", "add", "-q", linked, "plan/7-shader-unit")
+
+	_, err := Mint(first, sampleOptions(), gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Mint(second, sampleOptions(), gitwt.Exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "lost the race for plan 7",
+		"the claim is still correctly lost")
+	head := gitCmd(t, linked, "rev-parse", "HEAD")
+	assert.NotEmpty(t, head, "the linked worktree's HEAD still resolves")
+}
+
 // TestMintReportsANonRaceFailure: a push that fails for a reason other
 // than a pre-existing ref is a real fault, not a lost race, and the local
 // ref is still rolled back.

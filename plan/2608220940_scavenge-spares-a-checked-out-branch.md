@@ -1,7 +1,7 @@
 ---
 id: 2608220940
 title: Scavenge never deletes a branch a worktree still stands on
-status: "🔲"
+status: "✅"
 summary: >-
   claim.Scavenge and claim.Mint's rollback both run a plain
   `update-ref -d` on a plan's hold branch in the repo's primary
@@ -16,10 +16,10 @@ depends-on: []
 phases:
   - n: 1
     title: Scavenge spares a branch checked out elsewhere
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Mint's rollback gets the same guard
-    status: "🔲"
+    status: "✅"
 ---
 # Scavenge never deletes a branch a worktree still stands on
 
@@ -169,13 +169,13 @@ way.
 
 ## Acceptance Criteria
 
-- [ ] A worktree checked out on a plan's hold branch survives a
+- [x] A worktree checked out on a plan's hold branch survives a
       `Scavenge` run against the repo's primary worktree
-- [ ] A worktree checked out on a plan's hold branch survives a
+- [x] A worktree checked out on a plan's hold branch survives a
       `Mint` rollback after a lost race
-- [ ] `Scavenge`'s existing no-worktree behavior is unchanged
-- [ ] `syncLocalRef`'s comment states git's actual behavior
-- [ ] Scenario S79 is recorded in
+- [x] `Scavenge`'s existing no-worktree behavior is unchanged
+- [x] `syncLocalRef`'s comment states git's actual behavior
+- [x] Scenario S79 is recorded in
       [docs/research/lease-protocol.md](../docs/research/lease-protocol.md)
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

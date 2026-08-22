@@ -249,7 +249,8 @@ type Scavenged struct {
 func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
-	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	branch := leaseBranch(opts.PlanID)
+	ref := "refs/heads/" + branch
 	now, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
 	if err != nil {
 		// An unreadable remote is a fault, not an absent ref: reading it
@@ -262,8 +263,11 @@ func Scavenge(
 	switch now {
 	case "":
 		// Already gone — an earlier run, or another machine's, finished
-		// the job. Clean the stale local copy and report a no-op.
-		_, _ = run(repoDir, "update-ref", "-d", ref)
+		// the job. Clean the stale local copy and report a no-op, unless
+		// a worktree is still standing on it.
+		if !checkedOut(repoDir, branch, run) {
+			_, _ = run(repoDir, "update-ref", "-d", ref)
+		}
 		return Scavenged{}, nil
 	case from:
 	default:
@@ -285,9 +289,34 @@ func Scavenge(
 				"delete %s for plan %d: %w", ref, opts.PlanID, err)
 		}
 	}
-	_, _ = run(repoDir, "update-ref", "-d", ref)
+	if !checkedOut(repoDir, branch, run) {
+		_, _ = run(repoDir, "update-ref", "-d", ref)
+	}
 
 	return res, nil
+}
+
+// checkedOut reports whether any worktree of the repository containing
+// repoDir has branch checked out. update-ref -d does not refuse a
+// branch live in another worktree the way git's own porcelain does —
+// deleting it there leaves that worktree's HEAD dangling — so every
+// caller about to run that delete on a plan's hold branch checks this
+// first.
+func checkedOut(repoDir, branch string, run gitwt.Runner) bool {
+	worktrees, err := gitwt.List(repoDir, run)
+	if err != nil {
+		// Unreadable fails toward the safe outcome: skip the delete
+		// rather than risk one on a branch a worktree really has
+		// checked out.
+		return true
+	}
+	for _, w := range worktrees {
+		if w.Branch == branch {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Yield ends a fenced lane's stake in a plan without racing the work
@@ -691,9 +720,13 @@ func casPush(
 }
 
 // syncLocalRef moves the local copy of the work ref to the tip the
-// remote just accepted. Best-effort: the branch may be checked out in
-// the lane's worktree, where git refuses an update from outside, and a
-// stale local copy is a stale view, not a lost lease.
+// remote just accepted. Best-effort: a failure here leaves a stale
+// local copy, which is a stale view, not a lost lease. update-ref
+// carries no "checked out elsewhere" protection — only git's own
+// porcelain does, proved by reproduction (S79) — so this update can
+// land under a worktree standing on the branch just as readily as it
+// can fail for an ordinary reason; either way the caller does not
+// need it to succeed.
 func syncLocalRef(repoDir, ref, tip string, run gitwt.Runner) {
 	_, _ = run(repoDir, "update-ref", ref, tip)
 }
