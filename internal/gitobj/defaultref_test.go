@@ -32,6 +32,33 @@ func TestDefaultRefPrefersTheRemoteHead(t *testing.T) {
 	assert.Equal(t, "refs/remotes/origin/trunk", DefaultRef("/r", run))
 }
 
+// TestDefaultRefPrefersOriginMainOverALaggingLocalMain pins S84/S85: a
+// working checkout's local main advances only on an explicit merge or
+// pull, so it routinely lags the remote-tracking default. Landed
+// evidence must follow origin's view, not the stale local branch.
+func TestDefaultRefPrefersOriginMainOverALaggingLocalMain(t *testing.T) {
+	run := scripted(map[string]string{
+		"rev-parse --verify --quiet refs/remotes/origin/main": "fresh\n",
+		"rev-parse --verify --quiet refs/heads/main":          "stale\n",
+	})
+
+	assert.Equal(t, "refs/remotes/origin/main", DefaultRef("/r", run))
+}
+
+// TestDefaultRefStillHonorsOriginHeadOverOriginMain confirms adding the
+// remote-tracking candidates does not disturb the existing top
+// preference: an explicit origin/HEAD still wins even when
+// origin/main also resolves.
+func TestDefaultRefStillHonorsOriginHeadOverOriginMain(t *testing.T) {
+	run := scripted(map[string]string{
+		"symbolic-ref --quiet refs/remotes/origin/HEAD":       "refs/remotes/origin/trunk\n",
+		"rev-parse --verify --quiet refs/remotes/origin/main": "fresh\n",
+		"rev-parse --verify --quiet refs/heads/main":          "stale\n",
+	})
+
+	assert.Equal(t, "refs/remotes/origin/trunk", DefaultRef("/r", run))
+}
+
 func TestDefaultRefFallsBackToMainThenMaster(t *testing.T) {
 	main := scripted(map[string]string{
 		"rev-parse --verify --quiet refs/heads/main": "abc\n",

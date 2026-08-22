@@ -1,7 +1,7 @@
 ---
 id: 2608221450
 title: Landed evidence reads origin's default branch, not a lagging local one
-status: "🔲"
+status: "🔳"
 summary: >-
   DefaultRef resolves the default branch to a local `refs/heads/main`
   when `refs/remotes/origin/HEAD` is unset, and a local default branch
