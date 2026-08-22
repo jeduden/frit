@@ -70,6 +70,7 @@ footer: |
 | 2608220940 | ✅     | sonnet | [Scavenge never deletes a branch a worktree still stands on](plan/2608220940_scavenge-spares-a-checked-out-branch.md)              |
 | 2608220941 | 🔲     | sonnet | [A fetched remote-tracking ref outrunning main is named](plan/2608220941_stale-default-branch-is-named.md)                         |
 | 2608221025 | 🔲     | sonnet | [The installer chooses how a laid-down skill invokes frit](plan/2608221025_skills-choose-frit-invocation.md)                       |
+| 2608221227 | 🔲     | sonnet | [Guard the skill bundle: no drift, tiny, bounded in the binary](plan/2608221227_guard-the-skill-bundle.md)                         |
 | 2608221450 | 🔲     | sonnet | [Landed evidence reads origin's default branch, not a lagging local one](plan/2608221450_landed-evidence-reads-origins-default.md) |
 | 2608221559 | 🔲     | sonnet | [Remove the superseded Mint claim path](plan/2608221559_remove-superseded-mint-path.md)                                            |
 <?/catalog?>
