@@ -1,7 +1,7 @@
 ---
 id: 2608212218
 title: frit reaps the orphans it reports
-status: "🔲"
+status: "🔳"
 summary: >-
   frit enumerates orphans — a landed checkout still standing, a
   claimed lane with no worktree, a prunable stub — but it cannot act
