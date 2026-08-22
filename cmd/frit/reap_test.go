@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -148,18 +149,36 @@ func TestReapStrandedTeardownFailureRefusesOnlyThatLaneWithGo(t *testing.T) {
 		"the unrelated prunable worktree is gone despite the other lane's failure")
 }
 
+// addOrigin gives a fixture repository a bare origin with main pushed,
+// so a park has somewhere to push a rescue ref. The origin lives
+// outside root so the fleet walk does not index it as a repository of
+// its own.
+func addOrigin(t *testing.T, repo string) {
+	t.Helper()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+}
+
 // TestReapSquashMergedBranchIsReapedEvenNotAnAncestor is the
 // squash-merge counterpart: the plan is done on the default branch,
 // but the checkout's own branch was never merged there, so
 // merge-base --is-ancestor alone would miss it. Frit's own landed
-// check is the authority reap deletes on.
+// check is the authority reap deletes on — and because that evidence
+// is not tied to the branch tip, the tip's commits are parked to the
+// plan's rescue ref before the branch is deleted, so a follow-up
+// commit the squash never carried is moved, not destroyed.
 func TestReapSquashMergedBranchIsReapedEvenNotAnAncestor(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
 	branch := "plan/2608142306-fleet-index"
 	lane := strandedCheckout(t, root, repo, "atlas-squashed", branch)
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/"+branch)
+	require.NoError(t, err)
 	landPlan(t, repo, 2608142306, "fleet-index", "✅")
+	addOrigin(t, repo)
 	var out, errb bytes.Buffer
 
 	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
@@ -170,6 +189,69 @@ func TestReapSquashMergedBranchIsReapedEvenNotAnAncestor(t *testing.T) {
 	assert.ErrorIs(t, statErr, os.ErrNotExist,
 		"a squash-merged plan's checkout is reaped on its own status")
 	assert.False(t, branchExists(t, repo, branch))
+	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/frit/rescue/2608142306/*")
+	require.NoError(t, err)
+	assert.Contains(t, rescue, tip,
+		"the tip the squash never carried is parked before the delete")
+}
+
+// TestReapDryRunPreviewsTheRescueRef: the preview must not hide that a
+// --go will move work — the document names the rescue ref the park
+// would write.
+func TestReapDryRunPreviewsTheRescueRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	strandedCheckout(t, root, repo, "atlas-squashed", branch)
+	landPlan(t, repo, 2608142306, "fleet-index", "✅")
+	addOrigin(t, repo)
+	var doc report.ReapDoc
+
+	stderr := emit(t, &doc, "reap", "--root", root)
+
+	assert.Empty(t, stderr)
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Reaped, 1)
+	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname(),
+		doc.Repos[0].Reaped[0].Rescue,
+		"the dry run names where the work would be parked")
+	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/frit/rescue/*")
+	require.NoError(t, err)
+	assert.Empty(t, rescue, "a dry run parks nothing")
+}
+
+// TestReapRefusesTheTeardownWhenTheParkIsRefused: a rescue ref already
+// holding other work is exactly what the park exists to keep — the
+// teardown is refused whole, worktree and branch both left standing,
+// rather than deleting work that was never parked.
+func TestReapRefusesTheTeardownWhenTheParkIsRefused(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	lane := strandedCheckout(t, root, repo, "atlas-squashed", branch)
+	landPlan(t, repo, 2608142306, "fleet-index", "✅")
+	addOrigin(t, repo)
+	// A foreign rescue already sits at this plan's ref name, at a tip
+	// that is not the branch's — the create-only park must refuse it.
+	foreign, err := gitCapture(t, repo, "rev-parse", "main")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		foreign+":refs/frit/rescue/2608142306/"+hostname())
+	require.NoError(t, err)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	_, statErr := os.Stat(lane)
+	assert.NoError(t, statErr, "a failed park leaves the checkout standing")
+	assert.True(t, branchExists(t, repo, branch),
+		"a failed park deletes no branch")
 }
 
 // TestReapIsQuietOnAHealthyRepository matches the rest of the ladder's
