@@ -1,7 +1,7 @@
 ---
 id: 2608221537
 title: The dispatch ladder starts a phase-less plan instead of demanding --phase
-status: "🔳"
+status: "✅"
 summary: >-
   proto.md blesses a plan "small enough to land in one go" with no
   phases and no Execution table, and `next`/`show`/the plan-phase
@@ -14,7 +14,7 @@ model: sonnet
 depends-on: []
 phases:
   - {n: 1, title: "buildStart dispatches a phase-less plan", status: "✅"}
-  - {n: 2, title: "nudge dispatches it; all-done still refuses", status: "🔲"}
+  - {n: 2, title: "nudge dispatches it; all-done still refuses", status: "✅"}
 ---
 # The dispatch ladder starts a phase-less plan instead of demanding --phase
 
@@ -138,16 +138,16 @@ whole-plan dispatch; re-record golden files with
 
 ## Acceptance Criteria
 
-- [ ] `frit pick --go` whose top candidate is a phase-less plan claims
+- [x] `frit pick --go` whose top candidate is a phase-less plan claims
       and starts it, composing `/plan-phase <id>`, with no `--phase`
       and no error
-- [ ] `frit start <phase-less-id> --go` and `frit nudge
+- [x] `frit start <phase-less-id> --go` and `frit nudge
       <phase-less-id>` likewise dispatch `/plan-phase <id>`
-- [ ] `dispatch.Command(id, "")` yields `/plan-phase <id>` with no
+- [x] `dispatch.Command(id, "")` yields `/plan-phase <id>` with no
       trailing space
-- [ ] A phased plan whose every phase is ✅ still refuses with "has no
+- [x] A phased plan whose every phase is ✅ still refuses with "has no
       open phase" under `start` and `nudge`
-- [ ] A phase-less dispatch renders a whole-plan label, not a blank
+- [x] A phase-less dispatch renders a whole-plan label, not a blank
       phase, in the table and `--json`
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

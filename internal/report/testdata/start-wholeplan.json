@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "command": "start",
+  "root": "/fleet",
+  "plan": {
+    "repo": "atlas",
+    "id": 2608220941,
+    "title": "One-shot fix"
+  },
+  "phase": "whole plan",
+  "tier": "sonnet",
+  "kind": "claude",
+  "branch": "plan/2608220941",
+  "base": "refs/remotes/origin/main",
+  "lane": "/fleet/atlas-one-shot-fix",
+  "prompt": "/plan-phase 2608220941",
+  "go": false,
+  "started": false,
+  "resumed": false,
+  "pane": "",
+  "handoff": "preview",
+  "refused": "",
+  "scavenged": "",
+  "rescue": "",
+  "warning": "",
+  "problems": []
+}

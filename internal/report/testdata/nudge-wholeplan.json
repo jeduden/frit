@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "command": "nudge",
+  "root": "/fleet",
+  "plan": {
+    "repo": "atlas",
+    "id": 2608220941,
+    "title": "One-shot fix"
+  },
+  "phase": "whole plan",
+  "prompt": "/plan-phase 2608220941",
+  "tier": "sonnet",
+  "target": "wC:p1",
+  "go": false,
+  "sent": false,
+  "refused": "",
+  "problems": []
+}
