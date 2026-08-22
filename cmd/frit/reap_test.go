@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -147,4 +148,187 @@ func TestReapIsQuietOnAHealthyRepository(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "nothing to reap")
+}
+
+// holdRef reads a plan's canonical id-only hold ref, "" when absent.
+func holdRef(t *testing.T, repo string, id int64) (string, error) {
+	t.Helper()
+
+	return gitCapture(t, repo, "rev-parse", "--verify", "--quiet",
+		fmt.Sprintf("refs/heads/plan/%d", id))
+}
+
+// TestReapDropsAnUnstaffedHoldWithGo: a plan claimed on its canonical
+// id-only ref but never staffed with a real worktree — a claim whose
+// herdr worktree stand-up never happened, the shape a faked herdr
+// leaves behind — has its hold dropped under --go.
+func TestReapDropsAnUnstaffedHoldWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	tip, err := holdRef(t, repo, 7)
+	require.NoError(t, err)
+	require.NotEmpty(t, tip, "the claim minted the canonical hold")
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "7")
+	_, err = holdRef(t, repo, 7)
+	assert.Error(t, err, "the unstaffed hold no longer resolves")
+}
+
+// TestReapWithoutGoLeavesTheHoldStanding: the same unstaffed hold,
+// without --go, is untouched.
+func TestReapWithoutGoLeavesTheHoldStanding(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	_, err := holdRef(t, repo, 7)
+	assert.NoError(t, err, "nothing is dropped without --go")
+}
+
+// TestReapRefusesADecoratedUnstaffedHold: a legacy decorated hold —
+// plan/<id>-slug rather than the lease protocol's own plan/<id> — is
+// not claim.Scavenge's ref to CAS against, so reap refuses it with a
+// migrate-first reason rather than silently doing nothing useful.
+func TestReapRefusesADecoratedUnstaffedHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "migrate")
+	assert.True(t, branchExists(t, repo, "plan/2608142306-fleet-index"),
+		"a decorated hold is left standing")
+}
+
+// TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine: the hold moved
+// since reap observed its tip — another machine took it over — so the
+// scavenge CAS loses and reap refuses rather than drop a lease that
+// may be actively renewing.
+func TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	fenceWithATakeover(t, repo, 7)
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	tip, err := holdRef(t, repo, 7)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tip, "the fenced hold is left standing")
+}
+
+// TestReapParksUnlandedWorkBeforeDroppingTheHold: real work landed on
+// the hold ref itself before its worktree vanished — a crashed
+// machine, say — so reap must park it to a rescue ref before the hold
+// is dropped, never discard it.
+func TestReapParksUnlandedWorkBeforeDroppingTheHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	git(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "unlanded work")
+	git(t, repo, "push", "-q", "origin", "plan/7")
+	git(t, repo, "checkout", "-q", "main")
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/frit/rescue/7/*")
+	require.NoError(t, err)
+	assert.NotEmpty(t, rescue, "the unlanded work is parked, not dropped")
+	_, err = holdRef(t, repo, 7)
+	assert.Error(t, err, "the hold is still dropped once its work is parked")
+}
+
+// TestReapPrunesAPrunableWorktreeWithGo: a worktree git already
+// considers removable — its directory gone from disk — is pruned
+// under --go, and left standing without it.
+func TestReapPrunesAPrunableWorktreeWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	lane := filepath.Join(root, "atlas-gone")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/9-gone", lane)
+	require.NoError(t, os.RemoveAll(lane))
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-gone")
+	listed, err := gitCapture(t, repo, "worktree", "list", "--porcelain")
+	require.NoError(t, err)
+	assert.Contains(t, listed, "atlas-gone", "nothing is pruned without --go")
+
+	out.Reset()
+	errb.Reset()
+	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	listed, err = gitCapture(t, repo, "worktree", "list", "--porcelain")
+	require.NoError(t, err)
+	assert.NotContains(t, listed, "atlas-gone",
+		"the prunable worktree is gone under --go")
+}
+
+// TestReapRemovesAnEmptyWorktreeWithGo: a worktree prepared but never
+// worked — an unborn branch, all-zero HEAD — is removed under --go.
+func TestReapRemovesAnEmptyWorktreeWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	lane := filepath.Join(root, "atlas-empty")
+	git(t, repo, "worktree", "add", "-q", "--orphan", "-b",
+		"plan/42-empty", lane)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-empty")
+	_, statErr := os.Stat(lane)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
