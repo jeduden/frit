@@ -478,10 +478,10 @@ func vetoRefusal(veto *claim.VetoError) string {
 // nobody holds. Its lane vanished when its first phase merged — the 🔳
 // marker rode in on the merge — leaving prescribed work with no lane to
 // resume it on. The Held case is checked before InProgress, so reaching
-// the latter means nobody holds it; the resume re-mints the hold on the
-// deterministic branch, and Mint's force-with-lease stays the arbiter if
-// a live hold still exists. Every other plan outside the ready set is
-// refused, and the reason names why it is out.
+// the latter means nobody holds it; the resume re-acquires the hold on
+// the deterministic branch, and Acquire's force-with-lease stays the
+// arbiter if a live hold still exists. Every other plan outside the
+// ready set is refused, and the reason names why it is out.
 func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 	for _, r := range ready {
 		if r.Repo == p.Repo && r.ID == p.ID {
