@@ -717,9 +717,13 @@ func casPush(
 }
 
 // syncLocalRef moves the local copy of the work ref to the tip the
-// remote just accepted. Best-effort: the branch may be checked out in
-// the lane's worktree, where git refuses an update from outside, and a
-// stale local copy is a stale view, not a lost lease.
+// remote just accepted. Best-effort: a failure here leaves a stale
+// local copy, which is a stale view, not a lost lease. update-ref
+// carries no "checked out elsewhere" protection — only git's own
+// porcelain does, proved by reproduction (S79) — so this update can
+// land under a worktree standing on the branch just as readily as it
+// can fail for an ordinary reason; either way the caller does not
+// need it to succeed.
 func syncLocalRef(repoDir, ref, tip string, run gitwt.Runner) {
 	_, _ = run(repoDir, "update-ref", ref, tip)
 }

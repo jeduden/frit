@@ -131,8 +131,10 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 		case "":
 			// Nothing on the remote, or it could not be read: the push left
 			// no ref, so this is a real fault. Roll the local ref back so a
-			// retry starts clean.
-			_, _ = run(repoDir, "update-ref", "-d", ref)
+			// retry starts clean, unless a worktree is standing on it.
+			if !checkedOut(repoDir, opts.Branch, run) {
+				_, _ = run(repoDir, "update-ref", "-d", ref)
+			}
 
 			return Result{}, fmt.Errorf(
 				"push claim for plan %d: %w", opts.PlanID, err)
@@ -141,8 +143,11 @@ func Mint(repoDir string, opts Options, run gitwt.Runner) (Result, error) {
 			// own branch already landed with a status never set to ✅. Roll
 			// the local ref back, then read the holder's marker so the
 			// refusal can name who really holds the plan rather than always
-			// blaming a machine that may not be there.
-			_, _ = run(repoDir, "update-ref", "-d", ref)
+			// blaming a machine that may not be there. A worktree standing
+			// on the branch is spared the same way.
+			if !checkedOut(repoDir, opts.Branch, run) {
+				_, _ = run(repoDir, "update-ref", "-d", ref)
+			}
 
 			return Result{}, &LostRaceError{
 				PlanID: opts.PlanID,
