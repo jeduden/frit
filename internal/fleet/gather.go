@@ -233,16 +233,11 @@ func heldBranches(
 				continue
 			}
 			seen[h.Branch] = true
-			// A tip that is a release marker is a lease that ended, not a
-			// live hold: the ref survives — the protocol deletes nothing —
-			// but the plan is free for the next acquire.
-			if claim.Released(repo.Path, tips[h.Ref], lane.PlanID, run) {
-				continue
-			}
-			// A ref matching the holds pattern by name alone, with no
-			// claim or takeover marker reachable, is not a lease frit
-			// ever minted — a hand-made branch must not block the plan
-			// it names.
+			// Held alone already tells a live lease apart from one that
+			// ended (its nearest terminal marker is a release, so it
+			// answers false) or was never minted (a name match with no
+			// marker reachable at all) — one read instead of Released
+			// and Held each walking the same ref's history.
 			if !claim.Held(repo.Path, tips[h.Ref], lane.PlanID, run) {
 				continue
 			}

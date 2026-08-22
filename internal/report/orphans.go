@@ -33,18 +33,21 @@ type OrphanRepo struct {
 	Empty      []Worktree     `json:"empty"`
 	Prunable   []Worktree     `json:"prunable"`
 	Migratable []Migratable   `json:"migratable"`
-	// StaleHolds are held plans whose takeover window has matured: a
-	// takeover candidate nobody has acted on yet, read from the same
-	// observation fold board and claim use rather than lanes.Find's
-	// git-ref sweep.
+	// StaleHolds are held plans ready to be taken over — a takeover
+	// window that matured, a bound session herdr confirms is gone, or
+	// both — nobody has acted on yet, read from the same observation
+	// fold board and claim use rather than lanes.Find's git-ref sweep.
 	StaleHolds []StaleHold `json:"stale_holds"`
 }
 
-// StaleHold is one held plan whose lease has matured.
+// StaleHold is one held plan ready for a takeover: its window matured
+// (StaleSeconds > 0), its bound session is confirmed gone (Dead), or
+// both.
 type StaleHold struct {
 	PlanID       int64  `json:"plan_id"`
 	Branch       string `json:"branch"`
 	StaleSeconds int64  `json:"stale_seconds"`
+	Dead         bool   `json:"dead"`
 }
 
 // Migratable is a hold that still reads as a claim but is decorated
@@ -152,6 +155,7 @@ func staleHoldOf(p discovery.Plan) StaleHold {
 		PlanID:       p.ID,
 		Branch:       branch,
 		StaleSeconds: int64(p.StaleFor / time.Second),
+		Dead:         p.Dead,
 	}
 }
 

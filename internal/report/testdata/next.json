@@ -14,7 +14,8 @@
     "path": "plan/2608161809_discovery-readiness-verbs.md",
     "held": false,
     "stale": false,
-    "stale_seconds": 0
+    "stale_seconds": 0,
+    "dead": false
   },
   "phase": {
     "n": "2",

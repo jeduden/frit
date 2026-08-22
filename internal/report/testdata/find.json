@@ -17,7 +17,8 @@
       "path": "plan/12_raymarch-gas-giants.md",
       "held": false,
       "stale": false,
-      "stale_seconds": 0
+      "stale_seconds": 0,
+      "dead": false
     }
   ],
   "problems": []

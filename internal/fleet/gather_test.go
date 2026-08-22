@@ -228,3 +228,31 @@ func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
 	assert.True(t, planByID(t, res, 7).Held,
 		"a legacy decorated hold still carries a marker")
 }
+
+// TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold pins a deliberate
+// limit: HoldTip is only ever the bare, id-only plan/<id> ref's tip —
+// the one ref Takeover's CAS targets — never a decorated or legacy
+// branch's, even when that branch alone is what makes Held true. A
+// plan held only through such a branch stays outside the staleness
+// window and the dead-session read (observeHolds's HoldTip == ""
+// guard), because there is no id-only ref a takeover could seize
+// anyway; seeding a tip from the decorated branch would let Stale or
+// Dead mature and send claim's takeover at the bare ref regardless,
+// which does not exist, turning the attempt into a raw push failure
+// instead of a graceful refusal.
+func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	p := planByID(t, res, 7)
+	require.True(t, p.Held, "the decorated branch's marker still holds the plan")
+	assert.Empty(t, p.HoldTip,
+		"no bare id-only ref exists, so there is no tip a takeover CAS could target")
+}

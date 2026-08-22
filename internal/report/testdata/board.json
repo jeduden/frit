@@ -18,6 +18,7 @@
       ],
       "stale": false,
       "stale_seconds": 0,
+      "dead": false,
       "agent": "claude",
       "agent_status": "working"
     },
@@ -33,6 +34,7 @@
       "holds": [],
       "stale": false,
       "stale_seconds": 0,
+      "dead": false,
       "agent": "",
       "agent_status": ""
     }

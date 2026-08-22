@@ -154,6 +154,21 @@ func TestSessionDeadOnlyAReachableHerdrConfirmsIt(t *testing.T) {
 	}
 }
 
+// TestSessionDeadInChecksManySessionsAgainstOneListCall: the pure half
+// SessionDead delegates to, so a caller checking many held plans'
+// sessions reads the pane list once rather than once per plan.
+func TestSessionDeadInChecksManySessionsAgainstOneListCall(t *testing.T) {
+	panes := []Pane{
+		{Session: "sess-1", Agent: "claude", Status: StatusWorking},
+	}
+
+	assert.False(t, SessionDeadIn(panes, ""), "empty session is never confirmed dead")
+	assert.False(t, SessionDeadIn(panes, "-"), "the unbound dash is never confirmed dead")
+	assert.False(t, SessionDeadIn(panes, "sess-1"), "a working agent on the session is not dead")
+	assert.True(t, SessionDeadIn(panes, "sess-2"), "no pane carries this session: confirmed dead")
+	assert.True(t, SessionDeadIn(nil, "sess-1"), "no panes at all: confirmed dead")
+}
+
 // TestPaneSessionReadsTheSessionBoundToAPane: start reads a just-opened
 // pane's session back this way, since neither worktree.create nor
 // agent.start answers with one.

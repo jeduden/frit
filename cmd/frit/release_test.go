@@ -7,10 +7,31 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestForeignHoldRefusalPointsAtClaimWhenTheSessionIsConfirmedDead:
+// Dead is its own reason to send the caller to `frit claim`, distinct
+// from Stale — a plan whose window has not matured can still be a
+// takeover candidate the moment herdr confirms its bound session gone,
+// and the refusal must say so rather than claim the hold is live.
+func TestForeignHoldRefusalPointsAtClaimWhenTheSessionIsConfirmedDead(t *testing.T) {
+	reason := foreignHoldRefusal(discovery.Plan{Dead: true})
+
+	assert.Contains(t, reason, "frit claim")
+	assert.NotContains(t, reason, "held live")
+}
+
+// TestForeignHoldRefusalStillNamesALiveHold pins the baseline: neither
+// signal present reads as an ordinary live hold, worded as before.
+func TestForeignHoldRefusalStillNamesALiveHold(t *testing.T) {
+	reason := foreignHoldRefusal(discovery.Plan{Holds: []string{"plan/7-x"}})
+
+	assert.Contains(t, reason, "held live")
+}
 
 // TestReleaseIsANoOpOnAnAbsentPlan: nothing has ever held the plan, so
 // there is nothing to end — a no-op, not a refusal.

@@ -546,7 +546,7 @@ func TestClaimStillRefusesALiveSessionWithNoMaturedWindow(t *testing.T) {
 	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
 		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
 		Session: "wS:p9"}
-	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
 	require.NoError(t, err)
 	withHerdr(t, herdrReturning(map[string]any{
 		"agent":        "claude",
@@ -563,8 +563,9 @@ func TestClaimStillRefusesALiveSessionWithNoMaturedWindow(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused",
 		"a live session is not a candidate on its own")
-	_, err = gitCapture(t, repo, "rev-parse", "refs/heads/plan/7^2")
-	assert.Error(t, err, "nothing was taken over")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
 }
 
 // TestClaimStillRefusesAnUnreachableHerdrWithNoMaturedWindow pins the
