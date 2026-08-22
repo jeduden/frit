@@ -74,4 +74,5 @@ footer: |
 | 2608221450 | 🔲     | sonnet | [Landed evidence reads origin's default branch, not a lagging local one](plan/2608221450_landed-evidence-reads-origins-default.md) |
 | 2608221537 | 🔲     | sonnet | [The dispatch ladder starts a phase-less plan instead of demanding --phase](plan/2608221537_dispatch-a-phaseless-plan.md)          |
 | 2608221559 | 🔲     | sonnet | [Remove the superseded Mint claim path](plan/2608221559_remove-superseded-mint-path.md)                                            |
+| 2608221754 | 🔲     | sonnet | [The supervisor acts on a lane it does not stand in](plan/2608221754_supervisor-acts-on-a-foreign-lane.md)                         |
 <?/catalog?>
