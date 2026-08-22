@@ -106,6 +106,9 @@ func buildStart(
 		if reason := desertedRefusal(rt, plan, cwd); reason != "" {
 			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
 		}
+		if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
+			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
+		}
 		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
 			doc := refusedStart(c, res, plan, phase, doGo, reason)
 			scavengeGlyph(rt, doc, plan, res)
@@ -186,6 +189,46 @@ func desertedRefusal(rt *runtime, plan discovery.Plan, cwd string) string {
 	return fmt.Sprintf(
 		"deserted hold: its token cannot self-resume; "+
 			"run `frit yield %d` to retire this lane", plan.ID)
+}
+
+// parkFirstRefusal is the S77 park-first guard's cwd-free sibling:
+// desertedRefusal already covers the in-lane case above and returns
+// before this ever runs there, so this is reached only from the
+// primary or any other clone that never stood in the lane. A
+// herdr-confirmed-dead, unmatured hold is Ready for a takeover (S76),
+// but the takeover CAS knows nothing about the branch's own local
+// suffix past the token it observed — a divergent tip taken over here
+// would silently orphan whatever the dead lane committed, instead of
+// parking it first. "" when the plan is not that exact case, or the
+// gather withheld a coordinate to read the branch from (the
+// ambiguous-repo refusal is the arbiter there), leaving the ordinary
+// readiness path unaffected.
+func parkFirstRefusal(rt *runtime, plan discovery.Plan, coord fleet.Coord) string {
+	if !plan.Held || !plan.Dead || plan.Stale || coord.Path == "" {
+		return ""
+	}
+	local, err := localRef(rt, coord.Path, claim.Branch(plan.ID))
+	if err != nil || local == "" {
+		return ""
+	}
+	if isAncestor(rt, coord.Path, local, plan.HoldTip) {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"deserted hold: its branch carries an unparked suffix; "+
+			"run `frit yield %d` to park it first", plan.ID)
+}
+
+// isAncestor reports whether sha is reachable from base — plumbing
+// only, the exit code is the answer — so a divergent local suffix can
+// be told apart from ordinary history. Any git fault reads as false,
+// the safe default: an unreadable relationship refuses rather than
+// risks a takeover over unparked work.
+func isAncestor(rt *runtime, dir, sha, base string) bool {
+	_, err := rt.git(dir, "merge-base", "--is-ancestor", sha, base)
+
+	return err == nil
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

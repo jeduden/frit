@@ -257,20 +257,47 @@ func desertedHeld(
 
 // resumableFromAnyLane reports whether some worktree of this
 // repository carries its own persisted token still matching origin's
-// tip for the plan — the same proof ownToken reads from a single
-// lane's cwd, tried here against every worktree on this host rather
-// than one directory, since orphans is not run from inside any one
-// lane.
+// tip for the plan, and herdr shows it staffed right now — the same
+// proof ownToken reads from a single lane's cwd, tried here against
+// every worktree on this host rather than one directory, since orphans
+// is not run from inside any one lane. A token match alone is not
+// enough: it is exactly what a dead session's own checkout still
+// carries, so trusting it without a live-session check would hide the
+// very hold desertedHeld exists to surface.
 func resumableFromAnyLane(
 	rt *runtime, p discovery.Plan, worktrees []gitwt.Worktree, coord fleet.Coord,
 ) bool {
+	var live map[string]bool
 	for _, wt := range worktrees {
-		if _, _, ok := ownToken(rt, p, coord, wt.Path); ok {
+		lane, _, ok := ownToken(rt, p, coord, wt.Path)
+		if !ok {
+			continue
+		}
+		if live == nil {
+			live = herdr.LiveRoots(localPanes(rt), rt.git)
+		}
+		if live[lane] {
 			return true
 		}
 	}
 
 	return false
+}
+
+// localPanes reads this host's herdr panes, nil when herdr is unset or
+// unreachable — the same fail-toward-false SessionLive already uses
+// for the takeover veto, so an unset or dead socket never manufactures
+// a resumable lane out of a stale token alone.
+func localPanes(rt *runtime) []herdr.Pane {
+	if rt.herdr == nil {
+		return nil
+	}
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return nil
+	}
+
+	return panes
 }
 
 // printOrphans writes a block per repository with something wrong.

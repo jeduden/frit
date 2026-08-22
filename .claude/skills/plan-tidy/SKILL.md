@@ -32,6 +32,11 @@ never with raw git.
      herdr, so nothing local is lost to the teardown.
   - A hold whose work already landed → neither verb; `go run ./cmd/frit orphans`
      already reports it as scavenged, not something to act on.
+  - `orphans`' deserted row, acted on from outside its lane — herdr
+     confirms the bound session gone, no lane can resume it →
+     `go run ./cmd/frit yield <id>` parks any unparked suffix, then
+     `go run ./cmd/frit claim <id>` (or `start <id>`) takes it over at the next
+     epoch; both refuse on their own until yield has parked it.
 
 3. **Never hand-run git for teardown.** `git worktree remove` and
    `git branch -D` throw away exactly the divergence `yield`'s rescue

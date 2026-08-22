@@ -62,9 +62,43 @@ func TestDesertedHeldExcludesALiveBoundSession(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestDesertedHeldListsATokenMatchWithNoLiveSession: a matching token
+// alone is not proof of self-resume — it is exactly what a dead
+// session's own checkout still carries. With herdr confirming no live
+// agent sits in that checkout, the hold is a dead end and orphans must
+// surface it rather than trust the stale token (2608221754 phase 1).
+func TestDesertedHeldListsATokenMatchWithNoLiveSession(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane, Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	coord := fleet.Coord{Path: repo, Remote: "origin"}
+	plan := discovery.Plan{
+		Repo: "atlas", ID: 7, Held: true, Dead: true,
+		Holds: []string{"plan/7"}, HoldTip: renewed.Tip,
+	}
+	worktrees := []gitwt.Worktree{{Path: lane, Branch: "plan/7"}}
+
+	got := desertedHeld(rt, []discovery.Plan{plan}, "atlas", worktrees, coord)
+
+	require.Len(t, got, 1,
+		"no live session sits in the checkout, so the token cannot resume it")
+	assert.Equal(t, int64(7), got[0].ID)
+}
+
 // TestDesertedHeldExcludesAResumableToken: a persisted token that
-// still matches origin's tip means self-resume can recover the lane
-// with no operator action, so it is not a dead end.
+// still matches origin's tip, in a checkout herdr confirms is staffed
+// right now, means self-resume can recover the lane with no operator
+// action, so it is not a dead end.
 func TestDesertedHeldExcludesAResumableToken(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -78,7 +112,12 @@ func TestDesertedHeldExcludesAResumableToken(t *testing.T) {
 	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
 	require.NoError(t, err)
 
-	rt := &runtime{git: gitwt.Exec}
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"cwd":          lane,
+		"pane_id":      "wNew:p1",
+	})}
 	coord := fleet.Coord{Path: repo, Remote: "origin"}
 	plan := discovery.Plan{
 		Repo: "atlas", ID: 7, Held: true, Dead: true,
@@ -175,4 +214,72 @@ func TestStartNamesYieldForADesertedLaneOnThisHost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, body, "holder:  ghost",
 		"the dead lane's own ref was never seized")
+}
+
+// TestClaimRefusesAnUnparkedSuffixFromOutsideTheLane: a held plan
+// herdr confirms dead, window not matured, with a local commit on the
+// plan branch past the pushed hold tip — the dead lane's own unparked
+// work, never renewed. claim run from the primary, never having
+// entered the lane, must not take this over: doing so would seize the
+// ref at the pushed tip and silently orphan that commit. It refuses
+// and names yield instead (2608221754 phase 2, S77).
+func TestClaimRefusesAnUnparkedSuffixFromOutsideTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "claimed plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "nothing was taken over; the local commit stands")
+}
+
+// TestStartRefusesAnUnparkedSuffixFromOutsideTheLane: the same fixture
+// through start, which shares the guard with claim.
+func TestStartRefusesAnUnparkedSuffixFromOutsideTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "started plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "nothing was taken over; the local commit stands")
 }
