@@ -95,6 +95,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.NotNil(t, doc.Repos[0].StaleHolds)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
+	assert.NotNil(t, doc.Repos[0].Deserted)
 }
 
 func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
@@ -105,6 +106,26 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Prunable: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Migratable: []Migratable{{}}}.Any())
 	assert.True(t, OrphanRepo{StaleHolds: []StaleHold{{}}}.Any())
+	assert.True(t, OrphanRepo{Deserted: []Deserted{{}}}.Any())
+}
+
+// TestOrphansAddDesertedRecordsADeadEnd: the deserted cell of the
+// verb-state table — a held plan herdr confirms lost its session,
+// surfaced beside orphans' other kinds, distinct from a matured
+// StaleHold.
+func TestOrphansAddDesertedRecordsADeadEnd(t *testing.T) {
+	doc := NewOrphans("/fleet")
+	doc.AddRepo("atlas", lanes.Orphans{})
+
+	doc.AddDeserted("atlas", []discovery.Plan{
+		{ID: 42, Holds: []string{"plan/42"}},
+	})
+
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Deserted, 1)
+	assert.Equal(t, int64(42), doc.Repos[0].Deserted[0].PlanID)
+	assert.Equal(t, "plan/42", doc.Repos[0].Deserted[0].Branch)
+	assert.True(t, doc.Repos[0].Any())
 }
 
 // TestOrphansAddStaleRecordsAMaturedHold: the held-stale cell of the
@@ -132,4 +153,15 @@ func TestOrphansEmitsListsNeverNull(t *testing.T) {
 
 	assert.NotNil(t, doc.Repos)
 	assert.NotNil(t, doc.Problems)
+}
+
+// TestOrphansAddDesertedIsANoOpForAnUnknownRepo mirrors AddStale's own
+// guard: a plan for a repository AddRepo never recorded is dropped
+// rather than fabricating a repo entry out of order.
+func TestOrphansAddDesertedIsANoOpForAnUnknownRepo(t *testing.T) {
+	doc := NewOrphans("/fleet")
+
+	doc.AddDeserted("ghost", []discovery.Plan{{ID: 1}})
+
+	assert.Empty(t, doc.Repos)
 }

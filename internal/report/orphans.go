@@ -34,10 +34,15 @@ type OrphanRepo struct {
 	Prunable   []Worktree     `json:"prunable"`
 	Migratable []Migratable   `json:"migratable"`
 	// StaleHolds are held plans ready to be taken over — a takeover
-	// window that matured, a bound session herdr confirms is gone, or
-	// both — nobody has acted on yet, read from the same observation
-	// fold board and claim use rather than lanes.Find's git-ref sweep.
+	// window that has matured — nobody has acted on yet, read from the
+	// same observation fold board and claim use rather than lanes.Find's
+	// git-ref sweep.
 	StaleHolds []StaleHold `json:"stale_holds"`
+	// Deserted are held plans herdr confirms have lost their bound
+	// session, before the takeover window matures, that no worktree's
+	// own token can self-resume. A matured hold reads as a StaleHold
+	// instead — the two kinds never collide.
+	Deserted []Deserted `json:"deserted"`
 }
 
 // StaleHold is one held plan ready for a takeover: its window matured
@@ -56,6 +61,14 @@ type Migratable struct {
 	PlanID int64  `json:"plan_id"`
 	From   string `json:"from"`
 	To     string `json:"to"`
+}
+
+// Deserted is one held plan whose bound session herdr reports gone and
+// that self-resume cannot recover — a dead end regardless of whether
+// its takeover window has matured yet.
+type Deserted struct {
+	PlanID int64  `json:"plan_id"`
+	Branch string `json:"branch"`
 }
 
 // Lane is one plan and the refs claiming it.
@@ -84,7 +97,7 @@ type Hold struct {
 func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
 		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0 ||
-		len(r.StaleHolds) > 0
+		len(r.StaleHolds) > 0 || len(r.Deserted) > 0
 }
 
 // NewOrphans opens an orphan report.
@@ -107,6 +120,7 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 		Prunable:   worktreesOf(found.Prunable),
 		Migratable: make([]Migratable, 0, len(found.Migratable)),
 		StaleHolds: []StaleHold{},
+		Deserted:   []Deserted{},
 	}
 
 	for _, lane := range found.Unstaffed {
@@ -157,6 +171,34 @@ func staleHoldOf(p discovery.Plan) StaleHold {
 		StaleSeconds: int64(p.StaleFor / time.Second),
 		Dead:         p.Dead,
 	}
+}
+
+// AddDeserted records the plans in one repository that are a dead
+// end herdr's veto surfaced before any window matured, beside the
+// kinds AddRepo already recorded for it — its own cell of the
+// verb-state table, distinct from the matured StaleHolds cell. A
+// no-op when AddRepo was never called for the name.
+func (d *OrphansDoc) AddDeserted(name string, plans []discovery.Plan) {
+	for i := range d.Repos {
+		if d.Repos[i].Name != name {
+			continue
+		}
+		for _, p := range plans {
+			d.Repos[i].Deserted = append(d.Repos[i].Deserted, desertedOf(p))
+		}
+
+		return
+	}
+}
+
+// desertedOf projects a deserted plan into its wire shape.
+func desertedOf(p discovery.Plan) Deserted {
+	branch := ""
+	if len(p.Holds) > 0 {
+		branch = p.Holds[0]
+	}
+
+	return Deserted{PlanID: p.ID, Branch: branch}
 }
 
 // AddProblem records a repository whose lanes could not be read.

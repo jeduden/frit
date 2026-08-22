@@ -1,7 +1,7 @@
 ---
 id: 2608212346
 title: A deserted hold is seen and has a way out
-status: "🔲"
+status: "🔳"
 summary: >-
   A held lane whose bound session herdr can no longer see, and whose
   token cannot self-resume because it is absent or behind origin's
@@ -16,7 +16,7 @@ depends-on: []
 phases:
   - n: 1
     title: orphans names the deserted hold
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: a verb resumes or retires it
     status: "🔲"
@@ -120,8 +120,8 @@ implement from written assertions.
 
 ## Acceptance Criteria
 
-- [ ] `frit orphans` lists a deserted hold before the window matures
-- [ ] A live bound session or a resumable token keeps it off the list
+- [x] `frit orphans` lists a deserted hold before the window matures
+- [x] A live bound session or a resumable token keeps it off the list
 - [ ] One verb resumes a deserted lane in place, no branch surgery
 - [ ] A behind-the-tip lane is pointed at `yield`, not left dead
 - [ ] S76 and S77 read true against the shipped behavior

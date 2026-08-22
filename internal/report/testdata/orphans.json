@@ -80,6 +80,12 @@
           "stale_seconds": 10800,
           "dead": false
         }
+      ],
+      "deserted": [
+        {
+          "plan_id": 9,
+          "branch": "plan/9"
+        }
       ]
     },
     {
@@ -89,7 +95,8 @@
       "empty": [],
       "prunable": [],
       "migratable": [],
-      "stale_holds": []
+      "stale_holds": [],
+      "deserted": []
     }
   ],
   "problems": [
