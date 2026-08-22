@@ -7,6 +7,7 @@ import (
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/lanes"
@@ -25,6 +26,14 @@ type reapCmd struct {
 // like nudge and start.
 func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	repos, err := discover.Repos(c.Root, rt.git)
+	if err != nil {
+		return err
+	}
+	// Abandonment evidence for a hold — a matured staleness window, a
+	// bound session herdr confirms dead — lives in the observation fold
+	// the fleet gather runs, not in lanes.Find's git-ref sweep, so reap
+	// gathers beside the walk exactly as orphans does.
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -53,7 +62,7 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		pruned, refusedPruned := reapPruned(
 			rt, repo, found.Prunable, found.Empty, rc.Go)
 		dropped, refusedHolds := reapUnstaffed(
-			rt, repo, found.Unstaffed, remote, base, rc.Go)
+			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go)
 
 		doc.AddRepo(repo.Name, reaped, refused,
 			dropped, refusedHolds, pruned, refusedPruned)
@@ -223,18 +232,26 @@ func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
 	return nil
 }
 
-// reapUnstaffed classifies and, under doGo, drops every unstaffed
-// lane's canonical hold through claim.Scavenge, parking any unlanded
-// work to a rescue ref first. Only the lease protocol's own id-only
-// ref (claim.Branch) is Scavenge's to CAS against; a lane held only on
-// a decorated legacy branch is refused with a migrate-first reason
-// rather than silently doing nothing useful. A hold Scavenge cannot
-// drop — fenced by another machine since observed, or already gone —
-// is refused with the reason it read, never a hard command failure:
-// one plan's scavenge trouble must not stop the rest from reaping.
+// reapUnstaffed drops an unstaffed lane's canonical hold only on the
+// lease protocol's own abandonment evidence. "Claimed, no local
+// checkout" alone proves nothing — the checkout may be another
+// machine's, or the claim seconds old with its stand-up still pending;
+// lanes.Build has already filtered landed refs, so an unstaffed hold
+// is by construction a live-looking, un-landed lease. What earns the
+// drop is a matured staleness window or a bound session herdr
+// confirms dead — the same gate discovery.Ready and takeover honor —
+// and the scavenge then CASes on the observed tip, so a holder that
+// renewed since fences it (A2).
+//
+// Only the lease protocol's own id-only ref (claim.Branch) is
+// Scavenge's to CAS against; a lane held only on a decorated legacy
+// branch is refused with a migrate-first reason rather than silently
+// doing nothing useful. Any hold left standing is a refusal with the
+// reason read, never a hard command failure: one plan's trouble must
+// not stop the rest from reaping.
 func reapUnstaffed(
 	rt *runtime, repo discover.Repo, unstaffed []lanes.Lane,
-	remote, base string, doGo bool,
+	plans []discovery.Plan, remote, base string, doGo bool,
 ) ([]report.DroppedHold, []report.RefusedHold) {
 	dropped := []report.DroppedHold{}
 	refused := []report.RefusedHold{}
@@ -254,26 +271,38 @@ func reapUnstaffed(
 			continue
 		}
 
-		tip := claim.RemoteTip(repo.Path, remote, lane.PlanID, rt.git)
-		if tip == "" {
+		p, ok := planFor(plans, repo.Name, lane.PlanID)
+		if reason := holdRefusal(p, ok); reason != "" {
 			refused = append(refused, report.RefusedHold{
-				PlanID: lane.PlanID, Branch: canonical,
-				Reason: "hold ref already gone",
+				PlanID: lane.PlanID, Branch: canonical, Reason: reason,
 			})
 			continue
 		}
 
-		if !doGo {
-			dropped = append(dropped, report.DroppedHold{
-				PlanID: lane.PlanID, Branch: canonical,
-			})
-			continue
-		}
+		// The holder's objects may never have been fetched here — the
+		// lease could be another machine's — so bring the ref in once
+		// ahead of the park's push. Best-effort: without it the
+		// scavenge fails safe into a refusal.
+		_, _ = rt.git(repo.Path, "fetch", "--quiet",
+			remote, "refs/heads/"+canonical)
 
-		sc, err := claim.Scavenge(repo.Path, claim.LeaseOptions{
+		opts := claim.LeaseOptions{
 			PlanID: lane.PlanID, Remote: remote, Base: base,
 			Holder: hostname(),
-		}, tip, rt.git)
+		}
+		if !doGo {
+			rescue := ""
+			if unlanded, err := claim.HasUnlanded(
+				repo.Path, opts, p.HoldTip, rt.git); err == nil && unlanded {
+				rescue = claim.RescueRef(lane.PlanID, hostname())
+			}
+			dropped = append(dropped, report.DroppedHold{
+				PlanID: lane.PlanID, Branch: canonical, Rescue: rescue,
+			})
+			continue
+		}
+
+		sc, err := claim.Scavenge(repo.Path, opts, p.HoldTip, rt.git)
 		if err != nil {
 			refused = append(refused, report.RefusedHold{
 				PlanID: lane.PlanID, Branch: canonical, Reason: err.Error(),
@@ -286,6 +315,36 @@ func reapUnstaffed(
 	}
 
 	return dropped, refused
+}
+
+// holdRefusal is the abandonment gate: why an unstaffed hold is not
+// reap's to drop, "" when the evidence clears it. ok says whether the
+// gathered fleet view carried the plan at all.
+func holdRefusal(p discovery.Plan, ok bool) string {
+	switch {
+	case !ok || p.HoldTip == "":
+		return "no observed lease state to judge abandonment by"
+	case !p.Stale && !p.Dead:
+		return "held by a live lease; reap drops only a stale or dead " +
+			"hold — its own lane releases it, or claim takes it over " +
+			"once the window matures"
+	}
+
+	return ""
+}
+
+// planFor finds one repository's plan in the gathered fleet view, the
+// carrier of the staleness and dead-session facts the drop gates on.
+func planFor(
+	plans []discovery.Plan, repo string, id int64,
+) (discovery.Plan, bool) {
+	for _, p := range plans {
+		if p.Repo == repo && p.ID == id {
+			return p, true
+		}
+	}
+
+	return discovery.Plan{}, false
 }
 
 // holds reports whether a lane carries a hold on exactly this branch.
