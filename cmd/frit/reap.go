@@ -381,38 +381,25 @@ func reapPruned(
 
 	classify := func(worktrees []gitwt.Worktree, kind string) {
 		for _, wt := range worktrees {
-			p, r, ok := prunedEntry(rt, repo, wt, kind, doGo)
-			if ok {
-				pruned = append(pruned, p)
-			} else {
-				refused = append(refused, r)
+			if doGo {
+				if _, err := rt.git(repo.Path,
+					"worktree", "remove", wt.Path); err != nil {
+					refused = append(refused, report.RefusedWorktree{
+						Worktree: report.WorktreeOf(wt), Kind: kind,
+						Reason: err.Error(),
+					})
+					continue
+				}
 			}
+			pruned = append(pruned, report.PrunedWorktree{
+				Worktree: report.WorktreeOf(wt), Kind: kind,
+			})
 		}
 	}
 	classify(prunable, "prunable")
 	classify(empty, "empty")
 
 	return pruned, refused
-}
-
-// prunedEntry removes one worktree under doGo and reports it either
-// way, labelled by which kind it was found as. ok is false when git
-// itself refused the removal, carried back as a RefusedWorktree rather
-// than a command failure.
-func prunedEntry(
-	rt *runtime, repo discover.Repo, wt gitwt.Worktree, kind string, doGo bool,
-) (report.PrunedWorktree, report.RefusedWorktree, bool) {
-	if doGo {
-		if _, err := rt.git(repo.Path, "worktree", "remove", wt.Path); err != nil {
-			return report.PrunedWorktree{}, report.RefusedWorktree{
-				Worktree: report.WorktreeOf(wt), Kind: kind,
-				Reason: err.Error(),
-			}, false
-		}
-	}
-
-	return report.PrunedWorktree{Worktree: report.WorktreeOf(wt), Kind: kind},
-		report.RefusedWorktree{}, true
 }
 
 // printReap writes a block per repository with something reaped or
