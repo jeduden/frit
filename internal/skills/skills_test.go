@@ -9,7 +9,7 @@ import (
 
 // TestInstallWritesSkills checks that Install lays each bundled skill
 // into .claude/skills/<name>/SKILL.md under the target repo, reports
-// every path it wrote, and writes the plan-pick skill among them.
+// every path it wrote, and writes plan-pick and plan-tidy among them.
 func TestInstallWritesSkills(t *testing.T) {
 	dir := t.TempDir()
 
@@ -21,10 +21,17 @@ func TestInstallWritesSkills(t *testing.T) {
 		t.Fatal("Install wrote no skills")
 	}
 
-	want := filepath.Join(dir, ".claude", "skills", "plan-pick", "SKILL.md")
-	found := false
+	wants := []string{
+		filepath.Join(dir, ".claude", "skills", "plan-pick", "SKILL.md"),
+		filepath.Join(dir, ".claude", "skills", "plan-tidy", "SKILL.md"),
+	}
+	found := make(map[string]bool, len(wants))
 	for _, p := range paths {
-		found = found || p == want
+		for _, w := range wants {
+			if p == w {
+				found[w] = true
+			}
+		}
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("reading written skill %s: %v", p, err)
@@ -33,8 +40,10 @@ func TestInstallWritesSkills(t *testing.T) {
 			t.Fatalf("written skill %s is empty", p)
 		}
 	}
-	if !found {
-		t.Fatalf("paths %v do not include %s", paths, want)
+	for _, w := range wants {
+		if !found[w] {
+			t.Fatalf("paths %v do not include %s", paths, w)
+		}
 	}
 }
 
@@ -90,26 +99,6 @@ func TestInstallForceOverwrites(t *testing.T) {
 	}
 	if string(data) == "edited" {
 		t.Fatal("force did not overwrite the edited skill")
-	}
-}
-
-// TestInstallWritesPlanTidy checks that the teardown and cleanup
-// skill is among the bundled skills Install writes.
-func TestInstallWritesPlanTidy(t *testing.T) {
-	dir := t.TempDir()
-
-	paths, err := Install(dir, false)
-	if err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	want := filepath.Join(dir, ".claude", "skills", "plan-tidy", "SKILL.md")
-	found := false
-	for _, p := range paths {
-		found = found || p == want
-	}
-	if !found {
-		t.Fatalf("paths %v do not include %s", paths, want)
 	}
 }
 
