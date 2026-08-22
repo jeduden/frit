@@ -135,8 +135,14 @@ companion files. Writing them is scaffolding of the same class as
 to clobber an edited skill without `--force`. The canonical text lives
 in `internal/skills/assets`; frit's own `.claude/skills` is the output
 of `frit skills`, regenerated from the bundle rather than hand-kept, so
-it never drifts from what ships. A shipped skill names `frit`, because
-it lands where frit is a binary on `PATH`, not `go run ./cmd/frit`.
+it never drifts from what ships.
+`TestDogfoodCopiesMatchCanonical` in
+[internal/skills/skills_test.go](internal/skills/skills_test.go) pins
+that claim. It fails the moment the dogfood copy and the canonical
+asset diverge by a single byte. The precedent is
+`TestShippedProtoMatchesRepo`, which pins the embedded plan proto the
+same way. A shipped skill names `frit`, because it lands where frit is
+a binary on `PATH`, not `go run ./cmd/frit`.
 
 A skill is read under time pressure and loaded into a working session,
 so it must stay skimmable and token-cheap. The `skill` kind in

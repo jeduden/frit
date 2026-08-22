@@ -1,7 +1,7 @@
 ---
 id: 2608221227
 title: 'Guard the skill bundle: no drift, tiny, bounded in the binary'
-status: '🔲'
+status: '🔳'
 summary: >-
   Pin the dogfooded .claude/skills copies byte-equal to the canonical
   assets, cap each skill's token budget, and tighten every suitable
@@ -11,7 +11,7 @@ depends-on: []
 phases:
   - n: 1
     title: 'Pin the dogfood copies byte-equal to canonical'
-    status: '🔲'
+    status: '✅'
   - n: 2
     title: "Cap each skill's token budget"
     status: '🔲'

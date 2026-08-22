@@ -141,6 +141,37 @@ func TestShippedSkillNamesFritOnPath(t *testing.T) {
 	}
 }
 
+// TestDogfoodCopiesMatchCanonical pins frit's own .claude/skills, the
+// dogfooded output of Install, byte-equal to the embedded assets it
+// came from. CLAUDE.md claims the two trees never drift; this is what
+// enforces that rather than leaving it to hand-checking.
+func TestDogfoodCopiesMatchCanonical(t *testing.T) {
+	files, err := bundledFiles()
+	if err != nil {
+		t.Fatalf("bundledFiles: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("bundledFiles returned no files")
+	}
+
+	for _, rel := range files {
+		canonical, err := assets.ReadFile(path("assets", rel))
+		if err != nil {
+			t.Fatalf("reading canonical asset %s: %v", rel, err)
+		}
+
+		dogfood := filepath.Join("..", "..", ".claude", "skills", rel)
+		got, err := os.ReadFile(dogfood)
+		if err != nil {
+			t.Fatalf("reading dogfood copy %s: %v", dogfood, err)
+		}
+
+		if string(got) != string(canonical) {
+			t.Fatalf("%s has drifted from %s", dogfood, rel)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
