@@ -381,6 +381,26 @@ func TestSkillsJSONCarriesTheWrittenPaths(t *testing.T) {
 	assert.Contains(t, out.String(), "SKILL.md")
 }
 
+// TestSkillsHelpNamesTheViaFlag: --help is where a reader learns
+// --via exists and sees an invocation to actually pass, rather than
+// discovering the seam only by reading source.
+func TestSkillsHelpNamesTheViaFlag(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"skills", "--help"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "--via")
+	// Kong reflows the description text at the terminal width, so the
+	// example phrase can land split across a wrapped line; collapse
+	// whitespace before matching it as one run.
+	flat := strings.Join(strings.Fields(got), " ")
+	assert.Contains(t, flat, "mise exec -- frit")
+	assert.Contains(t, flat, "go run ./cmd/frit")
+}
+
 func TestShowPrintsTheGoalReadFromTheBody(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
