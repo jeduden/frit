@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,8 +170,16 @@ func gatherRepo(
 		})
 	}
 
+	refs, err := gitobj.Refs(repo.Path, run)
+	if err != nil {
+		return nil, nil, nil, Coord{}, nil, err
+	}
+	if p := laggingDefaultBranch(repo, cfg.Remote, preferred, refs, run); p != nil {
+		problems = append(problems, *p)
+	}
+
 	held, leaseTips, err := heldBranches(
-		repo, cfg, preferred, index.LandedIDs(entries, preferred), run)
+		repo, cfg, preferred, refs, index.LandedIDs(entries, preferred), run)
 	if err != nil {
 		return nil, nil, nil, Coord{}, nil, err
 	}
@@ -194,6 +203,80 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 	}
 }
 
+// laggingDefaultBranch reports when a repository's local default
+// branch is a strict ancestor of its own already-fetched
+// remote-tracking ref — `git fetch` ran, the merge did not — using
+// only the ref list Gather already read (S80). It is nil whenever
+// there is nothing to compare: no local copy, no remote-tracking
+// copy at all (never fetched, or no remote), or the two already
+// agree.
+func laggingDefaultBranch(
+	repo discover.Repo, remote, preferred string, refs []gitobj.Ref,
+	run gitwt.Runner,
+) *Problem {
+	branch, ok := gitobj.Ref{Name: preferred}.Branch()
+	if !ok {
+		return nil
+	}
+
+	local := refOID(refs, "refs/heads/"+branch)
+	trackingName := "refs/remotes/" + remote + "/" + branch
+	tracking := refOID(refs, trackingName)
+	if local == "" || tracking == "" || local == tracking {
+		return nil
+	}
+
+	if !isAncestor(repo.Path, local, tracking, run) {
+		return nil
+	}
+
+	return &Problem{
+		Repo: repo.Name,
+		Err: fmt.Errorf(
+			"local default branch is %d commit(s) behind fetched %s; "+
+				"fetch ran, merge did not",
+			commitsBehind(repo.Path, local, tracking, run), trackingName),
+	}
+}
+
+// refOID returns the object a named ref points at, or "" when the
+// ref list carries no such ref.
+func refOID(refs []gitobj.Ref, name string) string {
+	for _, r := range refs {
+		if r.Name == name {
+			return r.OID
+		}
+	}
+
+	return ""
+}
+
+// isAncestor reports whether sha is an ancestor of base. A non-zero
+// exit — not an ancestor, or any git fault — reads as false, the
+// safe default: a lag is only ever reported on a clear yes.
+func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
+	_, err := run(dir, "merge-base", "--is-ancestor", sha, base)
+
+	return err == nil
+}
+
+// commitsBehind counts the commits sha would gain by fast-forwarding
+// to base. A count that cannot be read answers 0 rather than failing
+// the whole gather over a report's wording.
+func commitsBehind(dir, sha, base string, run gitwt.Runner) int {
+	out, err := run(dir, "rev-list", "--count", sha+".."+base)
+	if err != nil {
+		return 0
+	}
+
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0
+	}
+
+	return n
+}
+
 // heldBranches maps each claimed plan id to the branches that claim it:
 // the same holds the orphan report is built on, merged refs already
 // filtered out so landed work does not read as a live claim. The branch
@@ -204,13 +287,9 @@ func coordOf(repo discover.Repo, cfg repocfg.Config, preferred string) Coord {
 // what a takeover CASes on.
 func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
-	landed map[int64]bool, run gitwt.Runner,
+	refs []gitobj.Ref, landed map[int64]bool, run gitwt.Runner,
 ) (map[int64][]string, map[int64]string, error) {
 	holds, err := cfg.Compiled()
-	if err != nil {
-		return nil, nil, err
-	}
-	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
 		return nil, nil, err
 	}

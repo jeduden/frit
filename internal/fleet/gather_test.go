@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +13,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// gitOut runs git in dir for test setup and returns its trimmed stdout.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	out, err := exec.Command("git", full...).CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+
+	return strings.TrimSpace(string(out))
+}
 
 // repoWithPlan builds a one-commit repository under root carrying a
 // single not-started plan on its default branch — the shape the gather
@@ -255,4 +266,69 @@ func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
 	require.True(t, p.Held, "the decorated branch's marker still holds the plan")
 	assert.Empty(t, p.HoldTip,
 		"no bare id-only ref exists, so there is no tip a takeover CAS could target")
+}
+
+// TestGatherReportsALocalDefaultBranchLaggingItsFetchedRemote: a fetch
+// updates refs/remotes/origin/main without touching the local main a
+// worktree sits on — ordinary git, not a bug. Gather already has both
+// refs from its own walk, so it names the gap rather than silently
+// reading the stale local copy (S80).
+func TestGatherReportsALocalDefaultBranchLaggingItsFetchedRemote(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+
+	gitCmd(t, repo, "checkout", "-q", "-b", "tmp-ahead")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "extra.txt"), []byte("more\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "landed on origin")
+	ahead := gitOut(t, repo, "rev-parse", "HEAD")
+	gitCmd(t, repo, "checkout", "-q", "main")
+	gitCmd(t, repo, "branch", "-D", "tmp-ahead")
+	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", ahead)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found, "the lag is recorded as a problem")
+	assert.Contains(t, found.Err.Error(), "1 commit")
+}
+
+// TestGatherLeavesAnInSyncDefaultBranchProblemless: a local default
+// branch matching its remote-tracking ref exactly is not behind
+// anything, so no problem is recorded.
+func TestGatherLeavesAnInSyncDefaultBranchProblemless(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	head := gitOut(t, repo, "rev-parse", "HEAD")
+	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", head)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	for _, p := range res.Problems {
+		assert.NotEqual(t, "atlas", p.Repo, "an in-sync branch is not a problem")
+	}
+}
+
+// TestGatherLeavesAnUnfetchedDefaultBranchProblemless: a repository
+// with no remote-tracking ref at all — never fetched, or no remote
+// configured — has nothing to compare against, so it is not flagged.
+func TestGatherLeavesAnUnfetchedDefaultBranchProblemless(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	for _, p := range res.Problems {
+		assert.NotEqual(t, "atlas", p.Repo,
+			"no remote-tracking ref means nothing to compare")
+	}
 }

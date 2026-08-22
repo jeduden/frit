@@ -1,7 +1,7 @@
 ---
 id: 2608220941
 title: A fetched remote-tracking ref outrunning main is named
-status: "🔲"
+status: "✅"
 summary: >-
   frit's discovery reads never fetch, so a repo whose local default
   branch has fallen behind its own already-fetched remote-tracking ref
@@ -75,17 +75,17 @@ every other repo-level fault `Gather` already carries.
 
 ## Acceptance Criteria
 
-- [ ] A repo whose local default branch is a strict ancestor of its
+- [x] A repo whose local default branch is a strict ancestor of its
       own `refs/remotes/<remote>/<branch>` gets a `fleet.Problem`
       naming the repo and how many commits behind
-- [ ] A repo whose local default branch matches its remote-tracking
+- [x] A repo whose local default branch matches its remote-tracking
       ref, or carries no such ref at all (never fetched, or no
       remote), gets no such problem
-- [ ] The problem surfaces in both the table and `--json` for
+- [x] The problem surfaces in both the table and `--json` for
       `board`, `ready`, and every other verb that already prints
       `Gather`'s problems, with no new plumbing beyond
       `fleet.Problem`
-- [ ] Scenario S80 is recorded in
+- [x] Scenario S80 is recorded in
       [docs/research/lease-protocol.md](../docs/research/lease-protocol.md)
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
