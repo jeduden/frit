@@ -1,7 +1,7 @@
 ---
 id: 2608221754
 title: The supervisor acts on a lane it does not stand in
-status: "🔲"
+status: "🔳"
 summary: >-
   frit's deserted-hold recovery assumes the actor re-enters the lane's
   own worktree: resume, release and the yield way-out are all
@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: orphans surfaces a dead lane its own token hides
-    status: "🔲"
+    status: "✅"
 ---
 # The supervisor acts on a lane it does not stand in
 
@@ -150,11 +150,11 @@ declared once Phase 1 shows the real shape.
 
 ## Acceptance Criteria
 
-- [ ] `frit orphans` lists a herdr-confirmed-dead hold whose only
+- [x] `frit orphans` lists a herdr-confirmed-dead hold whose only
       resumable checkout is its own dead lane's
-- [ ] A live bound session keeps that hold off the deserted list
-- [ ] A behind-the-tip deserted lane still lists, with no regression
-- [ ] A matured hold stays a stale-held candidate, not a deserted hold
-- [ ] The `--json` deserted key is always present as `[]`
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] A live bound session keeps that hold off the deserted list
+- [x] A behind-the-tip deserted lane still lists, with no regression
+- [x] A matured hold stays a stale-held candidate, not a deserted hold
+- [x] The `--json` deserted key is always present as `[]`
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
