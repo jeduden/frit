@@ -111,6 +111,43 @@ func TestReapRefusesABranchNotConfirmedLanded(t *testing.T) {
 		"an unconfirmed branch is left standing, even with --go")
 }
 
+// TestReapStrandedTeardownFailureRefusesOnlyThatLaneWithGo: one landed
+// checkout git refuses to tear down (a leftover untracked file) must
+// not hide an unrelated, unambiguously prunable worktree in the same
+// repository — the same per-item fault isolation reapPruned's own
+// worktree-remove failures already get.
+func TestReapStrandedTeardownFailureRefusesOnlyThatLaneWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+
+	branch := "plan/1-bad"
+	lane := strandedCheckout(t, root, repo, "atlas-bad", branch)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land", branch)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lane, "leftover.txt"), []byte("wip\n"), 0o600))
+
+	goneLane := filepath.Join(root, "atlas-gone")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/2-gone", goneLane)
+	require.NoError(t, os.RemoveAll(goneLane))
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "atlas-bad")
+	_, statErr := os.Stat(lane)
+	assert.NoError(t, statErr,
+		"the lane git refused to tear down is left standing")
+	assert.Contains(t, out.String(), "atlas-gone",
+		"an unrelated prunable worktree is still reaped in the same run")
+	listed, err := gitCapture(t, repo, "worktree", "list", "--porcelain")
+	require.NoError(t, err)
+	assert.NotContains(t, listed, "atlas-gone",
+		"the unrelated prunable worktree is gone despite the other lane's failure")
+}
+
 // TestReapSquashMergedBranchIsReapedEvenNotAnAncestor is the
 // squash-merge counterpart: the plan is done on the default branch,
 // but the checkout's own branch was never merged there, so
@@ -224,6 +261,26 @@ func TestReapRefusesADecoratedUnstaffedHold(t *testing.T) {
 		"a decorated hold is left standing")
 }
 
+// TestReapRefusesEveryDecoratedHoldOnAnUnstaffedLane: a lane claimed
+// twice, on two decorated branches for the same plan and neither the
+// lease protocol's own canonical ref, names both branches in the
+// report rather than only the first one found — both need the same
+// migration.
+func TestReapRefusesEveryDecoratedHoldOnAnUnstaffedLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	claimBranch(t, repo, "plan/2608142306-fleet-index")
+	claimBranch(t, repo, "plan/2608142306-other-slug")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "plan/2608142306-fleet-index")
+	assert.Contains(t, out.String(), "plan/2608142306-other-slug")
+}
+
 // TestReapRefusesAnUnstaffedHoldFencedByAnotherMachine: the hold moved
 // since reap observed its tip — another machine took it over — so the
 // scavenge CAS loses and reap refuses rather than drop a lease that
@@ -329,6 +386,32 @@ func TestReapRemovesAnEmptyWorktreeWithGo(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "atlas-empty")
+	_, statErr := os.Stat(lane)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// TestReapRemovesAnEmptyWorktreeWithoutAlsoRefusingItAsStranded pins
+// the S79 double-classification hazard shut: an unborn worktree whose
+// branch matches a hold pattern has no ref for lanes.Build to find, so
+// it reads as a Stranded lane with no live hold and, independently, as
+// Empty. Judging it against the landed evidence too would refuse it
+// ("frit does not read this branch as landed") in the very same run
+// the Empty pass safely reaps it in — a self-contradictory report.
+// Only the Empty pass's kind should ever speak for this worktree.
+func TestReapRemovesAnEmptyWorktreeWithoutAlsoRefusingItAsStranded(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	lane := filepath.Join(root, "atlas-empty")
+	git(t, repo, "worktree", "add", "-q", "--orphan", "-b",
+		"plan/42-empty", lane)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "refused",
+		"a worktree the Empty pass safely reaps is never also refused as stranded")
 	_, statErr := os.Stat(lane)
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }

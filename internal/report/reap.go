@@ -106,6 +106,18 @@ func NewReap(root string, goFlag bool) *ReapDoc {
 	}
 }
 
+// orEmpty normalizes a nil slice to an empty one, so a caller that
+// passes a literal nil (goldenReap's clean-repository case, notably)
+// still lands on the JSON contract's "a list is [] and never null"
+// rather than leaning on every caller to build a non-nil slice itself.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+
+	return s
+}
+
 // AddRepo records one repository's reaped and refused orphans, clean
 // or not, across every kind reap acts on.
 func (d *ReapDoc) AddRepo(
@@ -114,30 +126,11 @@ func (d *ReapDoc) AddRepo(
 	dropped []DroppedHold, refusedHolds []RefusedHold,
 	pruned []PrunedWorktree, refusedPruned []RefusedWorktree,
 ) {
-	repo := ReapRepo{
-		Name: name, Reaped: reaped, Refused: refused,
-		Dropped: dropped, RefusedHolds: refusedHolds,
-		Pruned: pruned, RefusedPruned: refusedPruned,
-	}
-	if repo.Reaped == nil {
-		repo.Reaped = []ReapedLane{}
-	}
-	if repo.Refused == nil {
-		repo.Refused = []RefusedLane{}
-	}
-	if repo.Dropped == nil {
-		repo.Dropped = []DroppedHold{}
-	}
-	if repo.RefusedHolds == nil {
-		repo.RefusedHolds = []RefusedHold{}
-	}
-	if repo.Pruned == nil {
-		repo.Pruned = []PrunedWorktree{}
-	}
-	if repo.RefusedPruned == nil {
-		repo.RefusedPruned = []RefusedWorktree{}
-	}
-	d.Repos = append(d.Repos, repo)
+	d.Repos = append(d.Repos, ReapRepo{
+		Name: name, Reaped: orEmpty(reaped), Refused: orEmpty(refused),
+		Dropped: orEmpty(dropped), RefusedHolds: orEmpty(refusedHolds),
+		Pruned: orEmpty(pruned), RefusedPruned: orEmpty(refusedPruned),
+	})
 }
 
 // AddProblem records a repository frit could not read.
