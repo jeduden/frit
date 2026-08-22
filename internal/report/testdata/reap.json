@@ -44,12 +44,67 @@
           "branch": "plan/2608161808-herdr-join",
           "reason": "frit does not read this branch as landed"
         }
+      ],
+      "dropped": [
+        {
+          "plan_id": 2608171200,
+          "branch": "plan/2608171200",
+          "rescue": "refs/frit/rescue/2608171200/box-a"
+        }
+      ],
+      "refused_holds": [
+        {
+          "plan_id": 2608171201,
+          "branch": "plan/2608171201-shader",
+          "reason": "decorated hold; migrate to plan/2608171201 first"
+        }
+      ],
+      "pruned": [
+        {
+          "worktree": {
+            "path": "/fleet/atlas-empty",
+            "name": "atlas-empty",
+            "head": "",
+            "branch": "plan/42-empty",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": false
+          },
+          "kind": "empty"
+        }
+      ],
+      "refused_pruned": [
+        {
+          "worktree": {
+            "path": "/fleet/atlas-s79",
+            "name": "atlas-s79",
+            "head": "",
+            "branch": "plan/2608171202-gone-ref",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": false
+          },
+          "kind": "empty",
+          "reason": "git worktree remove: exit status 128: fatal: contains modified or untracked files, use --force to delete it"
+        }
       ]
     },
     {
       "name": "clean",
       "reaped": [],
-      "refused": []
+      "refused": [],
+      "dropped": [],
+      "refused_holds": [],
+      "pruned": [],
+      "refused_pruned": []
     }
   ],
   "problems": [

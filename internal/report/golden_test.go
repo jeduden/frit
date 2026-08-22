@@ -353,9 +353,12 @@ func goldenOrphans() *OrphansDoc {
 	return doc
 }
 
-// goldenReap pins the reap shape: a landed checkout reaped, one
-// refused because frit does not read its branch as landed, a clean
-// repository, and a repository reap could not read.
+// goldenReap pins the reap shape across every kind: a landed checkout
+// reaped, one refused because frit does not read its branch as
+// landed, an unstaffed hold dropped with its unlanded work parked, a
+// decorated one refused pending migration, a never-started worktree
+// pruned, one git itself refused to remove, a clean repository, and a
+// repository reap could not read.
 func goldenReap() *ReapDoc {
 	doc := NewReap("/fleet", true)
 	doc.AddRepo("atlas", []ReapedLane{
@@ -377,8 +380,36 @@ func goldenReap() *ReapDoc {
 			Branch: "plan/2608161808-herdr-join",
 			Reason: "frit does not read this branch as landed",
 		},
+	}, []DroppedHold{
+		{
+			PlanID: 2608171200, Branch: "plan/2608171200",
+			Rescue: "refs/frit/rescue/2608171200/box-a",
+		},
+	}, []RefusedHold{
+		{
+			PlanID: 2608171201, Branch: "plan/2608171201-shader",
+			Reason: "decorated hold; migrate to plan/2608171201 first",
+		},
+	}, []PrunedWorktree{
+		{
+			Worktree: Worktree{
+				Path: "/fleet/atlas-empty", Name: "atlas-empty",
+				Branch: "plan/42-empty",
+			},
+			Kind: "empty",
+		},
+	}, []RefusedWorktree{
+		{
+			Worktree: Worktree{
+				Path: "/fleet/atlas-s79", Name: "atlas-s79",
+				Branch: "plan/2608171202-gone-ref",
+			},
+			Kind: "empty",
+			Reason: "git worktree remove: exit status 128: fatal: " +
+				"contains modified or untracked files, use --force to delete it",
+		},
 	})
-	doc.AddRepo("clean", nil, nil)
+	doc.AddRepo("clean", nil, nil, nil, nil, nil, nil)
 	doc.AddProblem("broken", errors.New("no such worktree"))
 
 	return doc

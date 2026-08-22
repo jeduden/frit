@@ -5,20 +5,24 @@ import (
 	"io"
 	"text/tabwriter"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/gitobj"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/reap"
+	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
 )
 
 type reapCmd struct {
-	Go bool `help:"Remove a landed checkout and delete its branch; without it, reap only prints what it would do."`
+	Go bool `help:"Tear a stranded or unstaffed lane down; without it, reap only prints what it would do."`
 }
 
-// Run tears down the kinds of orphan `frit orphans` already reports.
-// This phase reaps a stranded lane: a checkout whose branch has
-// landed, still standing. It is a dry-run by default and acts only on
-// --go, exactly like nudge and start.
+// Run tears down every kind of orphan `frit orphans` already reports:
+// a stranded checkout, an unstaffed hold, a prunable or never-started
+// worktree. It is a dry-run by default and acts only on --go, exactly
+// like nudge and start.
 func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	repos, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
@@ -32,6 +36,11 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		remote, base, err := repoRemoteBase(repo, rt)
+		if err != nil {
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
 		found := lanes.Find(built, repo.Worktrees)
 
 		reaped, refused, err := reapStranded(rt, repo, found.Stranded, evidence, rc.Go)
@@ -39,7 +48,13 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		doc.AddRepo(repo.Name, reaped, refused)
+		pruned, refusedPruned := reapPruned(
+			rt, repo, found.Prunable, found.Empty, rc.Go)
+		dropped, refusedHolds := reapUnstaffed(
+			rt, repo, found.Unstaffed, remote, base, rc.Go)
+
+		doc.AddRepo(repo.Name, reaped, refused,
+			dropped, refusedHolds, pruned, refusedPruned)
 	}
 
 	if c.JSON {
@@ -49,6 +64,23 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// repoRemoteBase reads the remote a claim lease is pushed to and the
+// ref it is dated against — the two facts claim.Scavenge needs, read
+// directly here since reap walks every repository rather than
+// resolving one plan's own fleet.Coord.
+func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
+	cfg, err := repocfg.Load(repo.Path)
+	if err != nil {
+		return "", "", err
+	}
+	base := cfg.Base
+	if base == "" {
+		base = gitobj.DefaultRef(repo.Path, rt.git)
+	}
+
+	return cfg.Remote, base, nil
 }
 
 // reapStranded classifies and, under doGo, tears down every worktree
@@ -108,6 +140,144 @@ func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
 	return nil
 }
 
+// reapUnstaffed classifies and, under doGo, drops every unstaffed
+// lane's canonical hold through claim.Scavenge, parking any unlanded
+// work to a rescue ref first. Only the lease protocol's own id-only
+// ref (claim.Branch) is Scavenge's to CAS against; a lane held only on
+// a decorated legacy branch is refused with a migrate-first reason
+// rather than silently doing nothing useful. A hold Scavenge cannot
+// drop — fenced by another machine since observed, or already gone —
+// is refused with the reason it read, never a hard command failure:
+// one plan's scavenge trouble must not stop the rest from reaping.
+func reapUnstaffed(
+	rt *runtime, repo discover.Repo, unstaffed []lanes.Lane,
+	remote, base string, doGo bool,
+) ([]report.DroppedHold, []report.RefusedHold) {
+	dropped := []report.DroppedHold{}
+	refused := []report.RefusedHold{}
+
+	for _, lane := range unstaffed {
+		canonical := claim.Branch(lane.PlanID)
+		if !holds(lane, canonical) {
+			refused = append(refused, report.RefusedHold{
+				PlanID: lane.PlanID, Branch: firstHoldBranch(lane),
+				Reason: "decorated hold; migrate to " + canonical + " first",
+			})
+			continue
+		}
+
+		tip := claim.RemoteTip(repo.Path, remote, lane.PlanID, rt.git)
+		if tip == "" {
+			refused = append(refused, report.RefusedHold{
+				PlanID: lane.PlanID, Branch: canonical,
+				Reason: "hold ref already gone",
+			})
+			continue
+		}
+
+		if !doGo {
+			dropped = append(dropped, report.DroppedHold{
+				PlanID: lane.PlanID, Branch: canonical,
+			})
+			continue
+		}
+
+		sc, err := claim.Scavenge(repo.Path, claim.LeaseOptions{
+			PlanID: lane.PlanID, Remote: remote, Base: base,
+			Holder: hostname(),
+		}, tip, rt.git)
+		if err != nil {
+			refused = append(refused, report.RefusedHold{
+				PlanID: lane.PlanID, Branch: canonical, Reason: err.Error(),
+			})
+			continue
+		}
+		dropped = append(dropped, report.DroppedHold{
+			PlanID: lane.PlanID, Branch: canonical, Rescue: sc.Rescue,
+		})
+	}
+
+	return dropped, refused
+}
+
+// holds reports whether a lane carries a hold on exactly this branch.
+func holds(lane lanes.Lane, branch string) bool {
+	for _, h := range lane.Holds {
+		if h.Branch == branch {
+			return true
+		}
+	}
+
+	return false
+}
+
+// firstHoldBranch names a lane's first hold, for a refusal that has no
+// canonical ref to point at instead.
+func firstHoldBranch(lane lanes.Lane) string {
+	if len(lane.Holds) == 0 {
+		return ""
+	}
+
+	return lane.Holds[0].Branch
+}
+
+// reapPruned tears down every prunable and never-started worktree the
+// same way a stranded checkout is — git worktree remove — but leaves
+// any branch it stands on alone: unlike a landed lane's, a prunable or
+// empty checkout's branch may still be live work under another name.
+//
+// lanes.Find's two loops are independent, so a worktree whose branch
+// ref vanished without landing (S79) reads a zero-commit HEAD exactly
+// like one that never started, and can surface here as well as
+// stranded. git itself is the arbiter rather than a second
+// classification: `worktree remove` refuses a directory that still
+// holds real content it cannot reconcile against a resolvable commit,
+// and that refusal is reported rather than treated as a command
+// failure, so one ambiguous worktree never stops the rest from being
+// reaped.
+func reapPruned(
+	rt *runtime, repo discover.Repo,
+	prunable, empty []gitwt.Worktree, doGo bool,
+) ([]report.PrunedWorktree, []report.RefusedWorktree) {
+	pruned := []report.PrunedWorktree{}
+	refused := []report.RefusedWorktree{}
+
+	classify := func(worktrees []gitwt.Worktree, kind string) {
+		for _, wt := range worktrees {
+			p, r, ok := prunedEntry(rt, repo, wt, kind, doGo)
+			if ok {
+				pruned = append(pruned, p)
+			} else {
+				refused = append(refused, r)
+			}
+		}
+	}
+	classify(prunable, "prunable")
+	classify(empty, "empty")
+
+	return pruned, refused
+}
+
+// prunedEntry removes one worktree under doGo and reports it either
+// way, labelled by which kind it was found as. ok is false when git
+// itself refused the removal, carried back as a RefusedWorktree rather
+// than a command failure.
+func prunedEntry(
+	rt *runtime, repo discover.Repo, wt gitwt.Worktree, kind string, doGo bool,
+) (report.PrunedWorktree, report.RefusedWorktree, bool) {
+	if doGo {
+		if _, err := rt.git(repo.Path, "worktree", "remove", wt.Path); err != nil {
+			return report.PrunedWorktree{}, report.RefusedWorktree{
+				Worktree: report.WorktreeOf(wt), Kind: kind,
+				Reason: err.Error(),
+			}, false
+		}
+	}
+
+	return report.PrunedWorktree{Worktree: report.WorktreeOf(wt), Kind: kind},
+		report.RefusedWorktree{}, true
+}
+
 // printReap writes a block per repository with something reaped or
 // refused, worded for whether --go actually ran or reap only reports
 // what it would do.
@@ -134,10 +304,36 @@ func printReap(out io.Writer, doc *report.ReapDoc) {
 			_, _ = fmt.Fprintf(tw, "  refused\t%s\t%s (%s)\n",
 				lane.Worktree.Name, lane.Branch, lane.Reason)
 		}
+		for _, h := range repo.Dropped {
+			_, _ = fmt.Fprintf(tw, "  %s\tplan %d\t%s\n",
+				dropVerb(doc.Go), h.PlanID, h.Branch)
+		}
+		for _, h := range repo.RefusedHolds {
+			_, _ = fmt.Fprintf(tw, "  refused\tplan %d\t%s (%s)\n",
+				h.PlanID, h.Branch, h.Reason)
+		}
+		for _, wt := range repo.Pruned {
+			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n",
+				verb, wt.Worktree.Name, wt.Kind)
+		}
+		for _, wt := range repo.RefusedPruned {
+			_, _ = fmt.Fprintf(tw, "  refused\t%s\t%s (%s)\n",
+				wt.Worktree.Name, wt.Kind, wt.Reason)
+		}
 	}
 	_ = tw.Flush()
 
 	if !found {
 		_, _ = fmt.Fprintln(out, "nothing to reap")
 	}
+}
+
+// dropVerb words an unstaffed hold's fate for whether --go actually
+// ran or reap only reports what it would do.
+func dropVerb(goFlag bool) string {
+	if goFlag {
+		return "dropped"
+	}
+
+	return "would drop"
 }

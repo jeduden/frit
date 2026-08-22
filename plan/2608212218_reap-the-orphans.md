@@ -1,7 +1,7 @@
 ---
 id: 2608212218
 title: frit reaps the orphans it reports
-status: "🔳"
+status: "✅"
 summary: >-
   frit enumerates orphans — a landed checkout still standing, a
   claimed lane with no worktree, a prunable stub — but it cannot act
@@ -19,7 +19,7 @@ phases:
     status: "✅"
   - n: 2
     title: reap the remaining orphan kinds
-    status: "🔲"
+    status: "✅"
 ---
 # frit reaps the orphans it reports
 
@@ -102,16 +102,45 @@ clean.
 
 ## Phase 2: reap the remaining orphan kinds
 
-Reap extends over the other kinds `orphans` reports. A claimed lane
-with no checkout has its hold dropped through `claim.Scavenge`,
-parking any unlanded commits to a rescue ref first. A prunable stub is
-pruned. An empty worktree is removed. Each still honors the dry-run
-default and the landed-or-park rule, so no unlanded work is ever lost.
+Reap extends over the other kinds `orphans` reports: an unstaffed
+hold, a prunable worktree, a never-started one.
 
-RED cases and the exact per-kind behavior are settled after Phase 1
-fixes the report and teardown shape. The gate is that every orphan
-kind `orphans` names can be reaped or is explicitly refused with a
-reason, and unlanded work is always parked before any delete.
+An unstaffed lane's canonical id-only ref (`claim.Branch`) is dropped
+through `claim.Scavenge`. Any unlanded work is parked to a rescue ref
+first. Only that ref is Scavenge's to CAS against — it is hardcoded to
+`plan/<id>`. A lane held only on a decorated legacy branch is refused
+instead, with a migrate-first reason, rather than silently doing
+nothing useful. A hold Scavenge cannot drop — fenced by another
+machine since it was observed, or already gone — is refused with the
+reason it read. Neither case is a hard command failure.
+
+A prunable or never-started worktree is torn down the same primitive
+way a stranded checkout is: `git worktree remove`. Its branch is left
+alone. Unlike a landed lane's, a prunable or empty checkout's branch
+may still be live work under another name.
+
+RED surfaced a real hazard, not the four cases first assumed.
+`lanes.Find`'s stranded pass and its empty/prunable pass are
+independent. A worktree whose branch ref vanished without landing (S79
+— see
+[2608220940](2608220940_scavenge-spares-a-checked-out-branch.md))
+reports a zero-commit HEAD indistinguishable from one that never
+started, so the same worktree surfaces in both sets. Excluding it from
+the empty pass by path was the wrong fix. It made every genuinely
+never-started worktree unreapable too, since an unborn branch has no
+live ref either and so is *always* also classified stranded. GREEN
+instead lets git itself be the arbiter. `worktree remove` refuses a
+directory still holding real content it cannot reconcile against a
+resolvable commit. That refusal is carried back as a `RefusedWorktree`
+rather than a command failure, so one ambiguous worktree never stops
+the rest of a repository from being reaped.
+
+Gate: an unstaffed hold is dropped on `--go` with its unlanded work
+parked first. A decorated or fenced one is refused. A prunable and a
+never-started worktree are each reaped on `--go`. The S79 shape is
+refused rather than destroyed. `--json` carries every new kind's list
+as `[]` when empty. `go test ./...`, `go vet`, `golangci-lint run` and
+`mdsmith check .` are clean.
 
 ## Execution
 
@@ -125,11 +154,11 @@ is settled here, so both phases implement from written assertions.
 
 ## Acceptance Criteria
 
-- [ ] `frit reap` removes a landed checkout and deletes its branch
-- [ ] It is a dry-run by default; it acts only on `--go`
-- [ ] A branch frit does not read as landed is refused, not deleted
-- [ ] A squash-merged branch is read as landed and reaped
-- [ ] A claimed-no-checkout hold is dropped, unlanded work parked
-- [ ] `--json` carries the reaped and refused sets, always present
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `frit reap` removes a landed checkout and deletes its branch
+- [x] It is a dry-run by default; it acts only on `--go`
+- [x] A branch frit does not read as landed is refused, not deleted
+- [x] A squash-merged branch is read as landed and reaped
+- [x] A claimed-no-checkout hold is dropped, unlanded work parked
+- [x] `--json` carries the reaped and refused sets, always present
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
