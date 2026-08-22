@@ -101,6 +101,13 @@ kinds:
       table-readability: false
       max-file-length:
         max: 80
+      # A skill loads into a working session, so tokens are the real
+      # cost, not lines. 650 heuristic tokens is well above the
+      # largest skill today (plan-phase, about 552) with headroom to
+      # grow, but tight enough to catch bloat before it ships.
+      token-budget:
+        mode: heuristic
+        max: 650
 
 # Order matters: proto applies first so plan/proto.md also picks up
 # the plan kind, whose required-structure.schema points back at the

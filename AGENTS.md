@@ -158,8 +158,10 @@ a binary on `PATH`, not `go run ./cmd/frit`.
 
 A skill is read under time pressure and loaded into a working session,
 so it must stay skimmable and token-cheap. The `skill` kind in
-[.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, and a
-hard line cap keeps every skill short. Both the canonical assets and
+[.mdsmith.yml](.mdsmith.yml) enforces that: readability stays on, a
+hard line cap keeps every skill short, and MDS028 `token-budget` caps
+each skill at 650 heuristic tokens — the coarse line cap bounds bulk,
+the token budget bounds the real cost. Both the canonical assets and
 the installed copies are linted. Uniqueness of the skill `name` is
 scoped to the assets, because the dogfooded copies carry those same
 names by design.

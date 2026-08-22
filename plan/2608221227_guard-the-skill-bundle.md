@@ -14,7 +14,7 @@ phases:
     status: '✅'
   - n: 2
     title: "Cap each skill's token budget"
-    status: '🔲'
+    status: '✅'
   - n: 3
     title: 'Tighten every suitable lean rule'
     status: '🔲'
