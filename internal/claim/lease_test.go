@@ -809,3 +809,28 @@ func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
 	assert.Empty(t, RescueRefs(work, "origin", 8, gitwt.Exec),
 		"another plan's rescue refs do not bleed in")
 }
+
+// TestScavengeErrsWhenTheRemoteCannotBeRead: an ls-remote failure is a
+// fault, not an absent ref. Reading it as "already gone" would delete
+// the local copy of a lease the remote still carries and report a
+// clean no-op that never happened — so the scavenge must surface the
+// fault and touch nothing.
+func TestScavengeErrsWhenTheRemoteCannotBeRead(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	deadRemote := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, errors.New("could not resolve host")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), lease.Tip, deadRemote)
+
+	require.Error(t, err)
+	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.NotEmpty(t, local, "the local ref survives an unreadable remote")
+}
