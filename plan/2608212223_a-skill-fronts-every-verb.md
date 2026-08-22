@@ -1,7 +1,7 @@
 ---
 id: 2608212223
 title: A thin skill fronts every frit verb an agent uses
-status: "🔲"
+status: "🔳"
 summary: >-
   The shipped suite fronts finding, running, authoring and syncing
   plans. The teardown, cleanup and health verbs — yield, release,

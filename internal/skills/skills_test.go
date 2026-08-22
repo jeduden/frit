@@ -93,6 +93,26 @@ func TestInstallForceOverwrites(t *testing.T) {
 	}
 }
 
+// TestInstallWritesPlanTidy checks that the teardown and cleanup
+// skill is among the bundled skills Install writes.
+func TestInstallWritesPlanTidy(t *testing.T) {
+	dir := t.TempDir()
+
+	paths, err := Install(dir, false)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	want := filepath.Join(dir, ".claude", "skills", "plan-tidy", "SKILL.md")
+	found := false
+	for _, p := range paths {
+		found = found || p == want
+	}
+	if !found {
+		t.Fatalf("paths %v do not include %s", paths, want)
+	}
+}
+
 // TestShippedSkillNamesFritOnPath guards the load-bearing content
 // detail: a shipped skill runs where frit is a binary on PATH, so its
 // commands must read `frit`, not `go run ./cmd/frit`.
