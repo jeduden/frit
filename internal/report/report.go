@@ -74,6 +74,13 @@ type Worktree struct {
 	HasCommit   bool   `json:"has_commit"`
 }
 
+// WorktreeOf carries a worktree's porcelain facts into the wire shape,
+// for a caller outside this package building a document field by
+// field rather than through one of its Add* methods.
+func WorktreeOf(w gitwt.Worktree) Worktree {
+	return worktreeOf(w)
+}
+
 // worktreeOf carries every porcelain fact across unchanged.
 func worktreeOf(w gitwt.Worktree) Worktree {
 	return Worktree{

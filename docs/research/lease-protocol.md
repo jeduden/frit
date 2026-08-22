@@ -116,7 +116,7 @@ holdership from a local view.
 | scavenge   | the observed tip*       | ref deleted; unlanded work parked    |
 
 \* Scavenge needs fresh evidence, not landed-proof alone; the
-Scavenge section defines the two evidence classes and when work is
+Scavenge section defines the three evidence classes and when work is
 parked first.
 
 Consequences:
@@ -206,8 +206,9 @@ out of its own lease.
 
 ### Scavenge
 
-Landed is evidence on origin, and the evidence must be fresh against
-the tip it deletes (A2). Two classes:
+The evidence must be fresh against the tip it deletes (A2). Three
+classes — the first two landed, the third added 2026-08-22 by plan
+2608212218's `reap` verb:
 
 - **Ancestry evidence is tied to the tip**: the observed tip is
   itself an ancestor of the default branch, and the CAS expects
@@ -219,10 +220,30 @@ the tip it deletes (A2). Two classes:
   holder can never be scavenged, and the reopen race (a stale ✅
   read, then a fresh lease minted a moment later) is closed (A2,
   A6).
+- **Abandonment evidence** carries no landed proof at all: the lease
+  is observed stale, or its bound session is one herdr positively
+  confirms dead. It is takeover-grade evidence pointed at deletion
+  instead of seizure — the plan returns to startable rather than
+  changing hands — and the CAS on the observed tip still fences a
+  holder that renewed. "No local checkout" is deliberately not in
+  this class: the checkout may be another machine's, so `reap`
+  refuses a live lease however unstaffed it looks locally.
 
 A ref carrying unlanded work commits is parked to
 `refs/frit/rescue/<id>/<machine-id>` before deletion, so scavenge
 never destroys work. Retries are idempotent CAS.
+
+The park half stands alone as `ParkUnlanded`, for a teardown that
+deletes a local branch through git porcelain rather than the work
+ref through a CAS. `reap`'s stranded teardown parks the branch tip
+before `git branch -D`: glyph evidence is not tied to that tip, and
+a follow-up commit the squash never carried would otherwise be
+destroyed. A park that cannot happen refuses the delete.
+
+Classifying a ref as gone takes a remote's positive answer. An
+`ls-remote` that fails is surfaced as a fault, never folded into
+"already deleted", so an unreachable origin cannot make a scavenge
+clean the local ref and report a no-op that never happened.
 
 ### Yield
 
@@ -365,6 +386,9 @@ dies with the host.
 | S75 | default branch renamed                                        | evidence follows origin's HEAD, refreshed per read                                                                                                            |
 | S79 | scavenge/mint delete a branch a worktree still stands on      | a fresh worktree-list read gates every local `update-ref -d`; a branch still checked out keeps its local copy, only the remote delete and park proceed (SCAV) |
 | S80 | local default branch lags its own fetched remote-tracking ref | `Gather` compares the two and reports it as a problem; discovery never fetches on its own, so this is the one signal a stale read gets                        |
+| S81 | unstaffed hold, holder alive on another machine               | `reap` refuses: a drop needs abandonment evidence — a matured window or a dead session — never the missing local checkout (OBS, SCAV, A2)                     |
+| S82 | reaped squash-landed branch carries a follow-up commit        | the branch tip is parked to the rescue ref before `branch -D`; a park that cannot happen refuses the whole teardown (PARK)                                    |
+| S83 | origin unreadable while scavenge classifies the ref           | surfaced as a fault, local ref kept; "gone" is only ever a remote's positive answer (SCAV)                                                                    |
 
 ### Cross-layer: herdr and frit disagree
 

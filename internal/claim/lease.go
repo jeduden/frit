@@ -250,7 +250,16 @@ func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
-	switch now := remoteHolder(repoDir, opts.Remote, ref, run); now {
+	now, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
+	if err != nil {
+		// An unreadable remote is a fault, not an absent ref: reading it
+		// as "gone" would delete the local copy of a lease the remote
+		// still carries and report a no-op that never happened.
+		return Scavenged{}, fmt.Errorf(
+			"read %s from %s for plan %d: %w",
+			ref, opts.Remote, opts.PlanID, err)
+	}
+	switch now {
 	case "":
 		// Already gone — an earlier run, or another machine's, finished
 		// the job. Clean the stale local copy and report a no-op.
@@ -261,17 +270,9 @@ func Scavenge(
 		return Scavenged{}, fenceError(repoDir, opts, now, run)
 	}
 
-	res := Scavenged{}
-	unlanded, err := hasUnlanded(repoDir, opts, from, run)
+	res, err := ParkUnlanded(repoDir, opts, from, run)
 	if err != nil {
 		return res, err
-	}
-	if unlanded {
-		rescue := rescueRef(opts.PlanID, opts.Holder)
-		if err := park(repoDir, opts, rescue, from, run); err != nil {
-			return res, err
-		}
-		res.Rescue = rescue
 	}
 
 	if _, err := run(repoDir, "push",
@@ -325,6 +326,50 @@ func Yield(
 	}
 
 	return Scavenged{Rescue: rescue}, nil
+}
+
+// ParkUnlanded parks whatever unlanded work a tip carries to the
+// plan's rescue ref, touching no other ref — the park half of a
+// scavenge on its own. It exists for a teardown that deletes through
+// git porcelain rather than a ref CAS (reap's branch delete) and must
+// still honor the park-before-delete rule. A marker-only or landed
+// chain parks nothing; a rescue ref already holding other work
+// refuses, and the caller must then not delete.
+func ParkUnlanded(
+	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
+) (Scavenged, error) {
+	res := Scavenged{}
+	unlanded, err := hasUnlanded(repoDir, opts, tip, run)
+	if err != nil {
+		return res, err
+	}
+	if !unlanded {
+		return res, nil
+	}
+	rescue := rescueRef(opts.PlanID, opts.Holder)
+	if err := park(repoDir, opts, rescue, tip, run); err != nil {
+		return res, err
+	}
+	res.Rescue = rescue
+
+	return res, nil
+}
+
+// HasUnlanded reports whether the chain from the base to a tip holds
+// anything besides frit's own markers — work a delete would destroy.
+// Exported so a dry run can say whether a teardown would park before
+// it is asked to act.
+func HasUnlanded(
+	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
+) (bool, error) {
+	return hasUnlanded(repoDir, opts, tip, run)
+}
+
+// RescueRef names the rescue ref a park for this plan and holder
+// writes — exported so a dry run can preview the destination without
+// minting anything.
+func RescueRef(planID int64, holder string) string {
+	return rescueRef(planID, holder)
 }
 
 // RescueRefs lists the rescue refs a plan's scavenges and yields have

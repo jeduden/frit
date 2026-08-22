@@ -263,22 +263,10 @@ plan's worktree, where frit infers the plan from the branch.
 
 frit stores nothing about which leases are live; it recomputes state
 on every run from the ref list and, where reachable, herdr. `frit
-board` shows every outstanding plan with its holder and, for a stale
-one, how long its window has sat matured. `frit orphans` reports what
-no longer adds up:
-
-| Category    | What it means                                           |
-| ----------- | ------------------------------------------------------- |
-| unstaffed   | a lease with no worktree behind it                      |
-| stranded    | a worktree left standing on a ref that has since landed |
-| empty       | a worktree prepared and never started                   |
-| prunable    | a worktree whose checkout is already gone               |
-| migratable  | a legacy decorated hold, and the id-only ref it maps to |
-| stale holds | a held plan whose takeover window has matured           |
-
-`frit who` reports which lane has a live agent on it, read from
-herdr's own pane list. A claim is visible everywhere the remote is
-fetched; a running agent, only on its own machine.
+board` shows every outstanding plan and its holder, `frit orphans`
+reports what no longer adds up, and `frit reap` tears the reported
+orphans down. [Finding and reaping orphaned work](reaping.md) covers
+the categories and the evidence each teardown requires.
 
 ## Landed evidence and scavenge
 
@@ -295,6 +283,8 @@ under its holder.
 
 This page describes the lease protocol as it ships today, closed by
 [plan 2608202144](../plan/2608202144_lease-namespace-claims.md) and
-[plan 2608211326](../plan/2608211326_lease-protocol-completion.md).
+[plan 2608211326](../plan/2608211326_lease-protocol-completion.md),
+with the reap verb added by
+[plan 2608212218](../plan/2608212218_reap-the-orphans.md).
 Anything it does not describe — a manual delete, a slug in the branch
 name — is not part of the current mechanism.

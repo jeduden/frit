@@ -809,3 +809,110 @@ func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
 	assert.Empty(t, RescueRefs(work, "origin", 8, gitwt.Exec),
 		"another plan's rescue refs do not bleed in")
 }
+
+// TestScavengeErrsWhenTheRemoteCannotBeRead: an ls-remote failure is a
+// fault, not an absent ref. Reading it as "already gone" would delete
+// the local copy of a lease the remote still carries and report a
+// clean no-op that never happened — so the scavenge must surface the
+// fault and touch nothing.
+func TestScavengeErrsWhenTheRemoteCannotBeRead(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	deadRemote := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, errors.New("could not resolve host")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), lease.Tip, deadRemote)
+
+	require.Error(t, err)
+	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.NotEmpty(t, local, "the local ref survives an unreadable remote")
+}
+
+// TestParkUnlandedParksAChainCarryingWork: the park half of a scavenge
+// on its own — a tip carrying work commits is parked to the plan's
+// rescue ref, and the work ref itself is untouched. It exists for a
+// teardown that deletes through git porcelain rather than a ref CAS
+// (reap's branch delete) and must still honor park-before-delete.
+func TestParkUnlandedParksAChainCarryingWork(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+
+	sc, err := ParkUnlanded(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "refs/frit/rescue/7/box-b", sc.Rescue)
+	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
+	assert.Contains(t, rescue, tip, "the rescue ref carries the tip")
+	still := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, still, tip, "parking deletes nothing")
+}
+
+// TestParkUnlandedIsANoOpForAMarkerOnlyChain: markers are not work, so
+// there is nothing to park and no rescue ref is minted.
+func TestParkUnlandedIsANoOpForAMarkerOnlyChain(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	sc, err := ParkUnlanded(
+		work, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Empty(t, sc.Rescue)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue, "no rescue ref was created")
+}
+
+// TestParkUnlandedRefusesAForeignRescue: a rescue ref already holding
+// a different tip is somebody's parked work; the park refuses rather
+// than clobber it, so the caller knows not to delete.
+func TestParkUnlandedRefusesAForeignRescue(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	other := gitCmd(t, work, "rev-parse", "origin/main")
+	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b")
+
+	_, err = ParkUnlanded(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+
+	require.Error(t, err)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
+	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
+}
+
+// TestHasUnlandedTellsWorkFromMarkers: a marker-only chain has nothing
+// a delete could destroy; a chain with a work commit does. Exported so
+// a dry run can say whether a teardown would park before it acts.
+func TestHasUnlandedTellsWorkFromMarkers(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	markersOnly, err := HasUnlanded(work, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.False(t, markersOnly)
+
+	tip := workOn(t, work)
+	carried, err := HasUnlanded(work, opts, tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.True(t, carried)
+}
+
+// TestRescueRefNamesThePlanAndTheHolder pins the exported name a dry
+// run previews: the same per-plan, per-machine ref park writes.
+func TestRescueRefNamesThePlanAndTheHolder(t *testing.T) {
+	assert.Equal(t, "refs/frit/rescue/7/box-a", RescueRef(7, "box-a"))
+}

@@ -190,6 +190,7 @@ dependency trees never constrain consumers of this module.
 - `go run ./cmd/frit plans` — read plan files off every ref
 - `go run ./cmd/frit orphans` — claims and checkouts that disagree
 - `go run ./cmd/frit orphans --json` — the same report for an agent
+- `go run ./cmd/frit reap` — tear down what orphans reports; `--go` acts
 - `go run ./cmd/frit who` — which lane has a live agent on it, from herdr
 - `go run ./cmd/frit ready` — plans startable now: deps done, nobody holds
 - `go run ./cmd/frit pick -n 5` — the same, ranked by how much each unblocks
