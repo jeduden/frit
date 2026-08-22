@@ -1,7 +1,7 @@
 ---
 id: 2608221450
 title: Landed evidence reads origin's default branch, not a lagging local one
-status: "🔳"
+status: "✅"
 summary: >-
   DefaultRef resolves the default branch to a local `refs/heads/main`
   when `refs/remotes/origin/HEAD` is unset, and a local default branch
@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: Landed detection is proven against a lagging local main
-    status: "🔲"
+    status: "✅"
 ---
 # Landed evidence reads origin's default branch, not a lagging local one
 
@@ -139,13 +139,13 @@ the Context.
 
 ## Acceptance Criteria
 
-- [ ] `DefaultRef` returns the remote-tracking default when
+- [x] `DefaultRef` returns the remote-tracking default when
       `origin/HEAD` is unset and the local branch lags
-- [ ] `DefaultRef` still honors `refs/remotes/origin/HEAD` when set
-- [ ] `Gather` reads a squash-landed plan as landed though local
+- [x] `DefaultRef` still honors `refs/remotes/origin/HEAD` when set
+- [x] `Gather` reads a squash-landed plan as landed though local
       `main` lags
-- [ ] S85 in
+- [x] S85 in
       [the protocol note](../docs/research/lease-protocol.md) describes
       the shipped behavior
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
