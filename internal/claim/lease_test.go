@@ -710,6 +710,21 @@ func TestScavengeSparesABranchCheckedOutInALinkedWorktree(t *testing.T) {
 	assert.Equal(t, tip, head, "the linked worktree's HEAD still resolves")
 }
 
+// TestCheckedOutFailsClosedOnAnUnreadableWorktreeList: an unreadable
+// `git worktree list` must not read as "nobody is standing on this
+// branch" — that would let a transient git fault delete a branch a
+// worktree genuinely has checked out, the exact hazard the guard
+// exists to prevent. checkedOut answers true instead, so a caller
+// skips the delete on the safe side, same direction isAncestor
+// already takes for an unreadable read.
+func TestCheckedOutFailsClosedOnAnUnreadableWorktreeList(t *testing.T) {
+	failingList := func(_ string, _ ...string) ([]byte, error) {
+		return nil, errors.New("git worktree list: exit status 128")
+	}
+
+	assert.True(t, checkedOut("/repo", "plan/7", failingList))
+}
+
 // localWork commits one file on the plan's work ref without pushing —
 // the local divergence a fenced lane still carries after it lost a
 // race it never fetched.

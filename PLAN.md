@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                 |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
-| 2608220940 | sonnet | [Scavenge never deletes a branch a worktree still stands on](plan/2608220940_scavenge-spares-a-checked-out-branch.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -69,7 +67,7 @@ footer: |
 | 2608212223 | ✅     | sonnet | [A thin skill fronts every frit verb an agent uses](plan/2608212223_a-skill-fronts-every-verb.md)                               |
 | 2608212236 | ✅     | sonnet | [A --go dispatch reads as a handoff, not a to-do](plan/2608212236_dispatch-reads-as-a-handoff.md)                               |
 | 2608212346 | ✅     | sonnet | [A deserted hold is seen and has a way out](plan/2608212346_deserted-hold-recovery.md)                                          |
-| 2608220940 | 🔳     | sonnet | [Scavenge never deletes a branch a worktree still stands on](plan/2608220940_scavenge-spares-a-checked-out-branch.md)           |
+| 2608220940 | ✅     | sonnet | [Scavenge never deletes a branch a worktree still stands on](plan/2608220940_scavenge-spares-a-checked-out-branch.md)           |
 | 2608220941 | 🔲     | sonnet | [A fetched remote-tracking ref outrunning main is named](plan/2608220941_stale-default-branch-is-named.md)                      |
 | 2608221025 | 🔲     | sonnet | [The installer chooses how a laid-down skill invokes frit](plan/2608221025_skills-choose-frit-invocation.md)                    |
 | 2608221559 | 🔲     | sonnet | [Remove the superseded Mint claim path](plan/2608221559_remove-superseded-mint-path.md)                                         |

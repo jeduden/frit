@@ -249,8 +249,8 @@ type Scavenged struct {
 func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
-	ref := "refs/heads/" + leaseBranch(opts.PlanID)
 	branch := leaseBranch(opts.PlanID)
+	ref := "refs/heads/" + branch
 	now, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
 	if err != nil {
 		// An unreadable remote is a fault, not an absent ref: reading it
@@ -305,7 +305,10 @@ func Scavenge(
 func checkedOut(repoDir, branch string, run gitwt.Runner) bool {
 	worktrees, err := gitwt.List(repoDir, run)
 	if err != nil {
-		return false
+		// Unreadable fails toward the safe outcome: skip the delete
+		// rather than risk one on a branch a worktree really has
+		// checked out.
+		return true
 	}
 	for _, w := range worktrees {
 		if w.Branch == branch {
