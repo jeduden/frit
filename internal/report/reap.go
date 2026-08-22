@@ -40,11 +40,15 @@ func (r ReapRepo) Any() bool {
 }
 
 // ReapedLane is one stranded checkout reap removed, or would remove
-// under --go, along with the branch it deleted.
+// under --go, along with the branch it deleted. Rescue is the ref the
+// branch tip's unlanded work was parked to before the delete — or,
+// under a dry run, the ref it would be parked to — "" when the tip is
+// an ancestor of the base and a delete loses nothing.
 type ReapedLane struct {
 	PlanID   int64    `json:"plan_id"`
 	Worktree Worktree `json:"worktree"`
 	Branch   string   `json:"branch"`
+	Rescue   string   `json:"rescue"`
 }
 
 // RefusedLane is one stranded checkout reap left standing because

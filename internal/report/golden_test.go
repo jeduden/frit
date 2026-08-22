@@ -369,6 +369,7 @@ func goldenReap() *ReapDoc {
 				Branch: "plan/2608142306-fleet-index",
 			},
 			Branch: "plan/2608142306-fleet-index",
+			Rescue: "refs/frit/rescue/2608142306/box-a",
 		},
 	}, []RefusedLane{
 		{

@@ -36,26 +36,24 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		// The stranded pass parks before it deletes and the unstaffed
+		// pass scavenges, so both need the repository's remote and
+		// base. Loading them cannot practically fail once repoLanes
+		// has read the same config, so a failure here is a genuine
+		// problem worth skipping the repository over.
+		remote, base, err := repoRemoteBase(repo, rt)
+		if err != nil {
+			doc.AddProblem(repo.Name, err)
+			continue
+		}
 		found := lanes.Find(built, repo.Worktrees)
 
-		// Stranded and pruned teardown need nothing but what repoLanes
-		// and the worktree list already gave us, so neither waits on
-		// remote/base — only reapUnstaffed's Scavenge call does — and
-		// neither aborts the repo on the other's failure: each kind is
-		// reported on its own, the same rule prunedEntry already
-		// follows for a single worktree.
-		reaped, refused := reapStranded(rt, repo, found.Stranded, evidence, rc.Go)
+		reaped, refused := reapStranded(
+			rt, repo, found.Stranded, evidence, remote, base, rc.Go)
 		pruned, refusedPruned := reapPruned(
 			rt, repo, found.Prunable, found.Empty, rc.Go)
-
-		dropped := []report.DroppedHold{}
-		refusedHolds := []report.RefusedHold{}
-		if remote, base, err := repoRemoteBase(repo, rt); err != nil {
-			doc.AddProblem(repo.Name, err)
-		} else {
-			dropped, refusedHolds = reapUnstaffed(
-				rt, repo, found.Unstaffed, remote, base, rc.Go)
-		}
+		dropped, refusedHolds := reapUnstaffed(
+			rt, repo, found.Unstaffed, remote, base, rc.Go)
 
 		doc.AddRepo(repo.Name, reaped, refused,
 			dropped, refusedHolds, pruned, refusedPruned)
@@ -104,9 +102,17 @@ func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
 // A teardown failure refuses that one worktree rather than aborting
 // the rest: a leftover untracked file in one landed checkout must not
 // hide every other lane this repository could otherwise reap.
+//
+// The delete honors the park-before-delete rule. Ordinary-merge
+// evidence is tied to the tip — an ancestor of the base loses nothing
+// to branch -D — but the squash-merge glyph is not: a follow-up commit
+// the squash never carried would be destroyed. So the branch tip's
+// unlanded work is parked to the plan's rescue ref first, and a park
+// that cannot happen refuses the whole teardown, worktree and branch
+// both left standing.
 func reapStranded(
 	rt *runtime, repo discover.Repo, stranded []lanes.Lane,
-	evidence landedEvidence, doGo bool,
+	evidence landedEvidence, remote, base string, doGo bool,
 ) ([]report.ReapedLane, []report.RefusedLane) {
 	reaped := []report.ReapedLane{}
 	refused := []report.RefusedLane{}
@@ -115,6 +121,10 @@ func reapStranded(
 		landed := func(branch string) bool {
 			return evidence.Merged["refs/heads/"+branch] ||
 				evidence.ByPlanID[lane.PlanID]
+		}
+		opts := claim.LeaseOptions{
+			PlanID: lane.PlanID, Remote: remote, Base: base,
+			Holder: hostname(),
 		}
 
 		for _, d := range reap.Decide(
@@ -127,6 +137,14 @@ func reapStranded(
 				continue
 			}
 
+			rescue, err := parkBranch(rt, repo, opts, d.Branch, doGo)
+			if err != nil {
+				refused = append(refused, report.RefusedLane{
+					PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
+					Branch: d.Branch, Reason: "park: " + err.Error(),
+				})
+				continue
+			}
 			if doGo {
 				if err := tearDownWorktree(rt, repo, d); err != nil {
 					refused = append(refused, report.RefusedLane{
@@ -138,12 +156,44 @@ func reapStranded(
 			}
 			reaped = append(reaped, report.ReapedLane{
 				PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
-				Branch: d.Branch,
+				Branch: d.Branch, Rescue: rescue,
 			})
 		}
 	}
 
 	return reaped, refused
+}
+
+// parkBranch parks a branch tip's unlanded work ahead of its delete,
+// or under a dry run only names the rescue ref the park would write.
+// The tip is read off the branch itself — that is what branch -D
+// deletes — and an absent tip parks nothing, leaving the delete to
+// speak for itself. The dry-run preview is best-effort: a chain that
+// cannot be read previews no rescue rather than failing the report.
+func parkBranch(
+	rt *runtime, repo discover.Repo, opts claim.LeaseOptions,
+	branch string, doGo bool,
+) (string, error) {
+	tip, err := localRef(rt, repo.Path, branch)
+	if err != nil || tip == "" {
+		return "", err
+	}
+
+	if !doGo {
+		if unlanded, err := claim.HasUnlanded(
+			repo.Path, opts, tip, rt.git); err == nil && unlanded {
+			return claim.RescueRef(opts.PlanID, opts.Holder), nil
+		}
+
+		return "", nil
+	}
+
+	sc, err := claim.ParkUnlanded(repo.Path, opts, tip, rt.git)
+	if err != nil {
+		return "", err
+	}
+
+	return sc.Rescue, nil
 }
 
 // withCommits keeps only the worktrees that actually carry a commit.
@@ -314,6 +364,14 @@ func printReap(out io.Writer, doc *report.ReapDoc) {
 	found := false
 	verb := verbFor(doc.Go, "reaped", "would reap")
 	dropVerb := verbFor(doc.Go, "dropped", "would drop")
+	parkNote := func(rescue string) string {
+		if rescue == "" {
+			return ""
+		}
+
+		return fmt.Sprintf(" (%s: %s)",
+			verbFor(doc.Go, "parked", "would park"), rescue)
+	}
 
 	for _, repo := range doc.Repos {
 		if !repo.Any() {
@@ -323,21 +381,16 @@ func printReap(out io.Writer, doc *report.ReapDoc) {
 		_, _ = fmt.Fprintf(tw, "%s\t\t\n", repo.Name)
 
 		for _, lane := range repo.Reaped {
-			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n",
-				verb, lane.Worktree.Name, lane.Branch)
+			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s%s\n",
+				verb, lane.Worktree.Name, lane.Branch, parkNote(lane.Rescue))
 		}
 		for _, lane := range repo.Refused {
 			_, _ = fmt.Fprintf(tw, "  refused\t%s\t%s (%s)\n",
 				lane.Worktree.Name, lane.Branch, lane.Reason)
 		}
 		for _, h := range repo.Dropped {
-			if h.Rescue != "" {
-				_, _ = fmt.Fprintf(tw, "  %s\tplan %d\t%s (parked: %s)\n",
-					dropVerb, h.PlanID, h.Branch, h.Rescue)
-				continue
-			}
-			_, _ = fmt.Fprintf(tw, "  %s\tplan %d\t%s\n",
-				dropVerb, h.PlanID, h.Branch)
+			_, _ = fmt.Fprintf(tw, "  %s\tplan %d\t%s%s\n",
+				dropVerb, h.PlanID, h.Branch, parkNote(h.Rescue))
 		}
 		for _, h := range repo.RefusedHolds {
 			_, _ = fmt.Fprintf(tw, "  refused\tplan %d\t%s (%s)\n",

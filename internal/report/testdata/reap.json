@@ -22,7 +22,8 @@
             "prune_reason": "",
             "has_commit": false
           },
-          "branch": "plan/2608142306-fleet-index"
+          "branch": "plan/2608142306-fleet-index",
+          "rescue": "refs/frit/rescue/2608142306/box-a"
         }
       ],
       "refused": [
