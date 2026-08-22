@@ -96,6 +96,79 @@ func TestSessionLiveOnlyAPositiveAnswerCounts(t *testing.T) {
 	}
 }
 
+// TestSessionDeadOnlyAReachableHerdrConfirmsIt: the mirror of
+// SessionLive (2608212203) — a session is dead only when herdr
+// actually answered and shows no live agent under it. An unreachable
+// herdr must never read as a death, only as unknown, so it falls back
+// to the staleness window rather than skip it (S76).
+func TestSessionDeadOnlyAReachableHerdrConfirmsIt(t *testing.T) {
+	cases := []struct {
+		name    string
+		runner  Runner
+		session string
+		want    bool
+	}{
+		{
+			name:    "empty session is never confirmed dead",
+			runner:  fakeAgentList(),
+			session: "",
+			want:    false,
+		},
+		{
+			name:    "the unbound dash is never confirmed dead",
+			runner:  fakeAgentList(),
+			session: "-",
+			want:    false,
+		},
+		{
+			name: "herdr unreachable is not a death, only unknown",
+			runner: func(...string) ([]byte, error) {
+				return nil, errors.New("dial unix .herdr.sock: no such file")
+			},
+			session: "sess-1",
+			want:    false,
+		},
+		{
+			name:    "no pane carries the session: confirmed dead",
+			runner:  fakeAgentList(paneWithSession("other-session", "wB:p1", StatusWorking)),
+			session: "sess-1",
+			want:    true,
+		},
+		{
+			name:    "a working agent on the session is not dead",
+			runner:  fakeAgentList(paneWithSession("sess-1", "wC:p1", StatusWorking)),
+			session: "sess-1",
+			want:    false,
+		},
+		{
+			name:    "an idle agent on the session is still not dead",
+			runner:  fakeAgentList(paneWithSession("sess-1", "wC:p1", StatusIdle)),
+			session: "sess-1",
+			want:    false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, SessionDead(tc.runner, tc.session))
+		})
+	}
+}
+
+// TestSessionDeadInChecksManySessionsAgainstOneListCall: the pure half
+// SessionDead delegates to, so a caller checking many held plans'
+// sessions reads the pane list once rather than once per plan.
+func TestSessionDeadInChecksManySessionsAgainstOneListCall(t *testing.T) {
+	panes := []Pane{
+		{Session: "sess-1", Agent: "claude", Status: StatusWorking},
+	}
+
+	assert.False(t, SessionDeadIn(panes, ""), "empty session is never confirmed dead")
+	assert.False(t, SessionDeadIn(panes, "-"), "the unbound dash is never confirmed dead")
+	assert.False(t, SessionDeadIn(panes, "sess-1"), "a working agent on the session is not dead")
+	assert.True(t, SessionDeadIn(panes, "sess-2"), "no pane carries this session: confirmed dead")
+	assert.True(t, SessionDeadIn(nil, "sess-1"), "no panes at all: confirmed dead")
+}
+
 // TestPaneSessionReadsTheSessionBoundToAPane: start reads a just-opened
 // pane's session back this way, since neither worktree.create nor
 // agent.start answers with one.

@@ -67,6 +67,23 @@ func TestBoardCellLeavesALiveHoldUnmarked(t *testing.T) {
 		"a live hold carries no stale marker or age")
 }
 
+// TestBoardCellNamesADeadSessionsHold: a hold whose window has not
+// matured but whose bound session herdr confirms gone still reads as
+// a takeover candidate, told apart from a live hold at a glance.
+func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "", "")
+
+	cell := boardCell("held", doc, doc.Plans[0])
+
+	assert.Contains(t, cell, "plan/100")
+	assert.Contains(t, cell, "dead", "a confirmed-dead session is not a live hold")
+}
+
 // TestPrintBoardFitsTheWidthWhenGiven: with a width, no rendered line
 // spills past it, and the trimmed title is marked.
 func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {

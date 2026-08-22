@@ -104,6 +104,32 @@ func TestReadyResolvesDependenciesWithinTheRepository(t *testing.T) {
 	assert.Empty(t, got, "a cross-repo id must not satisfy a dependency")
 }
 
+// TestReadyOffersAHeldPlanWithAConfirmedDeadSession: a held plan whose
+// bound session herdr confirms gone is a candidate at once, with no
+// staleness window matured (2608212203, S76).
+func TestReadyOffersAHeldPlanWithAConfirmedDeadSession(t *testing.T) {
+	dead := p("atlas", 1, no)
+	dead.Held = true
+	dead.Dead = true
+
+	got := Ready([]Plan{dead})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(1), got[0].ID)
+}
+
+// TestReadyWithholdsAHeldPlanNeitherStaleNorDead pins the baseline
+// this phase must not regress: a held plan with no matured window and
+// no confirmed-dead session stays withheld.
+func TestReadyWithholdsAHeldPlanNeitherStaleNorDead(t *testing.T) {
+	held := p("atlas", 1, no)
+	held.Held = true
+
+	got := Ready([]Plan{held})
+
+	assert.Empty(t, got)
+}
+
 func TestReadyOrdersByRepoThenID(t *testing.T) {
 	plans := []Plan{
 		p("orrery", 5, no),

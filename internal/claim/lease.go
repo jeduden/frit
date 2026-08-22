@@ -439,6 +439,79 @@ func Released(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 		subject == fmt.Sprintf("plan %d: %s", planID, markerRelease)
 }
 
+// Held reports whether the nearest terminal marker reachable from a
+// ref's tip is a claim or takeover — the two kinds that establish an
+// acquisition, as opposed to a release, which ends one. A beat marker
+// is not terminal: it is a routine renewal, so it is deliberately left
+// out of the grep and the search sees past it to whatever it renews,
+// which is why an actively-held lease reads as held even when its tip
+// is itself a beat commit. Restricting the search to the *nearest*
+// terminal marker (rather than any claim or takeover merely reachable
+// in history) is what tells apart a live lease from one that was
+// released and then had further, non-marker commits pushed onto it
+// with no new claim — a shape Released alone cannot catch, since
+// Released only reads the tip's own subject.
+//
+// git's --grep matches anywhere in a commit's full multi-line message,
+// not just its subject line — so the nearest --grep hit can be a
+// coincidence buried in some other commit's body (a squash that
+// concatenates an old marker subject into a new commit's message,
+// say), naming a commit that is not actually a marker at all. The
+// candidate's own subject is re-validated by terminalMarkerKind before
+// it is trusted; a candidate that fails that check is treated the
+// same as no candidate; the nearer real marker, if there is one, is
+// never seen once a nearer false one has been ruled out, which is the
+// same fail-safe direction as the rest of this function.
+//
+// A ref that matches the holds patterns by name alone, with no marker
+// at all reachable, is a name match, not a hold — a hand-made branch
+// must not block the plan it happens to name. The legacy decorated
+// claim, whose subject carries a lane slug behind the kind, is
+// tolerated the same way markerSubject already tolerates it: the
+// pattern matches the prefix, not the whole line. An unreadable tip,
+// or a candidate whose subject does not actually hold up, reads as
+// not held, which fails safe for a fleet walk: it costs a plan
+// wrongly offered as startable, never a live lease wrongly seized.
+func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
+	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
+	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
+	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
+	body, err := trimmed(run(repoDir, "log", "-1",
+		"--grep="+claimPattern, "--grep="+takeoverPattern,
+		"--grep="+releasePattern, "--format=%s", tip))
+	if err != nil || body == "" {
+		return false
+	}
+
+	switch terminalMarkerKind(body, planID) {
+	case markerClaim, markerTakeover:
+		return true
+	default:
+		return false
+	}
+}
+
+// terminalMarkerKind reports which terminal marker a candidate
+// commit's subject actually is — markerClaim, markerTakeover or
+// markerRelease — or "" when the subject is none of them. It exists so
+// Held can re-check a --grep hit against the one line that is its
+// actual message, the same prefix-not-whole-line tolerance markerSubject
+// gives the legacy decorated claim.
+func terminalMarkerKind(subject string, planID int64) string {
+	rest, ok := strings.CutPrefix(subject, fmt.Sprintf("plan %d: ", planID))
+	if !ok {
+		return ""
+	}
+	if rest == markerTakeover || rest == markerRelease {
+		return rest
+	}
+	if rest == markerClaim || strings.HasPrefix(rest, markerClaim+" ") {
+		return markerClaim
+	}
+
+	return ""
+}
+
 // leaseBranch is the work ref's branch name: plan/<id>, id only, so
 // nothing derived from local state — a slug, a title — reaches the ref
 // and two machines can never name the same plan differently.

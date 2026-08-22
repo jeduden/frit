@@ -16,7 +16,8 @@
       "path": "plan/2608161809_discovery-readiness-verbs.md",
       "held": false,
       "stale": false,
-      "stale_seconds": 0
+      "stale_seconds": 0,
+      "dead": false
     },
     {
       "key": "forge:orrery:7",
@@ -30,7 +31,8 @@
       "path": "plan/7_shader-unit-tests.md",
       "held": true,
       "stale": true,
-      "stale_seconds": 10800
+      "stale_seconds": 10800,
+      "dead": false
     }
   ],
   "problems": []

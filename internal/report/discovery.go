@@ -27,6 +27,10 @@ type PlanCard struct {
 	// consumer applies its own threshold without re-deriving it.
 	Stale        bool  `json:"stale"`
 	StaleSeconds int64 `json:"stale_seconds"`
+	// Dead marks a held plan whose bound session herdr positively
+	// confirms is gone: a takeover candidate at once, whether or not
+	// Stale has also matured.
+	Dead bool `json:"dead"`
 }
 
 // cardOf projects a discovery plan into its wire shape.
@@ -44,6 +48,7 @@ func cardOf(p discovery.Plan) PlanCard {
 		Held:         p.Held,
 		Stale:        p.Stale,
 		StaleSeconds: int64(p.StaleFor / time.Second),
+		Dead:         p.Dead,
 	}
 }
 

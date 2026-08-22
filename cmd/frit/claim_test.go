@@ -496,6 +496,103 @@ func TestClaimTakesOverWhenTheBoundSessionIsGone(t *testing.T) {
 	assert.Contains(t, body, "epoch:   2")
 }
 
+// TestClaimTakesOverADeadSessionWithNoMaturedWindow: herdr positively
+// confirms the holder's bound session is gone, so the plan is a
+// takeover candidate at once — no staleness window is seeded at all
+// (2608212203, S76).
+func TestClaimTakesOverADeadSessionWithNoMaturedWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"pane_id":      "wOther:p1",
+		"agent_session": map[string]any{
+			"value": "wOther:session",
+		},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"a confirmed-dead session is a candidate with no matured window")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover")
+	assert.Contains(t, body, "epoch:   2")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, parent,
+		"the takeover is a child of exactly the observed tip")
+}
+
+// TestClaimStillRefusesALiveSessionWithNoMaturedWindow pins the
+// baseline: a live bound session is never taken over, whether or not
+// a window has matured.
+func TestClaimStillRefusesALiveSessionWithNoMaturedWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"pane_id":      "wS:p9",
+		"agent_session": map[string]any{
+			"value": "wS:p9",
+		},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused",
+		"a live session is not a candidate on its own")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
+}
+
+// TestClaimStillRefusesAnUnreachableHerdrWithNoMaturedWindow pins the
+// other baseline: an unreachable herdr cannot confirm a death, so it
+// falls back to the window rule exactly as before this signal existed
+// — not a candidate, since the window has not matured either.
+func TestClaimStillRefusesAnUnreachableHerdrWithNoMaturedWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused",
+		"an unreachable herdr falls back to the window rule")
+}
+
 // TestClaimResumesItsOwnLeaseFromThePersistedToken: a lane whose
 // persisted token matches origin's current tip, with no live session
 // bound to it, resumes on the spot — no matured window is seeded, so

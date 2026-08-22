@@ -63,6 +63,12 @@ type Plan struct {
 	Stale bool
 	// StaleFor is how long the tip has been observed unchanged.
 	StaleFor time.Duration
+	// Dead reports a held plan whose bound session herdr positively
+	// confirms is gone — a takeover candidate at once, with no
+	// staleness window consulted at all (S76). Distinct from Stale:
+	// a live session that simply has not renewed yet is not Dead, and
+	// an unreachable herdr answers Dead false, falling back to Stale.
+	Dead bool
 }
 
 // NotStarted reports a plan nobody has begun.

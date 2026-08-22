@@ -6,8 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -419,16 +426,33 @@ func TestPlansHonoursEachRepositorysPlanDir(t *testing.T) {
 	assert.Contains(t, out.String(), "1 plan")
 }
 
-// claimBranch commits one file on a branch named for a plan and
-// returns to main, leaving the branch unmerged and with no worktree.
+// claimBranch mints a claim marker and then one work commit on a
+// branch named for a plan, and returns to main, leaving the branch
+// unmerged and with no worktree. The marker is what makes the branch
+// read as an actual hold rather than a bare name match (2608212203).
 func claimBranch(t *testing.T, repo, branch string) {
 	t.Helper()
+	id := claimBranchPlanID(t, branch)
 	git(t, repo, "checkout", "-q", "-b", branch)
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: claim", id))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
 	git(t, repo, "add", "-A")
 	git(t, repo, "commit", "-q", "-m", "work on "+branch)
 	git(t, repo, "checkout", "-q", "main")
+}
+
+// claimBranchPlanID reads the plan id off the leading plan/<id>[-slug]
+// segment of a hold branch name.
+func claimBranchPlanID(t *testing.T, branch string) int64 {
+	t.Helper()
+	rest := strings.TrimPrefix(branch, "plan/")
+	digits, _, _ := strings.Cut(rest, "-")
+	id, err := strconv.ParseInt(digits, 10, 64)
+	require.NoError(t, err, "branch %q must start with plan/<id>", branch)
+
+	return id
 }
 
 // landPlan commits a plan file on the default branch with a given
@@ -447,6 +471,145 @@ func landPlan(t *testing.T, repo string, id int64, slug, status string) {
 		filepath.Join(dir, name), []byte(body), 0o600))
 	git(t, repo, "add", "-A")
 	git(t, repo, "commit", "-q", "-m", "land plan "+slug)
+}
+
+// TestDeadSessionConfirmsAGoneAgentAtOnce: a held plan whose marker
+// names a session herdr shows no live agent under is dead, no window
+// consulted.
+func TestDeadSessionConfirmsAGoneAgentAtOnce(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	rt := &runtime{git: gitwt.Exec}
+	coord := fleet.Coord{Path: repo, Remote: "origin"}
+	plan := discovery.Plan{ID: 7, Held: true, HoldTip: lease.Tip}
+	panes := []herdr.Pane{{Session: "wOther:session", Agent: "claude"}}
+
+	assert.True(t, deadSession(rt, coord, plan, panes))
+}
+
+// TestDeadSessionAnswersFalseForALiveAgent pins the baseline: a
+// working agent found under the bound session is not dead.
+func TestDeadSessionAnswersFalseForALiveAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wS:p9"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	rt := &runtime{git: gitwt.Exec}
+	coord := fleet.Coord{Path: repo, Remote: "origin"}
+	plan := discovery.Plan{ID: 7, Held: true, HoldTip: lease.Tip}
+	panes := []herdr.Pane{{Session: "wS:p9", Agent: "claude"}}
+
+	assert.False(t, deadSession(rt, coord, plan, panes))
+}
+
+// TestDeadSessionAnswersFalseForAnUnheldPlan: nothing to confirm dead
+// when nobody holds the plan, so deadSession never reads a marker.
+func TestDeadSessionAnswersFalseForAnUnheldPlan(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+
+	assert.False(t, deadSession(
+		rt, fleet.Coord{Path: "/r"}, discovery.Plan{ID: 7, Held: false}, nil))
+}
+
+// TestDeadSessionAnswersFalseForAnUnreadableMarker: an empty or
+// unreachable HoldTip cannot name who to ask, so it falls back to the
+// staleness window exactly as before this signal existed.
+func TestDeadSessionAnswersFalseForAnUnreadableMarker(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, fmt.Errorf("bad object")
+	}}
+
+	assert.False(t, deadSession(
+		rt, fleet.Coord{Path: "/r"},
+		discovery.Plan{ID: 7, Held: true, HoldTip: "deadbeef"}, nil))
+}
+
+// TestObserveHoldsReadsHerdrOnceForManyHeldPlans: the pane list is read
+// once per fleet gather and shared across every held plan's
+// dead-session check, not once per plan — and an unreachable herdr
+// leaves every plan's Dead at its zero value rather than misreading an
+// empty pane list as everyone's session being gone.
+func TestObserveHoldsReadsHerdrOnceForManyHeldPlans(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	atlas := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	orrery := claimableRepo(t, root, "orrery", 8, "Volumetrics")
+	acquire := func(repo string, id int64, session string) {
+		_, err := claim.Acquire(repo, claim.LeaseOptions{
+			PlanID: id, Remote: "origin", Base: "origin/main",
+			Holder: "elsewhere", Lane: "/lanes/x", Session: session,
+		}, gitwt.Exec)
+		require.NoError(t, err)
+	}
+	acquire(atlas, 7, "wA:p1")
+	acquire(orrery, 8, "wB:p1")
+	calls := 0
+	countingHerdr := herdrReturning()
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe,
+		herdr: func(args ...string) ([]byte, error) {
+			calls++
+			return countingHerdr(args...)
+		}}
+
+	res, err := gatherFleet(&cli{Root: root}, rt)
+
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 2)
+	assert.Equal(t, 1, calls, "one List call serves every held plan")
+	for _, p := range res.Plans {
+		assert.True(t, p.Dead, "no pane at all: both bound sessions read as gone")
+	}
+}
+
+// TestObserveHoldsLeavesDeadFalseWhenHerdrIsUnreachable: a failed List
+// call must not be read as an empty-but-successful pane list — every
+// held plan falls back to unknown, exactly as a per-plan SessionDead
+// call would have answered.
+func TestObserveHoldsLeavesDeadFalseWhenHerdrIsUnreachable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := claim.Acquire(repo, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x", Session: "wA:p1",
+	}, gitwt.Exec)
+	require.NoError(t, err)
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe,
+		herdr: func(...string) ([]byte, error) {
+			return nil, fmt.Errorf("dial unix .herdr.sock: no such file")
+		}}
+
+	res, err := gatherFleet(&cli{Root: root}, rt)
+
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 1)
+	assert.False(t, res.Plans[0].Dead)
+}
+
+// TestStaleHeldIncludesADeadSessionsHold: staleHeld feeds the orphan
+// report's takeover-candidate bucket, so a plan whose session herdr
+// confirms gone belongs there even with no matured window.
+func TestStaleHeldIncludesADeadSessionsHold(t *testing.T) {
+	plans := []discovery.Plan{
+		{Repo: "atlas", ID: 1, Held: true, Dead: true},
+		{Repo: "atlas", ID: 2, Held: true},
+		{Repo: "orrery", ID: 3, Held: true, Dead: true},
+	}
+
+	got := staleHeld(plans, "atlas")
+
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(1), got[0].ID)
 }
 
 func TestOrphansReportsAClaimWithNoCheckout(t *testing.T) {

@@ -358,6 +358,111 @@ func TestParseMarker(t *testing.T) {
 	assert.False(t, ok, "another plan's marker does not read as this one's")
 }
 
+// TestHeldFindsAClaimOrTakeoverReachableFromTip: the ordinary shapes a
+// live lease takes all read as held — a bare claim, a claim beneath
+// later work, a takeover, and the legacy decorated claim whose subject
+// carries a lane slug behind the kind.
+func TestHeldFindsAClaimOrTakeoverReachableFromTip(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+	assert.True(t, Held(work, tip, 7, gitwt.Exec), "a bare claim is held")
+
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "real work")
+	tip = gitCmd(t, work, "rev-parse", "HEAD")
+	assert.True(t, Held(work, tip, 7, gitwt.Exec),
+		"a claim beneath later work is still held")
+
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: takeover")
+	tip = gitCmd(t, work, "rev-parse", "HEAD")
+	assert.True(t, Held(work, tip, 7, gitwt.Exec), "a takeover is held")
+}
+
+// TestHeldReadsALegacyDecoratedClaimAsHeld: the old claim design's
+// subject carries a lane slug behind the kind; Held tolerates it the
+// same way markerSubject and Released's callers already do.
+func TestHeldReadsALegacyDecoratedClaimAsHeld(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.True(t, Held(work, tip, 7, gitwt.Exec))
+}
+
+// TestHeldIsNotFooledByAReleaseThatSupersedesAnOldClaim: the bug this
+// test pins is a release marker read as transparent because an older
+// claim was still reachable from tip. A release is the nearest
+// terminal marker here, so it must win over the claim beneath it —
+// Released alone cannot tell this apart from a live hold, since
+// Released only reads the tip's own subject, and the tip here is a
+// plain commit pushed on top of the release with no new claim.
+func TestHeldIsNotFooledByAReleaseThatSupersedesAnOldClaim(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: release")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m",
+		"some other manual commit, not a marker")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.False(t, Held(work, tip, 7, gitwt.Exec),
+		"a release after the claim ends the hold, even with later work")
+}
+
+// TestHeldIsNotFooledByAMarkerLineBuriedInAnUnrelatedBody: git's
+// --grep matches anywhere in a commit's full multi-line message, not
+// just its subject, so a commit whose body merely contains a line that
+// looks like a marker — the shape a squash-merge leaves when it
+// concatenates an old marker subject into a new commit's body — must
+// not read as the marker itself. Held is expected to re-validate the
+// candidate's actual subject before trusting it.
+func TestHeldIsNotFooledByAMarkerLineBuriedInAnUnrelatedBody(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m",
+		"unrelated subject\n\nplan 7: claim\nepoch:   9")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.False(t, Held(work, tip, 7, gitwt.Exec),
+		"a marker line buried in another commit's body is not a marker")
+}
+
+// TestHeldStillCountsAnActiveRenewalWhoseTipIsABeatMarker pins the
+// baseline the fix above must not break: a beat marker is a routine
+// renewal, not a terminal state, so Held must see past it to the claim
+// or takeover it renews rather than stopping at the first marker of
+// any kind it meets.
+func TestHeldStillCountsAnActiveRenewalWhoseTipIsABeatMarker(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: beat")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: beat")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.True(t, Held(work, tip, 7, gitwt.Exec),
+		"a renewed lease is held even though its tip is a beat marker")
+}
+
+// TestHeldAnsweresFalseForAMarkerlessBranch: a ref matching the holds
+// pattern by name alone, with no marker of any kind reachable, is not
+// a lease frit ever minted.
+func TestHeldAnswersFalseForAMarkerlessBranch(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "hand-made commit")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.False(t, Held(work, tip, 7, gitwt.Exec))
+}
+
+// TestHeldAnswersFalseForAnUnreadableTip fails safe: an object Held
+// cannot read costs a plan wrongly offered as startable, never a live
+// lease wrongly seized.
+func TestHeldAnswersFalseForAnUnreadableTip(t *testing.T) {
+	assert.False(t, Held("/r", "not-a-real-sha", 7,
+		func(string, ...string) ([]byte, error) {
+			return nil, errors.New("bad object")
+		}))
+}
+
 // TestReleased reads the tip's subject and nothing else: a release
 // marker for this plan answers true; work commits, other kinds, other
 // plans and unreadable objects answer false.

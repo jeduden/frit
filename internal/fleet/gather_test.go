@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,4 +120,139 @@ func TestGatherKeepsAUniqueCoordinate(t *testing.T) {
 	assert.True(t, ok, "the unique name keeps its coordinate")
 	_, ok = res.Coords["frontend"]
 	assert.False(t, ok, "the shared name does not")
+}
+
+// planByID finds the gathered plan with the given id. The test that
+// calls it has already set up a fixture where the id must be present,
+// so a miss is a fixture bug, not a case under test.
+func planByID(t *testing.T, res Result, id int64) discovery.Plan {
+	t.Helper()
+	for _, p := range res.Plans {
+		if p.ID == id {
+			return p
+		}
+	}
+	t.Fatalf("no gathered plan with id %d", id)
+
+	return discovery.Plan{}
+}
+
+// TestGatherLeavesAMarkerlessBranchUnheld: a hand-made plan/<id>
+// branch of plain commits matches the holds pattern by name alone. No
+// frit marker is reachable from its tip, so it is not a hold.
+func TestGatherLeavesAMarkerlessBranchUnheld(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "hand-made branch, no marker")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.False(t, planByID(t, res, 7).Held,
+		"a name match with no marker is not a hold")
+}
+
+// TestGatherReadsAClaimMarkerBeneathLaterWorkAsHeld: real work landed
+// on top of a minted claim still reads as held — the marker only has
+// to be reachable, not the tip.
+func TestGatherReadsAClaimMarkerBeneathLaterWorkAsHeld(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "real work")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.True(t, planByID(t, res, 7).Held,
+		"the claim marker beneath the tip still counts")
+}
+
+// TestGatherReadsAMarkerOnlyBranchAsHeld: the claim marker is the
+// whole branch, with no work commit on top of it yet.
+func TestGatherReadsAMarkerOnlyBranchAsHeld(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.True(t, planByID(t, res, 7).Held,
+		"a bare claim marker is still a hold")
+}
+
+// TestGatherLeavesAReleasedTipUnheld pins the existing rule unchanged:
+// a tip that is a release marker is a lease that ended, not a hold.
+func TestGatherLeavesAReleasedTipUnheld(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: release")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.False(t, planByID(t, res, 7).Held,
+		"a released tip stays not held")
+}
+
+// TestGatherReadsALegacyDecoratedHoldAsHeld: the old claim design's
+// slug-carrying branch still carries a claim marker, so the migration
+// path off it is not broken by the marker gate.
+func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.True(t, planByID(t, res, 7).Held,
+		"a legacy decorated hold still carries a marker")
+}
+
+// TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold pins a deliberate
+// limit: HoldTip is only ever the bare, id-only plan/<id> ref's tip —
+// the one ref Takeover's CAS targets — never a decorated or legacy
+// branch's, even when that branch alone is what makes Held true. A
+// plan held only through such a branch stays outside the staleness
+// window and the dead-session read (observeHolds's HoldTip == ""
+// guard), because there is no id-only ref a takeover could seize
+// anyway; seeding a tip from the decorated branch would let Stale or
+// Dead mature and send claim's takeover at the bare ref regardless,
+// which does not exist, turning the attempt into a raw push failure
+// instead of a graceful refusal.
+func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	p := planByID(t, res, 7)
+	require.True(t, p.Held, "the decorated branch's marker still holds the plan")
+	assert.Empty(t, p.HoldTip,
+		"no bare id-only ref exists, so there is no tip a takeover CAS could target")
 }

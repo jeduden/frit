@@ -36,10 +36,14 @@ type BoardPlan struct {
 	// Stale marks a held plan whose takeover window matured: a
 	// takeover candidate, with the observed unchanged span in seconds
 	// so a consumer applies its own threshold without re-deriving it.
-	Stale        bool   `json:"stale"`
-	StaleSeconds int64  `json:"stale_seconds"`
-	Agent        string `json:"agent"`
-	AgentStatus  string `json:"agent_status"`
+	Stale        bool  `json:"stale"`
+	StaleSeconds int64 `json:"stale_seconds"`
+	// Dead marks a held plan whose bound session herdr positively
+	// confirms is gone: a takeover candidate at once, whether or not
+	// Stale has also matured.
+	Dead        bool   `json:"dead"`
+	Agent       string `json:"agent"`
+	AgentStatus string `json:"agent_status"`
 }
 
 // NewBoard opens a status board. presence carries whether herdr was
@@ -69,6 +73,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 		Holds:        refsOf(p.Holds),
 		Stale:        p.Stale,
 		StaleSeconds: int64(p.StaleFor / time.Second),
+		Dead:         p.Dead,
 		Agent:        agent,
 		AgentStatus:  status,
 	})

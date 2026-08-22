@@ -191,12 +191,13 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// staleHeld filters one repository's held plans whose takeover window
-// has matured — a takeover candidate nobody has acted on yet.
+// staleHeld filters one repository's held plans ready for a takeover —
+// a matured window, a bound session herdr confirms is gone, or both —
+// a candidate nobody has acted on yet.
 func staleHeld(plans []discovery.Plan, repo string) []discovery.Plan {
 	out := make([]discovery.Plan, 0)
 	for _, p := range plans {
-		if p.Repo == repo && p.Held && p.Stale {
+		if p.Repo == repo && p.Held && (p.Stale || p.Dead) {
 			out = append(out, p)
 		}
 	}
@@ -926,6 +927,8 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		return
 	}
 	state := observe.Load(path)
+	var panes []herdr.Pane
+	panesRead, panesOK := false, false
 	for i := range res.Plans {
 		p := &res.Plans[i]
 		key := observe.Key(p.Repo, p.ID)
@@ -945,11 +948,49 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		if coord, ok := res.Coords[p.Repo]; ok {
 			k := claim.TakeoverCount(coord.Path, p.ID, coord.Base, p.HoldTip, rt.git)
 			threshold = time.Duration(k+1) * window
+			if p.Held {
+				// One List call serves every held plan in the fleet
+				// rather than one herdr round-trip per plan. An
+				// unreachable herdr is unknown, not dead, exactly as
+				// a per-plan SessionDead call would have read it —
+				// so a failed read is never retried as a live pane
+				// list with nothing in it.
+				if !panesRead {
+					var listErr error
+					panes, listErr = herdr.List(rt.herdr)
+					panesRead, panesOK = true, listErr == nil
+				}
+				if panesOK {
+					p.Dead = deadSession(rt, coord, *p, panes)
+				}
+			}
 		}
 		p.Stale = discovery.StaleHold(w, now, threshold, sampleGap)
 		p.StaleFor = w.Span()
 	}
 	_ = observe.Save(path, state)
+}
+
+// deadSession reports whether a held plan's bound session herdr
+// positively confirms is gone (S76): the marker at the tip the fleet
+// already observed names who to ask, and only a herdr that actually
+// answered may say so — see herdr.SessionDeadIn. panes is the one
+// List read observeHolds already made for the whole fleet; an unheld
+// plan or one whose marker cannot be read answers false, falling back
+// to the staleness window exactly as before this signal existed.
+func deadSession(
+	rt *runtime, coord fleet.Coord, p discovery.Plan, panes []herdr.Pane,
+) bool {
+	if !p.Held {
+		return false
+	}
+	m, ok := claim.ReadMarker(coord.Path,
+		claim.LeaseOptions{PlanID: p.ID, Remote: coord.Remote}, p.HoldTip, rt.git)
+	if !ok {
+		return false
+	}
+
+	return herdr.SessionDeadIn(panes, m.Session)
 }
 
 // staleClock is the staleness window and sample gap to watch a
@@ -1556,16 +1597,20 @@ func laneShorts(holds []string, id int64) []string {
 
 // heldCell renders the board's held column: the lane names, with a
 // stale marker and its age appended once the takeover window has
-// matured — the held-stale cell of the verb-state table, told apart
-// from a live hold at a glance rather than by a second read.
+// matured, or a dead marker once herdr confirms the bound session is
+// gone — the held-stale cell of the verb-state table, told apart from
+// a live hold at a glance rather than by a second read.
 func heldCell(p report.BoardPlan) string {
 	label := heldLabel(laneShorts(p.Holds, p.ID))
-	if !p.Stale {
-		return label
+	switch {
+	case p.Stale:
+		age := time.Duration(p.StaleSeconds) * time.Second
+		return fmt.Sprintf("%s (stale %s)", label, age.Round(time.Minute))
+	case p.Dead:
+		return fmt.Sprintf("%s (dead)", label)
 	}
 
-	age := time.Duration(p.StaleSeconds) * time.Second
-	return fmt.Sprintf("%s (stale %s)", label, age.Round(time.Minute))
+	return label
 }
 
 // heldLabel names the lane holding a plan, or a dash when nobody does.

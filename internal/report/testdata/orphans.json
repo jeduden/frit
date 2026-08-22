@@ -77,7 +77,8 @@
         {
           "plan_id": 7,
           "branch": "plan/7",
-          "stale_seconds": 10800
+          "stale_seconds": 10800,
+          "dead": false
         }
       ]
     },

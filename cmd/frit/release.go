@@ -101,12 +101,17 @@ func releaseHeld(
 
 // foreignHoldRefusal names why a hold this lane's own token does not
 // match is left standing: a live one names the holder, and a matured
-// one points at claim's takeover instead — release never seizes a
-// lease that is not its own, whatever its window says.
+// window or a bound session herdr confirms gone both point at claim's
+// takeover instead — release never seizes a lease that is not its
+// own, whatever its window or session says.
 func foreignHoldRefusal(plan discovery.Plan) string {
-	if plan.Stale {
+	switch {
+	case plan.Stale:
 		return "hold has matured; run `frit claim` to take it over " +
 			"rather than wait on a release that will not come"
+	case plan.Dead:
+		return "the bound session is confirmed gone; run `frit claim` " +
+			"to take it over rather than wait on a release that will not come"
 	}
 
 	return "is held live by another lane (" + heldLabel(plan.Holds) +

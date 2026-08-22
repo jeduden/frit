@@ -109,8 +109,12 @@ func heldPlanModeled(
 	repo := initRepo(t, root, name)
 	// Commit the plan on the hold branch, not main: a branch level with
 	// main reads as already merged, and a merged ref is landed work, not
-	// a live claim.
+	// a live claim. The claim marker beneath the plan commit is what
+	// makes the branch an actual hold, not merely a name match
+	// (2608212203).
 	git(t, repo, "checkout", "-q", "-b", planBranch(id, title))
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: claim", id))
 	writeHeldPlan(t, repo, id, title, model)
 	git(t, repo, "add", "-A")
 	git(t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d", id))

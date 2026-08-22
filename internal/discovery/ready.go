@@ -35,12 +35,14 @@ func Ready(plans []Plan) []Plan {
 }
 
 // candidate is the per-plan half of the readiness rule: a fresh start
-// — not begun, held by nobody — or a matured takeover, a held plan
-// whose lease reads stale and whose work is still outstanding. A
-// live-tip hold stays hidden.
+// — not begun, held by nobody — or a held plan ready to be taken
+// over, either because its lease reads stale or because its bound
+// session herdr positively confirms is gone (S76), and whose work is
+// still outstanding. A live-tip hold with a live or unknown session
+// stays hidden.
 func candidate(p Plan) bool {
 	if p.Held {
-		return p.Stale && p.Unfinished()
+		return (p.Stale || p.Dead) && p.Unfinished()
 	}
 
 	return p.NotStarted()
