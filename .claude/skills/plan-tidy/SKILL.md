@@ -16,21 +16,21 @@ never with raw git.
 
 ## Method
 
-1. **Read the mess.** `frit orphans` reports claims and checkouts
+1. **Read the mess.** `go run ./cmd/frit orphans` reports claims and checkouts
    that no longer add up: claimed but unstaffed, prepared but
-   unstarted, held past its takeover window, or gone. `frit stale
+   unstarted, held past its takeover window, or gone. `go run ./cmd/frit stale
    --days N` reports worktrees whose branch tip has not moved.
    `--json` parses either.
 2. **Match the verb to the mess:**
 
-  - This lane's own lease, done or abandoned → `frit release`. It
+  - This lane's own lease, done or abandoned → `go run ./cmd/frit release`. It
      ends the lease with a release marker pushed from this lane's own
      token; a plan nobody holds is a no-op, not a refusal.
   - A fenced lane — the lease moved under it, a stranger's claim now
-     covers this worktree → `frit yield`. It parks the local
+     covers this worktree → `go run ./cmd/frit yield`. It parks the local
      divergence to a rescue ref, then tears the worktree down through
      herdr, so nothing local is lost to the teardown.
-  - A hold whose work already landed → neither verb; `frit orphans`
+  - A hold whose work already landed → neither verb; `go run ./cmd/frit orphans`
      already reports it as scavenged, not something to act on.
 
 3. **Never hand-run git for teardown.** `git worktree remove` and
@@ -40,7 +40,7 @@ never with raw git.
 
 ## Notes
 
-- `frit board` shows who holds what alongside `orphans`, for the
+- `go run ./cmd/frit board` shows who holds what alongside `orphans`, for the
   wider picture before acting on one lane.
 - Acting on a foreign hold is `yield`'s job, not `release`'s: release
   only ever ends this lane's own lease.

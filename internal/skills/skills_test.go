@@ -112,8 +112,8 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading plan-new skill: %v", err)
 	}
-	if !contains(string(data), "frit doctor") {
-		t.Fatal("plan-new skill does not mention `frit doctor`")
+	if !contains(string(data), "{{frit}} doctor") {
+		t.Fatal("plan-new skill does not mention `{{frit}} doctor`")
 	}
 }
 
