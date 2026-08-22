@@ -215,3 +215,71 @@ func TestStartNamesYieldForADesertedLaneOnThisHost(t *testing.T) {
 	assert.Contains(t, body, "holder:  ghost",
 		"the dead lane's own ref was never seized")
 }
+
+// TestClaimRefusesAnUnparkedSuffixFromOutsideTheLane: a held plan
+// herdr confirms dead, window not matured, with a local commit on the
+// plan branch past the pushed hold tip — the dead lane's own unparked
+// work, never renewed. claim run from the primary, never having
+// entered the lane, must not take this over: doing so would seize the
+// ref at the pushed tip and silently orphan that commit. It refuses
+// and names yield instead (2608221754 phase 2, S77).
+func TestClaimRefusesAnUnparkedSuffixFromOutsideTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "claimed plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "nothing was taken over; the local commit stands")
+}
+
+// TestStartRefusesAnUnparkedSuffixFromOutsideTheLane: the same fixture
+// through start, which shares the guard with claim.
+func TestStartRefusesAnUnparkedSuffixFromOutsideTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.NotContains(t, got, "started plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "nothing was taken over; the local commit stands")
+}
