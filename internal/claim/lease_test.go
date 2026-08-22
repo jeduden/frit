@@ -684,6 +684,32 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
 }
 
+// TestScavengeSparesABranchCheckedOutInALinkedWorktree: the remote
+// delete and the rescue park happen exactly as always, but the local
+// refs/heads/plan/7 must survive where a linked worktree still has it
+// checked out — deleting it would leave that worktree's HEAD dangling.
+func TestScavengeSparesABranchCheckedOutInALinkedWorktree(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitCmd(t, work, "worktree", "add", "-q", linked, "plan/7")
+
+	sc, err := Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "refs/frit/rescue/7/box-b", sc.Rescue,
+		"the rescue still parks the unlanded work")
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone, "the remote ref is still deleted")
+	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.Equal(t, tip, local,
+		"the local ref survives at its pre-scavenge tip; a worktree stands on it")
+	head := gitCmd(t, linked, "rev-parse", "HEAD")
+	assert.Equal(t, tip, head, "the linked worktree's HEAD still resolves")
+}
+
 // localWork commits one file on the plan's work ref without pushing —
 // the local divergence a fenced lane still carries after it lost a
 // race it never fetched.

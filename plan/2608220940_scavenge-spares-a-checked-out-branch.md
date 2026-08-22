@@ -1,7 +1,7 @@
 ---
 id: 2608220940
 title: Scavenge never deletes a branch a worktree still stands on
-status: "🔲"
+status: "🔳"
 summary: >-
   claim.Scavenge and claim.Mint's rollback both run a plain
   `update-ref -d` on a plan's hold branch in the repo's primary
