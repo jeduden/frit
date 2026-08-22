@@ -489,8 +489,10 @@ func renderStart(c *cli, rt *runtime, doc *report.StartDoc) error {
 // printStart writes the escalation: the claim, worktree, agent, prompt
 // and focus start ran or would run, or the reason it was refused. The
 // whole plan is shown either way, because seeing the escalation is the
-// point — under a dry run before it happens, under --go as the record of
-// what did.
+// point — under a dry run before it happens, as a recipe the reader is
+// invited to run again with --go; under --go as a handoff already
+// running in another pane, so the prompt is labelled running: and closes
+// with the directive not to run it here.
 func printStart(out io.Writer, doc *report.StartDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
@@ -510,11 +512,16 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
 	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
 		doc.Kind, modelLabel(doc.Tier))
-	_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
 	if doc.Started {
+		_, _ = fmt.Fprintf(out, "  running:  %s\n", doc.Prompt)
 		_, _ = fmt.Fprintf(out, "  focus:    %s\n", doc.Pane)
+		_, _ = fmt.Fprintf(out,
+			"plan %d is running in %s; do not run it here — "+
+				"watch with frit open %d or move on with frit board\n",
+			doc.Plan.ID, doc.Pane, doc.Plan.ID)
 		return
 	}
+	_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
 	_, _ = fmt.Fprintln(out, "  focus:    the new pane")
 	_, _ = fmt.Fprintln(out, "run again with --go to execute")
 }
