@@ -799,13 +799,14 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 type skillsCmd struct {
 	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to install the skills into."`
 	Force bool   `short:"f" help:"Overwrite existing skill files."`
+	Via   string `help:"How the installed skills invoke frit, e.g. \"mise exec -- frit\". Default: bare frit."`
 }
 
 // Run lays frit's bundled agent skills into the repository's
 // .claude/skills, so the repo carries the instructions for driving
 // frit, not just the tool.
 func (s *skillsCmd) Run(c *cli, rt *runtime) error {
-	paths, err := skills.Install(s.Dir, s.Force)
+	paths, err := skills.Install(s.Dir, s.Force, s.Via)
 	if err != nil {
 		return err
 	}

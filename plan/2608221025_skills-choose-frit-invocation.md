@@ -14,7 +14,7 @@ model: sonnet
 phases:
   - n: 1
     title: skills substitute a chosen invocation
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the shipped guidance names the choice
     status: "🔲"
