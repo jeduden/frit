@@ -799,7 +799,7 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 type skillsCmd struct {
 	Dir   string `arg:"" optional:"" default:"." type:"path" help:"Repository to install the skills into."`
 	Force bool   `short:"f" help:"Overwrite existing skill files."`
-	Via   string `help:"How the installed skills invoke frit, e.g. \"mise exec -- frit\". Default: bare frit."`
+	Via   string `help:"How skills invoke frit: frit, mise exec -- frit, go run ./cmd/frit. Default: frit."`
 }
 
 // Run lays frit's bundled agent skills into the repository's

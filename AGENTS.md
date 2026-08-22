@@ -147,8 +147,15 @@ companion files. Writing them is scaffolding of the same class as
 to clobber an edited skill without `--force`. The canonical text lives
 in `internal/skills/assets`; frit's own `.claude/skills` is the output
 of `frit skills`, regenerated from the bundle rather than hand-kept, so
-it never drifts from what ships. A shipped skill names `frit`, because
-it lands where frit is a binary on `PATH`, not `go run ./cmd/frit`.
+it never drifts from what ships.
+
+A shipped skill's commands read `{{frit}}` in the canonical text,
+substituted by `--via` at install time. The default is bare `frit`,
+because it lands where frit is a binary on `PATH`. A repo that pins
+frit with mise, or builds it locally, passes its own invocation —
+`--via "mise exec -- frit"` or `--via "./bin/frit"`. frit's own
+`.claude/skills` regenerate with `--via "go run ./cmd/frit"`, since
+this repo is the source checkout, not a `PATH` install.
 
 A skill is read under time pressure and loaded into a working session,
 so it must stay skimmable and token-cheap. The `skill` kind in
