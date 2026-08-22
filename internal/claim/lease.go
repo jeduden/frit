@@ -250,6 +250,7 @@ func Scavenge(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Scavenged, error) {
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	branch := leaseBranch(opts.PlanID)
 	now, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
 	if err != nil {
 		// An unreadable remote is a fault, not an absent ref: reading it
@@ -262,8 +263,11 @@ func Scavenge(
 	switch now {
 	case "":
 		// Already gone — an earlier run, or another machine's, finished
-		// the job. Clean the stale local copy and report a no-op.
-		_, _ = run(repoDir, "update-ref", "-d", ref)
+		// the job. Clean the stale local copy and report a no-op, unless
+		// a worktree is still standing on it.
+		if !checkedOut(repoDir, branch, run) {
+			_, _ = run(repoDir, "update-ref", "-d", ref)
+		}
 		return Scavenged{}, nil
 	case from:
 	default:
@@ -285,9 +289,31 @@ func Scavenge(
 				"delete %s for plan %d: %w", ref, opts.PlanID, err)
 		}
 	}
-	_, _ = run(repoDir, "update-ref", "-d", ref)
+	if !checkedOut(repoDir, branch, run) {
+		_, _ = run(repoDir, "update-ref", "-d", ref)
+	}
 
 	return res, nil
+}
+
+// checkedOut reports whether any worktree of the repository containing
+// repoDir has branch checked out. update-ref -d does not refuse a
+// branch live in another worktree the way git's own porcelain does —
+// deleting it there leaves that worktree's HEAD dangling — so every
+// caller about to run that delete on a plan's hold branch checks this
+// first.
+func checkedOut(repoDir, branch string, run gitwt.Runner) bool {
+	worktrees, err := gitwt.List(repoDir, run)
+	if err != nil {
+		return false
+	}
+	for _, w := range worktrees {
+		if w.Branch == branch {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Yield ends a fenced lane's stake in a plan without racing the work

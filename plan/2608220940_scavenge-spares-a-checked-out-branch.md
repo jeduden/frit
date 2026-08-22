@@ -16,7 +16,7 @@ depends-on: []
 phases:
   - n: 1
     title: Scavenge spares a branch checked out elsewhere
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Mint's rollback gets the same guard
     status: "🔲"
