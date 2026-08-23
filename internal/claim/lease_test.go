@@ -98,6 +98,38 @@ func TestAcquireIsRenameProof(t *testing.T) {
 		"one work ref carries the plan, whatever the file is called")
 }
 
+// TestAcquireRefusesToClobberUnpushedLocalBranch: a plan authored
+// directly on its own lease branch, never pushed, must not be
+// silently discarded by a fresh acquire that has never looked at the
+// local ref (S82).
+func TestAcquireRefusesToClobberUnpushedLocalBranch(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "checkout", "-q", "-b", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "draft.md"), []byte("x\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "local draft, never pushed")
+	local := gitCmd(t, work, "rev-parse", "plan/7")
+	gitCmd(t, work, "checkout", "-q", "main")
+
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+
+	require.Error(t, err)
+	assert.Equal(t, local, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the local draft branch is untouched, not fast-forwarded past it")
+}
+
+// TestAcquireStillWinsWhenLocalBranchIsAncestorOfBase: the common
+// case — no local branch of that name at all — still acquires
+// exactly as before the guard.
+func TestAcquireStillWinsWhenLocalBranchIsAncestorOfBase(t *testing.T) {
+	work := originAndClone(t)
+
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+
+	require.NoError(t, err)
+}
+
 // TestRenewAdvancesTheTipAndNothingElse: a renewal CASes from the
 // holder's recorded tip to a beat marker that is its child — same
 // epoch, fresh nonce — so the lease stays live without a second

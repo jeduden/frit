@@ -121,6 +121,24 @@ func (e *VetoError) Error() string {
 
 func (e *VetoError) Unwrap() error { return ErrLostRace }
 
+// LocalDivergesError reports a fresh acquire refused because the local
+// copy of the work ref already carries commits the base it is about
+// to be minted on does not have — a plan authored on its own lease
+// branch before ever being pushed. Acquire mints nothing and leaves
+// the local branch untouched; the caller must push or rename it.
+type LocalDivergesError struct {
+	PlanID   int64
+	Branch   string
+	LocalTip string
+}
+
+func (e *LocalDivergesError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: local branch %s carries unpushed work (%s); "+
+			"push it or rename it before claiming",
+		e.PlanID, e.Branch, e.LocalTip)
+}
+
 // StillHeldError reports a yield run from the lane that still holds
 // the live lease: nothing is fenced, so there is nothing to rescue.
 // Yield is for the fenced, not an alias for release.
@@ -636,6 +654,12 @@ func pushClaimMarker(
 	if err != nil {
 		return Lease{}, err
 	}
+	if parent == "" {
+		if divErr := refuseDivergingLocalBranch(
+			repoDir, opts, ref, baseSHA, run); divErr != nil {
+			return Lease{}, divErr
+		}
+	}
 	par := parent
 	if par == "" {
 		par = baseSHA
@@ -716,6 +740,28 @@ func casPush(
 		return false, "", pushErr
 	default:
 		return true, now, nil
+	}
+}
+
+// refuseDivergingLocalBranch guards a fresh acquire against clobbering
+// a local plan/<id> branch that already carries commits the base does
+// not have — a plan authored on its own lease branch, never pushed
+// (S82). No local branch of that name, or one that is a clean
+// ancestor of base, is not a divergence: nil lets the fresh path
+// proceed exactly as before the guard.
+func refuseDivergingLocalBranch(
+	repoDir string, opts LeaseOptions, ref, baseSHA string, run gitwt.Runner,
+) error {
+	localTip, err := trimmed(run(repoDir, "rev-parse", "--verify", "--quiet", ref))
+	if err != nil || localTip == "" {
+		return nil
+	}
+	if isAncestor(repoDir, localTip, baseSHA, run) {
+		return nil
+	}
+
+	return &LocalDivergesError{
+		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID), LocalTip: localTip,
 	}
 }
 

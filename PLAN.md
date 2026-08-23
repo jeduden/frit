@@ -76,6 +76,7 @@ footer: |
 | 2608221559 | ✅     | sonnet | [Remove the superseded Mint claim path](plan/2608221559_remove-superseded-mint-path.md)                                                |
 | 2608221754 | ✅     | sonnet | [The supervisor acts on a lane it does not stand in](plan/2608221754_supervisor-acts-on-a-foreign-lane.md)                             |
 | 2608222201 | ✅     | sonnet | [Reap streams per-lane progress, so a long run isn't silent](plan/2608222201_reap-streams-per-lane-progress.md)                        |
+| 2608230705 | ✅     | sonnet | [A fresh claim refuses to clobber local work on its own lease branch](plan/2608230705_claim-guards-local-branch-work.md)               |
 | 2608230952 | 🔲     | sonnet | [A not-matured hold refusal shows how long it has been held](plan/2608230952_not-matured-refusal-shows-how-long-held.md)               |
 | 2608231006 | 🔲     | sonnet | [A lane owns its lease after its own raw commits advance the branch](plan/2608231006_release-recognizes-own-lane-after-raw-commits.md) |
 <?/catalog?>

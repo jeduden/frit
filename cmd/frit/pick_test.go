@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -121,4 +123,35 @@ func TestPickGoIsQuietWhenNothingIsStartable(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "nothing startable")
 	assert.False(t, rec.verb("worktree", "create"), "nothing is stood up")
+}
+
+// TestPickGoRefusesADivergingLocalBranch: the fresh-acquire guard
+// reaches pick --go through the same mintOrTakeOver path claim uses —
+// a local plan/<id> branch with unpushed commits refuses instead of
+// being silently clobbered (S82).
+func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	git(t, repo, "checkout", "-q", "-b", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "draft.md"), []byte("x\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "local draft, never pushed")
+	local, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "plan 7")
+	assert.False(t, rec.verb("worktree", "create"), "nothing is stood up")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, local, tip,
+		"the local draft branch is untouched, not clobbered")
 }
