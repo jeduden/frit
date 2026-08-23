@@ -1,7 +1,7 @@
 ---
 id: 2608222201
 title: Reap streams per-lane progress, so a long run isn't silent
-status: "🔲"
+status: "🔳"
 summary: >-
   reap parks a rescue ref per landed lane with a network push each, so a
   fleet-wide teardown runs many seconds while printing nothing until the
@@ -13,7 +13,7 @@ depends-on: []
 phases:
   - n: 1
     title: stranded lanes stream as they are reaped
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: held drops, pruned worktrees, and refusals all stream
     status: "🔲"

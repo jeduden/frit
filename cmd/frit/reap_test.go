@@ -67,6 +67,50 @@ func TestReapRemovesALandedCheckoutAndDeletesItsBranchWithGo(t *testing.T) {
 		"the landed branch no longer resolves")
 }
 
+// TestReapStreamsProgressAsStrandedLanesAreReaped: a --go reap of two
+// stranded, landed checkouts announces each one to stderr as it is
+// torn down, not only in the final stdout table — the cost here is a
+// serial network push per lane, so a run must read as live, not hung.
+func TestReapStreamsProgressAsStrandedLanesAreReaped(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branchA := "plan/1-a"
+	branchB := "plan/2-b"
+	strandedCheckout(t, root, repo, "atlas-a", branchA)
+	strandedCheckout(t, root, repo, "atlas-b", branchB)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branchA)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land b", branchB)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, errb.String(), "reaped")
+	assert.Contains(t, errb.String(), branchA,
+		"the first lane streams as it is reaped")
+	assert.Contains(t, errb.String(), branchB,
+		"the second lane streams as it is reaped")
+}
+
+// TestReapJSONLeavesStderrEmptyDuringStrandedTeardown pins the JSON
+// contract: nothing reaches stderr under --json, because stdout is
+// then the whole report.
+func TestReapJSONLeavesStderrEmptyDuringStrandedTeardown(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/1-a"
+	strandedCheckout(t, root, repo, "atlas-a", branch)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branch)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root, "--json"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Empty(t, errb.String(), "the JSON path writes nothing to stderr")
+}
+
 // TestReapWithoutGoLeavesEverythingStanding: the same lane, without
 // --go, is untouched — reap is a dry-run by default, and the report
 // says what it would do rather than doing it.
