@@ -1,7 +1,7 @@
 ---
 id: 2608231006
 title: A lane owns its lease after its own raw commits advance the branch
-status: "🔲"
+status: "✅"
 summary: >-
   A lane's worktree sits on the same plan/<id> branch its lease markers
   live on, so every raw TDD commit advances origin's tip past the
@@ -15,10 +15,10 @@ depends-on: []
 phases:
   - n: 1
     title: release recognizes a lane whose own commits advanced the tip
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: renew and resume re-anchor too, and a foreign takeover still fences
-    status: "🔲"
+    status: "✅"
 ---
 # A lane owns its lease after its own raw commits
 
@@ -87,7 +87,9 @@ old token; the epoch/holder check is what keeps the fence honest.
 1. `ownToken` recognizes origin's tip as this lane's own when the token
    is an ancestor and the epoch/holder at the tip is unchanged, and
    re-anchors `release` to that tip.
-2. (determined after Phase 1)
+2. `renew` and `resume` inherit the re-anchor through the shared
+   `ownToken`/`resumeToken` path with no further code change; add the
+   regression tests, pin the foreign-takeover fence, and record S86.
 
 ## Phase 1: release recognizes a lane whose own commits advanced the tip
 
@@ -149,15 +151,15 @@ and `go test ./internal/claim` green; a foreign takeover still fences;
 
 ## Acceptance Criteria
 
-- [ ] A lane that raw-committed on `plan/<id>` can `release` without
+- [x] A lane that raw-committed on `plan/<id>` can `release` without
       hand-editing its token file.
-- [ ] `renew` and `resume` likewise tolerate the lane's own advance.
-- [ ] A genuine foreign takeover (new epoch from the observed tip) is
+- [x] `renew` and `resume` likewise tolerate the lane's own advance.
+- [x] A genuine foreign takeover (new epoch from the observed tip) is
       still refused as foreign — the fence stays closed.
-- [ ] The re-anchor uses origin's current tip, read fresh, not the
+- [x] The re-anchor uses origin's current tip, read fresh, not the
       stale local view.
-- [ ] The scenario is recorded as S86 in the lease-protocol matrix
+- [x] The scenario is recorded as S86 in the lease-protocol matrix
       ([docs/research/lease-protocol.md](../docs/research/lease-protocol.md)),
       naming the resolution and the fence that stays closed.
-- [ ] `go build ./...`, `go vet ./...`, `go test ./...`, and
+- [x] `go build ./...`, `go vet ./...`, `go test ./...`, and
       `mdsmith check .` all pass.
