@@ -153,19 +153,22 @@ func (e *StillHeldError) Error() string {
 			"use release instead", e.PlanID)
 }
 
-// RescueConflictError reports a park refused because the plan's rescue
-// ref already holds a different tip's work — an earlier scavenge or
-// yield from this same lane, parked and never cleaned up. Its wording
-// is operation-neutral: Scavenge and Yield both return it, worded as
-// the next step rather than a dead end.
+// RescueConflictError reports a park refused because its
+// content-addressed rescue ref already holds a different object — the
+// name encodes the tip being parked, so this is not another park
+// colliding with it, but a ref moved by hand or forged. frit does not
+// contend for a ref outside the trust domain it already assigns to
+// raw write access (S37-S39, S69). Its wording is operation-neutral:
+// Scavenge and Yield both return it, worded as the next step rather
+// than a dead end.
 type RescueConflictError struct {
 	PlanID int64
-	Rescue string // the rescue ref that already holds other work
+	Rescue string // the rescue ref a different object already holds
 }
 
 func (e *RescueConflictError) Error() string {
 	return fmt.Sprintf(
-		"rescue ref %s holds an earlier park at a different tip; "+
+		"rescue ref %s was moved by hand; frit does not contend for it — "+
 			"fetch and inspect it, then delete it and retry", e.Rescue)
 }
 
@@ -390,7 +393,7 @@ func Yield(
 		return Scavenged{}, &StillHeldError{PlanID: opts.PlanID}
 	}
 
-	rescue := rescueRef(opts.PlanID, opts.Holder)
+	rescue := rescueRef(opts.PlanID, opts.Holder, local)
 	if err := park(repoDir, opts, rescue, local, run); err != nil {
 		return Scavenged{}, err
 	}
@@ -416,7 +419,7 @@ func ParkUnlanded(
 	if !unlanded {
 		return res, nil
 	}
-	rescue := rescueRef(opts.PlanID, opts.Holder)
+	rescue := rescueRef(opts.PlanID, opts.Holder, tip)
 	if err := park(repoDir, opts, rescue, tip, run); err != nil {
 		return res, err
 	}
@@ -435,11 +438,11 @@ func HasUnlanded(
 	return hasUnlanded(repoDir, opts, tip, run)
 }
 
-// RescueRef names the rescue ref a park for this plan and holder
+// RescueRef names the rescue ref a park for this plan, holder and tip
 // writes — exported so a dry run can preview the destination without
 // minting anything.
-func RescueRef(planID int64, holder string) string {
-	return rescueRef(planID, holder)
+func RescueRef(planID int64, holder, tip string) string {
+	return rescueRef(planID, holder, tip)
 }
 
 // RescueRefs lists the rescue refs a plan's scavenges and yields have
@@ -543,17 +546,22 @@ func rescuePlanID(ref string) (int64, bool) {
 }
 
 // rescueRef names where scavenge and yield park a plan's unlanded
-// work: per plan and per machine, so two scavengers never contend for
-// one name and parked work says whose run parked it.
-func rescueRef(planID int64, holder string) string {
-	return fmt.Sprintf("refs/frit/rescue/%d/%s", planID, holder)
+// work: per plan, per machine and per tip — content-addressed, full
+// 40-hex, so two parks from the same lane at different tips can never
+// alias, and a retry at a tip already parked always names the same
+// ref, landing as a create-only no-op.
+func rescueRef(planID int64, holder, tip string) string {
+	return fmt.Sprintf("refs/frit/rescue/%d/%s/%s", planID, holder, tip)
 }
 
-// park pushes the tip to the rescue ref, create-only. A rescue that
-// already exists at the same tip is an earlier half-done run's work,
-// already parked; one at a different tip is somebody's parked work,
-// and clobbering it would destroy exactly what the rescue exists to
-// keep — so park refuses, and the caller must not delete.
+// park pushes the tip to the rescue ref, create-only. The ref name is
+// content-addressed by that same tip, so a rescue that already exists
+// there can only be an earlier half-done run's work, already parked —
+// a retry is a no-op by construction. Anything else found at that
+// exact name is a different object under a name the tip should own: a
+// hand-moved or forged ref outside frit's trust domain, and clobbering
+// it would destroy exactly what the rescue exists to keep — so park
+// refuses, and the caller must not delete.
 func park(
 	repoDir string, opts LeaseOptions, rescue, tip string, run gitwt.Runner,
 ) error {

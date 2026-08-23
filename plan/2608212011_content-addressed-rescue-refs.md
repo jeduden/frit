@@ -17,7 +17,7 @@ depends-on: [2608211936]
 phases:
   - n: 1
     title: the parked tip joins the rescue ref name
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the scenario docs learn the new shape
     status: "🔲"
