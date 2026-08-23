@@ -668,7 +668,7 @@ func TestScavengeParksUnlandedWorkThenDeletes(t *testing.T) {
 	sc, err := Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 	require.NoError(t, err)
 
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip, sc.Rescue,
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, sc.Rescue,
 		"the rescue ref is named for the plan, the scavenger and the tip")
 	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
 	assert.Contains(t, rescue, tip, "the rescue ref carries the old tip")
@@ -732,18 +732,18 @@ func TestScavengeIsIdempotent(t *testing.T) {
 	opts := leaseOptions("box-b", "/lanes/b")
 
 	// A half-done earlier run already parked the tip.
-	gitCmd(t, work, "push", "-q", "origin", tip+":refs/frit/rescue/7/box-b/"+tip)
+	gitCmd(t, work, "push", "-q", "origin", tip+":refs/frit/rescue/7/box-b-"+tip)
 
 	sc, err := Scavenge(work, opts, tip, gitwt.Exec)
 	require.NoError(t, err, "an existing rescue at the same tip is already parked")
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip, sc.Rescue)
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, sc.Rescue)
 	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Empty(t, gone, "the retry finished the delete")
 
 	sc, err = Scavenge(work, opts, tip, gitwt.Exec)
 	require.NoError(t, err, "a ref already gone is a clean no-op")
 	assert.Empty(t, sc.Rescue)
-	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b/"+tip)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b-"+tip)
 	assert.Contains(t, rescue, tip, "the rescue ref is never clobbered")
 }
 
@@ -758,7 +758,7 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 	require.NoError(t, err)
 	tip := workOn(t, work)
 	other := gitCmd(t, work, "rev-parse", "origin/main")
-	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b/"+tip)
+	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b-"+tip)
 
 	_, err = Scavenge(
 		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
@@ -768,10 +768,10 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 	require.ErrorAs(t, err, &conflict,
 		"the refusal is a typed RescueConflictError, not a plain error")
 	assert.Equal(t, int64(7), conflict.PlanID)
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip, conflict.Rescue)
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, conflict.Rescue)
 	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, tip, "the work ref is not deleted")
-	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b/"+tip)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b-"+tip)
 	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
 }
 
@@ -790,7 +790,7 @@ func TestScavengeSparesABranchCheckedOutInALinkedWorktree(t *testing.T) {
 	sc, err := Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 	require.NoError(t, err)
 
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip, sc.Rescue,
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, sc.Rescue,
 		"the rescue still parks the unlanded work")
 	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Empty(t, gone, "the remote ref is still deleted")
@@ -851,7 +851,7 @@ func TestYieldParksLocalDivergenceOfAFencedLane(t *testing.T) {
 	sc, err := Yield(first, opts, local, gitwt.Exec)
 	require.NoError(t, err)
 
-	assert.Equal(t, "refs/frit/rescue/7/box-a/"+local, sc.Rescue,
+	assert.Equal(t, "refs/frit/rescue/7/box-a-"+local, sc.Rescue,
 		"the rescue ref is named for the plan, the fenced lane and the tip")
 	rescue := gitCmd(t, first, "ls-remote", "origin", sc.Rescue)
 	assert.Contains(t, rescue, local, "the divergence is parked")
@@ -937,7 +937,7 @@ func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
 	refs := RescueRefs(work, "origin", 7, gitwt.Exec)
 
 	assert.Equal(t,
-		[]string{"refs/frit/rescue/7/box-b/" + tip, "refs/frit/rescue/7/box-c"},
+		[]string{"refs/frit/rescue/7/box-b-" + tip, "refs/frit/rescue/7/box-c"},
 		refs, "the new content-addressed shape and a legacy ref both list")
 	assert.Empty(t, RescueRefs(work, "origin", 8, gitwt.Exec),
 		"another plan's rescue refs do not bleed in")
@@ -959,7 +959,7 @@ func TestAllRescueRefsBucketsByPlanID(t *testing.T) {
 	buckets, err := AllRescueRefs(work, "origin", gitwt.Exec)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"refs/frit/rescue/7/box-b/" + tip}, buckets[7])
+	assert.Equal(t, []string{"refs/frit/rescue/7/box-b-" + tip}, buckets[7])
 	assert.Equal(t, []string{"refs/frit/rescue/8/box-c"}, buckets[8])
 }
 
@@ -1036,7 +1036,7 @@ func TestParkUnlandedParksAChainCarryingWork(t *testing.T) {
 		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 	require.NoError(t, err)
 
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip, sc.Rescue)
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, sc.Rescue)
 	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
 	assert.Contains(t, rescue, tip, "the rescue ref carries the tip")
 	still := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
@@ -1069,13 +1069,13 @@ func TestParkUnlandedRefusesAForeignRescue(t *testing.T) {
 	require.NoError(t, err)
 	tip := workOn(t, work)
 	other := gitCmd(t, work, "rev-parse", "origin/main")
-	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b/"+tip)
+	gitCmd(t, work, "push", "-q", "origin", other+":refs/frit/rescue/7/box-b-"+tip)
 
 	_, err = ParkUnlanded(
 		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 
 	require.Error(t, err)
-	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b/"+tip)
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b-"+tip)
 	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
 }
 
@@ -1102,7 +1102,7 @@ func TestHasUnlandedTellsWorkFromMarkers(t *testing.T) {
 // run previews: the same per-plan, per-machine, per-tip ref park
 // writes.
 func TestRescueRefNamesThePlanAndTheHolder(t *testing.T) {
-	assert.Equal(t, "refs/frit/rescue/7/box-a/deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+	assert.Equal(t, "refs/frit/rescue/7/box-a-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		RescueRef(7, "box-a", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
 }
 
@@ -1126,8 +1126,8 @@ func TestParkTwoTipsFromOneLaneBothLand(t *testing.T) {
 	second, err := ParkUnlanded(work, opts, tip2, gitwt.Exec)
 	require.NoError(t, err, "a park at a second tip must not refuse over the first")
 
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip1, first.Rescue)
-	assert.Equal(t, "refs/frit/rescue/7/box-b/"+tip2, second.Rescue)
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip1, first.Rescue)
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip2, second.Rescue)
 	firstRemote := gitCmd(t, work, "ls-remote", "origin", first.Rescue)
 	assert.Contains(t, firstRemote, tip1, "the earlier park still stands")
 	secondRemote := gitCmd(t, work, "ls-remote", "origin", second.Rescue)
@@ -1136,4 +1136,34 @@ func TestParkTwoTipsFromOneLaneBothLand(t *testing.T) {
 	retry, err := ParkUnlanded(work, opts, tip2, gitwt.Exec)
 	require.NoError(t, err, "a retry at a tip already parked is a no-op")
 	assert.Equal(t, second.Rescue, retry.Rescue)
+}
+
+// TestParkSurvivesALegacyRescueRefFromTheSameHolder: a holder that
+// parked before the tip joined the name left a bare
+// refs/frit/rescue/<id>/<holder> ref behind. If the tip nested beneath
+// that ref as a fourth path segment, git's ref namespace would refuse
+// to create it — a name cannot be both a leaf and a directory — and
+// every future park from that same holder would misreport as a
+// same-name conflict that never actually happened. Joining holder and
+// tip in one segment keeps the new ref a sibling, not a child, of the
+// legacy one, so the legacy ref never blocks a fresh park.
+func TestParkSurvivesALegacyRescueRefFromTheSameHolder(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	legacyTip := workOnFile(t, work, "legacy.txt")
+	gitCmd(t, work, "push", "-q", "origin",
+		legacyTip+":refs/frit/rescue/7/box-b")
+
+	tip := workOnFile(t, work, "fresh.txt")
+	sc, err := ParkUnlanded(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+
+	require.NoError(t, err,
+		"a legacy same-holder rescue ref must not block a fresh park")
+	assert.Equal(t, "refs/frit/rescue/7/box-b-"+tip, sc.Rescue)
+	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
+	assert.Contains(t, rescue, tip, "the fresh work is parked")
+	legacy := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
+	assert.Contains(t, legacy, legacyTip, "the legacy rescue ref is untouched")
 }

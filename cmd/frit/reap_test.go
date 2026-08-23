@@ -263,7 +263,7 @@ func TestReapDryRunPreviewsTheRescueRef(t *testing.T) {
 	assert.Empty(t, stderr)
 	require.Len(t, doc.Repos, 1)
 	require.Len(t, doc.Repos[0].Reaped, 1)
-	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname()+"/"+tip,
+	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname()+"-"+tip,
 		doc.Repos[0].Reaped[0].Rescue,
 		"the dry run names where the work would be parked")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
@@ -282,14 +282,17 @@ func TestReapRefusesTheTeardownWhenTheParkIsRefused(t *testing.T) {
 	repo := initRepo(t, root, "atlas")
 	branch := "plan/2608142306-fleet-index"
 	lane := strandedCheckout(t, root, repo, "atlas-squashed", branch)
+	tip, err := gitCapture(t, repo, "rev-parse", branch)
+	require.NoError(t, err)
 	landPlan(t, repo, 2608142306, "fleet-index", "✅")
 	addOrigin(t, repo)
-	// A foreign rescue already sits at this plan's ref name, at a tip
-	// that is not the branch's — the create-only park must refuse it.
+	// A foreign object already sits at the exact content-addressed
+	// rescue name this park would write — the create-only park must
+	// refuse it rather than clobber whatever put it there.
 	foreign, err := gitCapture(t, repo, "rev-parse", "main")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreign+":refs/frit/rescue/2608142306/"+hostname())
+		foreign+":refs/frit/rescue/2608142306/"+hostname()+"-"+tip)
 	require.NoError(t, err)
 	var out, errb bytes.Buffer
 
