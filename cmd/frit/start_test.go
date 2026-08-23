@@ -130,6 +130,32 @@ func TestStartRefusesAnUnstartablePlan(t *testing.T) {
 	assert.Contains(t, out.String(), "already held")
 }
 
+// TestStartNotMaturedRefusalNamesTheSpanAndWindow: start speaks the
+// same span-and-window phrasing claim and reap do for a live,
+// not-yet-matured hold.
+func TestStartNotMaturedRefusalNamesTheSpanAndWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 42*time.Minute)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "unchanged for")
+	assert.Contains(t, out.String(), "42m",
+		"names the observed StaleFor span")
+	assert.Contains(t, out.String(), "2h",
+		"names the repo's configured takeover window")
+}
+
 // TestStartResumesAnUnheldInProgressPlan: an in-progress plan whose lane
 // vanished — 🔳 on main, held by nobody — is escalated, not refused. The
 // resume stands the lane back up on the plan's deterministic branch; the

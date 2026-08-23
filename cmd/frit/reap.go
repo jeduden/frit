@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"text/tabwriter"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
@@ -63,13 +64,15 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 		found := lanes.Find(built, repo.Worktrees)
+		window, _ := staleClock(&res, repo.Name)
 
 		reaped, refused := reapStranded(
 			rt, repo, found.Stranded, evidence, remote, base, rc.Go, progress)
 		pruned, refusedPruned := reapPruned(
 			rt, repo, found.Prunable, found.Empty, rc.Go, progress)
 		dropped, refusedHolds := reapUnstaffed(
-			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go, progress)
+			rt, repo, found.Unstaffed, res.Plans, remote, base, window,
+			rc.Go, progress)
 
 		doc.AddRepo(repo.Name, reaped, refused,
 			dropped, refusedHolds, pruned, refusedPruned)
@@ -278,8 +281,8 @@ func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
 // not stop the rest from reaping.
 func reapUnstaffed(
 	rt *runtime, repo discover.Repo, unstaffed []lanes.Lane,
-	plans []discovery.Plan, remote, base string, doGo bool,
-	progress io.Writer,
+	plans []discovery.Plan, remote, base string, window time.Duration,
+	doGo bool, progress io.Writer,
 ) ([]report.DroppedHold, []report.RefusedHold) {
 	dropped := []report.DroppedHold{}
 	refused := []report.RefusedHold{}
@@ -300,7 +303,7 @@ func reapUnstaffed(
 		}
 
 		p, ok := planFor(plans, repo.Name, lane.PlanID)
-		if reason := holdRefusal(p, ok); reason != "" {
+		if reason := holdRefusal(p, ok, window); reason != "" {
 			refused = append(refused,
 				refuseHold(progress, lane.PlanID, canonical, reason))
 			continue
@@ -368,14 +371,16 @@ func refuseHold(
 
 // holdRefusal is the abandonment gate: why an unstaffed hold is not
 // reap's to drop, "" when the evidence clears it. ok says whether the
-// gathered fleet view carried the plan at all.
-func holdRefusal(p discovery.Plan, ok bool) string {
+// gathered fleet view carried the plan at all. window is the repo's
+// configured takeover window, named in the not-matured case so the
+// operator can judge how close the hold is to being takeable.
+func holdRefusal(p discovery.Plan, ok bool, window time.Duration) string {
 	switch {
 	case !ok || p.HoldTip == "":
 		return "no observed lease state to judge abandonment by"
 	case !p.Stale && !p.Dead:
-		return "held by a live lease; reap drops only a stale or dead " +
-			"hold — its own lane releases it, or claim takes it over " +
+		return "held by a live lease, " + notMaturedReason(p, window) +
+			" — its own lane releases it, or claim takes it over " +
 			"once the window matures"
 	}
 

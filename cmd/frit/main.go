@@ -1067,6 +1067,7 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		}
 		p.Stale = discovery.StaleHold(w, now, threshold, sampleGap)
 		p.StaleFor = w.Span()
+		p.Voided = w.Voided
 	}
 	_ = observe.Save(path, state)
 }
@@ -1106,6 +1107,25 @@ func staleClock(res *fleet.Result, repo string) (time.Duration, time.Duration) {
 	}
 
 	return coord.TakeoverWindow, coord.SampleGap
+}
+
+// notMaturedReason words why a live, not-yet-matured hold blocks a
+// mutation: how long the tip has sat unchanged and the repository's
+// configured takeover window, so an operator can judge how close it
+// is to being takeable. Shared by reap, claim and start so the three
+// verbs speak of the same hold the same way. A window the observer
+// threw away and restarted on a wide sample gap explains itself via
+// p.Voided rather than reading as a plain short span.
+func notMaturedReason(p discovery.Plan, window time.Duration) string {
+	reason := fmt.Sprintf(
+		"seen unchanged for %s of the %s takeover window; "+
+			"not takeable until the window matures",
+		p.StaleFor.Round(time.Second), window.Round(time.Second))
+	if p.Voided != "" {
+		reason += " (" + p.Voided + ")"
+	}
+
+	return reason
 }
 
 // ambiguousRepo is the refusal a mutating verb reports when a plan's
