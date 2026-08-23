@@ -573,6 +573,11 @@ func park(
 // holds anything besides frit's own markers — work a delete would
 // destroy. The base is refreshed the way the landed check refreshes
 // it, so the answer is against origin's view, not a stale local one.
+//
+// A non-marker subject is not the final answer: under squash-merge
+// the lane's commits are never ancestors of the base even when the
+// content already landed there, so a chain carrying work still gets
+// a second, content-level check before it is called unlanded.
 func hasUnlanded(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) (bool, error) {
@@ -582,16 +587,41 @@ func hasUnlanded(
 		return false, fmt.Errorf(
 			"read the chain for plan %d: %w", opts.PlanID, err)
 	}
+	work := false
 	for _, subject := range strings.Split(string(out), "\n") {
 		if subject == "" {
 			continue
 		}
 		if !markerSubject(subject, opts.PlanID) {
-			return true, nil
+			work = true
+			break
 		}
 	}
+	if !work {
+		return false, nil
+	}
 
-	return false, nil
+	return !landedByContent(repoDir, base, tip, run), nil
+}
+
+// landedByContent reports whether merging tip into a fresh copy of
+// base changes nothing: `git merge-tree --write-tree` needs no
+// worktree and prints the resulting tree OID on success, so a landed
+// tip's merge reproduces the base's own tree exactly. A conflict or a
+// differing tree means real divergence, and so does any failure to
+// run git at all — both fail toward the safe answer, the same
+// direction isAncestor already takes for an unreadable read.
+func landedByContent(repoDir, base, tip string, run gitwt.Runner) bool {
+	tree, err := trimmed(run(repoDir, "merge-tree", "--write-tree", base, tip))
+	if err != nil {
+		return false
+	}
+	baseTree, err := trimmed(run(repoDir, "rev-parse", base+"^{tree}"))
+	if err != nil {
+		return false
+	}
+
+	return tree == baseTree
 }
 
 // markerSubject reports whether a subject line is one of frit's own

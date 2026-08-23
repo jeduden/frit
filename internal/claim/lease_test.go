@@ -671,6 +671,77 @@ func TestScavengeParksUnlandedWorkThenDeletes(t *testing.T) {
 	assert.Error(t, localErr, "the local copy is cleaned up too")
 }
 
+// squashLandOnMain simulates a squash-merge landing: main gains a
+// fresh commit carrying the same content, with no merge relationship
+// to the lane's own commits — the shape a squash-merge PR leaves
+// behind, where ancestry can never see the lane's work as landed.
+func squashLandOnMain(t *testing.T, repo, content string) {
+	t.Helper()
+	gitCmd(t, repo, "checkout", "-q", "main")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte(content), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "squash-merge plan 7")
+	gitCmd(t, repo, "push", "-q", "origin", "main")
+}
+
+// TestScavengeParksSquashLandedWorkWithNoRescue: a lane's work reached
+// the default branch by squash-merge — same content, no ancestry to
+// the lane's own tip — so it is landed by content though ancestry
+// alone would call it unlanded. Scavenge deletes it clean, no rescue
+// ref parked for content already on main.
+func TestScavengeParksSquashLandedWorkWithNoRescue(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	squashLandOnMain(t, work, "wip\n")
+
+	sc, err := Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Empty(t, sc.Rescue, "the content is already on main; nothing to park")
+	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue, "no rescue ref was created")
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone, "the work ref is still deleted")
+}
+
+// TestScavengeParksOnContentConflict: the lane's tip and main both
+// edited the same line differently — merge-tree conflicts — so the
+// chain still reads as unlanded and parks. The conflict is evidence,
+// not a fault: Scavenge returns no error.
+func TestScavengeParksOnContentConflict(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	gitCmd(t, work, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "README.md"), []byte("lane-edit\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "lane edits README")
+	gitCmd(t, work, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, work, "rev-parse", "refs/heads/plan/7")
+	gitCmd(t, work, "checkout", "-q", "main")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "README.md"), []byte("main-edit\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "main edits README")
+	gitCmd(t, work, "push", "-q", "origin", "main")
+
+	sc, err := Scavenge(
+		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err, "a content conflict is evidence, not a fault")
+
+	assert.Equal(t, "refs/frit/rescue/7/box-b", sc.Rescue,
+		"conflicting content still reads as unlanded work")
+	rescue := gitCmd(t, work, "ls-remote", "origin", sc.Rescue)
+	assert.Contains(t, rescue, tip, "the rescue ref carries the old tip")
+	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Empty(t, gone, "the work ref is still deleted")
+}
+
 // TestScavengeMarkerOnlyDeletesWithoutParking: a ref carrying nothing
 // but frit's own markers has no work to lose — no rescue ref is
 // created, the delete alone suffices.

@@ -271,16 +271,16 @@ the categories and the evidence each teardown requires.
 
 ## Landed evidence and scavenge
 
-Merging a work ref's branch into the default branch does not delete
-it — the ref still exists on the remote. `claim` and `orphans` do not
-wait for a human to notice: evidence that a lease's work has landed is
-enough for `scavenge` to delete the ref, parking any commits that
-never made it to the merge onto a rescue ref first. Evidence tied to
-the observed tip itself — that tip is an ancestor of the default
-branch — needs no staleness window. Evidence that is only the ✅ glyph
-or a missing plan file additionally requires a matured window, so a
-lease that is still being renewed can never be scavenged out from
-under its holder.
+Merging a work ref's branch into the default branch does not delete it — the
+ref still exists on the remote. `claim` and `orphans` do not wait for a
+human to notice: evidence that a lease's work has landed is enough for
+`scavenge` to delete the ref, parking any commits that never made it to the
+merge onto a rescue ref first. Evidence tied to the observed tip itself
+needs no staleness window. The tip may be an ancestor of the default branch,
+or its merge into a fresh copy of the branch may change nothing, the shape a
+squash-merge leaves. Evidence that is only the ✅ glyph or a missing plan
+file additionally requires a matured window, so a lease that is still being
+renewed can never be scavenged out from under its holder.
 
 A park can itself be blocked: the rescue ref it would write to already
 holds a different tip's work, parked earlier and never cleaned up.

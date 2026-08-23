@@ -1,7 +1,7 @@
 ---
 id: 2608212010
 title: Scavenge reads squash-merged work as landed, so it parks nothing that landed
-status: "🔲"
+status: "🔳"
 summary: >-
   Under squash-merge a landed plan's commits are never ancestors of
   the default branch, so hasUnlanded calls every landed lane
@@ -17,7 +17,7 @@ depends-on: [2608211936]
 phases:
   - n: 1
     title: content evidence in the park decision
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the scenario docs learn content evidence
     status: "🔲"
