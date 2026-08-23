@@ -63,7 +63,7 @@ footer: |
 | 2608211326 | ✅     | sonnet | [The lease protocol completed through every verb](plan/2608211326_lease-protocol-completion.md)                                        |
 | 2608211936 | ✅     | sonnet | [A blocked scavenge names its rescue ref and what to do next](plan/2608211936_rescue-conflict-guidance.md)                             |
 | 2608212010 | ✅     | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md)        |
-| 2608212011 | 🔲     | sonnet | [The rescue ref carries its tip, so a park never conflicts](plan/2608212011_content-addressed-rescue-refs.md)                          |
+| 2608212011 | ✅     | sonnet | [The rescue ref carries its tip, so a park never conflicts](plan/2608212011_content-addressed-rescue-refs.md)                          |
 | 2608212203 | ✅     | sonnet | [Only a minted lease is a hold, and a dead session frees it](plan/2608212203_only-a-lease-is-a-hold.md)                                |
 | 2608212218 | ✅     | sonnet | [frit reaps the orphans it reports](plan/2608212218_reap-the-orphans.md)                                                               |
 | 2608212223 | ✅     | sonnet | [A thin skill fronts every frit verb an agent uses](plan/2608212223_a-skill-fronts-every-verb.md)                                      |

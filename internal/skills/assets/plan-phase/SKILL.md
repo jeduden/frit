@@ -47,9 +47,8 @@ stale.
    check to reach green.
 6. **Fenced.** A commit refused as "fenced" means this lane's lease
    moved under it — run `{{frit}} yield`, don't fight the CAS.
-7. **Rescue conflict.** A warning naming a rescue ref means an earlier
-   park still holds different work there — fetch it, inspect, delete
-   the ref, then retry.
+7. **Rescue conflict.** A warning naming a rescue ref means it was
+   moved by hand — fetch it, inspect, delete the ref, then retry.
 
 ## Notes
 
