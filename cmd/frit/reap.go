@@ -38,6 +38,13 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	// The JSON contract keeps stdout the whole report, so progress is
+	// silenced there rather than tested for at every write site.
+	var progress = io.Writer(rt.stderr)
+	if c.JSON {
+		progress = io.Discard
+	}
+
 	doc := report.NewReap(c.Root, rc.Go)
 	for _, repo := range repos {
 		built, evidence, err := repoLanes(repo, rt)
@@ -58,11 +65,11 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		found := lanes.Find(built, repo.Worktrees)
 
 		reaped, refused := reapStranded(
-			rt, repo, found.Stranded, evidence, remote, base, rc.Go)
+			rt, repo, found.Stranded, evidence, remote, base, rc.Go, progress)
 		pruned, refusedPruned := reapPruned(
-			rt, repo, found.Prunable, found.Empty, rc.Go)
+			rt, repo, found.Prunable, found.Empty, rc.Go, progress)
 		dropped, refusedHolds := reapUnstaffed(
-			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go)
+			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go, progress)
 
 		doc.AddRepo(repo.Name, reaped, refused,
 			dropped, refusedHolds, pruned, refusedPruned)
@@ -122,6 +129,7 @@ func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
 func reapStranded(
 	rt *runtime, repo discover.Repo, stranded []lanes.Lane,
 	evidence landedEvidence, remote, base string, doGo bool,
+	progress io.Writer,
 ) ([]report.ReapedLane, []report.RefusedLane) {
 	reaped := []report.ReapedLane{}
 	refused := []report.RefusedLane{}
@@ -138,39 +146,58 @@ func reapStranded(
 
 		for _, d := range reap.Decide(
 			lane.PlanID, withCommits(lane.Worktrees), landed) {
+			wt := report.WorktreeOf(d.Worktree)
 			if d.Refused != "" {
 				refused = append(refused, report.RefusedLane{
-					PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
+					PlanID: d.PlanID, Worktree: wt,
 					Branch: d.Branch, Reason: d.Refused,
 				})
+				progressRefused(progress, wt.Name, d.Branch, d.Refused)
 				continue
 			}
 
 			rescue, err := parkBranch(rt, repo, opts, d.Branch, doGo)
 			if err != nil {
+				reason := "park: " + err.Error()
 				refused = append(refused, report.RefusedLane{
-					PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
-					Branch: d.Branch, Reason: "park: " + err.Error(),
+					PlanID: d.PlanID, Worktree: wt,
+					Branch: d.Branch, Reason: reason,
 				})
+				progressRefused(progress, wt.Name, d.Branch, reason)
 				continue
 			}
 			if doGo {
 				if err := tearDownWorktree(rt, repo, d); err != nil {
 					refused = append(refused, report.RefusedLane{
-						PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
+						PlanID: d.PlanID, Worktree: wt,
 						Branch: d.Branch, Reason: err.Error(),
 					})
+					progressRefused(progress, wt.Name, d.Branch, err.Error())
 					continue
 				}
 			}
 			reaped = append(reaped, report.ReapedLane{
-				PlanID: d.PlanID, Worktree: report.WorktreeOf(d.Worktree),
+				PlanID: d.PlanID, Worktree: wt,
 				Branch: d.Branch, Rescue: rescue,
 			})
+			progressReaped(progress, verbFor(doGo, "reaped", "would reap"),
+				wt.Name, d.Branch)
 		}
 	}
 
 	return reaped, refused
+}
+
+// progressRefused writes one refused progress line, worded like
+// printReap's own refused row for the same lane.
+func progressRefused(progress io.Writer, name, branch, reason string) {
+	_, _ = fmt.Fprintf(progress, "refused\t%s\t%s (%s)\n", name, branch, reason)
+}
+
+// progressReaped writes one reaped (or would-reap) progress line,
+// worded like printReap's own row for the same lane.
+func progressReaped(progress io.Writer, verb, name, branch string) {
+	_, _ = fmt.Fprintf(progress, "%s\t%s\t%s\n", verb, name, branch)
 }
 
 // parkBranch parks a branch tip's unlanded work ahead of its delete,
@@ -252,30 +279,30 @@ func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
 func reapUnstaffed(
 	rt *runtime, repo discover.Repo, unstaffed []lanes.Lane,
 	plans []discovery.Plan, remote, base string, doGo bool,
+	progress io.Writer,
 ) ([]report.DroppedHold, []report.RefusedHold) {
 	dropped := []report.DroppedHold{}
 	refused := []report.RefusedHold{}
+	dropVerb := verbFor(doGo, "dropped", "would drop")
 
 	for _, lane := range unstaffed {
 		canonical := claim.Branch(lane.PlanID)
+		id := fmt.Sprintf("plan %d", lane.PlanID)
 		if !holds(lane, canonical) {
 			// Every decorated hold this lane carries needs the same
 			// migration, not just the first one a lane claimed twice
 			// happens to list.
 			for _, h := range lane.Holds {
-				refused = append(refused, report.RefusedHold{
-					PlanID: lane.PlanID, Branch: h.Branch,
-					Reason: "decorated hold; migrate to " + canonical + " first",
-				})
+				refused = append(refused,
+					refuseDecoratedHold(progress, lane.PlanID, canonical, h.Branch))
 			}
 			continue
 		}
 
 		p, ok := planFor(plans, repo.Name, lane.PlanID)
 		if reason := holdRefusal(p, ok); reason != "" {
-			refused = append(refused, report.RefusedHold{
-				PlanID: lane.PlanID, Branch: canonical, Reason: reason,
-			})
+			refused = append(refused,
+				refuseHold(progress, lane.PlanID, canonical, reason))
 			continue
 		}
 
@@ -299,22 +326,44 @@ func reapUnstaffed(
 			dropped = append(dropped, report.DroppedHold{
 				PlanID: lane.PlanID, Branch: canonical, Rescue: rescue,
 			})
+			progressReaped(progress, dropVerb, id, canonical)
 			continue
 		}
 
 		sc, err := claim.Scavenge(repo.Path, opts, p.HoldTip, rt.git)
 		if err != nil {
-			refused = append(refused, report.RefusedHold{
-				PlanID: lane.PlanID, Branch: canonical, Reason: err.Error(),
-			})
+			refused = append(refused,
+				refuseHold(progress, lane.PlanID, canonical, err.Error()))
 			continue
 		}
 		dropped = append(dropped, report.DroppedHold{
 			PlanID: lane.PlanID, Branch: canonical, Rescue: sc.Rescue,
 		})
+		progressReaped(progress, dropVerb, id, canonical)
 	}
 
 	return dropped, refused
+}
+
+// refuseDecoratedHold builds and streams one refusal for a legacy
+// decorated hold — not the lease protocol's own id-only ref, so
+// Scavenge has nothing to CAS against.
+func refuseDecoratedHold(
+	progress io.Writer, id int64, canonical, branch string,
+) report.RefusedHold {
+	reason := "decorated hold; migrate to " + canonical + " first"
+	progressRefused(progress, fmt.Sprintf("plan %d", id), branch, reason)
+
+	return report.RefusedHold{PlanID: id, Branch: branch, Reason: reason}
+}
+
+// refuseHold builds and streams one refusal on a lane's canonical hold.
+func refuseHold(
+	progress io.Writer, id int64, canonical, reason string,
+) report.RefusedHold {
+	progressRefused(progress, fmt.Sprintf("plan %d", id), canonical, reason)
+
+	return report.RefusedHold{PlanID: id, Branch: canonical, Reason: reason}
 }
 
 // holdRefusal is the abandonment gate: why an unstaffed hold is not
@@ -374,26 +423,29 @@ func holds(lane lanes.Lane, branch string) bool {
 // reaped.
 func reapPruned(
 	rt *runtime, repo discover.Repo,
-	prunable, empty []gitwt.Worktree, doGo bool,
+	prunable, empty []gitwt.Worktree, doGo bool, progress io.Writer,
 ) ([]report.PrunedWorktree, []report.RefusedWorktree) {
 	pruned := []report.PrunedWorktree{}
 	refused := []report.RefusedWorktree{}
+	verb := verbFor(doGo, "reaped", "would reap")
 
 	classify := func(worktrees []gitwt.Worktree, kind string) {
 		for _, wt := range worktrees {
+			name := report.WorktreeOf(wt)
 			if doGo {
 				if _, err := rt.git(repo.Path,
 					"worktree", "remove", wt.Path); err != nil {
 					refused = append(refused, report.RefusedWorktree{
-						Worktree: report.WorktreeOf(wt), Kind: kind,
-						Reason: err.Error(),
+						Worktree: name, Kind: kind, Reason: err.Error(),
 					})
+					progressRefused(progress, name.Name, kind, err.Error())
 					continue
 				}
 			}
 			pruned = append(pruned, report.PrunedWorktree{
-				Worktree: report.WorktreeOf(wt), Kind: kind,
+				Worktree: name, Kind: kind,
 			})
+			progressReaped(progress, verb, name.Name, kind)
 		}
 	}
 	classify(prunable, "prunable")
