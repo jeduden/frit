@@ -275,15 +275,18 @@ func TestFetchFlagDefaultsOnAndNegates(t *testing.T) {
 func TestFetchFlagReachesTheReadWalk(t *testing.T) {
 	isolate(t)
 	withHerdr(t, herdrReturning())
-	root := landedDeletedClone(t, "atlas", 7)
 
+	// A fetch mutates the clone's refs on disk, so each run gets its own
+	// clone: otherwise the default run would refresh the view the
+	// --no-fetch run is meant to read stale.
 	var fresh report.BoardDoc
-	emit(t, &fresh, "board", "--root", root)
+	emit(t, &fresh, "board", "--root", landedDeletedClone(t, "atlas", 7))
 	assert.Nil(t, boardPlanByID(fresh, 7),
 		"with the default fetch, the landed plan is off the board")
 
 	var stale report.BoardDoc
-	emit(t, &stale, "board", "--no-fetch", "--root", root)
+	emit(t, &stale, "board", "--no-fetch",
+		"--root", landedDeletedClone(t, "atlas", 7))
 	p := boardPlanByID(stale, 7)
 	require.NotNil(t, p, "without a fetch, the plan is still outstanding")
 	assert.True(t, p.Held,
