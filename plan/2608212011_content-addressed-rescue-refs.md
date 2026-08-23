@@ -1,7 +1,7 @@
 ---
 id: 2608212011
 title: The rescue ref carries its tip, so a park never conflicts
-status: "🔲"
+status: "🔳"
 summary: >-
   A rescue ref is named per plan and per machine, so one lane parking
   twice at different tips collides with itself, and park must refuse

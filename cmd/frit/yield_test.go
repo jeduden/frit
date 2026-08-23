@@ -74,6 +74,8 @@ func TestYieldParksAFencedLaneAndTearsItDown(t *testing.T) {
 	var claimed bytes.Buffer
 	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
 	require.Equal(t, 0, code, claimed.String())
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
 
 	fenceWithATakeover(t, repo, 7)
 	// The lane's own worktree sits on the plan's branch — what
@@ -89,8 +91,8 @@ func TestYieldParksAFencedLaneAndTearsItDown(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "parked")
-	assert.Contains(t, out.String(), "refs/frit/rescue/7/",
-		"the rescue ref is named for the plan")
+	assert.Contains(t, out.String(), "refs/frit/rescue/7/"+hostname()+"/"+local,
+		"the rescue ref names the plan, the holder and the parked tip")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
 		"refs/frit/rescue/7/*")
 	require.NoError(t, err)

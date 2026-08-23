@@ -252,6 +252,8 @@ func TestReapDryRunPreviewsTheRescueRef(t *testing.T) {
 	repo := initRepo(t, root, "atlas")
 	branch := "plan/2608142306-fleet-index"
 	strandedCheckout(t, root, repo, "atlas-squashed", branch)
+	tip, err := gitCapture(t, repo, "rev-parse", branch)
+	require.NoError(t, err)
 	landPlan(t, repo, 2608142306, "fleet-index", "✅")
 	addOrigin(t, repo)
 	var doc report.ReapDoc
@@ -261,7 +263,7 @@ func TestReapDryRunPreviewsTheRescueRef(t *testing.T) {
 	assert.Empty(t, stderr)
 	require.Len(t, doc.Repos, 1)
 	require.Len(t, doc.Repos[0].Reaped, 1)
-	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname(),
+	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname()+"/"+tip,
 		doc.Repos[0].Reaped[0].Rescue,
 		"the dry run names where the work would be parked")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
