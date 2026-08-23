@@ -73,7 +73,8 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
+	window, _ := staleClock(&res, plan.Repo)
+	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 		doc.Refuse(reason)
 		scavengeGlyph(rt, doc, plan, res)
 		return renderClaim(c, rt, doc)
@@ -495,7 +496,9 @@ func vetoRefusal(veto *claim.VetoError) string {
 // the deterministic branch, and Acquire's force-with-lease stays the
 // arbiter if a live hold still exists. Every other plan outside the
 // ready set is refused, and the reason names why it is out.
-func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
+func claimRefusal(
+	p discovery.Plan, ready []discovery.Plan, window time.Duration,
+) string {
 	for _, r := range ready {
 		if r.Repo == p.Repo && r.ID == p.ID {
 			return ""
@@ -504,7 +507,8 @@ func claimRefusal(p discovery.Plan, ready []discovery.Plan) string {
 
 	switch {
 	case p.Held:
-		return "already held (" + heldLabel(p.Holds) + ")"
+		return "already held (" + heldLabel(p.Holds) + "); " +
+			notMaturedReason(p, window)
 	case p.Done():
 		return "already done"
 	case p.Superseded():

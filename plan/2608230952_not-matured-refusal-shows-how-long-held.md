@@ -1,7 +1,7 @@
 ---
 id: 2608230952
 title: A not-matured hold refusal shows how long it has been held
-status: "🔳"
+status: "✅"
 summary: >-
   When frit refuses to act on a held lane because its takeover window
   has not matured, it says only "held by a live lease" — not how long
@@ -17,7 +17,7 @@ phases:
     status: "✅"
   - n: 2
     title: claim and start refusals carry the same span, and a voided window says why
-    status: "🔲"
+    status: "✅"
 ---
 # A not-matured hold refusal shows how long it has been held
 
@@ -71,7 +71,8 @@ touch the config path.
 
 1. reap's not-matured refusal reports StaleFor against the configured
    takeover window, proven by a message assertion.
-2. (determined after Phase 1)
+2. claim and start speak the same span-and-window reason as reap, and
+   a voided window explains why its span keeps resetting.
 
 ## Phase 1: reap's not-matured refusal reports StaleFor against the window
 
@@ -128,12 +129,12 @@ window is explained; `go build ./...`, `go vet ./...`,
 
 ## Acceptance Criteria
 
-- [ ] A not-matured hold refusal names how long the tip has sat
+- [x] A not-matured hold refusal names how long the tip has sat
       unchanged (StaleFor) and the repo's configured takeover window.
-- [ ] The window shown honors `.frit.yml`'s `takeover-window`, not a
+- [x] The window shown honors `.frit.yml`'s `takeover-window`, not a
       hardcoded value.
-- [ ] reap, claim, and start all speak the same span-and-window reason.
-- [ ] A hold whose window was voided by a sample gap carries that
+- [x] reap, claim, and start all speak the same span-and-window reason.
+- [x] A hold whose window was voided by a sample gap carries that
       reason, so a span that keeps resetting explains itself.
-- [ ] `go build ./...`, `go vet ./...`, `go test ./...`, and
+- [x] `go build ./...`, `go vet ./...`, `go test ./...`, and
       `mdsmith check .` all pass.

@@ -63,6 +63,12 @@ type Plan struct {
 	Stale bool
 	// StaleFor is how long the tip has been observed unchanged.
 	StaleFor time.Duration
+	// Voided carries the observer's reason the window was thrown away
+	// and restarted — a sample gap wider than the bound — "" when the
+	// current window was never voided. It lets a not-matured refusal
+	// explain a span that keeps resetting instead of just naming a
+	// short StaleFor.
+	Voided string
 	// Dead reports a held plan whose bound session herdr positively
 	// confirms is gone — a takeover candidate at once, with no
 	// staleness window consulted at all (S76). Distinct from Stale:

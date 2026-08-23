@@ -379,12 +379,9 @@ func holdRefusal(p discovery.Plan, ok bool, window time.Duration) string {
 	case !ok || p.HoldTip == "":
 		return "no observed lease state to judge abandonment by"
 	case !p.Stale && !p.Dead:
-		return fmt.Sprintf(
-			"held by a live lease, seen unchanged for %s of the %s "+
-				"takeover window; not takeable until the window matures "+
-				"— its own lane releases it, or claim takes it over "+
-				"once the window matures",
-			p.StaleFor.Round(time.Second), window.Round(time.Second))
+		return "held by a live lease, " + notMaturedReason(p, window) +
+			" — its own lane releases it, or claim takes it over " +
+			"once the window matures"
 	}
 
 	return ""

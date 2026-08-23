@@ -109,7 +109,8 @@ func buildStart(
 		if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
 			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
 		}
-		if reason := claimRefusal(plan, discovery.Ready(res.Plans)); reason != "" {
+		window, _ := staleClock(&res, plan.Repo)
+		if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 			doc := refusedStart(c, res, plan, phase, doGo, reason)
 			scavengeGlyph(rt, doc, plan, res)
 
