@@ -486,7 +486,7 @@ func lsRemoteRefNames(out []byte) []string {
 
 // AllRescueRefs lists every rescue ref a repository carries, one
 // ls-remote for the whole repository rather than one per plan —
-// bucketed by the id segment of refs/frit/rescue/<id>/<holder>, what
+// bucketed by the id segment of refs/frit/rescue/<id>/<rest>, what
 // a sweep across every plan needs instead of RescueRefs' one-plan-at-
 // a-time reads.
 //
@@ -525,9 +525,12 @@ func AllRescueRefs(
 }
 
 // rescuePlanID reads the id segment out of a rescue ref name,
-// refs/frit/rescue/<id>/<holder>. ok is false for anything that does
-// not match the shape — a ref ls-remote's own pattern could not have
-// produced, guarded against rather than trusted.
+// refs/frit/rescue/<id>/<rest> — <rest> is a bare holder under the
+// legacy shape or holder-tip under the content-addressed one; either
+// way the id is the first segment, so this reads both. ok is false for
+// anything that does not match the shape — a ref ls-remote's own
+// pattern could not have produced, guarded against rather than
+// trusted.
 func rescuePlanID(ref string) (int64, bool) {
 	rest, ok := strings.CutPrefix(ref, "refs/frit/rescue/")
 	if !ok {
@@ -550,8 +553,19 @@ func rescuePlanID(ref string) (int64, bool) {
 // 40-hex, so two parks from the same lane at different tips can never
 // alias, and a retry at a tip already parked always names the same
 // ref, landing as a create-only no-op.
+//
+// The tip joins the holder's own segment rather than nesting beneath
+// it as a fourth path component: git's ref namespace refuses a name
+// that is simultaneously a leaf and a directory, so a park that wrote
+// refs/frit/rescue/<id>/<holder>/<tip> would permanently fail for
+// every plan and holder that already carries the pre-content-addressed
+// leaf ref refs/frit/rescue/<id>/<holder> — exactly the shape a
+// repository with any parking history already has on disk. Joining
+// holder and tip in one segment keeps every park a sibling of, never a
+// child of, that legacy ref, so the two shapes coexist the way
+// RescueRefs and the orphans sweep already assume they do.
 func rescueRef(planID int64, holder, tip string) string {
-	return fmt.Sprintf("refs/frit/rescue/%d/%s/%s", planID, holder, tip)
+	return fmt.Sprintf("refs/frit/rescue/%d/%s-%s", planID, holder, tip)
 }
 
 // park pushes the tip to the rescue ref, create-only. The ref name is

@@ -324,7 +324,7 @@ func reapUnstaffed(
 			rescue := ""
 			if unlanded, err := claim.HasUnlanded(
 				repo.Path, opts, p.HoldTip, rt.git); err == nil && unlanded {
-				rescue = claim.RescueRef(lane.PlanID, hostname(), p.HoldTip)
+				rescue = claim.RescueRef(lane.PlanID, opts.Holder, p.HoldTip)
 			}
 			dropped = append(dropped, report.DroppedHold{
 				PlanID: lane.PlanID, Branch: canonical, Rescue: rescue,

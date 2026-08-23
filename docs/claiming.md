@@ -183,7 +183,7 @@ fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
 `frit yield <plan>` is that way out: it pushes the fenced lane's local
-divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>/<tip>`
+divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>-<tip>`
 (create-only, since a fenced lane holds no lease to CAS on), tears the
 lane's worktree down through herdr, and exits clean. It refuses when
 run from the lane that still holds the live lease — yield is for the
@@ -280,11 +280,11 @@ staleness window. Evidence that is only the ✅ glyph or a missing plan
 file additionally requires a matured window, so a renewing lease can
 never be scavenged out from under its holder.
 
-The rescue ref is content-addressed by the tip it parks: two parks
-from one lane at different tips never collide, and a retry at a
-parked tip is a no-op. What still refuses is a ref moved by hand or
-forged, holding a different object at that name. `claim`, `release`,
-`start` and `yield` warn: fetch, inspect, delete, retry.
+The rescue ref is content-addressed by the tip, joined onto the
+holder's own segment: two parks at different tips never collide, a
+retry is a no-op, and an older `<holder>`-only ref never blocks a
+fresh one. What still refuses is a ref moved by hand or forged. `claim`,
+`release`, `start` and `yield` warn: fetch, inspect, delete, retry.
 
 This page describes the lease protocol as it ships today. It was
 closed by [plan 2608202144](../plan/2608202144_lease-namespace-claims.md)
