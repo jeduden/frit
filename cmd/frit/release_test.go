@@ -198,6 +198,48 @@ func TestReleaseRecognizesALaneWhoseOwnCommitsAdvancedTheTip(t *testing.T) {
 		"the release re-anchors to origin's fresh tip, not the stale token")
 }
 
+// TestReleaseStillRefusesAGenuineTakeoverAfterItsOwnRenewal: a
+// takeover marker minted at a new epoch from the observed tip
+// descends from the original lane's token too, exactly like an
+// ordinary raw commit does — but it is a foreign move, not the lane's
+// own advance. release must still refuse it: the Phase 1 relaxation
+// widens what counts as "own", it does not open the fence a genuine
+// takeover sits behind (S86).
+func TestReleaseStillRefusesAGenuineTakeoverAfterItsOwnRenewal(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	foreign := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	_, err = claim.Takeover(repo, foreign, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "held live")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover",
+		"the takeover stands untouched")
+}
+
 // TestReleaseScavengesALandedRef: a hold whose work already merged is
 // scavenged rather than released — the same evidence claim's own
 // scavenge acts on.

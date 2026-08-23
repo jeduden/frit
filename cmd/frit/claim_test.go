@@ -633,6 +633,55 @@ func TestClaimResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 	assert.Equal(t, renewed.Tip, parent)
 }
 
+// TestClaimResumesALaneWhoseOwnCommitsAdvancedTheTip: the prescribed
+// workflow is raw git commit/push on plan/<id>, with no frit
+// transition between — origin's tip ends up a descendant of the
+// lane's persisted token under the same epoch. `claim` still resumes
+// it, CASing the beat from the fresh tip rather than the stale token
+// (S86).
+func TestClaimResumesALaneWhoseOwnCommitsAdvancedTheTip(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "red: add failing test")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "green: make it pass")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	rawTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "resumed plan 7")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, rawTip, parent,
+		"the resume is CASed from origin's fresh tip, not the stale token")
+}
+
 // TestResumeIgnoresATokenFromAnotherLane: `claim` run from anywhere
 // other than the plan's own worktree must not go looking for a local
 // token — the ordinary "already held" refusal stands, and no beat is

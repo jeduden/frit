@@ -477,6 +477,64 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 		"the resume is CASed from the lane's own persisted token")
 }
 
+// TestStartResumesALaneWhoseOwnCommitsAdvancedTheTip: the prescribed
+// workflow is raw git commit/push on plan/<id>, with no frit
+// transition between — origin's tip ends up a descendant of the
+// lane's persisted token under the same epoch. `start` still resumes
+// it and stands a fresh agent up, CASing the beat from the fresh tip
+// rather than the stale token (S86).
+func TestStartResumesALaneWhoseOwnCommitsAdvancedTheTip(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "red: add failing test")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "green: make it pass")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	rawTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "resumed plan 7")
+	assert.True(t, rec.verb("agent", "start", "plan-7"),
+		"a resumed lease still stands a fresh agent up")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	resumeBody, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, resumeBody, "plan 7: beat")
+	assert.Contains(t, resumeBody, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, rawTip, parent,
+		"the resume is CASed from origin's fresh tip, not the stale token")
+}
+
 // TestStartScavengesALandedRef: the landed cell of the verb-state
 // table for start — a claim lost to a ref whose work already merged
 // keeps the refusal claim gives, and cleans the leftover ref up the
