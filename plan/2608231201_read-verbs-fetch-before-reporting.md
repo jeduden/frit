@@ -1,7 +1,7 @@
 ---
 id: 2608231201
 title: Read verbs refresh from origin before reporting landed evidence
-status: "🔳"
+status: "✅"
 summary: >-
   The fleet walk reads landed evidence off remote-tracking refs
   (origin's default branch and the lease branches) but never fetches,
