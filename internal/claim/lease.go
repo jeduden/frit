@@ -12,6 +12,7 @@ package claim
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -150,6 +151,22 @@ func (e *StillHeldError) Error() string {
 	return fmt.Sprintf(
 		"plan %d is still held by this lane; yield is for a fenced lane, "+
 			"use release instead", e.PlanID)
+}
+
+// RescueConflictError reports a park refused because the plan's rescue
+// ref already holds a different tip's work — an earlier scavenge or
+// yield from this same lane, parked and never cleaned up. Its wording
+// is operation-neutral: Scavenge and Yield both return it, worded as
+// the next step rather than a dead end.
+type RescueConflictError struct {
+	PlanID int64
+	Rescue string // the rescue ref that already holds other work
+}
+
+func (e *RescueConflictError) Error() string {
+	return fmt.Sprintf(
+		"rescue ref %s holds an earlier park at a different tip; "+
+			"fetch and inspect it, then delete it and retry", e.Rescue)
 }
 
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
@@ -294,6 +311,12 @@ func Scavenge(
 
 	res, err := ParkUnlanded(repoDir, opts, from, run)
 	if err != nil {
+		var conflict *RescueConflictError
+		if errors.As(err, &conflict) {
+			return res, fmt.Errorf(
+				"%w; not deleting plan %d's ref", err, opts.PlanID)
+		}
+
 		return res, err
 	}
 
@@ -472,9 +495,7 @@ func park(
 		return nil
 	}
 
-	return fmt.Errorf(
-		"rescue ref %s already holds other work; not deleting plan %d's ref",
-		rescue, opts.PlanID)
+	return &RescueConflictError{PlanID: opts.PlanID, Rescue: rescue}
 }
 
 // hasUnlanded reports whether the chain from the base to the tip
