@@ -76,6 +76,16 @@ type cli struct {
 	// answers it, and an agent should not have to remember which ones.
 	JSON bool `help:"Emit the report as JSON instead of a table."`
 
+	// Fetch refreshes each repository's remote-tracking refs before a
+	// read verb reads landed evidence off them, so work merged and its
+	// lease branch deleted on the remote reads as landed rather than
+	// held on a checkout that has not fetched since. It is global
+	// because every read verb shares the one fleet walk, and negatable
+	// as --no-fetch for an offline run, which falls back to the local
+	// view and names the staleness. On by default, and resolvable from
+	// $FRIT_FETCH or a config file like --root.
+	Fetch bool `negatable:"" default:"true" env:"FRIT_FETCH" help:"Refresh remote-tracking refs; --no-fetch skips."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -1069,7 +1079,7 @@ func hostname() string {
 // the discovery verbs share.
 func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe,
-		fleet.Options{Fetch: true})
+		fleet.Options{Fetch: c.Fetch})
 	if err != nil {
 		return res, err
 	}
