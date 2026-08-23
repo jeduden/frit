@@ -814,6 +814,29 @@ func RemoteTip(repoDir, remote string, planID int64, run gitwt.Runner) string {
 	return remoteHolder(repoDir, remote, ref, run)
 }
 
+// OwnAdvance reports whether tip is this lane's own advance beyond a
+// token it already holds, not a foreign move: the token must still be
+// reachable from tip (isAncestor), and the marker governing tip — the
+// nearest one latestMarker finds walking back from it — must still
+// carry the token's own epoch and holder. Ordinary TDD commits on top
+// of the token satisfy both; a foreign takeover mints a new epoch as a
+// child of the observed tip too, so ancestry alone cannot tell them
+// apart, but it fails the epoch/holder half.
+func OwnAdvance(
+	repoDir string, planID int64, token, tip string, run gitwt.Runner,
+) bool {
+	if token == "" || tip == "" || !isAncestor(repoDir, token, tip, run) {
+		return false
+	}
+	owned, ok := commitMarker(repoDir, planID, token, run)
+	if !ok {
+		return false
+	}
+	governing, ok := latestMarker(repoDir, planID, tip, run)
+
+	return ok && governing.Epoch == owned.Epoch && governing.Holder == owned.Holder
+}
+
 // fetchedMarker reads the latest lease marker reachable from tip,
 // fetching the work ref once when the objects are not local — a lease
 // another machine pushed that this clone has never seen.

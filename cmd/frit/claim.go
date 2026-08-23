@@ -156,7 +156,9 @@ func resumeToken(
 
 // ownToken resolves this lane's own already-held lease from its
 // persisted token: the calling directory is this exact plan's own
-// lane, and its token still matches origin's current tip. It is not
+// lane, and its token either matches origin's current tip or the tip
+// is this lane's own advance beyond it — an ordinary run of raw TDD
+// commits, not a foreign move (claim.OwnAdvance). It is not
 // identity-based — a cloned machine id or a reused lane path carries
 // no matching token, so it gets no shortcut (A1) — and it consults no
 // staleness window at all. ok is false when either condition fails.
@@ -186,11 +188,17 @@ func ownToken(
 	// this clone's possibly-stale local view of the ref: the protocol
 	// states the rule against origin's current tip.
 	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
-	if tip == "" || tip != token {
+	if tip == "" {
 		return "", "", false
 	}
+	if tip == token {
+		return lane, tip, true
+	}
+	if claim.OwnAdvance(coord.Path, plan.ID, token, tip, rt.git) {
+		return lane, tip, true
+	}
 
-	return lane, tip, true
+	return "", "", false
 }
 
 // inOwnLane reports whether cwd is this exact plan's own worktree —

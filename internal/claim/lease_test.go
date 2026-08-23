@@ -284,6 +284,51 @@ func TestRemoteTipReadsOriginsCurrentTip(t *testing.T) {
 	assert.Equal(t, lease.Tip, RemoteTip(first, "origin", 7, gitwt.Exec))
 }
 
+// TestOwnAdvanceRecognizesRawCommitsOnTopOfTheToken: an ordinary run
+// of TDD commits on plan/<id> advances the ref past a lane's persisted
+// token with no frit transition between. OwnAdvance still reads this
+// as the lane's own advance, because the token stays an ancestor and
+// the marker governing the new tip still carries the same epoch and
+// holder.
+func TestOwnAdvanceRecognizesRawCommitsOnTopOfTheToken(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	gitCmd(t, first, "checkout", "-q", "plan/7")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "red")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "green")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, first, "rev-parse", "HEAD")
+
+	assert.True(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec))
+}
+
+// TestOwnAdvanceRefusesAForeignTakeover: a takeover marker minted at a
+// new epoch from the observed tip descends from the token too, so
+// ancestry alone cannot tell the two apart — OwnAdvance still refuses
+// it because the epoch/holder half of the guard changed.
+func TestOwnAdvanceRefusesAForeignTakeover(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	over, err := Takeover(
+		first, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.False(t, OwnAdvance(first, 7, lease.Tip, over.Tip, gitwt.Exec))
+}
+
+// TestOwnAdvanceRefusesATokenThatIsNotAnAncestor: a token unreachable
+// from tip is not an advance at all, whatever its marker says.
+func TestOwnAdvanceRefusesATokenThatIsNotAnAncestor(t *testing.T) {
+	first := originAndClone(t)
+	tip := gitCmd(t, first, "rev-parse", "main")
+
+	assert.False(t, OwnAdvance(first, 7, "deadbeef", tip, gitwt.Exec))
+}
+
 // TestTakeoverCountReadsTheMarkersAlreadyInTheChain: the backoff
 // factor k is read straight off the chain, so every observer computes
 // the same one (F3) — a fresh claim carries none, and each seized

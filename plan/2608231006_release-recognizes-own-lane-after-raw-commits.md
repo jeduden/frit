@@ -15,7 +15,7 @@ depends-on: []
 phases:
   - n: 1
     title: release recognizes a lane whose own commits advanced the tip
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: renew and resume re-anchor too, and a foreign takeover still fences
     status: "🔲"
