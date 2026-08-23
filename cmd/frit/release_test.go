@@ -152,6 +152,52 @@ func TestReleaseEndsTheLanesOwnLease(t *testing.T) {
 		"the release is CASed from the lane's own persisted token")
 }
 
+// TestReleaseRecognizesALaneWhoseOwnCommitsAdvancedTheTip: the
+// prescribed workflow is raw git commit/push on plan/<id>, with no
+// frit transition between — origin's tip ends up a descendant of the
+// lane's persisted token under the same epoch. release must still
+// recognize this as the lane's own advance and succeed, re-anchoring
+// to the fresh tip, rather than refuse it as held by another lane.
+func TestReleaseRecognizesALaneWhoseOwnCommitsAdvancedTheTip(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "red: add failing test")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "green: make it pass")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	rawTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "released plan 7")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: release")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, rawTip, parent,
+		"the release re-anchors to origin's fresh tip, not the stale token")
+}
+
 // TestReleaseScavengesALandedRef: a hold whose work already merged is
 // scavenged rather than released — the same evidence claim's own
 // scavenge acts on.

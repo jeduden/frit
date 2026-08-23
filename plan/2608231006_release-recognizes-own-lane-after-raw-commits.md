@@ -1,7 +1,7 @@
 ---
 id: 2608231006
 title: A lane owns its lease after its own raw commits advance the branch
-status: "🔲"
+status: "🔳"
 summary: >-
   A lane's worktree sits on the same plan/<id> branch its lease markers
   live on, so every raw TDD commit advances origin's tip past the
