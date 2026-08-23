@@ -1,7 +1,7 @@
 ---
 id: 2608230705
 title: A fresh claim refuses to clobber local work on its own lease branch
-status: "🔲"
+status: "🔳"
 summary: >-
   Acquire's fresh path mints a claim marker on opts.Base and, on a
   winning CAS, force-moves the local plan/<id> ref onto it with a bare
