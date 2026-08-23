@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-// The staleness defaults, until `.frit.yml` carries them per repo. The
+// The staleness defaults; a repository overrides them in `.frit.yml`
+// via takeover-window and sample-gap. The
 // window T is how long a work ref's tip must sit unchanged before its
 // lease reads as stale — longer than any legitimate quiet stretch of a
 // working lane. The sample-gap bound S_max is T/4, so a matured window
