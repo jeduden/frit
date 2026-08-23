@@ -1,7 +1,7 @@
 ---
 id: 2608221754
 title: The supervisor acts on a lane it does not stand in
-status: "🔳"
+status: "✅"
 summary: >-
   frit's deserted-hold recovery assumes the actor re-enters the lane's
   own worktree: resume, release and the yield way-out are all
