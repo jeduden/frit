@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 3
     title: A global --fetch flag reaches every read verb
-    status: "🔲"
+    status: "✅"
 ---
 # Read verbs refresh from origin before reporting landed evidence
 
@@ -193,14 +193,14 @@ over a proven core.
 
 ## Acceptance Criteria
 
-- [ ] `Gather` fetches `--prune` per repo when fetch is enabled, using
+- [x] `Gather` fetches `--prune` per repo when fetch is enabled, using
       the configured remote
-- [ ] A squash-landed plan whose lease branch was deleted on origin
+- [x] A squash-landed plan whose lease branch was deleted on origin
       reads as landed, not held, from an unfetched checkout
-- [ ] `--no-fetch` runs no fetch subprocess and reads the local view
-- [ ] An offline or failed fetch falls back to the local view and,
+- [x] `--no-fetch` runs no fetch subprocess and reads the local view
+- [x] An offline or failed fetch falls back to the local view and,
       when a remote is configured, records a staleness `Problem`
-- [ ] The global `--fetch` flag defaults on, is negatable, and reaches
+- [x] The global `--fetch` flag defaults on, is negatable, and reaches
       every read verb through `gatherFleet`
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
