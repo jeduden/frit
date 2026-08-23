@@ -1,7 +1,7 @@
 ---
 id: 2608230705
 title: A fresh claim refuses to clobber local work on its own lease branch
-status: "🔳"
+status: "✅"
 summary: >-
   Acquire's fresh path mints a claim marker on opts.Base and, on a
   winning CAS, force-moves the local plan/<id> ref onto it with a bare
@@ -14,7 +14,7 @@ depends-on: []
 phases:
   - n: 1
     title: a fresh acquire refuses an unpushed local lease branch
-    status: "🔲"
+    status: "✅"
 ---
 # A fresh claim refuses to clobber local work on its own lease branch
 
@@ -156,15 +156,15 @@ golangci-lint run` clean.
 
 ## Acceptance Criteria
 
-- [ ] `Acquire` on a plan whose remote lease ref is absent, but whose
+- [x] `Acquire` on a plan whose remote lease ref is absent, but whose
       local `plan/<id>` branch already holds commits not reachable
       from `opts.Base`, returns an error and leaves that local branch
       untouched.
-- [ ] `Acquire` still wins a genuinely fresh acquisition — no local
+- [x] `Acquire` still wins a genuinely fresh acquisition — no local
       branch of that name, or one that is a clean ancestor of the base
       — exactly as before.
-- [ ] `pick --go` on a colliding plan refuses through the same guard,
+- [x] `pick --go` on a colliding plan refuses through the same guard,
       naming the branch and the recovery, and leaves the local branch
       untouched.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
