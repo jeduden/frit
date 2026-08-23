@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: Fetch is gated and best-effort, so offline falls back named
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: A global --fetch flag reaches every read verb
     status: "🔲"
