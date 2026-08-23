@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                      |
-| ---------- | ------ | ---------------------------------------------------------------------------------------------------------- |
-| 2608221754 | sonnet | [The supervisor acts on a lane it does not stand in](plan/2608221754_supervisor-acts-on-a-foreign-lane.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -76,7 +74,7 @@ footer: |
 | 2608221450 | ✅     | sonnet | [Landed evidence reads origin's default branch, not a lagging local one](plan/2608221450_landed-evidence-reads-origins-default.md)     |
 | 2608221537 | ✅     | sonnet | [The dispatch ladder starts a phase-less plan instead of demanding --phase](plan/2608221537_dispatch-a-phaseless-plan.md)              |
 | 2608221559 | ✅     | sonnet | [Remove the superseded Mint claim path](plan/2608221559_remove-superseded-mint-path.md)                                                |
-| 2608221754 | 🔳     | sonnet | [The supervisor acts on a lane it does not stand in](plan/2608221754_supervisor-acts-on-a-foreign-lane.md)                             |
+| 2608221754 | ✅     | sonnet | [The supervisor acts on a lane it does not stand in](plan/2608221754_supervisor-acts-on-a-foreign-lane.md)                             |
 | 2608230952 | 🔲     | sonnet | [A not-matured hold refusal shows how long it has been held](plan/2608230952_not-matured-refusal-shows-how-long-held.md)               |
 | 2608231006 | 🔲     | sonnet | [A lane owns its lease after its own raw commits advance the branch](plan/2608231006_release-recognizes-own-lane-after-raw-commits.md) |
 <?/catalog?>
