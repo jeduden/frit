@@ -230,8 +230,25 @@ classes — the first two landed, the third added 2026-08-22 by plan
   refuses a live lease however unstaffed it looks locally.
 
 A ref carrying unlanded work commits is parked to
-`refs/frit/rescue/<id>/<machine-id>` before deletion, so scavenge
-never destroys work. Retries are idempotent CAS.
+`refs/frit/rescue/<id>/<machine-id>-<tip>` before deletion, so
+scavenge never destroys work. The tip joined the name 2026-08-23 by
+plan 2608212011: two parks from one lane at different tips then land
+under different refs instead of colliding, so a park can never
+contend with an earlier one from the same machine. Retries are
+idempotent CAS.
+
+The tip joins the machine-id's own segment rather than nesting beneath
+it as a further path component (`.../<machine-id>/<tip>`): git's ref
+storage refuses a name that is simultaneously a leaf and a directory,
+and every repository with any parking history already carries the
+pre-content-addressed leaf ref `refs/frit/rescue/<id>/<machine-id>`.
+Nesting the tip under it would make every future park from that same
+machine fail outright — not a cooperative conflict, an unconditional
+one — for as long as the older ref stands, which the design commits
+to leaving in place (no migration). Joining the two in one segment
+keeps a fresh park a sibling of, never a child of, the older ref, so
+the two shapes actually coexist rather than merely being read
+together by `RescueRefs`.
 
 The park half stands alone as `ParkUnlanded`, for a teardown that
 deletes a local branch through git porcelain rather than the work

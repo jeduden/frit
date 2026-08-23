@@ -630,7 +630,7 @@ func TestStartWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
 	foreignTip, err := gitCapture(t, repo, "rev-parse", "origin/main")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreignTip+":refs/frit/rescue/7/"+hostname())
+		foreignTip+":refs/frit/rescue/7/"+hostname()+"-"+tip)
 	require.NoError(t, err)
 	var out, errb bytes.Buffer
 

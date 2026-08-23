@@ -1,7 +1,7 @@
 ---
 id: 2608212011
 title: The rescue ref carries its tip, so a park never conflicts
-status: "🔲"
+status: "✅"
 summary: >-
   A rescue ref is named per plan and per machine, so one lane parking
   twice at different tips collides with itself, and park must refuse
@@ -17,10 +17,10 @@ depends-on: [2608211936]
 phases:
   - n: 1
     title: the parked tip joins the rescue ref name
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the scenario docs learn the new shape
-    status: "🔲"
+    status: "✅"
 ---
 # The rescue ref carries its tip, so a park never conflicts
 
@@ -41,15 +41,26 @@ rather than clobber, and plan 2608211936 makes that refusal legible.
 Legible is still a dead end an agent must resolve by hand.
 
 Content-addressing removes the class. With the parked tip in the
-name — `refs/frit/rescue/<id>/<holder>/<tip>` — a different tip is a
+name — `refs/frit/rescue/<id>/<holder>-<tip>` — a different tip is a
 different name, and the create-only push just lands. The same name
 can only hold the same commit, so a retry is a no-op by
-construction. The one conflict left is a same-name ref holding a
-different object: a forged or hand-moved ref, inside the trust
-domain the protocol already assigns to raw write access (S37–S39,
-S69). `RescueConflictError` from plan 2608211936 stays for exactly
-that guard, reworded — which is why this plan depends on it rather
-than racing it through the same lines.
+construction.
+
+The tip joins the holder's own segment rather than nesting beneath it
+as a further path component. Git's ref namespace refuses a name that
+is both a leaf and a directory. Nesting the tip under `<holder>` would
+therefore make every park from a holder that already carries the
+pre-existing `<holder>`-only rescue ref — every repository with any
+parking history — fail outright, forever, not just collide
+cooperatively. Joining them in one segment keeps a fresh park a
+sibling of, never a child of, that older ref.
+
+The one conflict left is a same-name ref holding a different object:
+a forged or hand-moved ref. That sits inside the trust domain the
+protocol already assigns to raw write access (S37–S39, S69).
+`RescueConflictError` from plan 2608211936 stays for exactly that
+guard, reworded. That is why this plan depends on it rather than
+racing it through the same lines.
 
 Accumulation is the accepted cost. A lane can now leave several
 rescue refs; that is the point — none of them is lost — and the
@@ -65,10 +76,9 @@ the accumulation to real divergence.
   it. Adding the tip parameter changes no caller outside
   [lease.go](../internal/claim/lease.go).
 - [`claim.RescueRefs`](../internal/claim/lease.go) lists by the
-  prefix pattern `refs/frit/rescue/<id>/*`. `git ls-remote` glob
-  patterns cross path segments, so the pattern should match both
-  the legacy two-segment shape and the new three-segment one — a
-  RED case must prove it rather than assume it.
+  prefix pattern `refs/frit/rescue/<id>/*`, matching both the legacy
+  `<holder>`-only leaf and the new `<holder>-<tip>` leaf — a RED case
+  must prove it rather than assume it.
 - `TestScavengeIsIdempotent` and
   `TestScavengeRefusesAForeignRescue` in
   [lease_test.go](../internal/claim/lease_test.go) pin today's
@@ -101,8 +111,11 @@ RED, in [lease_test.go](../internal/claim/lease_test.go) and
   under two refs, and no refusal fires.
 - A park retried at the same tip is a no-op: the ref already holds
   exactly that commit.
-- `RescueRefs` lists a plan's legacy two-segment ref and a new
-  three-segment ref in one call.
+- `RescueRefs` lists a plan's legacy `<holder>`-only ref and a new
+  `<holder>-<tip>` ref in one call.
+- A holder that already carries a legacy `<holder>`-only rescue ref
+  for this plan still parks a fresh tip with no refusal — the new ref
+  is a sibling leaf, never nested under the old one.
 - A same-name ref holding a different object still refuses with
   `RescueConflictError`, reworded for what it now means: the ref
   was moved by hand, frit does not contend for it (adapting
@@ -111,11 +124,14 @@ RED, in [lease_test.go](../internal/claim/lease_test.go) and
 - Yield parks the fenced lane's divergence under the new shape, and
   its report names the full ref.
 
-GREEN: `rescueRef` takes the tip and appends it as the third
-segment, full 40-hex so two parks can never alias. `park`'s
-conflict branch survives as the trust-domain guard with the
-narrowed wording. `Scavenge`'s `%w` wrap from plan 2608211936 is
-unchanged. Nothing outside
+GREEN: `rescueRef` takes the tip and appends it, full 40-hex, to the
+holder's own segment (`<holder>-<tip>`) rather than nesting it as a
+further path component. A nested `<holder>/<tip>` would collide with
+the pre-existing `<holder>`-only leaf ref via git's own leaf-vs-
+directory ref-namespace rule, defeating the point of this plan for
+every holder that already has one. `park`'s conflict branch survives
+as the trust-domain guard with the narrowed wording. `Scavenge`'s `%w`
+wrap from plan 2608211936 is unchanged. Nothing outside
 [lease.go](../internal/claim/lease.go) changes behavior; reports
 and listings carry whatever ref names they are handed.
 
@@ -163,15 +179,15 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] One lane parks two tips for one plan with no refusal; each is
+- [x] One lane parks two tips for one plan with no refusal; each is
       its own ref; a same-tip retry is a no-op.
-- [ ] `RescueRefs` lists legacy and new shapes in one call, so no
+- [x] `RescueRefs` lists legacy and new shapes in one call, so no
       parked work goes invisible during the transition.
-- [ ] `RescueConflictError` fires only for a same-name ref holding
+- [x] `RescueConflictError` fires only for a same-name ref holding
       a different object, worded as the trust-domain guard it now
       is.
-- [ ] The protocol note's Scavenge section and PARK rows, and
+- [x] The protocol note's Scavenge section and PARK rows, and
       claiming.md's yield and scavenge sections, describe the
       shipped shape under a dated note.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
