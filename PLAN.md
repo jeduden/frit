@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                   |
-| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| 2608231201 | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -81,5 +79,5 @@ footer: |
 | 2608230705 | ✅     | sonnet | [A fresh claim refuses to clobber local work on its own lease branch](plan/2608230705_claim-guards-local-branch-work.md)               |
 | 2608230952 | ✅     | sonnet | [A not-matured hold refusal shows how long it has been held](plan/2608230952_not-matured-refusal-shows-how-long-held.md)               |
 | 2608231006 | ✅     | sonnet | [A lane owns its lease after its own raw commits advance the branch](plan/2608231006_release-recognizes-own-lane-after-raw-commits.md) |
-| 2608231201 | 🔳     | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md)                |
+| 2608231201 | ✅     | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md)                |
 <?/catalog?>
