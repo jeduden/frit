@@ -210,6 +210,86 @@ func TestEnvironmentBeatsConfigFile(t *testing.T) {
 	assert.NotContains(t, out.String(), "from-config")
 }
 
+// landedDeletedClone builds a root holding one clone whose origin has
+// since squash-landed the plan and deleted its lease branch, while the
+// clone's own refs/remotes/origin/* still carry the pre-land state — a
+// checkout that has not fetched since. Only a fetch reveals the plan as
+// landed and its lease gone; --no-fetch reads it as held off the stale
+// remote-tracking copy.
+func landedDeletedClone(t *testing.T, name string, id int) string {
+	t.Helper()
+	branch := "plan/" + strconv.Itoa(id)
+
+	origin := initRepo(t, t.TempDir(), name)
+	commitPlan(t, origin, id, "🔲", "Shader unit", nil, "")
+	git(t, origin, "checkout", "-q", "-b", branch)
+	git(t, origin, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: claim", id))
+	git(t, origin, "checkout", "-q", "main")
+
+	root := t.TempDir()
+	git(t, root, "clone", "-q", origin, filepath.Join(root, name))
+
+	commitPlan(t, origin, id, "✅", "Shader unit", nil, "")
+	git(t, origin, "branch", "-D", branch)
+
+	return root
+}
+
+// boardPlanByID returns the board's row for a plan id, or nil when the
+// plan is off the board.
+func boardPlanByID(doc report.BoardDoc, id int64) *report.BoardPlan {
+	for i := range doc.Plans {
+		if doc.Plans[i].ID == id {
+			return &doc.Plans[i]
+		}
+	}
+
+	return nil
+}
+
+// TestFetchFlagDefaultsOnAndNegates: the global --fetch bool defaults
+// on and --no-fetch turns it off, parsed like any other global.
+func TestFetchFlagDefaultsOnAndNegates(t *testing.T) {
+	isolate(t)
+
+	var on cli
+	parser, err := newParser(&on, &bytes.Buffer{}, &bytes.Buffer{})
+	require.NoError(t, err)
+	_, err = parser.Parse([]string{"board"})
+	require.NoError(t, err)
+	assert.True(t, on.Fetch, "the fetch flag defaults on")
+
+	var off cli
+	parser, err = newParser(&off, &bytes.Buffer{}, &bytes.Buffer{})
+	require.NoError(t, err)
+	_, err = parser.Parse([]string{"board", "--no-fetch"})
+	require.NoError(t, err)
+	assert.False(t, off.Fetch, "--no-fetch turns it off")
+}
+
+// TestFetchFlagReachesTheReadWalk proves the flag reaches the single
+// gather every read verb shares: by default board fetches and the
+// landed-and-deleted plan is off the board, while --no-fetch reads the
+// stale local view and the plan still reads as held.
+func TestFetchFlagReachesTheReadWalk(t *testing.T) {
+	isolate(t)
+	withHerdr(t, herdrReturning())
+	root := landedDeletedClone(t, "atlas", 7)
+
+	var fresh report.BoardDoc
+	emit(t, &fresh, "board", "--root", root)
+	assert.Nil(t, boardPlanByID(fresh, 7),
+		"with the default fetch, the landed plan is off the board")
+
+	var stale report.BoardDoc
+	emit(t, &stale, "board", "--no-fetch", "--root", root)
+	p := boardPlanByID(stale, 7)
+	require.NotNil(t, p, "without a fetch, the plan is still outstanding")
+	assert.True(t, p.Held,
+		"the stale remote-tracking lease branch reads as held")
+}
+
 func TestRefNamesEveryWorktreeState(t *testing.T) {
 	assert.Equal(t, "main", ref(report.Worktree{Branch: "main"}))
 	assert.Equal(t, "(bare)", ref(report.Worktree{Bare: true}))
