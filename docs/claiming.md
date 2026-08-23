@@ -188,7 +188,8 @@ divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>`
 lane's worktree down through herdr, and exits clean. It refuses when
 run from the lane that still holds the live lease — yield is for the
 fenced, not an alias for `frit release`. `frit next` and `frit show`
-list a plan's rescue refs, so parked commits are found again.
+list a plan's rescue refs, so parked commits are found again. `frit
+orphans` sweeps every repository's leftover rescue refs first.
 
 ## When a claim is refused
 
