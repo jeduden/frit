@@ -163,6 +163,12 @@ func gatherRepo(
 		return nil, nil, nil, Coord{}, nil, err
 	}
 
+	if opts.Fetch {
+		if err := fetchRemote(repo.Path, cfg.Remote, run); err != nil {
+			return nil, nil, nil, Coord{}, nil, err
+		}
+	}
+
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
 		return nil, nil, nil, Coord{}, nil, err
@@ -195,6 +201,21 @@ func gatherRepo(
 
 	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
 		problems, nil
+}
+
+// fetchRemote refreshes remote's tracking refs so Gather never reads
+// landed evidence off a stale copy. A repository with no such remote
+// configured has nothing to refresh — the same "no remote" case
+// laggingDefaultBranch already treats as benign rather than a fault —
+// so it is skipped instead of failing the whole gather.
+func fetchRemote(dir, remote string, run gitwt.Runner) error {
+	if _, err := run(dir, "remote", "get-url", remote); err != nil {
+		return nil
+	}
+
+	_, err := run(dir, "fetch", "--prune", "--quiet", remote)
+
+	return err
 }
 
 // coordOf resolves the lease coordinate from what the gather already

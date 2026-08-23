@@ -1,7 +1,7 @@
 ---
 id: 2608231201
 title: Read verbs refresh from origin before reporting landed evidence
-status: "🔲"
+status: "🔳"
 summary: >-
   The fleet walk reads landed evidence off remote-tracking refs
   (origin's default branch and the lease branches) but never fetches,
@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: The gather fetches --prune before reading landed evidence
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Fetch is gated and best-effort, so offline falls back named
     status: "🔲"
