@@ -163,10 +163,9 @@ func gatherRepo(
 		return nil, nil, nil, Coord{}, nil, err
 	}
 
+	var fetchErr error
 	if opts.Fetch {
-		if err := fetchRemote(repo.Path, cfg.Remote, run); err != nil {
-			return nil, nil, nil, Coord{}, nil, err
-		}
+		fetchErr = fetchRemote(repo.Path, cfg.Remote, run)
 	}
 
 	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
@@ -189,6 +188,9 @@ func gatherRepo(
 	if err != nil {
 		return nil, nil, nil, Coord{}, nil, err
 	}
+	if p := staleFetch(repo, cfg.Remote, fetchErr, refs); p != nil {
+		problems = append(problems, *p)
+	}
 	if p := laggingDefaultBranch(repo, cfg.Remote, preferred, refs, run); p != nil {
 		problems = append(problems, *p)
 	}
@@ -203,11 +205,14 @@ func gatherRepo(
 		problems, nil
 }
 
-// fetchRemote refreshes remote's tracking refs so Gather never reads
-// landed evidence off a stale copy. A repository with no such remote
-// configured has nothing to refresh — the same "no remote" case
-// laggingDefaultBranch already treats as benign rather than a fault —
-// so it is skipped instead of failing the whole gather.
+// fetchRemote refreshes remote's tracking refs so Gather reads landed
+// evidence off a fresh copy rather than a stale one. A repository with
+// no such remote configured has nothing to refresh — the same "no
+// remote" case laggingDefaultBranch treats as benign — so it is skipped
+// rather than attempted. The error of an attempt that failed is
+// returned rather than fatal: Gather falls back to the local view and
+// names the staleness, so one unreachable remote does not blind the
+// whole walk.
 func fetchRemote(dir, remote string, run gitwt.Runner) error {
 	if _, err := run(dir, "remote", "get-url", remote); err != nil {
 		return nil
@@ -216,6 +221,41 @@ func fetchRemote(dir, remote string, run gitwt.Runner) error {
 	_, err := run(dir, "fetch", "--prune", "--quiet", remote)
 
 	return err
+}
+
+// staleFetch names a fetch that was attempted but failed, so a reader
+// knows the remote-tracking view may be stale rather than trusting it
+// silently. It is reported only when the ref list carries a
+// refs/remotes/<remote>/* ref — the mark that this remote has been
+// fetched before, so its view is one a fetch was meant to refresh. A
+// remote configured but never fetched has no such ref, and its first
+// failed fetch leaves nothing that was fresh to go stale.
+func staleFetch(
+	repo discover.Repo, remote string, fetchErr error, refs []gitobj.Ref,
+) *Problem {
+	if fetchErr == nil || !hasRemoteTracking(refs, remote) {
+		return nil
+	}
+
+	return &Problem{
+		Repo: repo.Name,
+		Err: fmt.Errorf(
+			"could not fetch %s; remote-tracking view may be stale", remote),
+	}
+}
+
+// hasRemoteTracking reports whether the ref list carries any
+// refs/remotes/<remote>/* ref, which a repository has exactly when that
+// remote is configured and has been fetched at least once.
+func hasRemoteTracking(refs []gitobj.Ref, remote string) bool {
+	prefix := "refs/remotes/" + remote + "/"
+	for _, r := range refs {
+		if strings.HasPrefix(r.Name, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // coordOf resolves the lease coordinate from what the gather already
