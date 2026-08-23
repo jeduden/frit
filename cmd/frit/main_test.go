@@ -803,6 +803,98 @@ func TestOrphansHonoursARepositoryWithNoHoldPatterns(t *testing.T) {
 		"a repo declaring no pattern reports no claims")
 }
 
+// TestOrphansListsALeftoverRescueRef: a rescue ref found before anyone
+// triggers the blocked park it stands for is reported on its own —
+// the "only finding is a rescue ref" case that forces an otherwise
+// clean-looking repository to still render.
+func TestOrphansListsALeftoverRescueRef(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	tip, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		tip+":refs/frit/rescue/7/box-a")
+	require.NoError(t, err)
+	var doc report.OrphansDoc
+
+	stderr := emit(t, &doc, "orphans", "--root", root)
+
+	assert.Empty(t, stderr)
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Rescued, 1)
+	r := doc.Repos[0].Rescued[0]
+	assert.Equal(t, int64(7), r.PlanID)
+	assert.Equal(t, "", r.State, "an open plan's rescue ref carries no state")
+	assert.Equal(t, []string{"refs/frit/rescue/7/box-a"}, r.Refs)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "rescued")
+	assert.Contains(t, out.String(), "plan 7")
+}
+
+// TestOrphansLabelsALandedRescueRefAsLanded: a rescue ref left behind
+// by a plan that has since landed reads as landed, not merely open.
+func TestOrphansLabelsALandedRescueRefAsLanded(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	landPlan(t, repo, 7, "shader-unit", "✅")
+	origin := filepath.Join(t.TempDir(), "atlas-origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+	tip, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		tip+":refs/frit/rescue/7/box-a")
+	require.NoError(t, err)
+	var doc report.OrphansDoc
+
+	emit(t, &doc, "orphans", "--root", root)
+
+	require.Len(t, doc.Repos[0].Rescued, 1)
+	assert.Equal(t, "✅", doc.Repos[0].Rescued[0].State)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "landed")
+}
+
+// TestOrphansNeverLabelsASupersededRescueRefAsLanded: LandedIDs marks
+// both ✅ and ⛔ ids, so the report must tell them apart itself rather
+// than call a superseded plan's leftover park landed.
+func TestOrphansNeverLabelsASupersededRescueRefAsLanded(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	landPlan(t, repo, 7, "shader-unit", "⛔")
+	origin := filepath.Join(t.TempDir(), "atlas-origin.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", origin)
+	git(t, repo, "remote", "add", "origin", origin)
+	git(t, repo, "push", "-q", "origin", "main")
+	tip, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		tip+":refs/frit/rescue/7/box-a")
+	require.NoError(t, err)
+	var doc report.OrphansDoc
+
+	emit(t, &doc, "orphans", "--root", root)
+
+	require.Len(t, doc.Repos[0].Rescued, 1)
+	assert.Equal(t, "⛔", doc.Repos[0].Rescued[0].State)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "superseded")
+	assert.NotContains(t, out.String(), "landed")
+}
+
 func TestStaleIsQuietWhenEverythingIsFresh(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()

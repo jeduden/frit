@@ -377,6 +377,9 @@ func goldenOrphans() *OrphansDoc {
 	doc.AddDeserted("atlas", []discovery.Plan{
 		{ID: 9, Holds: []string{"plan/9"}},
 	})
+	doc.AddRescued("atlas", []Rescued{
+		{PlanID: 12, State: "✅", Refs: []string{"refs/frit/rescue/12/box-a"}},
+	})
 	doc.AddRepo("clean", lanes.Orphans{})
 	doc.AddProblem("broken", errors.New("no such worktree"))
 
