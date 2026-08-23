@@ -755,6 +755,11 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 
 	require.Error(t, err)
+	var conflict *RescueConflictError
+	require.ErrorAs(t, err, &conflict,
+		"the refusal is a typed RescueConflictError, not a plain error")
+	assert.Equal(t, int64(7), conflict.PlanID)
+	assert.Equal(t, "refs/frit/rescue/7/box-b", conflict.Rescue)
 	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, tip, "the work ref is not deleted")
 	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")

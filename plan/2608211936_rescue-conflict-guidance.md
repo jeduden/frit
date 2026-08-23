@@ -1,7 +1,7 @@
 ---
 id: 2608211936
 title: A blocked scavenge names its rescue ref and what to do next
-status: "🔲"
+status: "🔳"
 summary: >-
   A scavenge blocked by an existing rescue ref refuses safely — the
   parked commits and the plan's own ref both stand — but the refusal

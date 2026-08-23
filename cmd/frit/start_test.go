@@ -606,6 +606,47 @@ func TestStartScavengesADoneGlyphOnlyWhenStale(t *testing.T) {
 		"a done plan's lingering ref is scavenged under a matured window")
 }
 
+// TestStartWarnsRatherThanFailsOnAParkConflict: a scavenge blocked by
+// an earlier park at a different tip is a warning, not a dropped
+// message — printStart used to render nothing beyond "refused" on this
+// path, the same rendering hole printClaim and printRelease had
+// already closed.
+func TestStartWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _ := doneGlyphRepo(t, root)
+	// The glyph lease needs unlanded work for the scavenge to park at
+	// all — a marker-only chain has nothing to park and deletes clean.
+	git(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "w.txt"), []byte("wip\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "work on plan 7")
+	git(t, repo, "push", "-q", "origin", "plan/7")
+	git(t, repo, "checkout", "-q", "main")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, tip, 3*time.Hour)
+	foreignTip, err := gitCapture(t, repo, "rev-parse", "origin/main")
+	require.NoError(t, err)
+	_, err = gitCapture(t, repo, "push", "-q", "origin",
+		foreignTip+":refs/frit/rescue/7/"+hostname())
+	require.NoError(t, err)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "warning",
+		"the park conflict reaches start's table output")
+	gone, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.NotEmpty(t, gone, "a blocked park leaves the lingering ref alone")
+}
+
 // TestEditInEditorRunsAMultiWordEditor: a $EDITOR carrying a flag still
 // launches, so the value is split into a command and its arguments rather
 // than treated as one binary name.
