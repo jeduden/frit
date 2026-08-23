@@ -426,6 +426,91 @@ func TestGatherFetchSkipsARepositoryWithNoRemoteConfigured(t *testing.T) {
 			"simply skipped")
 }
 
+// recordingRunner wraps Exec, appending each subcommand's verb to
+// calls, so a test can assert which git subprocesses Gather issued.
+func recordingRunner(calls *[]string) gitwt.Runner {
+	return func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 {
+			*calls = append(*calls, args[0])
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+}
+
+// repoWithUnreachableRemote builds a repository whose origin is
+// configured but points nowhere, and whose refs/remotes/origin/* still
+// carry a stale copy — the mark that a remote is configured. A fetch
+// against it always fails, standing in for an offline checkout.
+func repoWithUnreachableRemote(t *testing.T, root, name string, id int) string {
+	t.Helper()
+	dir := repoWithPlan(t, root, name, id)
+	gitCmd(t, dir, "remote", "add", "origin",
+		filepath.Join(t.TempDir(), "gone.git"))
+	gitCmd(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+	return dir
+}
+
+// TestGatherWithoutFetchIssuesNoFetchSubprocess: with Fetch off, Gather
+// reads the local view and issues no fetch at all.
+func TestGatherWithoutFetchIssuesNoFetchSubprocess(t *testing.T) {
+	root := landedPlanWithStaleOrigin(t, "atlas", 7)
+
+	var calls []string
+	_, err := Gather(root, "testhost", recordingRunner(&calls),
+		gitwt.ExecPipe, Options{})
+	require.NoError(t, err)
+
+	assert.NotContains(t, calls, "fetch",
+		"with Fetch off, Gather issues no fetch subprocess")
+}
+
+// TestGatherFetchErrorFallsBackAndNamesStaleness: an unreachable remote
+// does not fail the walk. Gather still reads the plan off the local
+// view and records one staleness problem naming the repo, because a
+// refs/remotes/origin/* ref shows a remote is configured.
+func TestGatherFetchErrorFallsBackAndNamesStaleness(t *testing.T) {
+	root := t.TempDir()
+	repoWithUnreachableRemote(t, root, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Fetch: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
+		"the failed fetch falls back to the local view, not off the walk")
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found,
+		"an unreachable remote records a staleness problem")
+	assert.Contains(t, found.Err.Error(), "stale")
+}
+
+// TestGatherFetchErrorOnALocalOnlyRepoRecordsNoStaleness: a repository
+// with no remote at all is local-only. A failed fetch there is
+// expected, not stale, so no problem is recorded.
+func TestGatherFetchErrorOnALocalOnlyRepoRecordsNoStaleness(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Fetch: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
+		"a local-only repo gathers from its own view")
+	for _, p := range res.Problems {
+		assert.NotEqual(t, "atlas", p.Repo,
+			"a local-only repo's failed fetch is expected, not stale")
+	}
+}
+
 // TestGatherLeavesAnUnfetchedDefaultBranchProblemless: a repository
 // with no remote-tracking ref at all — never fetched, or no remote
 // configured — has nothing to compare against, so it is not flagged.
