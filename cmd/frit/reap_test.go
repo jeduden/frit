@@ -399,6 +399,32 @@ func TestReapNotMaturedRefusalNamesTheSpanAndWindow(t *testing.T) {
 		"names the repo's configured takeover window")
 }
 
+// TestReapNotMaturedRefusalExplainsAVoidedWindow: a window the
+// observer threw away and restarted on a sample gap wider than the
+// bound explains itself in the refusal, so a span that keeps
+// resetting is not misread as a plain short StaleFor.
+func TestReapNotMaturedRefusalExplainsAVoidedWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedGoneQuietWindow(t, "atlas", 7, lease.Tip, 40*time.Minute)
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "window restarted",
+		"names why the span keeps resetting")
+	assert.Contains(t, out.String(), "exceeded the")
+}
+
 // TestReapStreamsProgressWhenRefusingALiveHold: a refused hold streams
 // its reason to stderr as it is judged, not only in the final table.
 func TestReapStreamsProgressWhenRefusingALiveHold(t *testing.T) {

@@ -331,6 +331,29 @@ func seedWindow(
 	}))
 }
 
+// seedGoneQuietWindow writes an observation whose last sample is
+// older than the sample-gap bound, so the next gather's Observe call
+// reads the gap as the observer having gone dark and voids the
+// window — a restarted window that explains why its span keeps
+// resetting instead of maturing, rather than one still faithfully
+// accruing.
+func seedGoneQuietWindow(
+	t *testing.T, repo string, id int64, tip string, lastGap time.Duration,
+) {
+	t.Helper()
+	path, err := observe.Path()
+	require.NoError(t, err)
+	now := time.Now()
+	require.NoError(t, observe.Save(path, observe.State{
+		observe.Key(repo, id): discovery.Window{
+			Tip:     tip,
+			First:   now.Add(-3 * time.Hour),
+			Last:    now.Add(-lastGap),
+			Samples: 9,
+		},
+	}))
+}
+
 // TestClaimTakesOverAStaleLease: a held plan whose takeover window has
 // matured is not refused — claim executes the takeover CAS, and the
 // new tip is a takeover marker, child of the stale tip, epoch E+1.
@@ -380,6 +403,31 @@ func TestClaimStillRefusesALiveLease(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
+}
+
+// TestClaimNotMaturedRefusalNamesTheSpanAndWindow: claim speaks the
+// same span-and-window phrasing reap does for a live, not-yet-matured
+// hold, so an operator reads one vocabulary across verbs.
+func TestClaimNotMaturedRefusalNamesTheSpanAndWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 42*time.Minute)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "unchanged for")
+	assert.Contains(t, out.String(), "42m",
+		"names the observed StaleFor span")
+	assert.Contains(t, out.String(), "2h",
+		"names the repo's configured takeover window")
 }
 
 // TestClaimRefusesATakeoverVetoedByALiveSession: a matured window
