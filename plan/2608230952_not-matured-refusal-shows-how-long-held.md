@@ -14,7 +14,7 @@ depends-on: []
 phases:
   - n: 1
     title: reap's not-matured refusal reports StaleFor against the window
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: claim and start refusals carry the same span, and a voided window says why
     status: "🔲"
