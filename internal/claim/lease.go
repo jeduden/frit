@@ -458,6 +458,17 @@ func RescueRefs(
 		return []string{}
 	}
 
+	refs := lsRemoteRefNames(out)
+	sort.Strings(refs)
+
+	return refs
+}
+
+// lsRemoteRefNames reads the ref name out of every "<sha>\t<ref>" line
+// `ls-remote` writes, in whatever order git listed them — shared by
+// RescueRefs and AllRescueRefs so the one place that knows the shape
+// of that porcelain output stays the one place that parses it.
+func lsRemoteRefNames(out []byte) []string {
 	refs := []string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
@@ -466,7 +477,6 @@ func RescueRefs(
 		}
 		refs = append(refs, fields[1])
 	}
-	sort.Strings(refs)
 
 	return refs
 }
@@ -497,16 +507,12 @@ func AllRescueRefs(
 	}
 
 	buckets := map[int64][]string{}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		id, ok := rescuePlanID(fields[1])
+	for _, ref := range lsRemoteRefNames(out) {
+		id, ok := rescuePlanID(ref)
 		if !ok {
 			continue
 		}
-		buckets[id] = append(buckets[id], fields[1])
+		buckets[id] = append(buckets[id], ref)
 	}
 	for id := range buckets {
 		sort.Strings(buckets[id])

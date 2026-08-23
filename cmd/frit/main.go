@@ -321,13 +321,6 @@ func rescuedHeld(
 		return nil, err
 	}
 
-	byID := map[int64]discovery.Plan{}
-	for _, p := range plans {
-		if p.Repo == repo {
-			byID[p.ID] = p
-		}
-	}
-
 	ids := make([]int64, 0, len(buckets))
 	for id := range buckets {
 		ids = append(ids, id)
@@ -336,8 +329,9 @@ func rescuedHeld(
 
 	out := make([]report.Rescued, 0, len(ids))
 	for _, id := range ids {
+		p, _ := planFor(plans, repo, id)
 		out = append(out, report.Rescued{
-			PlanID: id, State: rescueGlyph(byID[id]), Refs: buckets[id],
+			PlanID: id, State: rescueGlyph(p), Refs: buckets[id],
 		})
 	}
 
