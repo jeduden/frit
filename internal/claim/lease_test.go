@@ -51,6 +51,29 @@ func TestAcquireRaceHasOneWinnerAndNamesTheLease(t *testing.T) {
 	assert.False(t, held.Landed)
 }
 
+// TestAcquireReportsASquashLandedWinnerAsLanded: the winner's work
+// reached main by squash-merge — same content, no shared ancestry —
+// so ancestry alone would call the lost race unlanded. HeldError.Landed
+// reads the same content evidence Scavenge's park decision does, so the
+// refusal can say "already landed, set it ✅" and the stray ref can be
+// cleaned, rather than mislabel a landed winner as a live race.
+func TestAcquireReportsASquashLandedWinnerAsLanded(t *testing.T) {
+	first := originAndClone(t)
+	_, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	workOn(t, first)
+	squashLandOnMain(t, first, "wip\n")
+
+	second := cloneAgain(t, first)
+	_, err = Acquire(second, leaseOptions("box-b", "/lanes/b"), gitwt.Exec)
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the winner's marker was read")
+	assert.True(t, held.Landed,
+		"the winner's content is on main by squash-merge: landed")
+}
+
 // TestAcquireMarkersNeverShareASHA: two acquisitions identical in
 // everything else — same plan, holder, lane, base and commit
 // timestamps — still mint distinct marker SHAs. The nonce is what makes

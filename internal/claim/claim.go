@@ -134,9 +134,29 @@ func markerHost(body string) string {
 	return ""
 }
 
-// landedTip is the landed check shared with the lease path.
-func landedTip(repoDir, baseRef, remote, tip string, run gitwt.Runner) bool {
-	return isAncestor(repoDir, tip, freshBase(repoDir, baseRef, remote, run), run)
+// landedTip is the landed check shared with the lease path: a tip is
+// landed when it is an ancestor of the fresh base, or — the squash-merge
+// shape ancestry cannot see — it carries real work whose merge into the
+// fresh base changes nothing. Both read the base refreshed from the
+// remote, so a stale local view never decides what landed, and both are
+// the same evidence hasUnlanded's park decision honors, so a lost race
+// and the scavenge that follows it agree on whether the winner already
+// landed. The hasWork gate keeps a bare claim marker — whose trivial
+// no-op merge would otherwise read as "landed" — reported as a live
+// claim, not merged work. The content check writes an unreachable tree
+// object git reclaims on gc (see landedByContent); this runs only on a
+// lost acquire — a mutation attempt, never a read-only preview.
+func landedTip(
+	repoDir string, planID int64, baseRef, remote, tip string,
+	run gitwt.Runner,
+) bool {
+	base := freshBase(repoDir, baseRef, remote, run)
+	if isAncestor(repoDir, tip, base, run) {
+		return true
+	}
+	work, err := hasWork(repoDir, planID, base, tip, run)
+
+	return err == nil && work && landedByContent(repoDir, base, tip, run)
 }
 
 // freshBase resolves the base to judge evidence against, refreshed

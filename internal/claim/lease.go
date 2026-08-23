@@ -426,9 +426,15 @@ func ParkUnlanded(
 }
 
 // HasUnlanded reports whether the chain from the base to a tip holds
-// anything besides frit's own markers — work a delete would destroy.
-// Exported so a dry run can say whether a teardown would park before
-// it is asked to act.
+// work a delete would destroy — a non-marker commit whose content is
+// not already on the base. Exported so a dry run can say whether a
+// teardown would park before it is asked to act. It mints no ref and
+// moves nothing, but it is not object-pure: to see squash-landed
+// content it runs the same `git merge-tree --write-tree` the park
+// decision does, which writes an unreachable tree object git reclaims
+// on gc (see landedByContent). A dry run previewing a chain that
+// genuinely carries unlanded work therefore leaves a loose tree object
+// behind; that is the cost of the content check, not a leak.
 func HasUnlanded(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) (bool, error) {
@@ -582,26 +588,42 @@ func hasUnlanded(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) (bool, error) {
 	base := freshBase(repoDir, opts.Base, opts.Remote, run)
-	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	work, err := hasWork(repoDir, opts.PlanID, base, tip, run)
 	if err != nil {
-		return false, fmt.Errorf(
-			"read the chain for plan %d: %w", opts.PlanID, err)
-	}
-	work := false
-	for _, subject := range strings.Split(string(out), "\n") {
-		if subject == "" {
-			continue
-		}
-		if !markerSubject(subject, opts.PlanID) {
-			work = true
-			break
-		}
+		return false, err
 	}
 	if !work {
 		return false, nil
 	}
 
 	return !landedByContent(repoDir, base, tip, run), nil
+}
+
+// hasWork reports whether the chain from base to tip carries any commit
+// that is not one of frit's own lease markers — the "is there anything
+// a delete would destroy, or anything that could have landed" question
+// both the park decision and the landed check ask before they run the
+// content check. A bare marker chain has none, so the content check —
+// whose trivial no-op merge would call an empty marker "landed" — is
+// never reached for it.
+func hasWork(
+	repoDir string, planID int64, base, tip string, run gitwt.Runner,
+) (bool, error) {
+	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	if err != nil {
+		return false, fmt.Errorf(
+			"read the chain for plan %d: %w", planID, err)
+	}
+	for _, subject := range strings.Split(string(out), "\n") {
+		if subject == "" {
+			continue
+		}
+		if !markerSubject(subject, planID) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // landedByContent reports whether merging tip into a fresh copy of
@@ -914,7 +936,7 @@ func heldError(
 	e.Marker = m
 	e.Known = true
 	e.ThisHolder = m.Holder != "" && m.Holder == opts.Holder
-	e.Landed = landedTip(repoDir, opts.Base, opts.Remote, tip, run)
+	e.Landed = landedTip(repoDir, opts.PlanID, opts.Base, opts.Remote, tip, run)
 
 	return e
 }
