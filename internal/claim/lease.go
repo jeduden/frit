@@ -471,6 +471,71 @@ func RescueRefs(
 	return refs
 }
 
+// AllRescueRefs lists every rescue ref a repository carries, one
+// ls-remote for the whole repository rather than one per plan —
+// bucketed by the id segment of refs/frit/rescue/<id>/<holder>, what
+// a sweep across every plan needs instead of RescueRefs' one-plan-at-
+// a-time reads.
+//
+// A repository with no such remote configured has never pushed
+// anywhere, so it has parked nothing there either: that reads as an
+// empty sweep, not a fault. A remote that is configured but cannot be
+// read is the fault this returns instead of swallowing — unlike
+// RescueRefs' per-plan cousin, a sweep silently reporting "nothing to
+// clean up" when the truth is "could not check" would hide exactly
+// what it exists to surface.
+func AllRescueRefs(
+	repoDir, remote string, run gitwt.Runner,
+) (map[int64][]string, error) {
+	if _, err := run(repoDir, "remote", "get-url", remote); err != nil {
+		return map[int64][]string{}, nil
+	}
+
+	out, err := run(repoDir, "ls-remote", remote, "refs/frit/rescue/*")
+	if err != nil {
+		return nil, fmt.Errorf("read rescue refs from %s: %w", remote, err)
+	}
+
+	buckets := map[int64][]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		id, ok := rescuePlanID(fields[1])
+		if !ok {
+			continue
+		}
+		buckets[id] = append(buckets[id], fields[1])
+	}
+	for id := range buckets {
+		sort.Strings(buckets[id])
+	}
+
+	return buckets, nil
+}
+
+// rescuePlanID reads the id segment out of a rescue ref name,
+// refs/frit/rescue/<id>/<holder>. ok is false for anything that does
+// not match the shape — a ref ls-remote's own pattern could not have
+// produced, guarded against rather than trusted.
+func rescuePlanID(ref string) (int64, bool) {
+	rest, ok := strings.CutPrefix(ref, "refs/frit/rescue/")
+	if !ok {
+		return 0, false
+	}
+	idStr, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return id, true
+}
+
 // rescueRef names where scavenge and yield park a plan's unlanded
 // work: per plan and per machine, so two scavengers never contend for
 // one name and parked work says whose run parked it.

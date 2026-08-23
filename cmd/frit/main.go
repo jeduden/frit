@@ -105,7 +105,7 @@ type cli struct {
 	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
 	Start   startCmd   `cmd:"" help:"Compose the full escalation for a plan; dry-run unless --go."`
-	Orphans orphansCmd `cmd:"" help:"Report claims and checkouts that no longer add up."`
+	Orphans orphansCmd `cmd:"" help:"Report claims, checkouts and rescue refs that no longer add up."`
 	Reap    reapCmd    `cmd:"" help:"Tear down what orphans reports; dry-run unless --go."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Doctor  doctorCmd  `cmd:"" help:"Report plans with a semantic gap: missing Goal, tier, Execution row."`
@@ -196,11 +196,17 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
 		// Without a coordinate there is no origin to compare a token
 		// against, so a repository the gather could not place — the
-		// ambiguous-name case — contributes no deserted candidates
-		// rather than guessing at one.
+		// ambiguous-name case — contributes no deserted candidates or
+		// rescue-ref sweep rather than guessing at one.
 		if coord, ok := res.Coords[repo.Name]; ok {
 			doc.AddDeserted(repo.Name, desertedHeld(
 				rt, res.Plans, repo.Name, repo.Worktrees, coord))
+			rescued, err := rescuedHeld(rt, coord, res.Plans, repo.Name)
+			if err != nil {
+				doc.AddProblem(repo.Name, err)
+			} else {
+				doc.AddRescued(repo.Name, rescued)
+			}
 		}
 	}
 
@@ -300,6 +306,71 @@ func localPanes(rt *runtime) []herdr.Pane {
 	return panes
 }
 
+// rescuedHeld sweeps one repository's rescue refs in a single
+// ls-remote, bucketed by plan id, and joins each bucket to the plan's
+// own glyph read off the already-gathered fleet — never the collapsed
+// landed-or-superseded bool a squash-merge landed check alone could
+// give, so a superseded plan's leftover park is never mislabelled
+// landed. A plan id no longer found in the fleet reads as "": still
+// open, or gone entirely, either way not something to call landed.
+func rescuedHeld(
+	rt *runtime, coord fleet.Coord, plans []discovery.Plan, repo string,
+) ([]report.Rescued, error) {
+	buckets, err := claim.AllRescueRefs(coord.Path, coord.Remote, rt.git)
+	if err != nil {
+		return nil, err
+	}
+
+	byID := map[int64]discovery.Plan{}
+	for _, p := range plans {
+		if p.Repo == repo {
+			byID[p.ID] = p
+		}
+	}
+
+	ids := make([]int64, 0, len(buckets))
+	for id := range buckets {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	out := make([]report.Rescued, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, report.Rescued{
+			PlanID: id, State: rescueGlyph(byID[id]), Refs: buckets[id],
+		})
+	}
+
+	return out, nil
+}
+
+// rescueGlyph is a rescued plan's own status: "✅" landed, "⛔"
+// superseded, "" for anything still open.
+func rescueGlyph(p discovery.Plan) string {
+	switch {
+	case p.Done():
+		return planmeta.StatusDone
+	case p.Superseded():
+		return planmeta.StatusSuperseded
+	default:
+		return ""
+	}
+}
+
+// rescueLabel is the table row suffix a rescued plan's glyph reads as:
+// ", plan landed" or ", plan superseded", "" for a plan still open or
+// no longer found.
+func rescueLabel(state string) string {
+	switch state {
+	case planmeta.StatusDone:
+		return ", plan landed"
+	case planmeta.StatusSuperseded:
+		return ", plan superseded"
+	default:
+		return ""
+	}
+}
+
 // printOrphans writes a block per repository with something wrong.
 // The kinds stay labelled rather than merged into a count, because
 // each calls for a different response. A repository in good order is
@@ -346,6 +417,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, d := range repo.Deserted {
 			_, _ = fmt.Fprintf(tw, "  deserted, session gone\tplan %d\t%s\n",
 				d.PlanID, d.Branch)
+		}
+		for _, r := range repo.Rescued {
+			_, _ = fmt.Fprintf(tw, "  rescued%s\tplan %d\t%s\n",
+				rescueLabel(r.State), r.PlanID, strings.Join(r.Refs, ", "))
 		}
 	}
 	_ = tw.Flush()

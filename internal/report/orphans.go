@@ -43,6 +43,10 @@ type OrphanRepo struct {
 	// own token can self-resume. A matured hold reads as a StaleHold
 	// instead — the two kinds never collide.
 	Deserted []Deserted `json:"deserted"`
+	// Rescued are the plans carrying a leftover rescue ref — a park a
+	// scavenge or yield could not clean up after, found before anyone
+	// triggers the blocked park itself.
+	Rescued []Rescued `json:"rescued"`
 }
 
 // StaleHold is one held plan ready for a takeover: its window matured
@@ -71,6 +75,16 @@ type Deserted struct {
 	Branch string `json:"branch"`
 }
 
+// Rescued is one plan's leftover rescue refs. State is the plan's own
+// glyph where the report can tell it — "✅" landed, "⛔" superseded —
+// and "" for a plan still open or one no longer found at all, so a
+// reader never mistakes superseded work for landed.
+type Rescued struct {
+	PlanID int64    `json:"plan_id"`
+	State  string   `json:"state"`
+	Refs   []string `json:"refs"`
+}
+
 // Lane is one plan and the refs claiming it.
 type Lane struct {
 	PlanID int64  `json:"plan_id"`
@@ -97,7 +111,7 @@ type Hold struct {
 func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
 		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0 ||
-		len(r.StaleHolds) > 0 || len(r.Deserted) > 0
+		len(r.StaleHolds) > 0 || len(r.Deserted) > 0 || len(r.Rescued) > 0
 }
 
 // NewOrphans opens an orphan report.
@@ -121,6 +135,7 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 		Migratable: make([]Migratable, 0, len(found.Migratable)),
 		StaleHolds: []StaleHold{},
 		Deserted:   []Deserted{},
+		Rescued:    []Rescued{},
 	}
 
 	for _, lane := range found.Unstaffed {
@@ -206,6 +221,18 @@ func firstHold(p discovery.Plan) string {
 	}
 
 	return ""
+}
+
+// AddRescued records the plans in one repository carrying a leftover
+// rescue ref, beside the kinds AddRepo already recorded for it — its
+// own cell of the verb-state table. A no-op when AddRepo was never
+// called for the name.
+func (d *OrphansDoc) AddRescued(name string, items []Rescued) {
+	i, ok := d.repoIndex(name)
+	if !ok {
+		return
+	}
+	d.Repos[i].Rescued = append(d.Repos[i].Rescued, items...)
 }
 
 // AddProblem records a repository whose lanes could not be read.
