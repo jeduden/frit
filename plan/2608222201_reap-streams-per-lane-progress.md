@@ -1,7 +1,7 @@
 ---
 id: 2608222201
 title: Reap streams per-lane progress, so a long run isn't silent
-status: "🔳"
+status: "✅"
 summary: >-
   reap parks a rescue ref per landed lane with a network push each, so a
   fleet-wide teardown runs many seconds while printing nothing until the
@@ -16,7 +16,7 @@ phases:
     status: "✅"
   - n: 2
     title: held drops, pruned worktrees, and refusals all stream
-    status: "🔲"
+    status: "✅"
 ---
 # Reap streams per-lane progress
 
@@ -132,13 +132,13 @@ stderr stays empty; `go build ./...`, `go vet ./...`,
 
 ## Acceptance Criteria
 
-- [ ] A `--go` reap prints one stderr line per lane at the moment it is
+- [x] A `--go` reap prints one stderr line per lane at the moment it is
       reaped, dropped, pruned, or refused — not batched at the end.
-- [ ] Each progress line's fate word and identifiers match the final
+- [x] Each progress line's fate word and identifiers match the final
       `printReap` table for that lane.
-- [ ] Under `--json`, stderr stays empty and the JSON document is
+- [x] Under `--json`, stderr stays empty and the JSON document is
       byte-for-byte unchanged (the `internal/report` golden is untouched).
-- [ ] The final stdout table is unchanged; existing reap stdout
+- [x] The final stdout table is unchanged; existing reap stdout
       assertions still pass.
-- [ ] `go build ./...`, `go vet ./...`, `go test ./...`, and
+- [x] `go build ./...`, `go vet ./...`, `go test ./...`, and
       `mdsmith check .` all pass.

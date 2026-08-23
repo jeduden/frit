@@ -370,6 +370,45 @@ func TestReapRefusesAFreshUnstaffedHold(t *testing.T) {
 	assert.NoError(t, err, "a live lease survives reap --go")
 }
 
+// TestReapStreamsProgressWhenRefusingALiveHold: a refused hold streams
+// its reason to stderr as it is judged, not only in the final table.
+func TestReapStreamsProgressWhenRefusingALiveHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, errb.String(), "refused")
+	assert.Contains(t, errb.String(), "stale or dead")
+}
+
+// TestReapJSONLeavesStderrEmptyWhenRefusingAHold pins the JSON
+// contract on the refusal path too.
+func TestReapJSONLeavesStderrEmptyWhenRefusingAHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "--go", "--root", root, "--json"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Empty(t, errb.String(), "the JSON path writes nothing to stderr")
+}
+
 // TestReapDropsADeadSessionsHoldWithGo: a hold whose bound session
 // herdr positively confirms gone is abandoned by the protocol's own
 // evidence, and --go drops it through the scavenge.
@@ -390,6 +429,38 @@ func TestReapDropsADeadSessionsHoldWithGo(t *testing.T) {
 		"refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Empty(t, gone, "the hold is gone from origin too")
+}
+
+// TestReapStreamsProgressWhenDroppingADeadSessionsHold: the drop
+// streams to stderr as it happens, naming the plan, not only in the
+// final stdout table.
+func TestReapStreamsProgressWhenDroppingADeadSessionsHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	deadHold(t, repo)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, errb.String(), "dropped")
+	assert.Contains(t, errb.String(), "plan/7")
+}
+
+// TestReapJSONLeavesStderrEmptyWhenDroppingAHold pins the JSON
+// contract on the drop path too.
+func TestReapJSONLeavesStderrEmptyWhenDroppingAHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	deadHold(t, repo)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root, "--json"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Empty(t, errb.String(), "the JSON path writes nothing to stderr")
 }
 
 // TestReapWithoutGoLeavesTheHoldStanding: the same dead-session hold,
@@ -533,6 +604,43 @@ func TestReapPrunesAPrunableWorktreeWithGo(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, listed, "atlas-gone",
 		"the prunable worktree is gone under --go")
+}
+
+// TestReapStreamsProgressWhenPruningAWorktree: a prunable worktree
+// streams to stderr as it is removed, not only in the final table.
+func TestReapStreamsProgressWhenPruningAWorktree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	lane := filepath.Join(root, "atlas-gone")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/9-gone", lane)
+	require.NoError(t, os.RemoveAll(lane))
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	// printReap's own pruned row reuses the reaped/would-reap verb
+	// rather than a distinct "pruned" word, so progress matches it.
+	assert.Contains(t, errb.String(), "reaped")
+	assert.Contains(t, errb.String(), "atlas-gone")
+}
+
+// TestReapJSONLeavesStderrEmptyWhenPruningAWorktree pins the JSON
+// contract on the prune path too.
+func TestReapJSONLeavesStderrEmptyWhenPruningAWorktree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	lane := filepath.Join(root, "atlas-gone")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/9-gone", lane)
+	require.NoError(t, os.RemoveAll(lane))
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root, "--json"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Empty(t, errb.String(), "the JSON path writes nothing to stderr")
 }
 
 // TestReapRemovesAnEmptyWorktreeWithGo: a worktree prepared but never

@@ -67,9 +67,9 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		reaped, refused := reapStranded(
 			rt, repo, found.Stranded, evidence, remote, base, rc.Go, progress)
 		pruned, refusedPruned := reapPruned(
-			rt, repo, found.Prunable, found.Empty, rc.Go)
+			rt, repo, found.Prunable, found.Empty, rc.Go, progress)
 		dropped, refusedHolds := reapUnstaffed(
-			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go)
+			rt, repo, found.Unstaffed, res.Plans, remote, base, rc.Go, progress)
 
 		doc.AddRepo(repo.Name, reaped, refused,
 			dropped, refusedHolds, pruned, refusedPruned)
@@ -279,30 +279,30 @@ func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
 func reapUnstaffed(
 	rt *runtime, repo discover.Repo, unstaffed []lanes.Lane,
 	plans []discovery.Plan, remote, base string, doGo bool,
+	progress io.Writer,
 ) ([]report.DroppedHold, []report.RefusedHold) {
 	dropped := []report.DroppedHold{}
 	refused := []report.RefusedHold{}
+	dropVerb := verbFor(doGo, "dropped", "would drop")
 
 	for _, lane := range unstaffed {
 		canonical := claim.Branch(lane.PlanID)
+		id := fmt.Sprintf("plan %d", lane.PlanID)
 		if !holds(lane, canonical) {
 			// Every decorated hold this lane carries needs the same
 			// migration, not just the first one a lane claimed twice
 			// happens to list.
 			for _, h := range lane.Holds {
-				refused = append(refused, report.RefusedHold{
-					PlanID: lane.PlanID, Branch: h.Branch,
-					Reason: "decorated hold; migrate to " + canonical + " first",
-				})
+				refused = append(refused,
+					refuseDecoratedHold(progress, lane.PlanID, canonical, h.Branch))
 			}
 			continue
 		}
 
 		p, ok := planFor(plans, repo.Name, lane.PlanID)
 		if reason := holdRefusal(p, ok); reason != "" {
-			refused = append(refused, report.RefusedHold{
-				PlanID: lane.PlanID, Branch: canonical, Reason: reason,
-			})
+			refused = append(refused,
+				refuseHold(progress, lane.PlanID, canonical, reason))
 			continue
 		}
 
@@ -326,22 +326,44 @@ func reapUnstaffed(
 			dropped = append(dropped, report.DroppedHold{
 				PlanID: lane.PlanID, Branch: canonical, Rescue: rescue,
 			})
+			progressReaped(progress, dropVerb, id, canonical)
 			continue
 		}
 
 		sc, err := claim.Scavenge(repo.Path, opts, p.HoldTip, rt.git)
 		if err != nil {
-			refused = append(refused, report.RefusedHold{
-				PlanID: lane.PlanID, Branch: canonical, Reason: err.Error(),
-			})
+			refused = append(refused,
+				refuseHold(progress, lane.PlanID, canonical, err.Error()))
 			continue
 		}
 		dropped = append(dropped, report.DroppedHold{
 			PlanID: lane.PlanID, Branch: canonical, Rescue: sc.Rescue,
 		})
+		progressReaped(progress, dropVerb, id, canonical)
 	}
 
 	return dropped, refused
+}
+
+// refuseDecoratedHold builds and streams one refusal for a legacy
+// decorated hold — not the lease protocol's own id-only ref, so
+// Scavenge has nothing to CAS against.
+func refuseDecoratedHold(
+	progress io.Writer, id int64, canonical, branch string,
+) report.RefusedHold {
+	reason := "decorated hold; migrate to " + canonical + " first"
+	progressRefused(progress, fmt.Sprintf("plan %d", id), branch, reason)
+
+	return report.RefusedHold{PlanID: id, Branch: branch, Reason: reason}
+}
+
+// refuseHold builds and streams one refusal on a lane's canonical hold.
+func refuseHold(
+	progress io.Writer, id int64, canonical, reason string,
+) report.RefusedHold {
+	progressRefused(progress, fmt.Sprintf("plan %d", id), canonical, reason)
+
+	return report.RefusedHold{PlanID: id, Branch: canonical, Reason: reason}
 }
 
 // holdRefusal is the abandonment gate: why an unstaffed hold is not
@@ -401,26 +423,29 @@ func holds(lane lanes.Lane, branch string) bool {
 // reaped.
 func reapPruned(
 	rt *runtime, repo discover.Repo,
-	prunable, empty []gitwt.Worktree, doGo bool,
+	prunable, empty []gitwt.Worktree, doGo bool, progress io.Writer,
 ) ([]report.PrunedWorktree, []report.RefusedWorktree) {
 	pruned := []report.PrunedWorktree{}
 	refused := []report.RefusedWorktree{}
+	verb := verbFor(doGo, "reaped", "would reap")
 
 	classify := func(worktrees []gitwt.Worktree, kind string) {
 		for _, wt := range worktrees {
+			name := report.WorktreeOf(wt)
 			if doGo {
 				if _, err := rt.git(repo.Path,
 					"worktree", "remove", wt.Path); err != nil {
 					refused = append(refused, report.RefusedWorktree{
-						Worktree: report.WorktreeOf(wt), Kind: kind,
-						Reason: err.Error(),
+						Worktree: name, Kind: kind, Reason: err.Error(),
 					})
+					progressRefused(progress, name.Name, kind, err.Error())
 					continue
 				}
 			}
 			pruned = append(pruned, report.PrunedWorktree{
-				Worktree: report.WorktreeOf(wt), Kind: kind,
+				Worktree: name, Kind: kind,
 			})
+			progressReaped(progress, verb, name.Name, kind)
 		}
 	}
 	classify(prunable, "prunable")
