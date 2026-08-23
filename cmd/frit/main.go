@@ -999,7 +999,8 @@ func hostname() string {
 // gatherFleet reads every repository's plans and holds into the view
 // the discovery verbs share.
 func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
-	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe)
+	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe,
+		fleet.Options{Fetch: true})
 	if err != nil {
 		return res, err
 	}

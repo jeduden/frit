@@ -68,6 +68,15 @@ type Result struct {
 	Coords   map[string]Coord
 }
 
+// Options tunes how Gather reads a repository.
+type Options struct {
+	// Fetch refreshes each repository's remote-tracking refs before
+	// Gather reads landed evidence off them, so work merged and its
+	// lease branch deleted on the remote reads as landed rather than
+	// held on a checkout that has not fetched since.
+	Fetch bool
+}
+
 // Gather reads every repository under root and flattens its plan index
 // into the view discovery works over.
 //
@@ -77,7 +86,7 @@ type Result struct {
 // it. One unreadable repository is recorded and stepped over; a bad
 // front matter file within a good repository is recorded too.
 func Gather(
-	root, host string, run gitwt.Runner, pipe gitwt.PipeRunner,
+	root, host string, run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) (Result, error) {
 	repos, err := discover.Repos(root, run)
 	if err != nil {
@@ -92,7 +101,7 @@ func Gather(
 	ambiguous := map[string]bool{}
 	for _, repo := range repos {
 		entries, held, leaseTips, coord, problems, err := gatherRepo(
-			host, repo, run, pipe)
+			host, repo, run, pipe, opts)
 		if err != nil {
 			res.Problems = append(res.Problems,
 				Problem{Repo: repo.Name, Err: err})
@@ -145,7 +154,7 @@ func recordCoord(
 // costs no new walk or subprocess.
 func gatherRepo(
 	host string, repo discover.Repo,
-	run gitwt.Runner, pipe gitwt.PipeRunner,
+	run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
 	[]Problem, error,
 ) {

@@ -51,7 +51,7 @@ func TestGatherCarriesRepoCoordinates(t *testing.T) {
 	root := t.TempDir()
 	repo := repoWithPlan(t, root, "atlas", 7)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	coord, ok := res.Coords["atlas"]
@@ -78,7 +78,7 @@ func TestGatherCarriesTheConfiguredBase(t *testing.T) {
 	gitCmd(t, repo, "add", "-A")
 	gitCmd(t, repo, "commit", "-q", "-m", "pin base")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	coord, ok := res.Coords["atlas"]
@@ -98,7 +98,7 @@ func TestGatherWithholdsAnAmbiguousCoordinate(t *testing.T) {
 	repoWithPlan(t, filepath.Join(root, "a"), "frontend", 7)
 	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	_, ok := res.Coords["frontend"]
@@ -124,7 +124,7 @@ func TestGatherKeepsAUniqueCoordinate(t *testing.T) {
 	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
 	repoWithPlan(t, root, "atlas", 3)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	_, ok := res.Coords["atlas"]
@@ -161,7 +161,7 @@ func TestGatherLeavesAMarkerlessBranchUnheld(t *testing.T) {
 	gitCmd(t, repo, "commit", "-q", "-m", "hand-made branch, no marker")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -182,7 +182,7 @@ func TestGatherReadsAClaimMarkerBeneathLaterWorkAsHeld(t *testing.T) {
 	gitCmd(t, repo, "commit", "-q", "-m", "real work")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -198,7 +198,7 @@ func TestGatherReadsAMarkerOnlyBranchAsHeld(t *testing.T) {
 	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -215,7 +215,7 @@ func TestGatherLeavesAReleasedTipUnheld(t *testing.T) {
 	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: release")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -233,7 +233,7 @@ func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
 		"plan 7: claim shader")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -276,7 +276,7 @@ func TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags(t *testing.T) {
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -291,7 +291,7 @@ func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
 		"plan 7: claim shader")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	p := planByID(t, res, 7)
@@ -319,7 +319,7 @@ func TestGatherReportsALocalDefaultBranchLaggingItsFetchedRemote(t *testing.T) {
 	gitCmd(t, repo, "branch", "-D", "tmp-ahead")
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", ahead)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	var found *Problem
@@ -341,12 +341,89 @@ func TestGatherLeavesAnInSyncDefaultBranchProblemless(t *testing.T) {
 	head := gitOut(t, repo, "rev-parse", "HEAD")
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", head)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	for _, p := range res.Problems {
 		assert.NotEqual(t, "atlas", p.Repo, "an in-sync branch is not a problem")
 	}
+}
+
+// landedPlanWithStaleOrigin builds a real clone of an origin whose main
+// has since landed the plan and deleted its lease branch, while the
+// clone's own refs/remotes/origin/* still carries the pre-merge state
+// — a checkout that has not fetched since, not a faked ref. It returns
+// the root Gather walks, holding only the clone.
+func landedPlanWithStaleOrigin(t *testing.T, name string, id int) string {
+	t.Helper()
+	branch := "plan/" + strconv.Itoa(id)
+
+	origin := repoWithPlan(t, t.TempDir(), name, id)
+	gitCmd(t, origin, "checkout", "-q", "-b", branch)
+	gitCmd(t, origin, "commit", "--allow-empty", "-q", "-m",
+		"plan "+strconv.Itoa(id)+": claim")
+	gitCmd(t, origin, "checkout", "-q", "main")
+
+	root := t.TempDir()
+	gitCmd(t, root, "clone", "-q", origin, filepath.Join(root, name))
+
+	body := "---\nid: " + strconv.Itoa(id) +
+		"\ntitle: Shader unit\nstatus: \"✅\"\n---\n# Shader unit\n"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(origin, "plan", "plan.md"), []byte(body), 0o600))
+	gitCmd(t, origin, "add", "-A")
+	gitCmd(t, origin, "commit", "-q", "-m", "land plan (squash)")
+	gitCmd(t, origin, "branch", "-D", branch)
+
+	return root
+}
+
+// TestGatherFetchesBeforeReadingLandedEvidence pins the fix this plan
+// exists for: a squash-landed, branch-deleted plan reads landed only
+// once Gather fetches. Before the fetch this reads as held; after, as
+// landed.
+func TestGatherFetchesBeforeReadingLandedEvidence(t *testing.T) {
+	root := landedPlanWithStaleOrigin(t, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Fetch: true})
+	require.NoError(t, err)
+
+	assert.False(t, planByID(t, res, 7).Held,
+		"the lease branch is gone on origin; a fetch must see that "+
+			"before the plan reads held")
+}
+
+// TestGatherWithoutFetchStillReadsHeld pins the contrast: the very
+// same stale-origin fixture, read without a fetch, still reads the
+// deleted lease branch as held off its stale remote-tracking copy.
+func TestGatherWithoutFetchStillReadsHeld(t *testing.T) {
+	root := landedPlanWithStaleOrigin(t, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{})
+	require.NoError(t, err)
+
+	assert.True(t, planByID(t, res, 7).Held,
+		"without a fetch, the stale remote-tracking lease branch "+
+			"still reads as held")
+}
+
+// TestGatherFetchSkipsARepositoryWithNoRemoteConfigured: a repository
+// that has never had a remote added has nothing for a fetch to
+// refresh, so asking Gather to fetch does not fail the whole walk —
+// it reads the repo exactly as an unfetched one always has.
+func TestGatherFetchSkipsARepositoryWithNoRemoteConfigured(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Fetch: true})
+	require.NoError(t, err)
+
+	assert.False(t, planByID(t, res, 7).Held,
+		"a repo with no remote gathers normally; a requested fetch is "+
+			"simply skipped")
 }
 
 // TestGatherLeavesAnUnfetchedDefaultBranchProblemless: a repository
@@ -356,7 +433,7 @@ func TestGatherLeavesAnUnfetchedDefaultBranchProblemless(t *testing.T) {
 	root := t.TempDir()
 	repoWithPlan(t, root, "atlas", 7)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe)
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
 	require.NoError(t, err)
 
 	for _, p := range res.Problems {
