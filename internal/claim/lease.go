@@ -429,9 +429,15 @@ func ParkUnlanded(
 }
 
 // HasUnlanded reports whether the chain from the base to a tip holds
-// anything besides frit's own markers — work a delete would destroy.
-// Exported so a dry run can say whether a teardown would park before
-// it is asked to act.
+// work a delete would destroy — a non-marker commit whose content is
+// not already on the base. Exported so a dry run can say whether a
+// teardown would park before it is asked to act. It mints no ref and
+// moves nothing, but it is not object-pure: to see squash-landed
+// content it runs the same `git merge-tree --write-tree` the park
+// decision does, which writes an unreachable tree object git reclaims
+// on gc (see landedByContent). A dry run previewing a chain that
+// genuinely carries unlanded work therefore leaves a loose tree object
+// behind; that is the cost of the content check, not a leak.
 func HasUnlanded(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) (bool, error) {
@@ -595,25 +601,71 @@ func park(
 // holds anything besides frit's own markers — work a delete would
 // destroy. The base is refreshed the way the landed check refreshes
 // it, so the answer is against origin's view, not a stale local one.
+//
+// A non-marker subject is not the final answer: under squash-merge
+// the lane's commits are never ancestors of the base even when the
+// content already landed there, so a chain carrying work still gets
+// a second, content-level check before it is called unlanded.
 func hasUnlanded(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) (bool, error) {
 	base := freshBase(repoDir, opts.Base, opts.Remote, run)
+	work, err := hasWork(repoDir, opts.PlanID, base, tip, run)
+	if err != nil {
+		return false, err
+	}
+	if !work {
+		return false, nil
+	}
+
+	return !landedByContent(repoDir, base, tip, run), nil
+}
+
+// hasWork reports whether the chain from base to tip carries any commit
+// that is not one of frit's own lease markers — the "is there anything
+// a delete would destroy, or anything that could have landed" question
+// both the park decision and the landed check ask before they run the
+// content check. A bare marker chain has none, so the content check —
+// whose trivial no-op merge would call an empty marker "landed" — is
+// never reached for it.
+func hasWork(
+	repoDir string, planID int64, base, tip string, run gitwt.Runner,
+) (bool, error) {
 	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
 	if err != nil {
 		return false, fmt.Errorf(
-			"read the chain for plan %d: %w", opts.PlanID, err)
+			"read the chain for plan %d: %w", planID, err)
 	}
 	for _, subject := range strings.Split(string(out), "\n") {
 		if subject == "" {
 			continue
 		}
-		if !markerSubject(subject, opts.PlanID) {
+		if !markerSubject(subject, planID) {
 			return true, nil
 		}
 	}
 
 	return false, nil
+}
+
+// landedByContent reports whether merging tip into a fresh copy of
+// base changes nothing: `git merge-tree --write-tree` needs no
+// worktree and prints the resulting tree OID on success, so a landed
+// tip's merge reproduces the base's own tree exactly. A conflict or a
+// differing tree means real divergence, and so does any failure to
+// run git at all — both fail toward the safe answer, the same
+// direction isAncestor already takes for an unreadable read.
+func landedByContent(repoDir, base, tip string, run gitwt.Runner) bool {
+	tree, err := trimmed(run(repoDir, "merge-tree", "--write-tree", base, tip))
+	if err != nil {
+		return false
+	}
+	baseTree, err := trimmed(run(repoDir, "rev-parse", base+"^{tree}"))
+	if err != nil {
+		return false
+	}
+
+	return tree == baseTree
 }
 
 // markerSubject reports whether a subject line is one of frit's own
@@ -906,7 +958,7 @@ func heldError(
 	e.Marker = m
 	e.Known = true
 	e.ThisHolder = m.Holder != "" && m.Holder == opts.Holder
-	e.Landed = landedTip(repoDir, opts.Base, opts.Remote, tip, run)
+	e.Landed = landedTip(repoDir, opts.PlanID, opts.Base, opts.Remote, tip, run)
 
 	return e
 }

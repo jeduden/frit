@@ -120,6 +120,84 @@ func TestIsAncestor(t *testing.T) {
 	assert.False(t, isAncestor("/r", "a", "b", no))
 }
 
+// fakeMergeTree returns a Runner that answers merge-tree with treeOID
+// (or mergeErr, when set) and rev-parse ...^{tree} with baseTreeOID (or
+// rpErr) — the two calls landedByContent makes, told apart by args[0].
+func fakeMergeTree(
+	treeOID string, mergeErr error, baseTreeOID string, rpErr error,
+) func(string, ...string) ([]byte, error) {
+	return func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "merge-tree":
+			if mergeErr != nil {
+				return nil, mergeErr
+			}
+			return []byte(treeOID + "\n"), nil
+		case "rev-parse":
+			if rpErr != nil {
+				return nil, rpErr
+			}
+			return []byte(baseTreeOID + "\n"), nil
+		default:
+			return nil, errors.New("unexpected git subcommand: " + args[0])
+		}
+	}
+}
+
+// TestLandedByContent drives every branch directly against a fake
+// Runner: a merge-no-op reports landed, a differing tree or a conflict
+// (merge-tree's non-zero exit) reports not landed, and a git fault on
+// either call fails toward the same safe "not landed" answer.
+func TestLandedByContent(t *testing.T) {
+	same := "1111111111111111111111111111111111111111"
+	other := "2222222222222222222222222222222222222222"
+
+	assert.True(t, landedByContent(
+		"/r", "base", "tip", fakeMergeTree(same, nil, same, nil)),
+		"merging tip into base reproduces base's own tree: landed")
+
+	assert.False(t, landedByContent(
+		"/r", "base", "tip", fakeMergeTree(other, nil, same, nil)),
+		"a differing resulting tree means real, unlanded divergence")
+
+	assert.False(t, landedByContent(
+		"/r", "base", "tip",
+		fakeMergeTree("", errors.New("CONFLICT"), same, nil)),
+		"merge-tree's conflict exit is evidence of divergence, not landed")
+
+	assert.False(t, landedByContent(
+		"/r", "base", "tip",
+		fakeMergeTree(same, nil, "", errors.New("bad revision"))),
+		"a git fault reading the base's own tree fails toward not-landed")
+}
+
+// TestHasWork tells a marker-only chain from one carrying real work and
+// surfaces a git fault reading the chain — the gate that keeps a bare
+// claim marker's trivial no-op merge from ever reading as landed.
+func TestHasWork(t *testing.T) {
+	chain := func(out string) func(string, ...string) ([]byte, error) {
+		return func(_ string, _ ...string) ([]byte, error) {
+			return []byte(out), nil
+		}
+	}
+
+	work, err := hasWork("/r", 7, "base", "tip",
+		chain("plan 7: beat\nplan 7: claim\n"))
+	require.NoError(t, err)
+	assert.False(t, work, "a chain of only frit's markers carries no work")
+
+	work, err = hasWork("/r", 7, "base", "tip",
+		chain("a real change\nplan 7: claim\n"))
+	require.NoError(t, err)
+	assert.True(t, work, "a non-marker subject is work a delete would lose")
+
+	_, err = hasWork("/r", 7, "base", "tip",
+		func(_ string, _ ...string) ([]byte, error) {
+			return nil, errors.New("bad revision")
+		})
+	require.Error(t, err, "a git fault reading the chain is surfaced")
+}
+
 // TestHolderMarker returns the marker body on a match and reports not-found
 // when the grep selects nothing or the object is missing.
 func TestHolderMarker(t *testing.T) {
