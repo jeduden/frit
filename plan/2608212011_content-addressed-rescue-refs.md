@@ -1,7 +1,7 @@
 ---
 id: 2608212011
 title: The rescue ref carries its tip, so a park never conflicts
-status: "🔳"
+status: "✅"
 summary: >-
   A rescue ref is named per plan and per machine, so one lane parking
   twice at different tips collides with itself, and park must refuse
@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: the scenario docs learn the new shape
-    status: "🔲"
+    status: "✅"
 ---
 # The rescue ref carries its tip, so a park never conflicts
 
@@ -163,15 +163,15 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] One lane parks two tips for one plan with no refusal; each is
+- [x] One lane parks two tips for one plan with no refusal; each is
       its own ref; a same-tip retry is a no-op.
-- [ ] `RescueRefs` lists legacy and new shapes in one call, so no
+- [x] `RescueRefs` lists legacy and new shapes in one call, so no
       parked work goes invisible during the transition.
-- [ ] `RescueConflictError` fires only for a same-name ref holding
+- [x] `RescueConflictError` fires only for a same-name ref holding
       a different object, worded as the trust-domain guard it now
       is.
-- [ ] The protocol note's Scavenge section and PARK rows, and
+- [x] The protocol note's Scavenge section and PARK rows, and
       claiming.md's yield and scavenge sections, describe the
       shipped shape under a dated note.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

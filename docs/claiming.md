@@ -183,7 +183,7 @@ fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
 `frit yield <plan>` is that way out: it pushes the fenced lane's local
-divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>`
+divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>/<tip>`
 (create-only, since a fenced lane holds no lease to CAS on), tears the
 lane's worktree down through herdr, and exits clean. It refuses when
 run from the lane that still holds the live lease — yield is for the
@@ -273,28 +273,28 @@ the categories and the evidence each teardown requires.
 
 Merging a work ref's branch into the default branch does not delete
 it — the ref still exists on the remote. `claim` and `orphans` do not
-wait for a human to notice: evidence that a lease's work has landed is
-enough for `scavenge` to delete the ref, parking any commits that
-never made it to the merge onto a rescue ref first. Evidence tied to
-the observed tip itself — that tip is an ancestor of the default
-branch — needs no staleness window. Evidence that is only the ✅ glyph
-or a missing plan file additionally requires a matured window, so a
-lease that is still being renewed can never be scavenged out from
-under its holder.
+wait for a human to notice: landed evidence is enough for `scavenge`
+to delete the ref, parking any commits that never merged onto a
+rescue ref first. Evidence tied to the observed tip needs no
+staleness window. Evidence that is only the ✅ glyph or a missing plan
+file additionally requires a matured window, so a renewing lease can
+never be scavenged out from under its holder.
 
-A park can itself be blocked: the rescue ref it would write to already
-holds a different tip's work, parked earlier and never cleaned up.
-Parking refuses to clobber it, so the delete never runs. `claim`,
-`release`, `start` and `yield` all report it as a warning, worded as
-the next step: fetch the rescue ref, inspect it, delete it, and retry.
+The rescue ref is content-addressed by the tip it parks: two parks
+from one lane at different tips never collide, and a retry at a
+parked tip is a no-op. What still refuses is a ref moved by hand or
+forged, holding a different object at that name. `claim`, `release`,
+`start` and `yield` warn: fetch, inspect, delete, retry.
 
 This page describes the lease protocol as it ships today. It was
 closed by [plan 2608202144](../plan/2608202144_lease-namespace-claims.md)
 and [plan 2608211326](../plan/2608211326_lease-protocol-completion.md),
 with the reap verb added by
-[plan 2608212218](../plan/2608212218_reap-the-orphans.md) and the
-rescue conflict named by
-[plan 2608211936](../plan/2608211936_rescue-conflict-guidance.md). A
-slug in the branch name is not part of the current mechanism; the
+[plan 2608212218](../plan/2608212218_reap-the-orphans.md), the rescue
+conflict named by
+[plan 2608211936](../plan/2608211936_rescue-conflict-guidance.md), and
+made content-addressed by
+[plan 2608212011](../plan/2608212011_content-addressed-rescue-refs.md).
+A slug in the branch name is not part of the current mechanism; the
 rescue ref a blocked park names above is the one manual delete it
 now asks for.

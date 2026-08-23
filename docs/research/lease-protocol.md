@@ -230,8 +230,12 @@ classes — the first two landed, the third added 2026-08-22 by plan
   refuses a live lease however unstaffed it looks locally.
 
 A ref carrying unlanded work commits is parked to
-`refs/frit/rescue/<id>/<machine-id>` before deletion, so scavenge
-never destroys work. Retries are idempotent CAS.
+`refs/frit/rescue/<id>/<machine-id>/<tip>` before deletion, so
+scavenge never destroys work. The tip joined the name 2026-08-23 by
+plan 2608212011: two parks from one lane at different tips then land
+under different refs instead of colliding, so a park can never
+contend with an earlier one from the same machine. Retries are
+idempotent CAS.
 
 The park half stands alone as `ParkUnlanded`, for a teardown that
 deletes a local branch through git porcelain rather than the work
