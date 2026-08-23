@@ -19,7 +19,7 @@ depends-on: []
 phases:
   - n: 1
     title: a named rescue conflict, worded as a next step
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: orphans lists leftover rescue refs first
     status: "🔲"
