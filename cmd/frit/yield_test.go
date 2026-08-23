@@ -181,6 +181,8 @@ func TestYieldWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
 		"under --json (and here) nothing goes to stderr")
 	assert.Contains(t, out.String(), "warning",
 		"the park conflict is reported in the document")
+	assert.Contains(t, out.String(), "fetch and inspect it, then delete it and retry",
+		"the warning is worded as the next step, not just the ref name")
 	assert.False(t, rec.verb("worktree", "remove"),
 		"a failed park leaves the worktree standing")
 }

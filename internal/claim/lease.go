@@ -12,6 +12,7 @@ package claim
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -150,6 +151,22 @@ func (e *StillHeldError) Error() string {
 	return fmt.Sprintf(
 		"plan %d is still held by this lane; yield is for a fenced lane, "+
 			"use release instead", e.PlanID)
+}
+
+// RescueConflictError reports a park refused because the plan's rescue
+// ref already holds a different tip's work — an earlier scavenge or
+// yield from this same lane, parked and never cleaned up. Its wording
+// is operation-neutral: Scavenge and Yield both return it, worded as
+// the next step rather than a dead end.
+type RescueConflictError struct {
+	PlanID int64
+	Rescue string // the rescue ref that already holds other work
+}
+
+func (e *RescueConflictError) Error() string {
+	return fmt.Sprintf(
+		"rescue ref %s holds an earlier park at a different tip; "+
+			"fetch and inspect it, then delete it and retry", e.Rescue)
 }
 
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
@@ -294,6 +311,12 @@ func Scavenge(
 
 	res, err := ParkUnlanded(repoDir, opts, from, run)
 	if err != nil {
+		var conflict *RescueConflictError
+		if errors.As(err, &conflict) {
+			return res, fmt.Errorf(
+				"%w; not deleting plan %d's ref", err, opts.PlanID)
+		}
+
 		return res, err
 	}
 
@@ -435,6 +458,17 @@ func RescueRefs(
 		return []string{}
 	}
 
+	refs := lsRemoteRefNames(out)
+	sort.Strings(refs)
+
+	return refs
+}
+
+// lsRemoteRefNames reads the ref name out of every "<sha>\t<ref>" line
+// `ls-remote` writes, in whatever order git listed them — shared by
+// RescueRefs and AllRescueRefs so the one place that knows the shape
+// of that porcelain output stays the one place that parses it.
+func lsRemoteRefNames(out []byte) []string {
 	refs := []string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
@@ -443,9 +477,69 @@ func RescueRefs(
 		}
 		refs = append(refs, fields[1])
 	}
-	sort.Strings(refs)
 
 	return refs
+}
+
+// AllRescueRefs lists every rescue ref a repository carries, one
+// ls-remote for the whole repository rather than one per plan —
+// bucketed by the id segment of refs/frit/rescue/<id>/<holder>, what
+// a sweep across every plan needs instead of RescueRefs' one-plan-at-
+// a-time reads.
+//
+// A repository with no such remote configured has never pushed
+// anywhere, so it has parked nothing there either: that reads as an
+// empty sweep, not a fault. A remote that is configured but cannot be
+// read is the fault this returns instead of swallowing — unlike
+// RescueRefs' per-plan cousin, a sweep silently reporting "nothing to
+// clean up" when the truth is "could not check" would hide exactly
+// what it exists to surface.
+func AllRescueRefs(
+	repoDir, remote string, run gitwt.Runner,
+) (map[int64][]string, error) {
+	if _, err := run(repoDir, "remote", "get-url", remote); err != nil {
+		return map[int64][]string{}, nil
+	}
+
+	out, err := run(repoDir, "ls-remote", remote, "refs/frit/rescue/*")
+	if err != nil {
+		return nil, fmt.Errorf("read rescue refs from %s: %w", remote, err)
+	}
+
+	buckets := map[int64][]string{}
+	for _, ref := range lsRemoteRefNames(out) {
+		id, ok := rescuePlanID(ref)
+		if !ok {
+			continue
+		}
+		buckets[id] = append(buckets[id], ref)
+	}
+	for id := range buckets {
+		sort.Strings(buckets[id])
+	}
+
+	return buckets, nil
+}
+
+// rescuePlanID reads the id segment out of a rescue ref name,
+// refs/frit/rescue/<id>/<holder>. ok is false for anything that does
+// not match the shape — a ref ls-remote's own pattern could not have
+// produced, guarded against rather than trusted.
+func rescuePlanID(ref string) (int64, bool) {
+	rest, ok := strings.CutPrefix(ref, "refs/frit/rescue/")
+	if !ok {
+		return 0, false
+	}
+	idStr, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return id, true
 }
 
 // rescueRef names where scavenge and yield park a plan's unlanded
@@ -472,9 +566,7 @@ func park(
 		return nil
 	}
 
-	return fmt.Errorf(
-		"rescue ref %s already holds other work; not deleting plan %d's ref",
-		rescue, opts.PlanID)
+	return &RescueConflictError{PlanID: opts.PlanID, Rescue: rescue}
 }
 
 // hasUnlanded reports whether the chain from the base to the tip

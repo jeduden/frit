@@ -198,7 +198,7 @@ dependency trees never constrain consumers of this module.
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
 - `go run ./cmd/frit plans` — read plan files off every ref
-- `go run ./cmd/frit orphans` — claims and checkouts that disagree
+- `go run ./cmd/frit orphans` — claims, checkouts, rescue refs that disagree
 - `go run ./cmd/frit orphans --json` — the same report for an agent
 - `go run ./cmd/frit reap` — tear down what orphans reports; `--go` acts
 - `go run ./cmd/frit who` — which lane has a live agent on it, from herdr

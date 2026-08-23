@@ -14,6 +14,7 @@ no longer adds up:
 | prunable    | a worktree whose checkout is already gone               |
 | migratable  | a legacy decorated hold, and the id-only ref it maps to |
 | stale holds | a held plan whose takeover window has matured           |
+| rescued     | a leftover rescue ref, before a blocked park is hit     |
 
 `frit who` reports which lane has a live agent on it, read from
 herdr's own pane list. A claim is visible everywhere the remote is

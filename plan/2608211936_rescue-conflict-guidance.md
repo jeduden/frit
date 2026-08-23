@@ -1,7 +1,7 @@
 ---
 id: 2608211936
 title: A blocked scavenge names its rescue ref and what to do next
-status: "🔲"
+status: "✅"
 summary: >-
   A scavenge blocked by an existing rescue ref refuses safely — the
   parked commits and the plan's own ref both stand — but the refusal
@@ -19,10 +19,10 @@ depends-on: []
 phases:
   - n: 1
     title: a named rescue conflict, worded as a next step
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: orphans lists leftover rescue refs first
-    status: "🔲"
+    status: "✅"
 ---
 # A blocked scavenge names its rescue ref and what to do next
 
@@ -204,14 +204,15 @@ rows in `printOrphans`' three-cell shape. Extend the
 `goldenOrphans` fixture so the re-recorded golden pins a
 *populated* rescued entry, and read the diff.
 
-Docs land in the same commits.
-[docs/claiming.md](../docs/claiming.md)'s orphans category table
-names the new row. Its "`frit next` and `frit show` list a plan's
-rescue refs" sentence adds `orphans` as the sweep. Its closing
-"closed by" list gains this plan. The `orphans` one-liners widen
-from "claims and checkouts" in [CLAUDE.md](../CLAUDE.md),
-[README.md](../README.md) and the kong help string in
-[cmd/frit/main.go](../cmd/frit/main.go).
+Docs land in the same commits. The orphans category table actually
+lives in [docs/reaping.md](../docs/reaping.md), not claiming.md as
+first drafted here; it names the new row there.
+[docs/claiming.md](../docs/claiming.md)'s "`frit next` and `frit
+show` list a plan's rescue refs" sentence adds `orphans` as the
+sweep; its closing "closed by" list already named this plan from
+phase 1. The `orphans` one-liners widen from "claims and checkouts"
+in [CLAUDE.md](../CLAUDE.md), [README.md](../README.md) and the kong
+help string in [cmd/frit/main.go](../cmd/frit/main.go).
 
 Gate: the RED cases pass in both renderings; `go test ./...`,
 `go tool -modfile=tools/go.mod golangci-lint run`,
@@ -228,21 +229,22 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A park blocked by an earlier park at a different tip returns a
+- [x] A park blocked by an earlier park at a different tip returns a
       typed `RescueConflictError` naming the plan id and the ref,
       worded as what to do next; a same-tip retry stays a no-op.
-- [ ] The fix lives in `park`: `claim`, `release`, `start` and
+- [x] The fix lives in `park`: `claim`, `release`, `start` and
       `yield` inherit the wording with no per-verb error shaping,
       and `printStart` renders the warning it used to drop.
-- [ ] `frit orphans` lists leftover rescue refs with their plan's
+- [x] `frit orphans` lists leftover rescue refs with their plan's
       state — never calling superseded work landed — in one
       `ls-remote` per repository, before anyone triggers a blocked
       scavenge.
-- [ ] Every doc describing the surface is updated:
+- [x] Every doc describing the surface is updated:
       [docs/claiming.md](../docs/claiming.md) (scavenge refusal,
-      category table, rescue-refs sentence, closing list), the
-      `orphans` one-liners in [CLAUDE.md](../CLAUDE.md),
-      [README.md](../README.md) and the kong help, and the
-      plan-phase skill via its asset plus `frit skills`.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+      rescue-refs sentence, closing list), the orphans category table
+      in [docs/reaping.md](../docs/reaping.md), the `orphans`
+      one-liners in [CLAUDE.md](../CLAUDE.md), [README.md](../README.md)
+      and the kong help, and the plan-phase skill via its asset plus
+      `frit skills`.
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

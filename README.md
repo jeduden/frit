@@ -59,7 +59,7 @@ The board — what exists and what has gone wrong:
 frit repos              # every repository and its worktrees
 frit plans              # plan files found on every ref
 frit plans --detail     # ...and which refs carry each one
-frit orphans            # claims and checkouts that no longer add up
+frit orphans            # claims, checkouts and rescue refs that no longer add up
 frit stale --days 21    # worktrees whose branch has not moved
 frit who                # which lane has a live agent on it
 frit board              # outstanding plans: status, holder, agent, machine

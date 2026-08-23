@@ -755,6 +755,11 @@ func TestScavengeRefusesAForeignRescue(t *testing.T) {
 		work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
 
 	require.Error(t, err)
+	var conflict *RescueConflictError
+	require.ErrorAs(t, err, &conflict,
+		"the refusal is a typed RescueConflictError, not a plain error")
+	assert.Equal(t, int64(7), conflict.PlanID)
+	assert.Equal(t, "refs/frit/rescue/7/box-b", conflict.Rescue)
 	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, tip, "the work ref is not deleted")
 	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
@@ -926,6 +931,59 @@ func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
 		refs)
 	assert.Empty(t, RescueRefs(work, "origin", 8, gitwt.Exec),
 		"another plan's rescue refs do not bleed in")
+}
+
+// TestAllRescueRefsBucketsByPlanID: the batched sibling of RescueRefs
+// reads every plan's rescue refs in one ls-remote, bucketed by the id
+// segment in the ref name — what orphans' sweep needs instead of one
+// call per plan.
+func TestAllRescueRefsBucketsByPlanID(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	_, err = Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+	require.NoError(t, err)
+	gitCmd(t, work, "push", "-q", "origin", tip+":refs/frit/rescue/8/box-c")
+
+	buckets, err := AllRescueRefs(work, "origin", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"refs/frit/rescue/7/box-b"}, buckets[7])
+	assert.Equal(t, []string{"refs/frit/rescue/8/box-c"}, buckets[8])
+}
+
+// TestAllRescueRefsIsEmptyWithNoRemoteConfigured: a repository that has
+// never pushed anywhere has parked nothing there either — reading as
+// an empty sweep, not a fault, is what tells this apart from a remote
+// that is configured but cannot be reached.
+func TestAllRescueRefsIsEmptyWithNoRemoteConfigured(t *testing.T) {
+	work := t.TempDir()
+	gitCmd(t, work, "init", "-q", "-b", "main")
+
+	buckets, err := AllRescueRefs(work, "origin", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Empty(t, buckets)
+}
+
+// TestAllRescueRefsErrsWhenTheRemoteCannotBeRead: unlike RescueRefs'
+// per-plan cousin, which swallows an unreadable remote to an empty
+// list, the batched sweep surfaces the fault — orphans records it as a
+// Problem rather than silently reporting a clean repository.
+func TestAllRescueRefsErrsWhenTheRemoteCannotBeRead(t *testing.T) {
+	work := originAndClone(t)
+	deadRemote := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, errors.New("could not resolve host")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := AllRescueRefs(work, "origin", deadRemote)
+
+	require.Error(t, err)
 }
 
 // TestScavengeErrsWhenTheRemoteCannotBeRead: an ls-remote failure is a

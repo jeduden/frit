@@ -188,7 +188,8 @@ divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>`
 lane's worktree down through herdr, and exits clean. It refuses when
 run from the lane that still holds the live lease — yield is for the
 fenced, not an alias for `frit release`. `frit next` and `frit show`
-list a plan's rescue refs, so parked commits are found again.
+list a plan's rescue refs, so parked commits are found again. `frit
+orphans` sweeps every repository's leftover rescue refs first.
 
 ## When a claim is refused
 
@@ -281,10 +282,19 @@ or a missing plan file additionally requires a matured window, so a
 lease that is still being renewed can never be scavenged out from
 under its holder.
 
-This page describes the lease protocol as it ships today, closed by
-[plan 2608202144](../plan/2608202144_lease-namespace-claims.md) and
-[plan 2608211326](../plan/2608211326_lease-protocol-completion.md),
+A park can itself be blocked: the rescue ref it would write to already
+holds a different tip's work, parked earlier and never cleaned up.
+Parking refuses to clobber it, so the delete never runs. `claim`,
+`release`, `start` and `yield` all report it as a warning, worded as
+the next step: fetch the rescue ref, inspect it, delete it, and retry.
+
+This page describes the lease protocol as it ships today. It was
+closed by [plan 2608202144](../plan/2608202144_lease-namespace-claims.md)
+and [plan 2608211326](../plan/2608211326_lease-protocol-completion.md),
 with the reap verb added by
-[plan 2608212218](../plan/2608212218_reap-the-orphans.md).
-Anything it does not describe — a manual delete, a slug in the branch
-name — is not part of the current mechanism.
+[plan 2608212218](../plan/2608212218_reap-the-orphans.md) and the
+rescue conflict named by
+[plan 2608211936](../plan/2608211936_rescue-conflict-guidance.md). A
+slug in the branch name is not part of the current mechanism; the
+rescue ref a blocked park names above is the one manual delete it
+now asks for.

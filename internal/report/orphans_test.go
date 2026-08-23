@@ -96,6 +96,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
 	assert.NotNil(t, doc.Repos[0].Deserted)
+	assert.NotNil(t, doc.Repos[0].Rescued)
 }
 
 func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
@@ -107,6 +108,8 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Migratable: []Migratable{{}}}.Any())
 	assert.True(t, OrphanRepo{StaleHolds: []StaleHold{{}}}.Any())
 	assert.True(t, OrphanRepo{Deserted: []Deserted{{}}}.Any())
+	assert.True(t, OrphanRepo{Rescued: []Rescued{{}}}.Any(),
+		"a repository whose only finding is a rescue ref still renders")
 }
 
 // TestOrphansAddDesertedRecordsADeadEnd: the deserted cell of the
@@ -148,6 +151,29 @@ func TestOrphansAddStaleRecordsAMaturedHold(t *testing.T) {
 	assert.True(t, doc.Repos[0].Any())
 }
 
+// TestOrphansAddRescuedRecordsLeftoverParks: the rescued cell of the
+// verb-state table — a rescue ref found before anyone triggers the
+// blocked park it stands for, beside orphans' other kinds. A
+// superseded plan's parked work must read as superseded, never landed
+// (the ByPlanID bool a squash-merge landed check collapses both into
+// cannot tell them apart on its own).
+func TestOrphansAddRescuedRecordsLeftoverParks(t *testing.T) {
+	doc := NewOrphans("/fleet")
+	doc.AddRepo("atlas", lanes.Orphans{})
+
+	doc.AddRescued("atlas", []Rescued{
+		{PlanID: 42, State: "⛔", Refs: []string{"refs/frit/rescue/42/box-a"}},
+	})
+
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Rescued, 1)
+	assert.Equal(t, int64(42), doc.Repos[0].Rescued[0].PlanID)
+	assert.Equal(t, "⛔", doc.Repos[0].Rescued[0].State)
+	assert.Equal(t, []string{"refs/frit/rescue/42/box-a"},
+		doc.Repos[0].Rescued[0].Refs)
+	assert.True(t, doc.Repos[0].Any())
+}
+
 func TestOrphansEmitsListsNeverNull(t *testing.T) {
 	doc := NewOrphans("/fleet")
 
@@ -162,6 +188,16 @@ func TestOrphansAddDesertedIsANoOpForAnUnknownRepo(t *testing.T) {
 	doc := NewOrphans("/fleet")
 
 	doc.AddDeserted("ghost", []discovery.Plan{{ID: 1}})
+
+	assert.Empty(t, doc.Repos)
+}
+
+// TestOrphansAddRescuedIsANoOpForAnUnknownRepo mirrors AddStale's own
+// guard.
+func TestOrphansAddRescuedIsANoOpForAnUnknownRepo(t *testing.T) {
+	doc := NewOrphans("/fleet")
+
+	doc.AddRescued("ghost", []Rescued{{PlanID: 1}})
 
 	assert.Empty(t, doc.Repos)
 }

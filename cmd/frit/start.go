@@ -571,6 +571,9 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
+		if doc.Warning != "" {
+			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+		}
 		return
 	}
 

@@ -40,12 +40,16 @@ stale.
      plan `status:` → ✅, and `mdsmith fix PLAN.md`.
 
    Then `mdsmith check .` must stay clean.
+
 5. **Stop-and-report.** If the phase's spec conflicts with the tree —
    a named seam is gone, a test ripples past the files it names — stop
    and report with evidence. Do not improvise a design or weaken a
    check to reach green.
 6. **Fenced.** A commit refused as "fenced" means this lane's lease
    moved under it — run `go run ./cmd/frit yield`, don't fight the CAS.
+7. **Rescue conflict.** A warning naming a rescue ref means an earlier
+   park still holds different work there — fetch it, inspect, delete
+   the ref, then retry.
 
 ## Notes
 
