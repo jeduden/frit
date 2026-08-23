@@ -1,7 +1,7 @@
 ---
 id: 2608230952
 title: A not-matured hold refusal shows how long it has been held
-status: "🔲"
+status: "🔳"
 summary: >-
   When frit refuses to act on a held lane because its takeover window
   has not matured, it says only "held by a live lease" — not how long

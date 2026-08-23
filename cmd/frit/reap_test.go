@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -365,9 +366,37 @@ func TestReapRefusesAFreshUnstaffedHold(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
-	assert.Contains(t, out.String(), "stale or dead")
+	assert.Contains(t, out.String(), "unchanged for")
 	_, err = holdRef(t, repo, 7)
 	assert.NoError(t, err, "a live lease survives reap --go")
+}
+
+// TestReapNotMaturedRefusalNamesTheSpanAndWindow: a hold whose window
+// has not matured yet reports how long the tip has sat unchanged
+// against the repo's takeover window, not just "held by a live
+// lease" — the operator can then judge how close it is to takeable.
+func TestReapNotMaturedRefusalNamesTheSpanAndWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 42*time.Minute)
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "unchanged for")
+	assert.Contains(t, out.String(), "42m",
+		"names the observed StaleFor span")
+	assert.Contains(t, out.String(), "2h",
+		"names the repo's configured takeover window")
 }
 
 // TestReapStreamsProgressWhenRefusingALiveHold: a refused hold streams
@@ -387,7 +416,7 @@ func TestReapStreamsProgressWhenRefusingALiveHold(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, errb.String(), "refused")
-	assert.Contains(t, errb.String(), "stale or dead")
+	assert.Contains(t, errb.String(), "unchanged for")
 }
 
 // TestReapJSONLeavesStderrEmptyWhenRefusingAHold pins the JSON
