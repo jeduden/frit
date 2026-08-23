@@ -21,10 +21,9 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                           |
-| ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| 2608212010 | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md) |
-| 2608231201 | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md)         |
+| ID         | Model  | Title                                                                                                                   |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 2608231201 | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md) |
 <?/catalog?>
 
 ## All plans
@@ -63,7 +62,7 @@ footer: |
 | 2608211210 | ✅     | sonnet | [pick --go selects the top plan and starts it, so a skill needs one verb](plan/2608211210_pick-go-claims-and-starts.md)                |
 | 2608211326 | ✅     | sonnet | [The lease protocol completed through every verb](plan/2608211326_lease-protocol-completion.md)                                        |
 | 2608211936 | ✅     | sonnet | [A blocked scavenge names its rescue ref and what to do next](plan/2608211936_rescue-conflict-guidance.md)                             |
-| 2608212010 | 🔳     | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md)        |
+| 2608212010 | ✅     | sonnet | [Scavenge reads squash-merged work as landed, so it parks nothing that landed](plan/2608212010_squash-aware-landed-evidence.md)        |
 | 2608212011 | 🔲     | sonnet | [The rescue ref carries its tip, so a park never conflicts](plan/2608212011_content-addressed-rescue-refs.md)                          |
 | 2608212203 | ✅     | sonnet | [Only a minted lease is a hold, and a dead session frees it](plan/2608212203_only-a-lease-is-a-hold.md)                                |
 | 2608212218 | ✅     | sonnet | [frit reaps the orphans it reports](plan/2608212218_reap-the-orphans.md)                                                               |

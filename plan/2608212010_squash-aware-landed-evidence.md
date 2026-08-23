@@ -1,7 +1,7 @@
 ---
 id: 2608212010
 title: Scavenge reads squash-merged work as landed, so it parks nothing that landed
-status: "🔳"
+status: "✅"
 summary: >-
   Under squash-merge a landed plan's commits are never ancestors of
   the default branch, so hasUnlanded calls every landed lane
@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: the scenario docs learn content evidence
-    status: "🔲"
+    status: "✅"
 ---
 # Scavenge reads squash-merged work as landed, so it parks nothing that landed
 
@@ -126,11 +126,14 @@ The scenario record is
 research notes carry dated inline notes when a decision moves.
 
 RED: a sweep of the note for claims phase 1 falsified, each finding
-becoming an edit. Known already:
+becoming an edit. Deviation: the note had already moved. Plan
+2608212218's `reap` verb landed a third evidence class, abandonment,
+before this phase ran. So the Scavenge section already defined three
+classes, not two. Content evidence joins the existing tip-coupled
+class instead of opening a fourth: the first bullet is renamed
+"Landed evidence" and now covers both ancestry and the merge-no-op
+check, under a dated note naming this plan.
 
-- The Scavenge section defines exactly two evidence classes. It
-  gains the third — content evidence, tip-coupled like ancestry —
-  under a dated note naming this plan.
 - Matrix row S54 ("SCAV accepts landed evidence, not only the
   glyph") names the evidence that closes it; its mechanism cell now
   includes the merge-no-op check.
@@ -157,12 +160,12 @@ Tier is per phase, set by the most demanding ingredient.
 
 ## Acceptance Criteria
 
-- [ ] A squash-merged lane is scavenged with no rescue ref; a lane
+- [x] A squash-merged lane is scavenged with no rescue ref; a lane
       with real divergence still parks first.
-- [ ] A content conflict reads as unlanded, never as a fault.
-- [ ] The protocol note's Scavenge section and matrix row S54
+- [x] A content conflict reads as unlanded, never as a fault.
+- [x] The protocol note's Scavenge section and matrix row S54
       describe content evidence, under a dated inline note.
-- [ ] [docs/claiming.md](../docs/claiming.md)'s scavenge section
+- [x] [docs/claiming.md](../docs/claiming.md)'s scavenge section
       names the evidence and its closing list names this plan.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

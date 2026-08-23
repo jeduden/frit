@@ -210,10 +210,13 @@ The evidence must be fresh against the tip it deletes (A2). Three
 classes — the first two landed, the third added 2026-08-22 by plan
 2608212218's `reap` verb:
 
-- **Ancestry evidence is tied to the tip**: the observed tip is
-  itself an ancestor of the default branch, and the CAS expects
-  exactly that tip. A holder that has since renewed moved the tip,
-  so the delete fails.
+- **Landed evidence is tied to the tip**: the observed tip is itself
+  an ancestor of the default branch, or — added 2026-08-23 by plan
+  2608212010 — merging it into a fresh copy of the default branch
+  changes nothing, the shape a squash-merge leaves, no shared
+  ancestry but the same content. Either way the CAS expects exactly
+  that tip; a holder that has since renewed moved the tip, so the
+  delete fails.
 - **Glyph and plan-gone evidence** (✅ on the default branch, or no
   plan file there) is not tied to the tip, so it additionally
   requires a matured staleness window on the lease. A live, renewing
@@ -231,7 +234,10 @@ classes — the first two landed, the third added 2026-08-22 by plan
 
 A ref carrying unlanded work commits is parked to
 `refs/frit/rescue/<id>/<machine-id>` before deletion, so scavenge
-never destroys work. Retries are idempotent CAS.
+never destroys work. Unlanded means content the base still lacks — a
+squash-merged chain is not the example: its commits are never
+ancestors, but nothing on them is lost, so it parks nothing. Retries
+are idempotent CAS.
 
 The park half stands alone as `ParkUnlanded`, for a teardown that
 deletes a local branch through git porcelain rather than the work
@@ -376,7 +382,7 @@ dies with the host.
 | S51 | slug collision across plans                                                          | ID: no slugs in refs                                                                                                                                                                            |
 | S52 | plan deleted while claimed                                                           | SCAV on plan-gone evidence after a window; PARK first                                                                                                                                           |
 | S53 | plan id reused                                                                       | forbidden by proto (minute ids); scavenge old ref by evidence                                                                                                                                   |
-| S54 | squash-merge, status never ✅                                                        | SCAV accepts landed evidence, not only the glyph                                                                                                                                                |
+| S54 | squash-merge, status never ✅                                                        | SCAV accepts content evidence (merge-tree no-op), not only the glyph                                                                                                                            |
 | S55 | merge + branch auto-delete                                                           | ref gone is released; a 🔳 unheld plan is claimable                                                                                                                                             |
 | S56 | local branch deleted by hand                                                         | origin is the only authority verbs consult (CAS)                                                                                                                                                |
 | S57 | plan re-opened after done                                                            | old ref scavenged if landed; fresh acquire (SCAV, CAS)                                                                                                                                          |
