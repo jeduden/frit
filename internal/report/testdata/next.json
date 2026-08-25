@@ -2,6 +2,7 @@
   "schema": 1,
   "command": "next",
   "root": "/fleet",
+  "source": "default-branch",
   "plan": {
     "key": "forge:atlas:2608161809",
     "repo": "atlas",

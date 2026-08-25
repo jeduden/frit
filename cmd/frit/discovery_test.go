@@ -816,6 +816,34 @@ func TestShowEmitsTheDependencyTree(t *testing.T) {
 	assert.True(t, doc.Tree.Deps[0].Found)
 }
 
+// TestShowInsideItsOwnLaneReadsTheWorkingTreeCopy mirrors Phase 1's
+// case for next: a lane that has rewritten its own Goal, but not
+// merged that commit, reads its own Goal, not the stale one the
+// default branch still carries.
+func TestShowInsideItsOwnLaneReadsTheWorkingTreeCopy(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "Layered work", nil,
+		"## Goal\n\nShip the default-branch goal.\n")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	writePlanFile(t, wt, 100, "✅", "Layered work", nil, "",
+		"## Goal\n\nShip the lane's own goal.\n")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "rewrite the goal")
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "Ship the lane's own goal.")
+	assert.NotContains(t, got, "Ship the default-branch goal.")
+}
+
 // TestSelectorAmbiguityPrintsCandidatesAndExitsNonZero is the acceptance
 // criterion for the selector: a fragment matching two plans is refused
 // with its candidates, not resolved by a guess.
