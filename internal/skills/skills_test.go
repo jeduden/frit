@@ -166,6 +166,20 @@ func TestPlanPickFrontsFindAndReady(t *testing.T) {
 	}
 }
 
+// TestPlanPhaseDoesNotCaveatTheDefaultBranchRead guards that plan-phase
+// no longer tells the reader to trust the lane's own frontmatter over
+// `next` — next and show now read the lane's own copy themselves
+// (2608251958), so that caveat is a stale workaround for a fixed gap.
+func TestPlanPhaseDoesNotCaveatTheDefaultBranchRead(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-phase/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-phase skill: %v", err)
+	}
+	if contains(string(data), "Trust the lane's own frontmatter over") {
+		t.Fatal("plan-phase still teaches the default-branch workaround")
+	}
+}
+
 // TestShippedSkillNamesFritOnPath guards the load-bearing content
 // detail: a shipped skill runs where frit is a binary on PATH, so its
 // commands must read `frit`, not `go run ./cmd/frit`.
