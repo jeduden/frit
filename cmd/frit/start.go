@@ -322,13 +322,21 @@ func startExecute(
 
 	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
-		// The lease is minted but nothing answers behind it. Release it —
-		// a pushed marker, never a delete, so the next acquire reads epoch
-		// E+1 — and name what the dead handoff left standing. If the
-		// release itself fails the lease is still on the remote, so that is
-		// reported alongside the handoff error rather than swallowed into a
-		// silent orphan.
-		err = handoffError(sp.Lane, pane, err)
+		// The lease is minted but nothing answers behind it. Tear down
+		// whatever herdr already stood up — the worktree and pane, if
+		// any — so the abort is atomic rather than leaving a freed claim
+		// over a live worktree. Only a teardown that itself fails falls
+		// back to naming what was left behind; a clean unwind reports the
+		// plain cause. Then release the lease — a pushed marker, never a
+		// delete, so the next acquire reads epoch E+1. If the release
+		// itself fails the lease is still on the remote, so that is
+		// reported alongside whatever the teardown already named, rather
+		// than swallowed into a silent orphan.
+		if pane != "" {
+			if tdErr := teardownHandoff(rt, pane); tdErr != nil {
+				err = errors.Join(handoffError(sp.Lane, pane, err), tdErr)
+			}
+		}
 		if relErr := releaseLease(rt, sc, plan, sp, lease.Tip); relErr != nil {
 			return errors.Join(err, relErr)
 		}
@@ -396,6 +404,16 @@ func bindSession(
 		doc.AddProblem(plan.Repo, fmt.Errorf(
 			"bind session %s to %s: %w", session, sp.Branch, err))
 	}
+}
+
+// teardownHandoff removes the worktree and pane a failed handoff stood
+// up, torn down by the workspace the pane belongs to — herdr names a
+// pane <workspace>:<pane>, so the workspace is the segment before the
+// colon, the one handle herdr.WorktreeRemove takes.
+func teardownHandoff(rt *runtime, pane string) error {
+	workspace, _, _ := strings.Cut(pane, ":")
+
+	return herdr.WorktreeRemove(rt.herdr, workspace)
 }
 
 // handoffError names what a failed handoff left behind: the worktree
