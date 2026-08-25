@@ -21,7 +21,7 @@ phases:
     status: "✅"
   - n: 2
     title: Squash-merge and last-phase evidence, pinned in JSON
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: plan-sync reads the verb, retires its raw git
     status: "🔲"
@@ -89,8 +89,10 @@ with frit never mutating a plan. Confirm the name before Phase 1 —
 1. Add `frit drift`: for each 🔲/🔳 plan, report whether its work ref
    landed (reuse `LandedIDs`) and the commits whose message names the
    id, as a table and JSON, proven end to end on one repo.
-2. (determined after Phase 1)
-3. (determined after Phase 1)
+2. Extend `landed` with the squash-merge content check and add the
+   last-phase-commit flag, pinned by a JSON golden.
+3. Move plan-sync's Enumerate and Gather-evidence steps onto
+   `{{frit}} drift`, dropping its raw `git log --grep`.
 
 ## Phase 1: A drift verb reports landed and naming commits per plan
 

@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
 )
@@ -34,7 +37,7 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewDrift(c.Root)
 	carryProblems(doc, res.Problems, c.All)
 
-	landedByRepo := map[string]map[int64]bool{}
+	ctxByRepo := map[string]driftRepoContext{}
 	for _, p := range res.Plans {
 		if !p.Unfinished() {
 			continue
@@ -44,14 +47,14 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 
-		landed, ok := landedByRepo[p.Repo]
+		ctx, ok := ctxByRepo[p.Repo]
 		if !ok {
-			landed, err = driftLanded(coord.Path, rt.git)
+			ctx, err = newDriftRepoContext(coord.Path, rt.git)
 			if err != nil {
 				doc.AddProblem(p.Repo, err)
-				landed = map[int64]bool{}
+				ctx = driftRepoContext{ancestorLanded: map[int64]bool{}}
 			}
-			landedByRepo[p.Repo] = landed
+			ctxByRepo[p.Repo] = ctx
 		}
 
 		commits, err := driftCommits(coord.Path, p.ID, rt.git)
@@ -59,7 +62,10 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(p.Repo, err)
 			continue
 		}
-		doc.AddRow(p.Repo, p.ID, landed[p.ID], commits)
+
+		landed := ctx.landed(coord.Path, p.ID, p.HoldTip, rt.git)
+		lastPhase := namesLastPhase(commits, lastPhaseNumber(p.Phases))
+		doc.AddRow(p.Repo, p.ID, landed, lastPhase, commits)
 	}
 
 	if c.JSON {
@@ -71,28 +77,38 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// driftLanded reports, per plan id, whether a ref matching that
-// plan's hold pattern has merged into the repository's default
-// branch — the ancestor-merge half of the landed signal. A
-// squash-merge leaves no such ref, and is not this function's
-// concern.
-func driftLanded(path string, git gitwt.Runner) (map[int64]bool, error) {
+// driftRepoContext is what the landed check needs, read once per
+// repository rather than once per plan: the default branch a fresh
+// tip is judged against, and the ancestor-merge signal every ref
+// carries.
+type driftRepoContext struct {
+	preferred      string
+	ancestorLanded map[int64]bool
+}
+
+// newDriftRepoContext reads one repository's default branch and the
+// ids whose hold-pattern ref has already merged into it — the
+// ancestor-merge half of the landed signal. A squash-merge leaves no
+// such ref, and is covered instead by landed's own content check.
+func newDriftRepoContext(
+	path string, git gitwt.Runner,
+) (driftRepoContext, error) {
 	cfg, err := repocfg.Load(path)
 	if err != nil {
-		return nil, err
+		return driftRepoContext{}, err
 	}
 	holds, err := cfg.Compiled()
 	if err != nil {
-		return nil, err
+		return driftRepoContext{}, err
 	}
 	preferred := gitobj.DefaultRef(path, git)
 	refs, err := gitobj.Refs(path, git)
 	if err != nil {
-		return nil, err
+		return driftRepoContext{}, err
 	}
 	merged, err := gitobj.MergedRefs(path, preferred, git)
 	if err != nil {
-		return nil, err
+		return driftRepoContext{}, err
 	}
 
 	landed := map[int64]bool{}
@@ -111,7 +127,31 @@ func driftLanded(path string, git gitwt.Runner) (map[int64]bool, error) {
 		landed[id] = true
 	}
 
-	return landed, nil
+	return driftRepoContext{preferred: preferred, ancestorLanded: landed}, nil
+}
+
+// landed reports whether a plan's work reached the default branch:
+// the ancestor-merge signal already read for the whole repository, or
+// — when a hold tip exists and was not already caught by it — the
+// squash-merge signal that a differing tip's content already matches
+// the default branch's own tree. A tip with no real work beyond
+// frit's own markers is never called landed on content alone, or a
+// bare claim's trivial no-op merge would misread as finished work.
+func (ctx driftRepoContext) landed(
+	path string, id int64, tip string, git gitwt.Runner,
+) bool {
+	if ctx.ancestorLanded[id] {
+		return true
+	}
+	if tip == "" || ctx.preferred == "" {
+		return false
+	}
+	work, err := claim.HasWork(path, id, ctx.preferred, tip, git)
+	if err != nil || !work {
+		return false
+	}
+
+	return claim.ContentLanded(path, ctx.preferred, tip, git)
 }
 
 // driftCommits lists every commit, across every ref, whose message
@@ -142,6 +182,36 @@ func driftCommits(
 	return commits, nil
 }
 
+// lastPhaseNumber is a plan's own final phase, or "" for a plan with
+// no ledger — the number namesLastPhase looks for among its naming
+// commits.
+func lastPhaseNumber(phases []planmeta.Phase) string {
+	if len(phases) == 0 {
+		return ""
+	}
+
+	return string(phases[len(phases)-1].N)
+}
+
+// namesLastPhase reports whether some commit's subject names the
+// given phase number — the mechanical "a commit for the last phase is
+// present" signal the classification ladder looks for. It is not a
+// verdict: whether that commit is really the close is still the
+// caller's judgment.
+func namesLastPhase(commits []report.DriftCommit, phase string) bool {
+	if phase == "" {
+		return false
+	}
+	pattern := regexp.MustCompile(`(?i)\bphase\s+` + regexp.QuoteMeta(phase) + `\b`)
+	for _, c := range commits {
+		if pattern.MatchString(c.Subject) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // printDrift renders one row per not-done plan.
 func printDrift(out io.Writer, doc *report.DriftDoc) {
 	if len(doc.Rows) == 0 {
@@ -151,13 +221,14 @@ func printDrift(out io.Writer, doc *report.DriftDoc) {
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, r := range doc.Rows {
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
-			r.Repo, r.ID, landedLabel(r.Landed), plural(len(r.Commits), "commit"))
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n",
+			r.Repo, r.ID, landedLabel(r.Landed),
+			lastPhaseLabel(r.LastPhaseCommit), plural(len(r.Commits), "commit"))
 	}
 	_ = tw.Flush()
 }
 
-// landedLabel is a not-done plan's ancestor-merge signal, worded for a
+// landedLabel is a not-done plan's landed signal, worded for a
 // person.
 func landedLabel(landed bool) string {
 	if landed {
@@ -165,4 +236,13 @@ func landedLabel(landed bool) string {
 	}
 
 	return "not landed"
+}
+
+// lastPhaseLabel is the last-phase-commit flag, worded for a person.
+func lastPhaseLabel(present bool) string {
+	if present {
+		return "last phase named"
+	}
+
+	return ""
 }
