@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/frit/internal/report"
@@ -89,4 +91,84 @@ func TestDriftIgnoresADonePlan(t *testing.T) {
 	emit(t, &doc, "drift", "--root", root)
 
 	assert.Empty(t, doc.Rows)
+}
+
+// TestDriftReadsSquashMergedWorkAsLanded: a hold branch's content
+// reaches main by a squash merge, so the branch itself is never an
+// ancestor — the shape ordinary ancestry cannot see, and the reason
+// landed also runs the content check. A branch carrying real work
+// that never reached main at all still reads not landed.
+func TestDriftReadsSquashMergedWorkAsLanded(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+
+	// Plan 400: its hold branch's content is squashed onto main by a
+	// second, unrelated commit — same tree, different history. The
+	// branch is the bare, id-only shape the lease protocol writes, the
+	// one HoldTip resolves off.
+	commitPlan(t, repo, 400, "🔳", "Squashed", nil, "")
+	git(t, repo, "checkout", "-q", "-b", "plan/400")
+	writeFile(t, repo, "work.txt", "same content\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 400: work")
+	git(t, repo, "checkout", "-q", "main")
+	writeFile(t, repo, "work.txt", "same content\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "squash landed")
+
+	// Plan 500: its hold branch carries real work that never reached
+	// main by any route.
+	commitPlan(t, repo, 500, "🔳", "Ongoing", nil, "")
+	git(t, repo, "checkout", "-q", "-b", "plan/500")
+	writeFile(t, repo, "ongoing.txt", "wip\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 500: wip")
+	git(t, repo, "checkout", "-q", "main")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.True(t, driftRow(t, doc, 400).Landed,
+		"squash-merged content reads landed even off an unmerged branch")
+	assert.False(t, driftRow(t, doc, 500).Landed,
+		"real work never reaching main reads not landed")
+}
+
+// TestDriftFlagsALastPhaseCommit: a plan with a phase ledger carries
+// whether some naming commit also names its last phase — a plain
+// mechanical flag, not a verdict that the phase actually closed.
+func TestDriftFlagsALastPhaseCommit(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	phases := "phases:\n  - n: 1\n    title: setup\n    status: \"✅\"\n" +
+		"  - n: 2\n    title: finish\n    status: \"🔳\"\n"
+
+	// Plan 600: a later commit names both the plan and its last phase.
+	writePlanFile(t, repo, 600, "🔳", "Ladder", nil, phases, "")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 600")
+	writeFile(t, repo, "leg.txt", "done\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 600 phase 2: GREEN — wire the last leg")
+
+	// Plan 700: the same ledger shape, but no commit ever names phase 2.
+	writePlanFile(t, repo, 700, "🔳", "NoGreenYet", nil, phases, "")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 700")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.True(t, driftRow(t, doc, 600).LastPhaseCommit)
+	assert.False(t, driftRow(t, doc, 700).LastPhaseCommit)
+}
+
+// writeFile writes a file's content within a repository checkout,
+// without staging or committing it.
+func writeFile(t *testing.T, repo, name, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, name), []byte(content), 0o600))
 }

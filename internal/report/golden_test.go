@@ -60,6 +60,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"reap", goldenReap()},
 		{"stale", goldenStale()},
 		{"doctor", goldenDoctor()},
+		{"drift", goldenDrift()},
 		{"who", goldenWho()},
 		{"init", Init([]string{
 			"/fleet/atlas/.frit.yml", "/fleet/atlas/plan/proto.md"})},
@@ -486,6 +487,23 @@ func goldenDoctor() *DoctorDoc {
 				`"<?allow-empty-section?>" for an intentional empty section`,
 		},
 	})
+	doc.AddProblem("busted", errors.New("no such directory"))
+
+	return doc
+}
+
+// goldenDrift pins the drift-evidence shape: a landed plan carrying
+// its naming commit and last-phase flag, a not-landed plan with an
+// empty commits list, and a repository frit could not read.
+func goldenDrift() *DriftDoc {
+	doc := NewDrift("/fleet")
+	doc.AddRow("atlas", 2608161810, true, true, []DriftCommit{
+		{
+			SHA:     "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+			Subject: "plan 2608161810 phase 2: GREEN — dispatch a phase-less plan",
+		},
+	})
+	doc.AddRow("atlas", 2608161811, false, false, []DriftCommit{})
 	doc.AddProblem("busted", errors.New("no such directory"))
 
 	return doc
