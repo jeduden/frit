@@ -46,6 +46,13 @@ filename: "[0-9]*_*.md"
     catches a wrong answer. frit reads that table to
     dispatch a phase at the right tier, so the row is
     load-bearing, not documentation.
+  - A gate catches a wrong answer in what the phase
+    ships. A phase that ships or edits a skill, or
+    any claim about a verb's behavior, gates by
+    running the command against the built frit and
+    confirming the output matches the claim. Lint
+    and the dogfood-match test pass on a false one,
+    so neither is that gate.
   - Both sections are optional for a plan small
     enough to land in one go.
 

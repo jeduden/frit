@@ -9,51 +9,47 @@ description: >-
 ---
 # plan-phase
 
-Execute exactly one phase of one plan. The status ledger is part of
-the work: every flip rides a work commit, so status can never go
-stale.
+Execute exactly one phase of one plan. Every status flip rides a work
+commit, so the ledger can never go stale.
 
 ## Inputs
 
-- Plan id or enough of the title to resolve it.
+- Plan id, or enough of the title to resolve it.
 - Optional phase `N`; default is the first phase not at ✅.
 
 ## Method
 
-1. **Load the phase.** `{{frit}} next <id>` reports the first phase not
-   done — its own body, tier and gate; `{{frit}} show <id>` gives the
-   Goal and any blocker. Nothing else opens the plan file — except
-   inside the plan's own held lane, before its work has merged: `next`
-   and `show` read the default branch's copy, so a phase this lane
-   already closed but hasn't merged still reports as open. Trust the
-   held lane's own frontmatter over `next` there.
-2. **Honor the two answers.** "already done" means stop and report,
-   not redo. Honor the tier `next` names.
+1. **Load the phase.** `{{frit}} next <id>` gives the first phase not
+   done — its body, tier, gate; `{{frit}} show <id>` gives the Goal
+   and any blocker. Open nothing else — except inside the plan's own
+   held lane before its work has merged: `next` and `show` read the
+   default branch's copy, so a phase this lane already closed reads as
+   open. Trust the lane's own frontmatter over `next` there.
+2. **Honor the answers.** "already done" means stop and report, not
+   redo. Honor the tier `next` names.
 3. **Red then green.** Commit the failing test first, then the code
    that passes it. Verify with the narrowest instrument, then the
-   phase's own gate.
+   phase's gate.
 4. **Flip status in the same commit.**
 
   - First commit of the plan → plan `status:` 🔲 → 🔳.
-  - The phase's closing commit → its `phases:` entry → ✅.
+  - A phase's closing commit → its `phases:` entry → ✅.
   - The last phase's closing commit → tick met Acceptance Criteria,
-     plan `status:` → ✅, and `mdsmith fix PLAN.md`.
+     plan `status:` → ✅, `mdsmith fix PLAN.md`. Then `mdsmith check .`
+     stays clean.
 
-   Then `mdsmith check .` must stay clean.
-
-5. **Stop-and-report.** If the phase's spec conflicts with the tree —
-   a named seam is gone, a test ripples past the files it names — stop
-   and report with evidence. Do not improvise a design or weaken a
-   check to reach green.
-6. **Fenced.** A commit refused as "fenced" means this lane's lease
-   moved under it — run `{{frit}} yield`, don't fight the CAS.
-7. **Rescue conflict.** A warning naming a rescue ref means it was
-   moved by hand — fetch it, inspect, delete the ref, then retry.
+5. **Stop and report** if the spec conflicts with the tree — a named
+   seam is gone, a test ripples past the files it names. Do not
+   improvise a design or weaken a check to reach green.
+6. **Fenced** — a commit refused as "fenced" means this lane's lease
+   moved under it; run `{{frit}} yield`, don't fight the CAS.
+7. **Rescue conflict** — a warning naming a rescue ref means it was
+   moved by hand; fetch it, inspect, delete the ref, then retry.
 
 ## Notes
 
-- One phase per invocation. For "the whole plan", loop this method and
-  report between phases.
-- A phase whose behavior already passes still gets its closing commit
-  and ✅ flip — say so in the message.
-- frit never edits a plan for you; the status flips are yours to make.
+- One phase per invocation. For the whole plan, loop and report
+  between phases.
+- A phase already passing still gets its closing commit and ✅ flip —
+  say so.
+- frit never edits a plan; the status flips are yours.

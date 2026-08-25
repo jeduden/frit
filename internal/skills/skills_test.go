@@ -118,6 +118,54 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 	}
 }
 
+// TestPlanDriveFrontsOrchestratorVerbs guards CLAUDE.md's standing
+// rule for the orchestrator verbs: board, who, open, nudge and start
+// drive live lanes rather than work a plan, so they ship in their own
+// plan-drive skill instead of being reachable only through a --help
+// scan.
+func TestPlanDriveFrontsOrchestratorVerbs(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-drive/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-drive skill: %v", err)
+	}
+	body := string(data)
+	for _, verb := range []string{"board", "who", "open", "nudge", "start"} {
+		if !contains(body, "{{frit}} "+verb) {
+			t.Fatalf("plan-drive skill does not mention `{{frit}} %s`", verb)
+		}
+	}
+}
+
+// TestPlanTidyFrontsReap guards that reap, the fleet-wide teardown
+// actuator for what orphans reports, ships in the same skill that
+// already fronts orphans, yield and release.
+func TestPlanTidyFrontsReap(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-tidy/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-tidy skill: %v", err)
+	}
+	if !contains(string(data), "{{frit}} reap") {
+		t.Fatal("plan-tidy skill does not mention `{{frit}} reap`")
+	}
+}
+
+// TestPlanPickFrontsFindAndReady guards that the read-only triage
+// verbs — find, to locate a plan by text, and ready, to list what is
+// startable — ship in the skill that already owns finding the next
+// plan to claim.
+func TestPlanPickFrontsFindAndReady(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-pick/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-pick skill: %v", err)
+	}
+	body := string(data)
+	for _, verb := range []string{"find", "ready"} {
+		if !contains(body, "{{frit}} "+verb) {
+			t.Fatalf("plan-pick skill does not mention `{{frit}} %s`", verb)
+		}
+	}
+}
+
 // TestShippedSkillNamesFritOnPath guards the load-bearing content
 // detail: a shipped skill runs where frit is a binary on PATH, so its
 // commands must read `frit`, not `go run ./cmd/frit`.

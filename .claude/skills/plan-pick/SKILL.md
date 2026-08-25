@@ -22,5 +22,13 @@ candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
 
-`go run ./cmd/frit board` shows who holds what.
-`go run ./cmd/frit --help` lists the rest.
+## Survey first
+
+To look before claiming, without minting a hold:
+
+- `go run ./cmd/frit ready` lists the plans startable now — deps done, nobody
+  holds.
+- `go run ./cmd/frit find <text>` searches plan titles and summaries to resolve
+  a plan by a fragment.
+- `go run ./cmd/frit board` shows who holds what.
+- `go run ./cmd/frit --help` lists the rest.

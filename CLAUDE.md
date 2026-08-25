@@ -113,15 +113,15 @@ is pinned by a precedence test — do not remove it.
 frit ships the instructions for driving frit. `frit skills` lays a
 suite of Claude Code planning skills into a repository's
 `.claude/skills`. A repo frit indexes then carries the workflow an
-agent loads to work its plans. The suite is `plan-pick` (find and
-claim the next lane), `plan-phase` (execute one phase test-first),
-`plan-new` (author a plan that conforms to `plan/proto.md`),
-`plan-sync` (reconcile statuses against git), and `plan-tidy` (read
-`orphans`/`stale`, act with `yield`/`release`, never raw git). Health
-verbs are folded into whichever skill already owns that shape of plan
-health, rather than each drawing its own skill: `doctor`'s checks are
-what `plan-new` already shapes a plan to satisfy, so its call lives
-there.
+agent loads to work its plans. The suite is `plan-pick` (find, claim,
+start the next lane), `plan-phase` (execute one phase test-first),
+`plan-new` (author a plan per `plan/proto.md`), `plan-sync` (reconcile
+statuses against git), `plan-tidy` (read `orphans`/`stale`, act with
+`yield`/`release`/`reap`, never raw git), and `plan-drive` (survey with
+`board`/`who`, drive a lane up the `open`→`nudge`→`start` ladder). The
+first five work a plan; `plan-drive` orchestrates from outside. Health
+verbs fold into the skill owning that shape: `doctor`'s checks are what
+`plan-new` shapes a plan to satisfy, so its call lives there.
 
 Every agent-facing verb ships with the thin skill — new or folded —
 that fronts it, in the same change that adds the verb. A verb an agent
