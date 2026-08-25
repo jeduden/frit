@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: show reads it too, and --json names the source
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: Retire the plan-phase caveat the gap forced
     status: "🔲"

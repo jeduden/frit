@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "command": "next",
+  "root": "/fleet",
+  "source": "lane",
+  "plan": {
+    "key": "forge:atlas:2608161809",
+    "repo": "atlas",
+    "id": 2608161809,
+    "status": "🔳",
+    "title": "Discovery — what can I start",
+    "summary": "",
+    "model": "opus",
+    "depends_on": [],
+    "path": "plan/2608161809_discovery-readiness-verbs.md",
+    "held": false,
+    "stale": false,
+    "stale_seconds": 0,
+    "dead": false
+  },
+  "phase": {
+    "n": "2",
+    "title": "ready",
+    "status": "🔳",
+    "tier": "sonnet",
+    "gate": "test ready lists a startable plan",
+    "body": "Parse the readiness rule and wire it to a verb."
+  },
+  "has_phase": true,
+  "rescue": [
+    "refs/frit/rescue/2608161809/box-a"
+  ],
+  "problems": []
+}

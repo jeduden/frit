@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "command": "show",
+  "root": "/fleet",
+  "source": "lane",
+  "goal": "Turn a board into a seeded prompt.",
+  "tree": {
+    "key": "forge:atlas:2608161810",
+    "repo": "atlas",
+    "id": 2608161810,
+    "status": "🔲",
+    "title": "The dispatch ladder",
+    "found": true,
+    "deps": [
+      {
+        "key": "forge:atlas:2608161809",
+        "repo": "atlas",
+        "id": 2608161809,
+        "status": "🔳",
+        "title": "Discovery — what can I start",
+        "found": true,
+        "deps": []
+      },
+      {
+        "key": "",
+        "repo": "atlas",
+        "id": 999,
+        "status": "",
+        "title": "",
+        "found": false,
+        "deps": []
+      }
+    ]
+  },
+  "rescue": [
+    "refs/frit/rescue/2608161810/box-a"
+  ],
+  "problems": []
+}

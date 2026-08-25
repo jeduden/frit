@@ -1298,10 +1298,13 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
-// laneOverride swaps a resolved plan's Status and Phases for its own
-// working-tree copy, when the cwd stands in that plan's own held lane —
-// the case an execution verb runs in before its work has merged, where
-// the fleet's default-branch copy still reads a closed phase as open.
+// laneOverride swaps a resolved plan's Status, Phases and Goal for its
+// own working-tree copy, when the cwd stands in that plan's own held
+// lane — the case an execution verb runs in before its work has
+// merged, where the fleet's default-branch copy still reads a closed
+// phase as open. The returned source names which copy won:
+// report.SourceLane when the override applied, report.SourceDefaultBranch
+// otherwise.
 //
 // It applies regardless of how the plan was resolved: an id typed
 // explicitly while standing in that plan's own lane is overridden the
@@ -1313,36 +1316,37 @@ func resolveSelector(
 // that is missing or fails to parse, all leave the plan as the fleet
 // reported it: the override only ever narrows to a copy it could
 // actually read.
-func laneOverride(rt *runtime, plan discovery.Plan) discovery.Plan {
+func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return plan
+		return plan, report.SourceDefaultBranch
 	}
 
 	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
 	if !ok || repo != plan.Repo || id != plan.ID {
-		return plan
+		return plan, report.SourceDefaultBranch
 	}
 
 	root := herdr.Resolve(cwd, rt.git).Root
 	if root == "" {
-		return plan
+		return plan, report.SourceDefaultBranch
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, plan.Path))
 	if err != nil {
-		return plan
+		return plan, report.SourceDefaultBranch
 	}
 
 	local, err := planmeta.Parse(data)
 	if err != nil {
-		return plan
+		return plan, report.SourceDefaultBranch
 	}
 
 	plan.Status = local.Status
 	plan.Phases = local.Phases
+	plan.Goal = local.Goal
 
-	return plan
+	return plan, report.SourceLane
 }
 
 // sortFlags is the shared ordering control the list commands embed, so
@@ -1518,9 +1522,10 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan = laneOverride(rt, plan)
+	plan, source := laneOverride(rt, plan)
 
 	doc := report.NewNext(c.Root, plan)
+	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
@@ -1550,8 +1555,10 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	plan, source := laneOverride(rt, plan)
 
 	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
+	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
