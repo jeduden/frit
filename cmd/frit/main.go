@@ -1298,6 +1298,53 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
+// laneOverride swaps a resolved plan's Status and Phases for its own
+// working-tree copy, when the cwd stands in that plan's own held lane —
+// the case an execution verb runs in before its work has merged, where
+// the fleet's default-branch copy still reads a closed phase as open.
+//
+// It applies regardless of how the plan was resolved: an id typed
+// explicitly while standing in that plan's own lane is overridden the
+// same as an empty selector inferred from it. Every other verb, and
+// every other plan, is untouched — this only ever swaps the plan the
+// cwd itself resolves to.
+//
+// A cwd outside any lane, a lane on a different plan, or a local file
+// that is missing or fails to parse, all leave the plan as the fleet
+// reported it: the override only ever narrows to a copy it could
+// actually read.
+func laneOverride(rt *runtime, plan discovery.Plan) discovery.Plan {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return plan
+	}
+
+	repo, id, ok := fleet.CurrentPlanID(cwd, rt.git, holdsForRoot)
+	if !ok || repo != plan.Repo || id != plan.ID {
+		return plan
+	}
+
+	root := herdr.Resolve(cwd, rt.git).Root
+	if root == "" {
+		return plan
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, plan.Path))
+	if err != nil {
+		return plan
+	}
+
+	local, err := planmeta.Parse(data)
+	if err != nil {
+		return plan
+	}
+
+	plan.Status = local.Status
+	plan.Phases = local.Phases
+
+	return plan
+}
+
 // sortFlags is the shared ordering control the list commands embed, so
 // --sort and --reverse read the same on board, ready, pick and find.
 type sortFlags struct {
@@ -1471,6 +1518,7 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	plan = laneOverride(rt, plan)
 
 	doc := report.NewNext(c.Root, plan)
 	carryProblems(doc, res.Problems, c.All)

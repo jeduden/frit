@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: next reads the working-tree plan inside its own lane
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: show reads it too, and --json names the source
     status: "🔲"
