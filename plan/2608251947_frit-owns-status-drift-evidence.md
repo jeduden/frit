@@ -1,7 +1,7 @@
 ---
 id: 2608251947
 title: frit owns the status-drift evidence plan-sync hand-runs git for
-status: "🔲"
+status: "🔳"
 summary: >-
   plan-sync's skill tells the agent to run `git log --all --grep=<id>`
   and read human-readable git output to find plans whose status drifted
@@ -18,7 +18,7 @@ depends-on: []
 phases:
   - n: 1
     title: A drift verb reports landed and naming commits per plan
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Squash-merge and last-phase evidence, pinned in JSON
     status: "🔲"
