@@ -116,8 +116,8 @@ suite of Claude Code planning skills into a repository's
 agent loads to work its plans. The suite is `plan-pick` (find, claim,
 start the next lane), `plan-phase` (execute one phase test-first),
 `plan-new` (author a plan per `plan/proto.md`), `plan-sync` (reconcile
-statuses against git), `plan-tidy` (read `orphans`/`stale`, act with
-`yield`/`release`/`reap`, never raw git), and `plan-drive` (survey with
+statuses against `drift` evidence), `plan-tidy` (read `orphans`/`stale`,
+act with `yield`/`release`/`reap`, never raw git), and `plan-drive` (survey with
 `board`/`who`, drive a lane up the `open`→`nudge`→`start` ladder). The
 first five work a plan; `plan-drive` orchestrates from outside. Health
 verbs fold into the skill owning that shape: `doctor`'s checks are what
@@ -198,8 +198,8 @@ dependency trees never constrain consumers of this module.
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
 - `go run ./cmd/frit repos` — list discovered repos and worktrees
 - `go run ./cmd/frit plans` — read plan files off every ref
+- `go run ./cmd/frit drift` — per not-done plan: landed?, which commits name it
 - `go run ./cmd/frit orphans` — claims, checkouts, rescue refs that disagree
-- `go run ./cmd/frit orphans --json` — the same report for an agent
 - `go run ./cmd/frit reap` — tear down what orphans reports; `--go` acts
 - `go run ./cmd/frit who` — which lane has a live agent on it, from herdr
 - `go run ./cmd/frit ready` — plans startable now: deps done, nobody holds
