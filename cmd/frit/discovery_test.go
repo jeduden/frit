@@ -564,6 +564,58 @@ func TestNextFromCwdResolvesWithinTheRepo(t *testing.T) {
 	assert.Equal(t, "2", doc.Phase.N)
 }
 
+// TestNextInsideItsOwnLaneReadsTheWorkingTreeCopy: a lane that closed
+// phase 1 in its own worktree, but has not merged that commit, still
+// reads as done there — next is not fooled by the stale open phase 1
+// the default branch still carries.
+func TestNextInsideItsOwnLaneReadsTheWorkingTreeCopy(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 100, "🔳", "Layered work", "🔳", "🔲")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	writePlanFile(t, wt, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "phase 1 done")
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "phase 2",
+		"the lane's own copy already closed phase 1")
+	assert.NotContains(t, got, "phase 1")
+}
+
+// TestNextOutsideTheLaneStillReadsTheDefaultBranch: a diverging lane
+// exists, but standing outside it, next still reports the
+// default-branch version, unchanged.
+func TestNextOutsideTheLaneStillReadsTheDefaultBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPhasedPlan(t, repo, 100, "🔳", "Layered work", "🔳", "🔲")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	writePlanFile(t, wt, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "phase 1 done")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "100", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "phase 1",
+		"outside the lane, next still reads the default branch")
+}
+
 func TestNextEmitsJSON(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()

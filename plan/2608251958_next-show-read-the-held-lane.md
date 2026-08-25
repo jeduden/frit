@@ -1,7 +1,7 @@
 ---
 id: 2608251958
 title: next and show read the held lane's own plan, not the default branch
-status: "🔲"
+status: "🔳"
 summary: >-
   next and show report a plan off the fleet index, whose authoritative
   version is the default-branch copy. Run inside the plan's own held
