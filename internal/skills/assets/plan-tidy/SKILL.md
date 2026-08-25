@@ -2,50 +2,50 @@
 name: plan-tidy
 description: >-
   Front the teardown and cleanup verbs: read frit orphans and frit
-  stale to find the mess, then fix it with frit yield or frit
-  release, never hand-run git. Trigger on "clean up worktrees", "tidy
-  the lanes", "yield this plan", "release my lease", "what's
-  orphaned", "what's stale".
+  stale to find the mess, then fix it with frit yield, frit release or
+  frit reap, never hand-run git. Trigger on "clean up worktrees", "tidy
+  the lanes", "yield this plan", "release my lease", "what's orphaned",
+  "what's stale".
 ---
 # plan-tidy
 
-A worktree or a claim left behind is not a `git worktree remove` and
-`git branch -D` problem; it is a frit problem. Read the mess with
-`orphans` or `stale`, then close it with the one verb that matches,
-never with raw git.
+A worktree or claim left behind is a frit problem, not a `git worktree
+remove` and `git branch -D` one. Read the mess, then close it with the
+verb that matches — never raw git.
 
-## Method
+## Read the mess
 
-1. **Read the mess.** `{{frit}} orphans` reports claims and checkouts
-   that no longer add up: claimed but unstaffed, prepared but
-   unstarted, held past its takeover window, or gone. `{{frit}} stale
-   --days N` reports worktrees whose branch tip has not moved.
-   `--json` parses either.
-2. **Match the verb to the mess:**
+- `{{frit}} orphans` — claims and checkouts that no longer add up:
+  claimed but unstaffed, prepared but unstarted, held past its takeover
+  window, or gone.
+- `{{frit}} stale --days N` — worktrees whose tip has not moved.
+- `--json` parses either.
 
-  - This lane's own lease, done or abandoned → `{{frit}} release`. It
-     ends the lease with a release marker pushed from this lane's own
-     token; a plan nobody holds is a no-op, not a refusal.
-  - A fenced lane — the lease moved under it, a stranger's claim now
-     covers this worktree → `{{frit}} yield`. It parks the local
-     divergence to a rescue ref, then tears the worktree down through
-     herdr, so nothing local is lost to the teardown.
-  - A hold whose work already landed → neither verb; `{{frit}} orphans`
-     already reports it as scavenged, not something to act on.
-  - `orphans`' deserted row, acted on from outside its lane — herdr
-     confirms the bound session gone, no lane can resume it →
-     `{{frit}} yield <id>` parks any unparked suffix, then
-     `{{frit}} claim <id>` (or `start <id>`) takes it over at the next
-     epoch; both refuse on their own until yield has parked it.
+## Match the verb
 
-3. **Never hand-run git for teardown.** `git worktree remove` and
-   `git branch -D` throw away exactly the divergence `yield`'s rescue
-   ref exists to keep, and neither one touches the claim ref at all —
-   the hold outlives the worktree it named.
+- **This lane's own lease**, done or abandoned → `{{frit}} release`.
+  It ends the lease from this lane's own token; a plan nobody holds is
+  a no-op, not a refusal.
+- **A fenced lane** — the lease moved under it, a stranger's claim now
+  covers this worktree → `{{frit}} yield`. It parks the local
+  divergence to a rescue ref, then tears the worktree down through
+  herdr, so nothing local is lost.
+- **Many orphans at once** → `{{frit}} reap` tears down everything
+  `orphans` reports; dry-run unless `--go`, and it parks each branch's
+  unlanded work to a rescue ref before deleting.
+- **Work already landed** → neither verb; `orphans` flags it as landed,
+  nothing to act on.
+- **A deserted row**, acted on from outside its lane — herdr confirms
+  the session gone, none can resume it → `{{frit}} yield <id>` parks
+  any unparked suffix, then `{{frit}} claim <id>` (or `start <id>`)
+  takes it over at the next epoch. Both refuse until yield has parked
+  it.
 
 ## Notes
 
-- `{{frit}} board` shows who holds what alongside `orphans`, for the
-  wider picture before acting on one lane.
-- Acting on a foreign hold is `yield`'s job, not `release`'s: release
-  only ever ends this lane's own lease.
+- Never hand-run git for teardown: `git worktree remove` and `git
+  branch -D` throw away the divergence a rescue ref keeps, and neither
+  touches the claim ref — the hold outlives the worktree.
+- `{{frit}} board` shows who holds what, for the wider picture.
+- A foreign hold is `yield`'s job; `release` only ends this lane's own
+  lease.

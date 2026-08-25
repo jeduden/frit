@@ -22,5 +22,13 @@ candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
 
-`{{frit}} board` shows who holds what.
-`{{frit}} --help` lists the rest.
+## Survey first
+
+To look before claiming, without minting a hold:
+
+- `{{frit}} ready` lists the plans startable now — deps done, nobody
+  holds.
+- `{{frit}} find <text>` searches plan titles and summaries to resolve
+  a plan by a fragment.
+- `{{frit}} board` shows who holds what.
+- `{{frit}} --help` lists the rest.
