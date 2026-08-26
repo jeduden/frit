@@ -1,7 +1,7 @@
 ---
 id: 2608260639
 title: A dispatched handoff carries the consumer's next action, not a bare prompt
-status: "🔳"
+status: "✅"
 summary: >-
   After `frit pick --go`/`start --go`, the JSON still carries a bare
   `prompt` field that reads as "run this yourself", though the prompt
@@ -118,11 +118,11 @@ with a built-binary check that the running value composes the plan id.
 
 ## Acceptance Criteria
 
-- [ ] `StartDoc` JSON always carries `next_action`
-- [ ] `next_action` is `frit open <id>` on a live `--go` dispatch and
+- [x] `StartDoc` JSON always carries `next_action`
+- [x] `next_action` is `frit open <id>` on a live `--go` dispatch and
       empty on a dry run or a refusal
-- [ ] `prompt` stays present and unchanged in every state
-- [ ] `pick --go` and `start --go` are both fixed by the one field
-- [ ] The `start.json` golden is re-recorded and every key stays present
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `prompt` stays present and unchanged in every state
+- [x] `pick --go` and `start --go` are both fixed by the one field
+- [x] The `start.json` golden is re-recorded and every key stays present
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
