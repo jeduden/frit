@@ -52,6 +52,32 @@ func (h *herdrCalls) verb(words ...string) bool {
 	return false
 }
 
+// count reports how many recorded calls began with the given herdr
+// subcommand words — verb's counting sibling, for asserting a retry
+// ran more than once.
+func (h *herdrCalls) count(words ...string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, c := range h.calls {
+		if len(c) < len(words) {
+			continue
+		}
+		match := true
+		for i, w := range words {
+			if c[i] != w {
+				match = false
+				break
+			}
+		}
+		if match {
+			n++
+		}
+	}
+
+	return n
+}
+
 // hasArg reports whether any recorded call carried the given word
 // anywhere in its arguments, for asserting on a flag value — a branch
 // passed to worktree create — that verb's leading match cannot see.

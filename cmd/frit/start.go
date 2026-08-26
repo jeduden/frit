@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
@@ -456,6 +457,60 @@ func releaseLease(
 	return nil
 }
 
+// agentStartAttempts bounds how many times startAgent retries a
+// pane-not-ready agent start before giving up: the pane herdr just
+// created losing the race with its own shell settling is transient,
+// not a real fault, and rarely takes more than one retry to clear.
+const agentStartAttempts = 3
+
+// agentStartPause is startAgent's seam between retry attempts: a
+// package variable set to a no-op in tests, mirroring openEditor.
+var agentStartPause = func() { time.Sleep(500 * time.Millisecond) }
+
+// startAgent starts the agent herdr's worktree.create just opened a
+// pane for, retrying past herdr's own pane-not-ready transient — the
+// freshly opened pane's shell not yet settled — up to agentStartAttempts
+// times before giving up. Any other error is not retried: it is a real
+// fault and falls straight into the caller's teardown.
+func startAgent(
+	rt *runtime, plan discovery.Plan, sp report.StartPlan, pane string,
+) error {
+	spec := herdr.AgentSpec{
+		Name:      fmt.Sprintf("plan-%d", plan.ID),
+		Kind:      sp.Kind,
+		Pane:      pane,
+		Model:     sp.Tier,
+		TimeoutMS: startTimeoutMS,
+	}
+
+	var err error
+	for attempt := 1; attempt <= agentStartAttempts; attempt++ {
+		err = herdr.AgentStart(rt.herdr, spec)
+		if err == nil || !paneNotReady(err) {
+			return err
+		}
+		agentStartPause()
+	}
+
+	return err
+}
+
+// paneNotReady reports whether err carries herdr's pane-not-ready
+// signal — code agent_pane_busy, message "not an available shell" —
+// the transient a freshly opened pane's shell not yet settling raises
+// when the agent start immediately following worktree.create loses
+// the race. herdr.AgentStart surfaces the runner's error body
+// unwrapped, so it is matched by substring rather than parsed.
+func paneNotReady(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+
+	return strings.Contains(msg, "agent_pane_busy") &&
+		strings.Contains(msg, "not an available shell")
+}
+
 // standUpLane hands the checkout, the agent, the prompt and the focus to
 // herdr in turn and returns the pane it opened, and the herdr session
 // the started agent was given — on failure too, once a pane exists, so
@@ -477,13 +532,7 @@ func standUpLane(
 		return "", "", fmt.Errorf("worktree create: %w", err)
 	}
 
-	if err := herdr.AgentStart(rt.herdr, herdr.AgentSpec{
-		Name:      fmt.Sprintf("plan-%d", plan.ID),
-		Kind:      sp.Kind,
-		Pane:      pane,
-		Model:     sp.Tier,
-		TimeoutMS: startTimeoutMS,
-	}); err != nil {
+	if err := startAgent(rt, plan, sp, pane); err != nil {
 		return pane, "", fmt.Errorf("agent start: %w", err)
 	}
 	// The first moment a session exists: herdr assigns one when the

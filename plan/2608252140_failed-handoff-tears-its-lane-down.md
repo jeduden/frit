@@ -1,7 +1,7 @@
 ---
 id: 2608252140
 title: A failed handoff tears its lane down, so start leaves no half-built lane
-status: "🔳"
+status: "✅"
 summary: >-
   start mints the claim, then hands the lane to herdr: worktree, pane,
   agent. When the agent start loses a race with a pane whose shell is
@@ -21,7 +21,7 @@ phases:
     status: "✅"
   - n: 2
     title: Retry the pane-not-ready race so the handoff rarely fails
-    status: "🔲"
+    status: "✅"
 ---
 # A failed handoff tears its lane down, so start leaves no half-built lane
 
@@ -166,8 +166,8 @@ rare path rather than the common one.
       unheld
 - [x] A teardown that itself fails falls back to naming the worktree
       and pane left behind, and still releases the lease
-- [ ] The transient pane-not-ready agent-start error is retried and the
+- [x] The transient pane-not-ready agent-start error is retried and the
       lane comes up without teardown
-- [ ] A non-transient agent-start error is not retried
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] A non-transient agent-start error is not retried
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
