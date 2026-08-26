@@ -1228,6 +1228,25 @@ func TestContentLandedExportedReadsBaseAsGiven(t *testing.T) {
 		"real work not yet merged into base diverges")
 }
 
+// TestWorkLandedGatesContentOnRealWork pins the exported composition a
+// read verb relies on instead of re-assembling HasWork and
+// ContentLanded itself: a bare marker's trivial merge is never called
+// landed on content alone, because the work gate reports it false
+// before the content check ever runs.
+func TestWorkLandedGatesContentOnRealWork(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.False(t, WorkLanded(work, opts.PlanID, opts.Base, lease.Tip, gitwt.Exec),
+		"a bare marker chain carries no work, so the gate reports false")
+
+	tip := workOn(t, work)
+	assert.False(t, WorkLanded(work, opts.PlanID, opts.Base, tip, gitwt.Exec),
+		"real work not yet merged into base diverges")
+}
+
 // TestRescueRefNamesThePlanAndTheHolder pins the exported name a dry
 // run previews: the same per-plan, per-machine, per-tip ref park
 // writes.

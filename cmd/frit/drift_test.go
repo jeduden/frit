@@ -222,6 +222,81 @@ func TestDriftHonorsConfiguredBase(t *testing.T) {
 		"landed against the configured base, not main")
 }
 
+// TestDriftMatchesIDImmediatelyFollowedByANonDigit: a commit subject
+// that quotes a plan's own filename convention (<id>_<slug>.md) names
+// the plan even though the id is immediately followed by an
+// underscore — a boundary Go's regexp \b would miss, since it treats
+// '_' as a word character with no boundary before it.
+func TestDriftMatchesIDImmediatelyFollowedByANonDigit(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+
+	commitPlan(t, repo, 900, "🔲", "Filenamed", nil, "")
+	writeFile(t, repo, "note.txt", "x\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m",
+		"touch up plan/900_filenamed.md wording")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	row := driftRow(t, doc, 900)
+	require.Len(t, row.Commits, 2,
+		"the commit quoting the plan's own filename is evidence too")
+}
+
+// TestDriftSkipsPlansWhenRepoContextFails: a repo whose own drift
+// context fails to build (here, a `base:` override gitobj.MergedRefs
+// cannot resolve) reports the read failure as a Problem and emits no
+// rows for that repo's not-done plans — never a fabricated
+// "not landed, no commits" row indistinguishable from a genuinely
+// untouched plan.
+func TestDriftSkipsPlansWhenRepoContextFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "busted")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("base: does-not-exist\n"), 0o600))
+	git(t, repo, "add", ".frit.yml")
+	git(t, repo, "commit", "-q", "-m", "configure a base that never exists")
+	commitPlan(t, repo, 950, "🔲", "Unreadable", nil, "")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.Empty(t, doc.Rows,
+		"a repo whose context failed to build reports no rows, not fabricated ones")
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "busted", doc.Problems[0].Repo)
+}
+
+// TestDriftPicksHighestPhaseNumberRegardlessOfOrder: a plan's last
+// phase is the highest-numbered one, not merely the last entry in the
+// front matter's own phases: list order — nothing enforces that a
+// plan's phases are written in ascending order.
+func TestDriftPicksHighestPhaseNumberRegardlessOfOrder(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	phases := "phases:\n  - n: 2\n    title: finish\n    status: \"🔳\"\n" +
+		"  - n: 1\n    title: setup\n    status: \"✅\"\n"
+
+	writePlanFile(t, repo, 960, "🔳", "OutOfOrder", nil, phases, "")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 960")
+	writeFile(t, repo, "leg.txt", "done\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 960 phase 2: GREEN — finish")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.True(t, driftRow(t, doc, 960).LastPhaseCommit,
+		"phase 2 is the highest-numbered phase, even listed first")
+}
+
 // writeFile writes a file's content within a repository checkout,
 // without staging or committing it.
 func writeFile(t *testing.T, repo, name, content string) {

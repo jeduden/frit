@@ -469,6 +469,21 @@ func ContentLanded(repoDir, base, tip string, run gitwt.Runner) bool {
 	return landedByContent(repoDir, base, tip, run)
 }
 
+// WorkLanded composes HasWork and ContentLanded in the one order that
+// is safe: the content check only ever runs once real work beyond
+// frit's own lease markers is confirmed, or a bare claim marker's
+// trivial no-op merge would misread as finished work. Exported so a
+// read verb's tip/content check is one call against a tested
+// contract, not a cascade re-assembled at each call site.
+func WorkLanded(repoDir string, planID int64, base, tip string, run gitwt.Runner) bool {
+	work, err := hasWork(repoDir, planID, base, tip, run)
+	if err != nil || !work {
+		return false
+	}
+
+	return landedByContent(repoDir, base, tip, run)
+}
+
 // RescueRef names the rescue ref a park for this plan, holder and tip
 // writes — exported so a dry run can preview the destination without
 // minting anything.

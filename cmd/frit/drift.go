@@ -38,12 +38,13 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 
 	ctxByRepo := map[string]driftRepoContext{}
+	failedRepo := map[string]bool{}
 	for _, p := range res.Plans {
 		if !p.Unfinished() {
 			continue
 		}
 		coord, ok := res.Coords[p.Repo]
-		if !ok {
+		if !ok || failedRepo[p.Repo] {
 			continue
 		}
 
@@ -53,12 +54,13 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 			ctx, ctxErr = newDriftRepoContext(coord.Path, coord.Base, rt.git)
 			if ctxErr != nil {
 				doc.AddProblem(p.Repo, ctxErr)
-				ctx = driftRepoContext{ancestorLanded: map[int64]bool{}}
+				failedRepo[p.Repo] = true
+				continue
 			}
 			ctxByRepo[p.Repo] = ctx
 		}
 
-		commits := commitsNaming(ctx.commits, p.ID)
+		commits := ctx.commitsNaming(p.ID)
 		landed := ctx.landed(coord.Path, p.ID, p.HoldTip, rt.git)
 		lastPhase := namesLastPhase(commits, lastPhaseNumber(p.Phases))
 		doc.AddRow(p.Repo, p.ID, landed, lastPhase, commits)
@@ -76,12 +78,24 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 // driftRepoContext is what the landed check needs, read once per
 // repository rather than once per plan: the base a fresh tip is
 // judged against, the ancestor-merge signal every ref carries, and
-// every commit across every ref — the same walk driftCommits used to
-// repeat once per not-done plan.
+// every commit across every ref, bucketed by the id it names — the
+// same walk and the same regex match commitsNaming used to repeat
+// once per not-done plan.
 type driftRepoContext struct {
 	preferred      string
 	ancestorLanded map[int64]bool
-	commits        []report.DriftCommit
+	byID           map[int64][]report.DriftCommit
+}
+
+// commitsNaming is a repo's commits naming the given plan id, newest
+// first as the walk that built the bucket already ordered them — or
+// an empty, never-nil slice for an id no commit names.
+func (ctx driftRepoContext) commitsNaming(id int64) []report.DriftCommit {
+	if commits, ok := ctx.byID[id]; ok {
+		return commits
+	}
+
+	return []report.DriftCommit{}
 }
 
 // newDriftRepoContext reads the ids whose hold-pattern ref has already
@@ -133,9 +147,37 @@ func newDriftRepoContext(
 	}
 
 	return driftRepoContext{
-		preferred: base, ancestorLanded: landed, commits: commits,
+		preferred: base, ancestorLanded: landed, byID: bucketByID(commits),
 	}, nil
 }
+
+// bucketByID groups a repository's commits by every plan id their
+// subject names, so a not-done plan's evidence is a map lookup rather
+// than a fresh regex compiled and matched against every commit once
+// per plan. A subject's id is a maximal run of ASCII digits — the
+// same rule commitsNaming's old \b<id>\b match enforced, but decided
+// by non-digit boundaries rather than Go's \b, which treats '_' as a
+// word character and would miss an id immediately followed by one, as
+// in a plan's own <id>_<slug>.md filename quoted in a commit subject.
+func bucketByID(commits []report.DriftCommit) map[int64][]report.DriftCommit {
+	byID := map[int64][]report.DriftCommit{}
+	for _, c := range commits {
+		for _, run := range digitRun.FindAllString(c.Subject, -1) {
+			id, err := strconv.ParseInt(run, 10, 64)
+			if err != nil {
+				continue
+			}
+			byID[id] = append(byID[id], c)
+		}
+	}
+
+	return byID
+}
+
+// digitRun matches a maximal run of ASCII digits — the boundary rule
+// bucketByID needs; regexp's greedy match already stops at the first
+// non-digit on either side, so no explicit \b is needed.
+var digitRun = regexp.MustCompile(`\d+`)
 
 // landed reports whether a plan's work reached the default branch:
 // the ancestor-merge signal already read for the whole repository, or
@@ -153,12 +195,8 @@ func (ctx driftRepoContext) landed(
 	if tip == "" || ctx.preferred == "" {
 		return false
 	}
-	work, err := claim.HasWork(path, id, ctx.preferred, tip, git)
-	if err != nil || !work {
-		return false
-	}
 
-	return claim.ContentLanded(path, ctx.preferred, tip, git)
+	return claim.WorkLanded(path, id, ctx.preferred, tip, git)
 }
 
 // allCommits lists every commit across every ref, newest first as git
@@ -187,32 +225,31 @@ func allCommits(path string, git gitwt.Runner) ([]report.DriftCommit, error) {
 	return commits, nil
 }
 
-// commitsNaming filters a repository's commits down to the ones whose
-// message names the given plan id — the evidence a status flip is
-// judged against. The id must appear as a whole run of digits, not
-// merely a substring of some other number, or plan 500 would read
-// evidence out of a commit that only ever mentioned 1500 or 45001.
-func commitsNaming(commits []report.DriftCommit, id int64) []report.DriftCommit {
-	pattern := regexp.MustCompile(`\b` + strconv.FormatInt(id, 10) + `\b`)
-	named := []report.DriftCommit{}
-	for _, c := range commits {
-		if pattern.MatchString(c.Subject) {
-			named = append(named, c)
+// lastPhaseNumber is a plan's own final phase — the highest-numbered
+// one, not merely the last entry in the front matter's own phases
+// list order, since nothing enforces that a plan's phases: block is
+// written in ascending order — or "" for a plan with no ledger. It is
+// the number namesLastPhase looks for among a plan's naming commits.
+func lastPhaseNumber(phases []planmeta.Phase) string {
+	best := ""
+	bestN := -1
+	for _, p := range phases {
+		n, err := strconv.Atoi(string(p.N))
+		if err != nil {
+			continue
+		}
+		if n > bestN {
+			bestN, best = n, string(p.N)
 		}
 	}
-
-	return named
-}
-
-// lastPhaseNumber is a plan's own final phase, or "" for a plan with
-// no ledger — the number namesLastPhase looks for among its naming
-// commits.
-func lastPhaseNumber(phases []planmeta.Phase) string {
-	if len(phases) == 0 {
-		return ""
+	if best == "" && len(phases) > 0 {
+		// No phase number parsed as a plain integer (an unusual
+		// non-numeric phase id) — fall back to the last entry rather
+		// than reporting no last phase at all.
+		return string(phases[len(phases)-1].N)
 	}
 
-	return string(phases[len(phases)-1].N)
+	return best
 }
 
 // namesLastPhase reports whether some commit's subject names the
