@@ -594,8 +594,8 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		_, _ = fmt.Fprintf(out, "  focus:    %s\n", doc.Pane)
 		_, _ = fmt.Fprintf(out,
 			"plan %d is running in %s; do not run it here — "+
-				"watch with frit open %d or move on with frit board\n",
-			doc.Plan.ID, doc.Pane, doc.Plan.ID)
+				"watch with %s or move on with frit board\n",
+			doc.Plan.ID, doc.Pane, doc.NextAction)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
