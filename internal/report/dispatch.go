@@ -1,6 +1,10 @@
 package report
 
-import "github.com/jeduden/frit/internal/herdr"
+import (
+	"fmt"
+
+	"github.com/jeduden/frit/internal/herdr"
+)
 
 // WholePlanPhase is what a dispatch doc reports in Phase for a plan
 // that carries no ledger: the whole plan is the dispatch, so an empty
@@ -391,6 +395,10 @@ type StartDoc struct {
 	// "preview" for a dry run the caller would cause with --go, "none"
 	// when the escalation was refused and nothing runs.
 	Handoff string `json:"handoff"`
+	// NextAction is the verb a consumer runs instead of the dispatched
+	// Prompt: frit open <id> once Handoff is "running", empty on a
+	// preview or a refusal, where Prompt is still the recipe to run.
+	NextAction string `json:"next_action"`
 	// Refused is why the escalation was withheld — a plan not startable,
 	// or a claim lost to another machine — empty when start proceeded.
 	Refused string `json:"refused"`
@@ -450,6 +458,7 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
 	d.Handoff = "running"
+	d.NextAction = fmt.Sprintf("frit open %d", d.Plan.ID)
 }
 
 // MarkResumed records that the escalation is standing the lane back up
