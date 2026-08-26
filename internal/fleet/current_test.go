@@ -146,3 +146,30 @@ func TestCurrentPlanIDReportsNoneOutsideAnyRepository(t *testing.T) {
 
 	assert.False(t, ok)
 }
+
+// TestCurrentLaneReadsTheLaneAWorktreeIsOn is CurrentPlanID's sibling:
+// the same cwd join, but also handing back the worktree root, so a
+// caller that already knows the plan id can re-read a file from disk
+// without asking herdr.Resolve a second time.
+func TestCurrentLaneReadsTheLaneAWorktreeIsOn(t *testing.T) {
+	root := repoOnBranch(t, "plan/2608161809-discovery")
+	holds := planHolds(t)
+
+	repo, id, wtRoot, ok := CurrentLane(root, gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	require.True(t, ok)
+	assert.Equal(t, int64(2608161809), id)
+	assert.Equal(t, filepath.Base(root), repo)
+	assert.Equal(t, root, wtRoot)
+}
+
+func TestCurrentLaneReportsNoneOffTheConvention(t *testing.T) {
+	root := repoOnBranch(t, "feature/side-quest")
+	holds := planHolds(t)
+
+	_, _, _, ok := CurrentLane(root, gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.False(t, ok)
+}

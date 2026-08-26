@@ -1298,6 +1298,70 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
+// laneOverride swaps a resolved plan's Status, Phases, Goal and
+// DependsOn for its own working-tree copy, when the cwd stands in that
+// plan's own held lane — the case an execution verb runs in before its
+// work has merged, where the fleet's default-branch copy still reads a
+// closed phase as open, or misses an edge the lane added. The returned
+// source names which copy won: report.SourceLane when the override
+// applied, report.SourceDefaultBranch otherwise.
+//
+// It applies regardless of how the plan was resolved: an id typed
+// explicitly while standing in that plan's own lane is overridden the
+// same as an empty selector inferred from it. Every other verb, and
+// every other plan, is untouched — this only ever swaps the plan the
+// cwd itself resolves to.
+//
+// A cwd outside any lane, a lane on a different plan, or a local file
+// that is missing or fails to parse, all leave the plan as the fleet
+// reported it: the override only ever narrows to a copy it could
+// actually read.
+func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return plan, report.SourceDefaultBranch
+	}
+
+	repo, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
+	if !ok || repo != plan.Repo || id != plan.ID {
+		return plan, report.SourceDefaultBranch
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, plan.Path))
+	if err != nil {
+		return plan, report.SourceDefaultBranch
+	}
+
+	local, err := planmeta.Parse(data)
+	if err != nil {
+		return plan, report.SourceDefaultBranch
+	}
+
+	plan.Status = local.Status
+	plan.Phases = local.Phases
+	plan.Goal = local.Goal
+	plan.DependsOn = local.DependsOn
+
+	return plan, report.SourceLane
+}
+
+// replacePlan returns a copy of plans with the entry matching updated's
+// (Repo, ID) swapped for updated, so a dependency walk that reaches
+// that plan a second time — through a cycle back to it — resolves the
+// same copy the walk's root already carries, rather than a second,
+// potentially stale one pulled fresh from the fleet index.
+func replacePlan(plans []discovery.Plan, updated discovery.Plan) []discovery.Plan {
+	out := make([]discovery.Plan, len(plans))
+	for i, p := range plans {
+		if p.Repo == updated.Repo && p.ID == updated.ID {
+			p = updated
+		}
+		out[i] = p
+	}
+
+	return out
+}
+
 // sortFlags is the shared ordering control the list commands embed, so
 // --sort and --reverse read the same on board, ready, pick and find.
 type sortFlags struct {
@@ -1471,8 +1535,10 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	plan, source := laneOverride(rt, plan)
 
 	doc := report.NewNext(c.Root, plan)
+	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
@@ -1502,8 +1568,11 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	plan, source := laneOverride(rt, plan)
 
-	doc := report.NewShow(c.Root, discovery.Dependencies(plan, res.Plans))
+	doc := report.NewShow(c.Root,
+		discovery.Dependencies(plan, replacePlan(res.Plans, plan)))
+	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 

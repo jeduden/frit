@@ -21,10 +21,7 @@ commit, so the ledger can never go stale.
 
 1. **Load the phase.** `{{frit}} next <id>` gives the first phase not
    done — its body, tier, gate; `{{frit}} show <id>` gives the Goal
-   and any blocker. Open nothing else — except inside the plan's own
-   held lane before its work has merged: `next` and `show` read the
-   default branch's copy, so a phase this lane already closed reads as
-   open. Trust the lane's own frontmatter over `next` there.
+   and any blocker. Open nothing else.
 2. **Honor the answers.** "already done" means stop and report, not
    redo. Honor the tier `next` names.
 3. **Red then green.** Commit the failing test first, then the code

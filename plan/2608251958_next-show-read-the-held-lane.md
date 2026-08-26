@@ -1,7 +1,7 @@
 ---
 id: 2608251958
 title: next and show read the held lane's own plan, not the default branch
-status: "🔲"
+status: "✅"
 summary: >-
   next and show report a plan off the fleet index, whose authoritative
   version is the default-branch copy. Run inside the plan's own held
@@ -17,13 +17,13 @@ depends-on: []
 phases:
   - n: 1
     title: next reads the working-tree plan inside its own lane
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: show reads it too, and --json names the source
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: Retire the plan-phase caveat the gap forced
-    status: "🔲"
+    status: "✅"
 ---
 # next and show read the held lane's own plan, not the default branch
 
@@ -81,8 +81,10 @@ present; the goldens in [testdata](../internal/report/testdata) pin it.
 
 1. `next`, run inside a plan's own lane, reads the working-tree copy
    and reports that lane's own status and phases.
-2. (determined after Phase 1)
-3. (determined after Phase 1)
+2. `show` reads the same lane copy for its Goal and status; `next` and
+   `show`'s `--json` documents name the source.
+3. plan-phase's caveat is retired now that the gap it worked around is
+   closed.
 
 ## Phase 1: next reads the working-tree plan inside its own lane
 
@@ -172,16 +174,16 @@ JSON. Phase 3 retires the caveat the gap forced.
 
 ## Acceptance Criteria
 
-- [ ] Inside a plan's own lane, `next` and `show` report the
+- [x] Inside a plan's own lane, `next` and `show` report the
       working-tree copy's status and phases
-- [ ] A phase closed in the lane but unmerged reads as done, not open
-- [ ] Outside a lane, and for every other verb, the default-branch
+- [x] A phase closed in the lane but unmerged reads as done, not open
+- [x] Outside a lane, and for every other verb, the default-branch
       version is reported unchanged
-- [ ] `rank`'s default-branch-authoritative rule is untouched
-- [ ] `--json` names the source of the reported version and is pinned
+- [x] `rank`'s default-branch-authoritative rule is untouched
+- [x] `--json` names the source of the reported version and is pinned
       by goldens
-- [ ] The plan-phase caveat is gone and the dogfood copies match
-- [ ] plan-phase's lane claim is verified against the built binary,
+- [x] The plan-phase caveat is gone and the dogfood copies match
+- [x] plan-phase's lane claim is verified against the built binary,
       not only linted
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

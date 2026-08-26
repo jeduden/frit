@@ -178,6 +178,15 @@ type PhaseCard struct {
 	Body   string `json:"body"`
 }
 
+// SourceDefaultBranch and SourceLane name where a next or show
+// document's plan came from: the fleet's default-branch copy, the
+// shared truth every other verb reads, or the resolved plan's own held
+// lane before its work has merged into it.
+const (
+	SourceDefaultBranch = "default-branch"
+	SourceLane          = "lane"
+)
+
 // NextDoc is what `frit next` found: a plan and the first phase of it
 // not yet done — the phase an executor would pick up.
 //
@@ -186,7 +195,11 @@ type PhaseCard struct {
 // carries HasPhase false rather than a made-up phase zero.
 type NextDoc struct {
 	header
-	Root     string    `json:"root"`
+	Root string `json:"root"`
+	// Source names where Plan and Phase came from: SourceDefaultBranch
+	// unless the cwd stood in the plan's own held lane, in which case
+	// SourceLane.
+	Source   string    `json:"source"`
 	Plan     PlanCard  `json:"plan"`
 	Phase    PhaseCard `json:"phase"`
 	HasPhase bool      `json:"has_phase"`
@@ -206,6 +219,7 @@ func NewNext(root string, plan discovery.Plan) *NextDoc {
 	doc := &NextDoc{
 		header:   newHeader("next"),
 		Root:     root,
+		Source:   SourceDefaultBranch,
 		Plan:     cardOf(plan),
 		Phase:    PhaseCard{},
 		Rescue:   []string{},
@@ -235,6 +249,9 @@ func (d *NextDoc) AddProblem(repo string, err error) {
 // SetRescue records the plan's rescue refs.
 func (d *NextDoc) SetRescue(refs []string) { d.Rescue = refs }
 
+// SetSource records where the reported plan and phase came from.
+func (d *NextDoc) SetSource(source string) { d.Source = source }
+
 // phaseCard projects a phase into its wire shape.
 func phaseCard(p planmeta.Phase) PhaseCard {
 	return PhaseCard{
@@ -261,6 +278,10 @@ type DepCard struct {
 type ShowDoc struct {
 	header
 	Root string `json:"root"`
+	// Source names where Goal and Tree's root plan came from:
+	// SourceDefaultBranch unless the cwd stood in the shown plan's own
+	// held lane, in which case SourceLane.
+	Source string `json:"source"`
 	// Goal is the shown plan's `## Goal`, read from its body. It is a
 	// document-level fact because show is about one plan; the tree
 	// underneath it is what blocks that plan. Empty when the plan
@@ -280,6 +301,7 @@ func NewShow(root string, tree discovery.DepNode) *ShowDoc {
 	return &ShowDoc{
 		header:   newHeader("show"),
 		Root:     root,
+		Source:   SourceDefaultBranch,
 		Goal:     tree.Plan.Goal,
 		Tree:     depCard(tree),
 		Rescue:   []string{},
@@ -294,6 +316,9 @@ func (d *ShowDoc) AddProblem(repo string, err error) {
 
 // SetRescue records the shown plan's rescue refs.
 func (d *ShowDoc) SetRescue(refs []string) { d.Rescue = refs }
+
+// SetSource records where the reported Goal and Tree came from.
+func (d *ShowDoc) SetSource(source string) { d.Source = source }
 
 // depCard projects a dependency node and its subtree into wire shape,
 // keeping the list empty rather than null at every level.

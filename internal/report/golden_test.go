@@ -43,7 +43,9 @@ func TestGoldenShapes(t *testing.T) {
 		{"ready", goldenReady()},
 		{"pick", goldenPick()},
 		{"next", goldenNext()},
+		{"next-lane", goldenNextLane()},
 		{"show", goldenShow()},
+		{"show-lane", goldenShowLane()},
 		{"find", goldenFind()},
 		{"board", goldenBoard()},
 		{"open", goldenOpen()},
@@ -202,6 +204,16 @@ func goldenNext() *NextDoc {
 	return doc
 }
 
+// goldenNextLane pins the source field's other value: a next document
+// built from the plan's own held lane rather than the fleet's
+// default-branch copy.
+func goldenNextLane() *NextDoc {
+	doc := goldenNext()
+	doc.SetSource(SourceLane)
+
+	return doc
+}
+
 // goldenShow pins the dependency-walk shape, including an edge frit
 // could not resolve to a known plan.
 func goldenShow() *ShowDoc {
@@ -228,6 +240,16 @@ func goldenShow() *ShowDoc {
 		},
 	})
 	doc.SetRescue([]string{"refs/frit/rescue/2608161810/box-a"})
+
+	return doc
+}
+
+// goldenShowLane pins the source field's other value: a show document
+// built from the plan's own held lane rather than the fleet's
+// default-branch copy.
+func goldenShowLane() *ShowDoc {
+	doc := goldenShow()
+	doc.SetSource(SourceLane)
 
 	return doc
 }

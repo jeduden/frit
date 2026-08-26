@@ -66,17 +66,32 @@ func CurrentPlanID(
 	cwd string, run gitwt.Runner,
 	holdsFor func(root string) repocfg.Holds,
 ) (repo string, id int64, ok bool) {
+	repo, id, _, ok = CurrentLane(cwd, run, holdsFor)
+
+	return repo, id, ok
+}
+
+// CurrentLane is CurrentPlanID's sibling: the same cwd join, but also
+// handing back the worktree root herdr.Resolve found along the way.
+// A caller that already knows which plan the cwd resolves to and needs
+// to re-read a file from that worktree — an execution verb reading its
+// own lane's copy of the plan it is standing in — uses this instead of
+// asking herdr.Resolve a second time for the same root.
+func CurrentLane(
+	cwd string, run gitwt.Runner,
+	holdsFor func(root string) repocfg.Holds,
+) (repo string, id int64, root string, ok bool) {
 	site := herdr.Resolve(cwd, run)
 	if site.Root == "" || site.Branch == "" {
-		return "", 0, false
+		return "", 0, "", false
 	}
 
 	id, ok = holdsFor(site.Root).Match(site.Branch)
 	if !ok {
-		return "", 0, false
+		return "", 0, "", false
 	}
 
-	return RepoName(site.Root, run), id, true
+	return RepoName(site.Root, run), id, site.Root, true
 }
 
 // RepoName is the indexed name of the repository a worktree belongs to:

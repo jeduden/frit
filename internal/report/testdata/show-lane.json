@@ -2,7 +2,7 @@
   "schema": 1,
   "command": "show",
   "root": "/fleet",
-  "source": "default-branch",
+  "source": "lane",
   "goal": "Turn a board into a seeded prompt.",
   "tree": {
     "key": "forge:atlas:2608161810",
