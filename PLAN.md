@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                 |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
-| 2608251947 | sonnet | [frit owns the status-drift evidence plan-sync hand-runs git for](plan/2608251947_frit-owns-status-drift-evidence.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -82,7 +80,7 @@ footer: |
 | 2608230952 | ✅     | sonnet | [A not-matured hold refusal shows how long it has been held](plan/2608230952_not-matured-refusal-shows-how-long-held.md)               |
 | 2608231006 | ✅     | sonnet | [A lane owns its lease after its own raw commits advance the branch](plan/2608231006_release-recognizes-own-lane-after-raw-commits.md) |
 | 2608231201 | ✅     | sonnet | [Read verbs refresh from origin before reporting landed evidence](plan/2608231201_read-verbs-fetch-before-reporting.md)                |
-| 2608251947 | 🔳     | sonnet | [frit owns the status-drift evidence plan-sync hand-runs git for](plan/2608251947_frit-owns-status-drift-evidence.md)                  |
+| 2608251947 | ✅     | sonnet | [frit owns the status-drift evidence plan-sync hand-runs git for](plan/2608251947_frit-owns-status-drift-evidence.md)                  |
 | 2608251958 | ✅     | sonnet | [next and show read the held lane's own plan, not the default branch](plan/2608251958_next-show-read-the-held-lane.md)                 |
 | 2608252140 | 🔲     | sonnet | [A failed handoff tears its lane down, so start leaves no half-built lane](plan/2608252140_failed-handoff-tears-its-lane-down.md)      |
 | 2608260639 | 🔲     | sonnet | [A dispatched handoff carries the consumer's next action, not a bare prompt](plan/2608260639_dispatch-report-carries-next-action.md)   |
