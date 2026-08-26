@@ -69,8 +69,9 @@ verbs are fixed by the one field.
 
 1. Add an always-present `next_action` field to `StartDoc`, set to
    `frit open <id>` when a handoff is running and empty otherwise.
-2. Re-record the `start.json` golden and pin the field across the
-   preview / running / none states.
+2. Re-record both `StartDoc` goldens — `start.json` and
+   `start-wholeplan.json`, each a `preview` dry run — and pin the field
+   across the preview / running / none states.
 
 ## Phase 1: the JSON dispatch carries the consumer's next action
 
@@ -91,20 +92,21 @@ RED, with the three-transition unit idiom in
 - A fresh `StartDoc` (preview): `next_action` is `""`.
 - After `MarkStarted` on plan 7: `next_action` is `frit open 7`.
 - After `Refuse`: `next_action` is `""`.
-- The `start.json` golden carries `next_action` and every key stays
-  present (the golden is a dry run, so its value is `""`).
+- Both `StartDoc` goldens (`start.json` and `start-wholeplan.json`)
+  carry `next_action` and every key stays present (each is a dry run,
+  so its value is `""`).
 
 GREEN: add the `NextAction string \`json:"next_action"\`` field to
 `StartDoc` in [dispatch.go](../internal/report/dispatch.go) and set it
 inside `MarkStarted` with `fmt.Sprintf("frit open %d", d.Plan.ID)`.
 
-Gate: the unit cases pass; `start.json` is re-recorded with `go test
-./internal/report -update` and the diff read (only `next_action`, valued
-`""`, is added); to confirm the running value end to end, build frit and
-run `pick --go` against a claimable repo (or read the `MarkStarted`
-assertion) and see `next_action` is `frit open <id>` while `prompt`
-holds the dispatched text; `go test ./...` and `mdsmith check .` are
-clean.
+Gate: the unit cases pass; both goldens (`start.json` and
+`start-wholeplan.json`) are re-recorded with `go test ./internal/report
+-update` and the diff read (each gains only `next_action`, valued
+`""`); to confirm the running value end to end, build frit and run
+`pick --go` against a claimable repo and see `next_action` is `frit
+open <id>` in the emitted JSON while `prompt` holds the dispatched
+text; `go test ./...` and `mdsmith check .` are clean.
 
 ## Execution
 
@@ -123,6 +125,7 @@ with a built-binary check that the running value composes the plan id.
       empty on a dry run or a refusal
 - [ ] `prompt` stays present and unchanged in every state
 - [ ] `pick --go` and `start --go` are both fixed by the one field
-- [ ] The `start.json` golden is re-recorded and every key stays present
+- [ ] Both `StartDoc` goldens (`start.json`, `start-wholeplan.json`)
+      are re-recorded and every key stays present
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
