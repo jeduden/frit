@@ -844,6 +844,64 @@ func TestShowInsideItsOwnLaneReadsTheWorkingTreeCopy(t *testing.T) {
 	assert.NotContains(t, got, "Ship the default-branch goal.")
 }
 
+// TestShowAppliesTheLaneOverrideConsistentlyThroughACycle: a plan
+// reached twice in its own dependency cycle — once as the tree's root,
+// once again through the cycle back to it — reads the same
+// lane-overridden copy both times, not the root's lane view paired
+// with a stale default-branch echo the second time the walk reaches it.
+func TestShowAppliesTheLaneOverrideConsistentlyThroughACycle(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔳", "Alpha", []int{2}, "")
+	commitPlan(t, repo, 2, "🔲", "Beta", []int{1}, "")
+
+	wt := filepath.Join(root, "atlas-1")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/1-alpha", wt)
+	writePlanFile(t, wt, 1, "✅", "Alpha", []int{2}, "", "")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "close it out")
+	t.Chdir(wt)
+	var doc report.ShowDoc
+
+	emit(t, &doc, "show", "--root", root)
+
+	require.Equal(t, "✅", doc.Tree.Status,
+		"the root reads the lane's own status")
+	require.Len(t, doc.Tree.Deps, 1)
+	beta := doc.Tree.Deps[0]
+	require.Len(t, beta.Deps, 1)
+	assert.Equal(t, "✅", beta.Deps[0].Status,
+		"the cycle's second visit to plan 1 reads the same lane copy, "+
+			"not the stale default branch")
+}
+
+// TestShowInsideItsOwnLaneReadsItsOwnDependsOn: a dependency edge the
+// lane added to its own file, but has not merged, still walks —
+// source: lane means the whole document reflects the lane's file, not
+// only its status and Goal.
+func TestShowInsideItsOwnLaneReadsItsOwnDependsOn(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔳", "Alpha", nil, "")
+	commitPlan(t, repo, 2, "🔲", "Beta", nil, "")
+
+	wt := filepath.Join(root, "atlas-1")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/1-alpha", wt)
+	writePlanFile(t, wt, 1, "🔳", "Alpha", []int{2}, "", "")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "add a dependency the lane hasn't merged")
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Beta",
+		"the lane's own unmerged depends-on edge is walked")
+}
+
 // TestSelectorAmbiguityPrintsCandidatesAndExitsNonZero is the acceptance
 // criterion for the selector: a fragment matching two plans is refused
 // with its candidates, not resolved by a guess.
