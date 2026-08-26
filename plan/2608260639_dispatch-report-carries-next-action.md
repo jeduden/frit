@@ -1,7 +1,7 @@
 ---
 id: 2608260639
 title: A dispatched handoff carries the consumer's next action, not a bare prompt
-status: "🔲"
+status: "🔳"
 summary: >-
   After `frit pick --go`/`start --go`, the JSON still carries a bare
   `prompt` field that reads as "run this yourself", though the prompt
