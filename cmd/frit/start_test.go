@@ -883,6 +883,26 @@ func TestPaneNotReadyMatchesHerdrsSignal(t *testing.T) {
 	assert.False(t, paneNotReady(nil))
 }
 
+// TestStartAgentDoesNotPauseAfterTheFinalAttempt: once every retry is
+// spent, startAgent returns straight to the caller's teardown rather
+// than pausing once more for an attempt it will never make.
+func TestStartAgentDoesNotPauseAfterTheFinalAttempt(t *testing.T) {
+	prevPause := agentStartPause
+	pauses := 0
+	agentStartPause = func() { pauses++ }
+	t.Cleanup(func() { agentStartPause = prevPause })
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		return nil, errors.New(`{"error":{"code":"agent_pane_busy",` +
+			`"message":"agent target pane wZ:p1 is not an available shell"}}`)
+	}}
+
+	err := startAgent(rt, discovery.Plan{ID: 7}, report.StartPlan{}, "wZ:p1")
+
+	require.Error(t, err)
+	assert.Equal(t, agentStartAttempts-1, pauses,
+		"the pause between attempts never fires after the last one")
+}
+
 // TestTeardownHandoffDerivesTheWorkspaceFromThePane: herdr names a
 // pane <workspace>:<pane>, so the workspace worktree.remove takes is
 // the segment before the colon.

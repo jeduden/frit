@@ -489,7 +489,9 @@ func startAgent(
 		if err == nil || !paneNotReady(err) {
 			return err
 		}
-		agentStartPause()
+		if attempt < agentStartAttempts {
+			agentStartPause()
+		}
 	}
 
 	return err
