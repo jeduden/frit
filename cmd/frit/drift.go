@@ -49,20 +49,16 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 
 		ctx, ok := ctxByRepo[p.Repo]
 		if !ok {
-			ctx, err = newDriftRepoContext(coord.Path, rt.git)
-			if err != nil {
-				doc.AddProblem(p.Repo, err)
+			var ctxErr error
+			ctx, ctxErr = newDriftRepoContext(coord.Path, coord.Base, rt.git)
+			if ctxErr != nil {
+				doc.AddProblem(p.Repo, ctxErr)
 				ctx = driftRepoContext{ancestorLanded: map[int64]bool{}}
 			}
 			ctxByRepo[p.Repo] = ctx
 		}
 
-		commits, err := driftCommits(coord.Path, p.ID, rt.git)
-		if err != nil {
-			doc.AddProblem(p.Repo, err)
-			continue
-		}
-
+		commits := commitsNaming(ctx.commits, p.ID)
 		landed := ctx.landed(coord.Path, p.ID, p.HoldTip, rt.git)
 		lastPhase := namesLastPhase(commits, lastPhaseNumber(p.Phases))
 		doc.AddRow(p.Repo, p.ID, landed, lastPhase, commits)
@@ -78,20 +74,26 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 }
 
 // driftRepoContext is what the landed check needs, read once per
-// repository rather than once per plan: the default branch a fresh
-// tip is judged against, and the ancestor-merge signal every ref
-// carries.
+// repository rather than once per plan: the base a fresh tip is
+// judged against, the ancestor-merge signal every ref carries, and
+// every commit across every ref — the same walk driftCommits used to
+// repeat once per not-done plan.
 type driftRepoContext struct {
 	preferred      string
 	ancestorLanded map[int64]bool
+	commits        []report.DriftCommit
 }
 
-// newDriftRepoContext reads one repository's default branch and the
-// ids whose hold-pattern ref has already merged into it — the
-// ancestor-merge half of the landed signal. A squash-merge leaves no
-// such ref, and is covered instead by landed's own content check.
+// newDriftRepoContext reads the ids whose hold-pattern ref has already
+// merged into base, and every commit across every ref — the two halves
+// of the landed signal and the evidence a status flip is judged
+// against. base is the coordinate's own — the same ref every other
+// verb (claim, reap, orphans) judges landed against, honoring a
+// repository's `base:` override in .frit.yml rather than re-deriving
+// the default branch independently. A squash-merge leaves no merged
+// ref, and is covered instead by landed's own content check.
 func newDriftRepoContext(
-	path string, git gitwt.Runner,
+	path, base string, git gitwt.Runner,
 ) (driftRepoContext, error) {
 	cfg, err := repocfg.Load(path)
 	if err != nil {
@@ -101,12 +103,15 @@ func newDriftRepoContext(
 	if err != nil {
 		return driftRepoContext{}, err
 	}
-	preferred := gitobj.DefaultRef(path, git)
 	refs, err := gitobj.Refs(path, git)
 	if err != nil {
 		return driftRepoContext{}, err
 	}
-	merged, err := gitobj.MergedRefs(path, preferred, git)
+	merged, err := gitobj.MergedRefs(path, base, git)
+	if err != nil {
+		return driftRepoContext{}, err
+	}
+	commits, err := allCommits(path, git)
 	if err != nil {
 		return driftRepoContext{}, err
 	}
@@ -127,7 +132,9 @@ func newDriftRepoContext(
 		landed[id] = true
 	}
 
-	return driftRepoContext{preferred: preferred, ancestorLanded: landed}, nil
+	return driftRepoContext{
+		preferred: base, ancestorLanded: landed, commits: commits,
+	}, nil
 }
 
 // landed reports whether a plan's work reached the default branch:
@@ -154,14 +161,12 @@ func (ctx driftRepoContext) landed(
 	return claim.ContentLanded(path, ctx.preferred, tip, git)
 }
 
-// driftCommits lists every commit, across every ref, whose message
-// names the given plan id — the evidence a status flip is judged
-// against, newest first as git log already orders it.
-func driftCommits(
-	path string, id int64, git gitwt.Runner,
-) ([]report.DriftCommit, error) {
-	out, err := git(path, "log", "--all", "--format="+driftLogFormat,
-		"--grep="+strconv.FormatInt(id, 10))
+// allCommits lists every commit across every ref, newest first as git
+// log already orders it — read once per repository rather than once
+// per not-done plan, since --all walks the whole commit graph however
+// narrow the eventual filter.
+func allCommits(path string, git gitwt.Runner) ([]report.DriftCommit, error) {
+	out, err := git(path, "log", "--all", "--format="+driftLogFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +185,23 @@ func driftCommits(
 	}
 
 	return commits, nil
+}
+
+// commitsNaming filters a repository's commits down to the ones whose
+// message names the given plan id — the evidence a status flip is
+// judged against. The id must appear as a whole run of digits, not
+// merely a substring of some other number, or plan 500 would read
+// evidence out of a commit that only ever mentioned 1500 or 45001.
+func commitsNaming(commits []report.DriftCommit, id int64) []report.DriftCommit {
+	pattern := regexp.MustCompile(`\b` + strconv.FormatInt(id, 10) + `\b`)
+	named := []report.DriftCommit{}
+	for _, c := range commits {
+		if pattern.MatchString(c.Subject) {
+			named = append(named, c)
+		}
+	}
+
+	return named
 }
 
 // lastPhaseNumber is a plan's own final phase, or "" for a plan with

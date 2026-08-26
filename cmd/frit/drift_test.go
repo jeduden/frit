@@ -165,6 +165,63 @@ func TestDriftFlagsALastPhaseCommit(t *testing.T) {
 	assert.False(t, driftRow(t, doc, 700).LastPhaseCommit)
 }
 
+// TestDriftDoesNotMatchIDAsSubstring: a commit naming an unrelated,
+// longer number that merely contains this plan's id as a run of
+// digits is not read as evidence for it.
+func TestDriftDoesNotMatchIDAsSubstring(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+
+	// Plan 20's own creation commit names it; a later, unrelated commit
+	// merely contains "20" as a substring of "220" and must not count
+	// as evidence for it.
+	commitPlan(t, repo, 20, "🔲", "Short", nil, "")
+	writeFile(t, repo, "unrelated.txt", "x\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "bump timeout to 220ms")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	row := driftRow(t, doc, 20)
+	require.Len(t, row.Commits, 1)
+	assert.Equal(t, "plan 20", row.Commits[0].Subject,
+		"a commit naming 220 must not count as evidence for plan 20")
+}
+
+// TestDriftHonorsConfiguredBase: a repository that overrides `base:`
+// in .frit.yml is judged landed against that ref, the same base every
+// other verb (claim, reap, orphans) reads off the coordinate — not
+// against whatever gitobj.DefaultRef would guess on its own.
+func TestDriftHonorsConfiguredBase(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("base: release\n"), 0o600))
+	git(t, repo, "add", ".frit.yml")
+	git(t, repo, "commit", "-q", "-m", "configure base")
+	git(t, repo, "branch", "-q", "release")
+
+	// Plan 800's hold branch merges into "release", the configured
+	// base — never into "main", the branch gitobj.DefaultRef would
+	// pick left to its own cascade.
+	commitPlan(t, repo, 800, "🔳", "OnRelease", nil, "")
+	git(t, repo, "checkout", "-q", "-b", "plan/800")
+	git(t, repo, "commit", "--allow-empty", "-q", "-m", "wip")
+	git(t, repo, "checkout", "-q", "release")
+	git(t, repo, "merge", "--no-ff", "-q", "-m", "merge lane", "plan/800")
+	git(t, repo, "checkout", "-q", "main")
+
+	var doc report.DriftDoc
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.True(t, driftRow(t, doc, 800).Landed,
+		"landed against the configured base, not main")
+}
+
 // writeFile writes a file's content within a repository checkout,
 // without staging or committing it.
 func writeFile(t *testing.T, repo, name, content string) {
