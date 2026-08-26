@@ -444,6 +444,46 @@ func HasUnlanded(
 	return hasUnlanded(repoDir, opts, tip, run)
 }
 
+// HasWork reports whether the chain from base to tip carries any
+// commit that is not one of frit's own lease markers. Exported so a
+// read verb can gate its own content-landed check on real work
+// existing — the same gate that keeps a bare claim marker's trivial
+// no-op merge from ever reading as landed.
+func HasWork(
+	repoDir string, planID int64, base, tip string, run gitwt.Runner,
+) (bool, error) {
+	return hasWork(repoDir, planID, base, tip, run)
+}
+
+// ContentLanded reports whether tip's content already landed on
+// base — merging tip into base changes nothing, the squash-merge
+// signal ordinary ancestry cannot see.
+//
+// Unlike landedTip, this takes base exactly as given rather than
+// refreshing it from the remote first: a fleet-wide read verb
+// refreshes remote-tracking refs once for the whole walk, gated by
+// its own --fetch flag, and must not fetch a second time outside
+// that gate. A caller wanting landedTip's freshness re-resolves base
+// itself before calling this.
+func ContentLanded(repoDir, base, tip string, run gitwt.Runner) bool {
+	return landedByContent(repoDir, base, tip, run)
+}
+
+// WorkLanded composes HasWork and ContentLanded in the one order that
+// is safe: the content check only ever runs once real work beyond
+// frit's own lease markers is confirmed, or a bare claim marker's
+// trivial no-op merge would misread as finished work. Exported so a
+// read verb's tip/content check is one call against a tested
+// contract, not a cascade re-assembled at each call site.
+func WorkLanded(repoDir string, planID int64, base, tip string, run gitwt.Runner) bool {
+	work, err := hasWork(repoDir, planID, base, tip, run)
+	if err != nil || !work {
+		return false
+	}
+
+	return landedByContent(repoDir, base, tip, run)
+}
+
 // RescueRef names the rescue ref a park for this plan, holder and tip
 // writes — exported so a dry run can preview the destination without
 // minting anything.

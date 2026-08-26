@@ -118,6 +118,24 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 	}
 }
 
+// TestPlanSyncFrontsDrift guards the standing rule CLAUDE.md records:
+// a new agent-facing verb ships with the thin skill that fronts it.
+// plan-sync's own evidence gathering is exactly what drift now
+// answers, so its raw `git log` is retired in favor of the verb.
+func TestPlanSyncFrontsDrift(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-sync/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-sync skill: %v", err)
+	}
+	body := string(data)
+	if !contains(body, "{{frit}} drift") {
+		t.Fatal("plan-sync skill does not mention `{{frit}} drift`")
+	}
+	if contains(body, "git log") {
+		t.Fatal("plan-sync skill still hand-runs git log")
+	}
+}
+
 // TestPlanDriveFrontsOrchestratorVerbs guards CLAUDE.md's standing
 // rule for the orchestrator verbs: board, who, open, nudge and start
 // drive live lanes rather than work a plan, so they ship in their own

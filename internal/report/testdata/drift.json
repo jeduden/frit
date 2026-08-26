@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "command": "drift",
+  "root": "/fleet",
+  "rows": [
+    {
+      "repo": "atlas",
+      "id": 2608161810,
+      "landed": true,
+      "last_phase_commit": true,
+      "commits": [
+        {
+          "sha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "subject": "plan 2608161810 phase 2: GREEN — dispatch a phase-less plan"
+        }
+      ]
+    },
+    {
+      "repo": "atlas",
+      "id": 2608161811,
+      "landed": false,
+      "last_phase_commit": false,
+      "commits": []
+    }
+  ],
+  "problems": [
+    {
+      "repo": "busted",
+      "message": "no such directory"
+    }
+  ]
+}

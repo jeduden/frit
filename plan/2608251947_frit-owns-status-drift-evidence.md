@@ -1,7 +1,7 @@
 ---
 id: 2608251947
 title: frit owns the status-drift evidence plan-sync hand-runs git for
-status: "🔲"
+status: "✅"
 summary: >-
   plan-sync's skill tells the agent to run `git log --all --grep=<id>`
   and read human-readable git output to find plans whose status drifted
@@ -18,13 +18,13 @@ depends-on: []
 phases:
   - n: 1
     title: A drift verb reports landed and naming commits per plan
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: Squash-merge and last-phase evidence, pinned in JSON
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: plan-sync reads the verb, retires its raw git
-    status: "🔲"
+    status: "✅"
 ---
 # frit owns the status-drift evidence plan-sync hand-runs git for
 
@@ -89,8 +89,10 @@ with frit never mutating a plan. Confirm the name before Phase 1 —
 1. Add `frit drift`: for each 🔲/🔳 plan, report whether its work ref
    landed (reuse `LandedIDs`) and the commits whose message names the
    id, as a table and JSON, proven end to end on one repo.
-2. (determined after Phase 1)
-3. (determined after Phase 1)
+2. Extend `landed` with the squash-merge content check and add the
+   last-phase-commit flag, pinned by a JSON golden.
+3. Move plan-sync's Enumerate and Gather-evidence steps onto
+   `{{frit}} drift`, dropping its raw `git log --grep`.
 
 ## Phase 1: A drift verb reports landed and naming commits per plan
 
@@ -183,16 +185,16 @@ skill fold over a proven verb.
 
 ## Acceptance Criteria
 
-- [ ] `frit drift` reports, per 🔲/🔳 plan, whether its work landed and
+- [x] `frit drift` reports, per 🔲/🔳 plan, whether its work landed and
       the commits whose message names the id
-- [ ] Squash-merged work reads landed, not only ancestor-merged work
-- [ ] `--json` obeys the contract (keys present, lists `[]`, unreadable
+- [x] Squash-merged work reads landed, not only ancestor-merged work
+- [x] `--json` obeys the contract (keys present, lists `[]`, unreadable
       repos carried) and is pinned by a golden
-- [ ] frit edits no plan and labels none done — it reports evidence,
+- [x] frit edits no plan and labels none done — it reports evidence,
       the flip stays the agent's
-- [ ] plan-sync runs `{{frit}} drift` and contains no raw `git log`;
+- [x] plan-sync runs `{{frit}} drift` and contains no raw `git log`;
       dogfood copies match and stay under budget
-- [ ] plan-sync's `drift` step is verified against the built binary,
+- [x] plan-sync's `drift` step is verified against the built binary,
       not only linted
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -119,6 +119,7 @@ type cli struct {
 	Reap    reapCmd    `cmd:"" help:"Tear down what orphans reports; dry-run unless --go."`
 	Stale   staleCmd   `cmd:"" help:"Report worktrees whose branch has not moved."`
 	Doctor  doctorCmd  `cmd:"" help:"Report plans with a semantic gap: missing Goal, tier, Execution row."`
+	Drift   driftCmd   `cmd:"" help:"Report a not-done plan's landed and naming-commit evidence."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
 	Skills  skillsCmd  `cmd:"" help:"Install the bundled agent skills into .claude/skills."`

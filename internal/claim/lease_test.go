@@ -1192,6 +1192,61 @@ func TestHasUnlandedTellsWorkFromMarkers(t *testing.T) {
 	assert.True(t, carried)
 }
 
+// TestHasWorkExportedTellsWorkFromMarkers pins the exported entry
+// point a read verb reads directly, told apart from the LeaseOptions
+// bundle HasUnlanded takes: a plan id, an explicit base, and a tip.
+func TestHasWorkExportedTellsWorkFromMarkers(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	markersOnly, err := HasWork(work, opts.PlanID, opts.Base, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.False(t, markersOnly)
+
+	tip := workOn(t, work)
+	carried, err := HasWork(work, opts.PlanID, opts.Base, tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.True(t, carried)
+}
+
+// TestContentLandedExportedReadsBaseAsGiven pins the exported entry
+// point a read verb calls directly, against a base it already
+// resolved itself rather than one this call refreshes.
+func TestContentLandedExportedReadsBaseAsGiven(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.True(t, ContentLanded(work, opts.Base, lease.Tip, gitwt.Exec),
+		"a bare marker's trivial merge reproduces the base")
+
+	tip := workOn(t, work)
+	assert.False(t, ContentLanded(work, opts.Base, tip, gitwt.Exec),
+		"real work not yet merged into base diverges")
+}
+
+// TestWorkLandedGatesContentOnRealWork pins the exported composition a
+// read verb relies on instead of re-assembling HasWork and
+// ContentLanded itself: a bare marker's trivial merge is never called
+// landed on content alone, because the work gate reports it false
+// before the content check ever runs.
+func TestWorkLandedGatesContentOnRealWork(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.False(t, WorkLanded(work, opts.PlanID, opts.Base, lease.Tip, gitwt.Exec),
+		"a bare marker chain carries no work, so the gate reports false")
+
+	tip := workOn(t, work)
+	assert.False(t, WorkLanded(work, opts.PlanID, opts.Base, tip, gitwt.Exec),
+		"real work not yet merged into base diverges")
+}
+
 // TestRescueRefNamesThePlanAndTheHolder pins the exported name a dry
 // run previews: the same per-plan, per-machine, per-tip ref park
 // writes.
