@@ -27,6 +27,26 @@ func TestStartHandoffTracksTheThreeTransitions(t *testing.T) {
 		"a refusal runs nothing")
 }
 
+// TestStartNextActionTracksTheThreeTransitions pins the verb a
+// consumer runs instead of the already-dispatched prompt: empty on a
+// preview, `frit open <id>` once MarkStarted flips the handoff to
+// running, and empty again on a refusal, where prompt is still the
+// recipe.
+func TestStartNextActionTracksTheThreeTransitions(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	assert.Equal(t, "", doc.NextAction, "a fresh doc names no next action")
+
+	doc.MarkStarted("wZ:p1")
+	assert.Equal(t, "frit open 7", doc.NextAction,
+		"a started escalation hands the caller the verb to watch it with")
+
+	refused := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	refused.Refuse("already held")
+	assert.Equal(t, "", refused.NextAction, "a refusal names no next action")
+}
+
 // TestNewStartRendersAnEmptyPhaseAsWholePlan: a phase-less plan is
 // dispatched as one whole-plan prompt, so its doc reports that rather
 // than a blank phase cell — blank reads as a missing field, not a
