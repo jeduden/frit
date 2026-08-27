@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -28,6 +30,14 @@ func (rc *releaseCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+
+	// The gather above reads the whole fleet, and rightly wants each
+	// repository's fetch bounded independently. What follows is scoped
+	// to one repository's own lease ref, so it shares a single deadline
+	// instead: a stalled remote should cost roughly --git-timeout, not
+	// a multiple of it across the pre-push read, the push and a retry.
+	rt.git = gitwt.WithDeadline(gitwt.Exec, time.Now().Add(c.GitTimeout))
+
 	plan, err := resolveSelector(rt, rc.Selector, res.Plans, true)
 	if err != nil {
 		return err

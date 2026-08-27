@@ -111,6 +111,33 @@ func WithTimeoutPipe(run PipeRunner, d time.Duration) PipeRunner {
 	}
 }
 
+// WithDeadline bounds a Runner the way WithTimeout does, but every
+// call made through the same wrapped Runner shares one clock instead
+// of each re-arming a fixed duration. A mutating verb like release or
+// claim chains several sequential git calls against one remote — the
+// gather's fetch, an ls-remote, the push, a retry's ls-remote — and
+// each independently re-armed with the full --git-timeout can cost a
+// multiple of it against a fully stalled remote. WithDeadline instead
+// spends down one shared budget: a call made after it is exhausted
+// returns at once, without starting.
+func WithDeadline(run Runner, deadline time.Time) Runner {
+	return func(dir string, args ...string) ([]byte, error) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf(
+				"git %s: git-timeout budget exhausted by an earlier call",
+				strings.Join(args, " "))
+		}
+
+		return raceTimeout(
+			func() ([]byte, error) { return run(dir, args...) }, remaining,
+			func() error {
+				return fmt.Errorf("git %s: timed out after %s",
+					strings.Join(args, " "), remaining)
+			})
+	}
+}
+
 // PipeRunner runs a git subcommand with stdin attached and returns
 // its stdout.
 //

@@ -21,9 +21,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                          |
-| ---------- | ------ | ---------------------------------------------------------------------------------------------- |
-| 2608271957 | sonnet | [A stalled git network call cannot hang a frit verb](plan/2608271957_git-calls-cannot-hang.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -87,6 +85,6 @@ footer: |
 | 2608252140 | ✅     | sonnet | [A failed handoff tears its lane down, so start leaves no half-built lane](plan/2608252140_failed-handoff-tears-its-lane-down.md)      |
 | 2608260639 | ✅     | sonnet | [A dispatched handoff carries the consumer's next action, not a bare prompt](plan/2608260639_dispatch-report-carries-next-action.md)   |
 | 2608262155 | 🔲     | sonnet | [The herdr pane label names the plan's repo, not the id alone](plan/2608262155_pane-label-names-the-repo.md)                           |
-| 2608271957 | 🔳     | sonnet | [A stalled git network call cannot hang a frit verb](plan/2608271957_git-calls-cannot-hang.md)                                         |
+| 2608271957 | ✅     | sonnet | [A stalled git network call cannot hang a frit verb](plan/2608271957_git-calls-cannot-hang.md)                                         |
 | 2608272240 | ✅     | sonnet | [nudge treats an unread host as presence unknown, not an absent lane](plan/2608272240_nudge-treats-unread-host-as-presence-unknown.md) |
 <?/catalog?>
