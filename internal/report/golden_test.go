@@ -55,6 +55,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
 		{"start", goldenStart()},
+		{"start-running", goldenStartRunning()},
 		{"start-wholeplan", goldenStartWholePlan()},
 		{"nudge-wholeplan", goldenNudgeWholePlan()},
 		{"orphans", goldenOrphans()},
@@ -373,6 +374,17 @@ func goldenStart() *StartDoc {
 			Lane:   "/fleet/atlas-dispatch-ladder",
 			Prompt: "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
 		}, false)
+}
+
+// goldenStartRunning pins the shape a live --go dispatch reports: the
+// escalation stood up and running in a pane, its handoff "running" and
+// next_action naming frit open <id> — the verb a consumer runs instead
+// of the already-dispatched prompt, the whole point of the field.
+func goldenStartRunning() *StartDoc {
+	doc := goldenStart()
+	doc.MarkStarted("wC:p1")
+
+	return doc
 }
 
 // goldenStartWholePlan pins the phase-less escalation shape: a plan
