@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: fetchRemote no longer folds a probe failure into "no remote"
-    status: "🔳"
+    status: "✅"
   - n: 3
     title: A repository git refuses to answer for is named, not dropped
     status: "🔲"
@@ -314,7 +314,7 @@ it. Confirm it returns in roughly 3s, not a multiple of it.
       and a default that never trips a healthy call.
 - [x] Against an unreachable remote, a fetching verb returns within
       the deadline and names the fetch stale rather than hanging.
-- [ ] `fetchRemote` skips a remote only when the listing genuinely
+- [x] `fetchRemote` skips a remote only when the listing genuinely
       does not name it; a listing failure surfaces as `fetchRemote`'s
       own error.
 - [ ] A repository `discover.Repos` could not read is named, not

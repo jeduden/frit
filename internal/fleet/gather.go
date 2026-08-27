@@ -3,6 +3,7 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -213,14 +214,30 @@ func gatherRepo(
 // returned rather than fatal: Gather falls back to the local view and
 // names the staleness, so one unreachable remote does not blind the
 // whole walk.
+//
+// The configured check is a listing, not a probe of remote by name:
+// `remote get-url <remote>` cannot tell "not configured" from "the
+// probe itself failed" by error alone, and folding the two together
+// silently skips a fetch that staleFetch should have named instead.
 func fetchRemote(dir, remote string, run gitwt.Runner) error {
-	if _, err := run(dir, "remote", "get-url", remote); err != nil {
+	names, err := run(dir, "remote")
+	if err != nil {
+		return err
+	}
+	if !hasRemoteName(string(names), remote) {
 		return nil
 	}
 
-	_, err := run(dir, "fetch", "--prune", "--quiet", remote)
+	_, err = run(dir, "fetch", "--prune", "--quiet", remote)
 
 	return err
+}
+
+// hasRemoteName reports whether out — `git remote`'s one-name-per-line
+// listing — names remote.
+func hasRemoteName(out, remote string) bool {
+	return slices.Contains(
+		strings.Split(strings.TrimSpace(out), "\n"), remote)
 }
 
 // staleFetch names a fetch that was attempted but failed, so a reader
