@@ -41,36 +41,73 @@ func Exec(dir string, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// raceTimeout runs f in its own goroutine and returns what it
+// delivers if that happens within d; otherwise it returns the error
+// onTimeout builds. WithTimeout and WithTimeoutPipe share this rather
+// than each carrying their own copy of the same goroutine-plus-select
+// shape — only what varies (how the call is made, how its timeout
+// error is worded) is left to the caller.
+//
+// The goroutine keeps running after a timeout — the buffered channel
+// lets it deliver into nothing and exit — so bounding the wait does
+// not leak the goroutine once f eventually returns. If f never
+// returns at all (a genuinely wedged call, the exact case this
+// exists to bound), the goroutine is not reclaimed until the process
+// exits; that is the bounds-the-wait-not-the-process tradeoff below.
+func raceTimeout(
+	f func() ([]byte, error), d time.Duration, onTimeout func() error,
+) ([]byte, error) {
+	type reply struct {
+		out []byte
+		err error
+	}
+
+	done := make(chan reply, 1)
+	go func() {
+		out, err := f()
+		done <- reply{out: out, err: err}
+	}()
+
+	select {
+	case r := <-done:
+		return r.out, r.err
+	case <-time.After(d):
+		return nil, onTimeout()
+	}
+}
+
 // WithTimeout bounds a Runner so a stalled call fails fast instead of
 // hanging the command that made it, mirroring presence.WithTimeout for
 // gitwt's own Runner shape.
 //
-// The wrapped call keeps running in its own goroutine — the buffered
-// channel lets it deliver into nothing and exit — so bounding the
-// wait does not leak the goroutine. It bounds the wait, not the
-// process: the underlying git subprocess is not killed and is
-// orphaned when frit exits. Killing it too needs a context handed
-// down to exec.CommandContext, which is a later refinement; here
-// what the bound protects is the command returning to its caller.
+// It bounds the wait, not the process: the underlying git subprocess
+// is not killed and is orphaned when frit exits. Killing it too needs
+// a context handed down to exec.CommandContext, which is a later
+// refinement; here what the bound protects is the command returning
+// to its caller.
 func WithTimeout(run Runner, d time.Duration) Runner {
 	return func(dir string, args ...string) ([]byte, error) {
-		type reply struct {
-			out []byte
-			err error
-		}
+		return raceTimeout(
+			func() ([]byte, error) { return run(dir, args...) }, d,
+			func() error {
+				return fmt.Errorf("git %s: timed out after %s",
+					strings.Join(args, " "), d)
+			})
+	}
+}
 
-		done := make(chan reply, 1)
-		go func() {
-			out, err := run(dir, args...)
-			done <- reply{out: out, err: err}
-		}()
-
-		select {
-		case r := <-done:
-			return r.out, r.err
-		case <-time.After(d):
-			return nil, fmt.Errorf("git: timed out after %s", d)
-		}
+// WithTimeoutPipe bounds a PipeRunner the same way WithTimeout bounds
+// a Runner. The batch plumbing this wraps is normally local, but a
+// partial clone's promisor remote can pull a missing object over the
+// network on demand — the same network bound applies here too.
+func WithTimeoutPipe(run PipeRunner, d time.Duration) PipeRunner {
+	return func(dir string, stdin []byte, args ...string) ([]byte, error) {
+		return raceTimeout(
+			func() ([]byte, error) { return run(dir, stdin, args...) }, d,
+			func() error {
+				return fmt.Errorf("git %s: timed out after %s",
+					strings.Join(args, " "), d)
+			})
 	}
 }
 

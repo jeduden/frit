@@ -293,6 +293,43 @@ func TestFetchFlagReachesTheReadWalk(t *testing.T) {
 		"the stale remote-tracking lease branch reads as held")
 }
 
+// TestGitTimeoutFlagReachesTheGitRunner proves --git-timeout is wired
+// into rt.git, not just parsed, the same way TestFetchFlagReachesTheReadWalk
+// proves --fetch is: an unreasonably small bound loses the race
+// against time.After for every git call, even a fast local one, so a
+// repository that the default timeout finds is skipped instead.
+func TestGitTimeoutFlagReachesTheGitRunner(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "atlas")
+
+	var normal report.ReposDoc
+	emit(t, &normal, "repos", "--root", root)
+	assert.Len(t, normal.Repos, 1,
+		"with the default timeout the repo is found")
+
+	var bounded report.ReposDoc
+	emit(t, &bounded, "repos", "--root", root, "--git-timeout", "1ns")
+	assert.Empty(t, bounded.Repos,
+		"a 1ns bound loses the race against every git call, "+
+			"including this fast local one, so the repo is skipped")
+}
+
+// TestGitTimeoutMustBePositive: a zero or negative bound would trip on
+// every git call, including a healthy local one, and look like every
+// repository is unreachable instead of naming the real cause — a
+// misconfigured flag. frit rejects it up front instead.
+func TestGitTimeoutMustBePositive(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "atlas")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"repos", "--root", root, "--git-timeout", "0s"},
+		&out, &errb)
+
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "--git-timeout must be positive")
+}
+
 func TestRefNamesEveryWorktreeState(t *testing.T) {
 	assert.Equal(t, "main", ref(report.Worktree{Branch: "main"}))
 	assert.Equal(t, "(bare)", ref(report.Worktree{Bare: true}))

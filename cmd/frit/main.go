@@ -88,10 +88,12 @@ type cli struct {
 
 	// GitTimeout bounds every git subprocess so a stalled network call
 	// fails fast instead of hanging the command that made it — see
-	// gitwt.WithTimeout, wrapped around rt.git once here rather than at
-	// each call site. The default is a generous backstop: a network
-	// fetch or push takes seconds, a local op milliseconds, so a
-	// healthy call never trips it.
+	// gitwt.WithTimeout and gitwt.WithTimeoutPipe, wrapped around
+	// rt.git and rt.gitPipe once here rather than at each call site.
+	// The default is a generous backstop: a network fetch or push
+	// takes seconds, a local op milliseconds, so a healthy call never
+	// trips it. Must be positive: run() rejects zero or negative, since
+	// either would trip on every call, including a local one.
 	GitTimeout time.Duration `default:"60s" env:"FRIT_GIT_TIMEOUT" help:"Fail a stalled git call after this long."`
 
 	// All un-hides what the default view holds back: satisfied
@@ -2326,10 +2328,25 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		rt.width = c.Width
 	}
 
+	// A non-positive bound would make every git call — including a
+	// trivial local one — lose the race against time.After instantly,
+	// so the run would fail every call and look like every repository
+	// is unreachable rather than pointing at the misconfigured flag.
+	// Reject it up front instead.
+	if c.GitTimeout <= 0 {
+		_, _ = fmt.Fprintf(stderr,
+			"frit: --git-timeout must be positive, got %s\n", c.GitTimeout)
+		return 2
+	}
+
 	// Bound every git call for the run at this one seam, rather than
 	// at each call site, so a stalled fetch or push fails fast instead
-	// of hanging the command.
+	// of hanging the command. gitPipe's batch reads are normally
+	// local, but a partial clone's promisor remote can still pull a
+	// missing object over the network on demand, so it gets the same
+	// bound.
 	rt.git = gitwt.WithTimeout(rt.git, c.GitTimeout)
+	rt.gitPipe = gitwt.WithTimeoutPipe(rt.gitPipe, c.GitTimeout)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
