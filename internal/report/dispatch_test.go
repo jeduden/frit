@@ -3,8 +3,32 @@ package report
 import (
 	"testing"
 
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestOpenNextActionNamesStartOnlyWhenNoLaneIsLiveAndKnown pins the
+// verb a --json consumer runs when open raised nothing. `frit start
+// <id>` is named only when presence was read cleanly and no lane
+// exists — nudge would refuse a laneless plan, so start is the rung. It
+// is empty when a lane was focused (watch it, do not escalate) and
+// empty when herdr was unreachable, because a lane may be running
+// behind the socket open could not read.
+func TestOpenNextActionNamesStartOnlyWhenNoLaneIsLiveAndKnown(t *testing.T) {
+	laneless := NewOpen("/fleet", "atlas", 7, "Shader unit")
+	assert.Equal(t, "frit start 7", laneless.NextAction,
+		"a plan with no live lane starts, not opens")
+
+	focused := NewOpen("/fleet", "atlas", 7, "Shader unit")
+	focused.Focus(herdr.Lane{Pane: herdr.Pane{PaneID: "wZ:p1"}})
+	assert.Equal(t, "", focused.NextAction,
+		"a focused lane is watched, not escalated")
+
+	unknown := NewOpen("/fleet", "atlas", 7, "Shader unit")
+	unknown.AddProblem("herdr", assert.AnError)
+	assert.Equal(t, "", unknown.NextAction,
+		"an unreachable herdr leaves presence unknown, so start is not named")
+}
 
 // TestStartHandoffTracksTheThreeTransitions pins the one axis a
 // consumer keys on instead of re-deriving it from started/refused: a
