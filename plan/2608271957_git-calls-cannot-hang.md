@@ -1,7 +1,7 @@
 ---
 id: 2608271957
 title: A stalled git network call cannot hang a frit verb
-status: "🔲"
+status: "🔳"
 summary: >-
   release acts on one plan but first runs a full fleet gather that,
   with --fetch on by default, does one serial git fetch per repo — and
