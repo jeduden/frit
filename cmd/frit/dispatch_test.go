@@ -471,6 +471,35 @@ func TestNudgeSaysHerdrUnreachable(t *testing.T) {
 	assert.NotContains(t, out.String(), "no live lane")
 }
 
+// TestNudgeSaysPresenceUnknownWhenAHostIsUnread: a configured host that
+// went unread — here the no-cache-path degraded mode, where the remote
+// cannot be read or reconciled at all — is presence unknown, not an
+// absent lane. nudge refuses on that, the way open withholds its action,
+// rather than claiming nobody works the plan. The unread host still
+// travels in the report and nothing is ever sent.
+func TestNudgeSaysPresenceUnknownWhenAHostIsUnread(t *testing.T) {
+	isolate(t)
+	// Force presence.CachePath to fail, so the configured remote cannot be
+	// read or reconciled and comes back noPresence, not merely stale.
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // local socket, no panes
+	withHerdr(t, runner)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go",
+		"--hosts", "box", "--root", root)
+
+	assert.Contains(t, doc.Refused, "presence unknown")
+	assert.NotContains(t, doc.Refused, "no live lane",
+		"an unread host is not an absent lane frit looked for")
+	assert.False(t, rec.verb("agent", "prompt"),
+		"nothing is sent when presence is unknown")
+	require.NotEmpty(t, doc.Problems, "the unread host travels in the report")
+}
+
 // TestNudgeTierComesFromThePlan: the tier shown is the plan's declared
 // model, never a flag — dispatch is typed, not chosen.
 func TestNudgeTierComesFromThePlan(t *testing.T) {
