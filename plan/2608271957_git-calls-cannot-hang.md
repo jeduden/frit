@@ -29,7 +29,7 @@ phases:
     status: "✅"
   - n: 5
     title: release and claim spend one deadline, not one per sequential call
-    status: "🔲"
+    status: "🔳"
 ---
 # A stalled git network call cannot hang a frit verb
 
@@ -267,25 +267,29 @@ it is not a behavioral gate.
 
 ## Phase 5: release and claim spend one deadline, not one per sequential call
 
-**RED.** In [cmd/frit](../cmd/frit), add a test for a single
-`release` (or `claim`) call. Point it at a runner where every call
-blocks past a short bound. It should return within roughly one
-`--git-timeout`, not a multiple of it. Today each of the gather's
-fetch, the pre-push `ls-remote`, the push, and a post-failure
-`ls-remote` re-arms the full duration independently — against a
-fully stalled remote that can cost up to 4x the configured bound.
+**RED.** In [internal/gitwt](../internal/gitwt), add a test for
+`WithDeadline(run Runner, deadline time.Time) Runner`: two sequential
+calls through the same wrapped runner, the first one slow enough to
+spend most of the deadline. The second call gets only what is left,
+not a fresh full duration — assert it fails once the shared deadline
+is exhausted, where the existing `WithTimeout` (a fixed duration
+re-armed on every call) would let it through. This is the mechanism a
+timing-based end-to-end test cannot pin deterministically; the
+compounding-latency claim itself is the behavioral gate below, not an
+automated test. `WithDeadline` does not exist yet: the test fails to
+compile.
 
-**GREEN.** Add `gitwt.WithDeadline(run Runner, deadline time.Time)
-Runner`. It shares `raceTimeout` with `WithTimeout`. But it computes
-each call's remaining budget from `time.Until(deadline)`, not a fixed
-duration. A call made after the budget is spent returns immediately,
-without starting. Give `release`, `claim` and `yield` their own
-`rt.git`. Wrap it with `WithDeadline(gitwt.Exec,
-time.Now().Add(c.GitTimeout))` at dispatch. Every git call within
-that one invocation then shares a single clock, instead of each
-getting a fresh `--git-timeout`. Leave the fleet-wide read verbs
-(`board`, `ready`, `plans`, …) on the existing per-call `WithTimeout`:
-a many-repo gather legitimately wants each repository's fetch to get
+**GREEN.** Add `WithDeadline`. It shares `raceTimeout` with
+`WithTimeout`, but computes each call's remaining budget from
+`time.Until(deadline)`, not a fixed duration. A call made after the
+budget is spent returns immediately, without starting. Give
+`release`, `claim` and `yield` their own `rt.git` at the top of each
+command's `Run`, wrapped with `WithDeadline(gitwt.Exec,
+time.Now().Add(c.GitTimeout))`. Every git call within that one
+invocation then shares a single clock, instead of each getting a
+fresh `--git-timeout`. Leave the fleet-wide read verbs (`board`,
+`ready`, `plans`, …) on the existing per-call `WithTimeout`: a
+many-repo gather legitimately wants each repository's fetch to get
 its own fair budget, not one drained by every repo that fetched
 before it.
 

@@ -83,3 +83,68 @@ func TestWithTimeoutPipeBoundsAStalledCall(t *testing.T) {
 	assert.Contains(t, err.Error(), "timed out")
 	assert.Less(t, elapsed, 500*time.Millisecond)
 }
+
+// TestWithDeadlinePassesAFastCallThrough: a call well inside the
+// deadline returns its output and error unchanged.
+func TestWithDeadlinePassesAFastCallThrough(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		return []byte("ok"), nil
+	}
+
+	out, err := WithDeadline(run, time.Now().Add(time.Second))(
+		"/repo", "status")
+	require.NoError(t, err)
+	assert.Equal(t, "ok", string(out))
+}
+
+// TestWithDeadlineSharesOneBudgetAcrossSequentialCalls is the
+// compounding-latency fix: unlike WithTimeout, which re-arms a fixed
+// duration on every call, WithDeadline's calls share one clock. A
+// call that spends most of the budget leaves the next call only what
+// remains, not a fresh full duration.
+func TestWithDeadlineSharesOneBudgetAcrossSequentialCalls(t *testing.T) {
+	wrapped := WithDeadline(
+		func(dir string, args ...string) ([]byte, error) {
+			time.Sleep(70 * time.Millisecond)
+
+			return []byte("ok"), nil
+		},
+		time.Now().Add(100*time.Millisecond))
+
+	_, err := wrapped("/repo", "fetch")
+	require.NoError(t, err, "the first call fits inside the deadline")
+
+	before := time.Now()
+	_, err = wrapped("/repo", "push")
+	elapsed := time.Since(before)
+
+	require.Error(t, err,
+		"the second call gets only the ~30ms left of the shared "+
+			"deadline, not a fresh 100ms, so its own 70ms call times out")
+	assert.Less(t, elapsed, 50*time.Millisecond)
+}
+
+// TestWithDeadlineFailsImmediatelyOnceTheBudgetIsExhausted: a call made
+// after the deadline has already passed returns at once, without
+// starting the wrapped runner at all — the fourth of four sequential
+// calls against an already-spent budget must not wait out another
+// full --git-timeout before failing.
+func TestWithDeadlineFailsImmediatelyOnceTheBudgetIsExhausted(t *testing.T) {
+	called := false
+	run := func(dir string, args ...string) ([]byte, error) {
+		called = true
+
+		return []byte("ok"), nil
+	}
+
+	before := time.Now()
+	out, err := WithDeadline(run, time.Now().Add(-time.Millisecond))(
+		"/repo", "status")
+	elapsed := time.Since(before)
+
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.False(t, called,
+		"a call made after the budget is spent must not start")
+	assert.Less(t, elapsed, 20*time.Millisecond)
+}
