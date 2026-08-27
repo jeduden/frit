@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
@@ -322,13 +323,21 @@ func startExecute(
 
 	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text)
 	if err != nil {
-		// The lease is minted but nothing answers behind it. Release it —
-		// a pushed marker, never a delete, so the next acquire reads epoch
-		// E+1 — and name what the dead handoff left standing. If the
-		// release itself fails the lease is still on the remote, so that is
-		// reported alongside the handoff error rather than swallowed into a
-		// silent orphan.
-		err = handoffError(sp.Lane, pane, err)
+		// The lease is minted but nothing answers behind it. Tear down
+		// whatever herdr already stood up — the worktree and pane, if
+		// any — so the abort is atomic rather than leaving a freed claim
+		// over a live worktree. Only a teardown that itself fails falls
+		// back to naming what was left behind; a clean unwind reports the
+		// plain cause. Then release the lease — a pushed marker, never a
+		// delete, so the next acquire reads epoch E+1. If the release
+		// itself fails the lease is still on the remote, so that is
+		// reported alongside whatever the teardown already named, rather
+		// than swallowed into a silent orphan.
+		if pane != "" {
+			if tdErr := teardownHandoff(rt, pane); tdErr != nil {
+				err = errors.Join(handoffError(sp.Lane, pane, err), tdErr)
+			}
+		}
 		if relErr := releaseLease(rt, sc, plan, sp, lease.Tip); relErr != nil {
 			return errors.Join(err, relErr)
 		}
@@ -398,6 +407,16 @@ func bindSession(
 	}
 }
 
+// teardownHandoff removes the worktree and pane a failed handoff stood
+// up, torn down by the workspace the pane belongs to — herdr names a
+// pane <workspace>:<pane>, so the workspace is the segment before the
+// colon, the one handle herdr.WorktreeRemove takes.
+func teardownHandoff(rt *runtime, pane string) error {
+	workspace, _, _ := strings.Cut(pane, ":")
+
+	return herdr.WorktreeRemove(rt.herdr, workspace)
+}
+
 // handoffError names what a failed handoff left behind: the worktree
 // and pane that stood up before the failure, so they can be found and
 // torn down rather than guessed at. A handoff that died before herdr
@@ -438,6 +457,62 @@ func releaseLease(
 	return nil
 }
 
+// agentStartAttempts bounds how many times startAgent retries a
+// pane-not-ready agent start before giving up: the pane herdr just
+// created losing the race with its own shell settling is transient,
+// not a real fault, and rarely takes more than one retry to clear.
+const agentStartAttempts = 3
+
+// agentStartPause is startAgent's seam between retry attempts: a
+// package variable set to a no-op in tests, mirroring openEditor.
+var agentStartPause = func() { time.Sleep(500 * time.Millisecond) }
+
+// startAgent starts the agent herdr's worktree.create just opened a
+// pane for, retrying past herdr's own pane-not-ready transient — the
+// freshly opened pane's shell not yet settled — up to agentStartAttempts
+// times before giving up. Any other error is not retried: it is a real
+// fault and falls straight into the caller's teardown.
+func startAgent(
+	rt *runtime, plan discovery.Plan, sp report.StartPlan, pane string,
+) error {
+	spec := herdr.AgentSpec{
+		Name:      fmt.Sprintf("plan-%d", plan.ID),
+		Kind:      sp.Kind,
+		Pane:      pane,
+		Model:     sp.Tier,
+		TimeoutMS: startTimeoutMS,
+	}
+
+	var err error
+	for attempt := 1; attempt <= agentStartAttempts; attempt++ {
+		err = herdr.AgentStart(rt.herdr, spec)
+		if err == nil || !paneNotReady(err) {
+			return err
+		}
+		if attempt < agentStartAttempts {
+			agentStartPause()
+		}
+	}
+
+	return err
+}
+
+// paneNotReady reports whether err carries herdr's pane-not-ready
+// signal — code agent_pane_busy, message "not an available shell" —
+// the transient a freshly opened pane's shell not yet settling raises
+// when the agent start immediately following worktree.create loses
+// the race. herdr.AgentStart surfaces the runner's error body
+// unwrapped, so it is matched by substring rather than parsed.
+func paneNotReady(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+
+	return strings.Contains(msg, "agent_pane_busy") &&
+		strings.Contains(msg, "not an available shell")
+}
+
 // standUpLane hands the checkout, the agent, the prompt and the focus to
 // herdr in turn and returns the pane it opened, and the herdr session
 // the started agent was given — on failure too, once a pane exists, so
@@ -459,13 +534,7 @@ func standUpLane(
 		return "", "", fmt.Errorf("worktree create: %w", err)
 	}
 
-	if err := herdr.AgentStart(rt.herdr, herdr.AgentSpec{
-		Name:      fmt.Sprintf("plan-%d", plan.ID),
-		Kind:      sp.Kind,
-		Pane:      pane,
-		Model:     sp.Tier,
-		TimeoutMS: startTimeoutMS,
-	}); err != nil {
+	if err := startAgent(rt, plan, sp, pane); err != nil {
 		return pane, "", fmt.Errorf("agent start: %w", err)
 	}
 	// The first moment a session exists: herdr assigns one when the

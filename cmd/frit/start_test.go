@@ -332,20 +332,26 @@ func TestStartEditEmptyAbortsBeforeAnythingRuns(t *testing.T) {
 }
 
 // TestStartUnwindReleasesTheLeaseAndNamesTheLane: a handoff that dies
-// after the lane stood up releases the lease with a pushed marker —
-// never a delete, so the next acquire reads epoch E+1 — and the error
-// names the worktree and pane left behind, so what stood up can be
-// found rather than guessed at.
-func TestStartUnwindReleasesTheLeaseAndNamesTheLane(t *testing.T) {
+// after the lane stood up tears the worktree and pane down before it
+// releases the lease with a pushed marker — never a delete, so the
+// next acquire reads epoch E+1 — and, since the teardown itself
+// succeeded, the reported error stays the plain cause: the abort is
+// clean, nothing was left behind.
+func TestStartUnwindTearsDownTheLaneOnAFailedHandoff(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	rec := &herdrCalls{}
 	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
-		if len(args) >= 2 && args[0] == "agent" && args[1] == "prompt" {
-			return nil, errors.New("the agent went away")
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New(
+				"agent target pane wZ:p1 is not an available shell")
 		}
 		return nil, nil
 	})
@@ -355,10 +361,12 @@ func TestStartUnwindReleasesTheLeaseAndNamesTheLane(t *testing.T) {
 		"--root", root}, &out, &errb)
 
 	require.Equal(t, 1, code, "a dead handoff is a failure")
-	assert.Contains(t, errb.String(), "atlas-shader-unit",
-		"the error names the worktree that stood up")
-	assert.Contains(t, errb.String(), "wZ:p1",
-		"the error names the pane that stood up")
+	assert.True(t, rec.verb("worktree", "remove"),
+		"the abort tears the worktree it stood up back down")
+	assert.True(t, rec.hasArg("wZ"),
+		"the workspace is derived from the pane herdr opened")
+	assert.NotContains(t, errb.String(), "left behind",
+		"a clean teardown reports the plain cause, not what stood up")
 
 	remote, err := gitCapture(t, repo,
 		"ls-remote", "origin", "refs/heads/plan/7")
@@ -369,6 +377,49 @@ func TestStartUnwindReleasesTheLeaseAndNamesTheLane(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "plan 7: release", subject,
 		"the unwind pushes the release marker")
+}
+
+// TestStartUnwindNamesWhatTeardownLeftBehindWhenItFails: when the
+// teardown itself errors, the failure it could not clean up after is
+// surfaced by naming the worktree and pane still standing — so
+// `frit orphans` finds them — and the lease is still released.
+func TestStartUnwindNamesWhatTeardownLeftBehindWhenItFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New(
+				"agent target pane wZ:p1 is not an available shell")
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+			return nil, errors.New("workspace busy")
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a dead handoff is a failure")
+	assert.Contains(t, errb.String(), "atlas-shader-unit",
+		"the error names the worktree left behind")
+	assert.Contains(t, errb.String(), "wZ:p1",
+		"the error names the pane left behind")
+
+	remote, err := gitCapture(t, repo,
+		"ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.NotEmpty(t, remote, "the unwind deletes nothing")
+	subject, err := gitCapture(t, repo,
+		"log", "-1", "--format=%s", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: release", subject,
+		"the lease still releases even though the teardown failed")
 }
 
 // TestStartTakesOverAStaleLease: start's escalation meets a stale-held
@@ -727,4 +778,159 @@ func TestHandoffError(t *testing.T) {
 
 	assert.Equal(t, cause, handoffError("/lanes/atlas-x", "", cause),
 		"no pane stood up, so there is nothing to name")
+}
+
+// TestStartAgentStartRetriesAPaneNotReadyFailure: the pane herdr just
+// opened losing the race with its own shell settling — the transient
+// Phase 1's teardown cleans up after — is retried to success, so the
+// lane comes up started with no teardown and no lease release.
+func TestStartAgentStartRetriesAPaneNotReadyFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	prevPause := agentStartPause
+	agentStartPause = func() {}
+	t.Cleanup(func() { agentStartPause = prevPause })
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		attempt := 0
+		for _, c := range rec.calls {
+			if len(c) >= 2 && c[0] == "agent" && c[1] == "start" {
+				attempt++
+			}
+		}
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			if attempt == 1 {
+				return nil, errors.New(`{"error":{"code":"agent_pane_busy",` +
+					`"message":"agent target pane wZ:p1 is not an available shell"}}`)
+			}
+			return nil, nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wZ:p1",` +
+				`"agent_session":{"value":"sess-1"}}]}}`), nil
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Equal(t, 2, rec.count("agent", "start"),
+		"agent start was retried past the transient failure")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"a retry that succeeds tears nothing down")
+	assert.Contains(t, out.String(), "started plan 7")
+
+	subject, err := gitCapture(t, repo,
+		"log", "-1", "--format=%s", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject,
+		"the lease is bound to the started session, never released")
+}
+
+// TestStartAgentStartDoesNotRetryANonTransientFailure: an agent-start
+// error that is not herdr's pane-not-ready signal fails after a
+// single attempt and drops straight into Phase 1's teardown.
+func TestStartAgentStartDoesNotRetryANonTransientFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	prevPause := agentStartPause
+	agentStartPause = func() {}
+	t.Cleanup(func() { agentStartPause = prevPause })
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New("the agent binary is missing")
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a real fault is a failure")
+	assert.Equal(t, 1, rec.count("agent", "start"),
+		"a non-transient error is not retried")
+	assert.True(t, rec.verb("worktree", "remove"),
+		"the single failed attempt drops into phase 1's teardown")
+}
+
+// TestPaneNotReadyMatchesHerdrsSignal: only herdr's own transient —
+// code agent_pane_busy, message "not an available shell" — reads as
+// retriable; any other agent-start failure is a real fault.
+func TestPaneNotReadyMatchesHerdrsSignal(t *testing.T) {
+	assert.True(t, paneNotReady(errors.New(`{"error":{"code":"agent_pane_busy",`+
+		`"message":"agent target pane wZ:p1 is not an available shell"}}`)))
+	assert.False(t, paneNotReady(errors.New("the agent binary is missing")))
+	assert.False(t, paneNotReady(nil))
+}
+
+// TestStartAgentDoesNotPauseAfterTheFinalAttempt: once every retry is
+// spent, startAgent returns straight to the caller's teardown rather
+// than pausing once more for an attempt it will never make.
+func TestStartAgentDoesNotPauseAfterTheFinalAttempt(t *testing.T) {
+	prevPause := agentStartPause
+	pauses := 0
+	agentStartPause = func() { pauses++ }
+	t.Cleanup(func() { agentStartPause = prevPause })
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		return nil, errors.New(`{"error":{"code":"agent_pane_busy",` +
+			`"message":"agent target pane wZ:p1 is not an available shell"}}`)
+	}}
+
+	err := startAgent(rt, discovery.Plan{ID: 7}, report.StartPlan{}, "wZ:p1")
+
+	require.Error(t, err)
+	assert.Equal(t, agentStartAttempts-1, pauses,
+		"the pause between attempts never fires after the last one")
+}
+
+// TestTeardownHandoffDerivesTheWorkspaceFromThePane: herdr names a
+// pane <workspace>:<pane>, so the workspace worktree.remove takes is
+// the segment before the colon.
+func TestTeardownHandoffDerivesTheWorkspaceFromThePane(t *testing.T) {
+	var got []string
+	rt := &runtime{herdr: func(args ...string) ([]byte, error) {
+		got = args
+
+		return nil, nil
+	}}
+
+	err := teardownHandoff(rt, "wZ:p1")
+
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]string{"worktree", "remove", "--workspace", "wZ", "--json"}, got)
+}
+
+// TestTeardownHandoffSurfacesTheRunnerError: a teardown that itself
+// fails is reported rather than swallowed, so buildStart's failure
+// branch can fall back to naming what was left behind.
+func TestTeardownHandoffSurfacesTheRunnerError(t *testing.T) {
+	want := errors.New("workspace busy")
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		return nil, want
+	}}
+
+	err := teardownHandoff(rt, "wZ:p1")
+
+	assert.ErrorIs(t, err, want)
 }

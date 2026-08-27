@@ -127,6 +127,21 @@ func TestAgentStartOmitsModelWhenEmpty(t *testing.T) {
 	assert.NotContains(t, got, "--")
 }
 
+// TestAgentStartSurfacesTheRunnerError: the runner's error, body and
+// all, passes through unmodified — a caller matching herdr's
+// pane-not-ready signal in it needs the raw text, not a wrapped one.
+func TestAgentStartSurfacesTheRunnerError(t *testing.T) {
+	want := errors.New(`{"error":{"code":"agent_pane_busy",` +
+		`"message":"agent target pane wZ:p1 is not an available shell"}}`)
+	runner := func(...string) ([]byte, error) { return nil, want }
+
+	err := AgentStart(runner, AgentSpec{Name: "plan-7", Kind: "claude", Pane: "wZ:p1"})
+
+	assert.ErrorIs(t, err, want)
+	assert.Contains(t, err.Error(), "agent_pane_busy")
+	assert.Contains(t, err.Error(), "not an available shell")
+}
+
 // TestCurrentPaneReadsTheWorkspaceOfTheCallingPane: yield tears down
 // the lane it is itself running in, so it asks herdr which pane and
 // workspace that is rather than an agent read.
