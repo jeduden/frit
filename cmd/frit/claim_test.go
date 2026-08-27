@@ -114,6 +114,8 @@ func TestClaimStandsUpItsWorktree(t *testing.T) {
 		"a claim stands its lane's worktree up through herdr")
 	assert.True(t, rec.hasArg("plan/7"),
 		"the worktree is checked out on the id-only claim branch")
+	assert.True(t, rec.hasArg("atlas plan 7"),
+		"the pane label names the plan's repo, not the id alone")
 	assert.False(t, rec.verb("agent", "start"),
 		"the agent is start's rung, not claim's")
 	assert.Contains(t, out.String(), "worktree:",
