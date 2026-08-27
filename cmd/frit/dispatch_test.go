@@ -267,6 +267,21 @@ func TestOpenCarriesAnUnreachableHerdr(t *testing.T) {
 		"an unread herdr leaves presence unknown, so start is not named")
 }
 
+// TestPresenceUnknownCoversBothUnreadPaths pins the decision open makes
+// before it names a start rung: a clean presence read that simply found
+// no lane is not unknown, but either an unreachable herdr or an
+// unreadable configured host is — a lane may run behind the gap. Both
+// disjuncts are driven here because open clears next_action on either,
+// and the remote read (real ssh, wall clock) cannot be driven end to end.
+func TestPresenceUnknownCoversBothUnreadPaths(t *testing.T) {
+	assert.False(t, presenceUnknown(nil, nil),
+		"a clean read that found no lane is not unknown presence")
+	assert.True(t, presenceUnknown(errors.New("dial: no socket"), nil),
+		"an unreachable herdr leaves presence unknown")
+	assert.True(t, presenceUnknown(nil, []hostProblem{{name: "host box"}}),
+		"an unreadable host leaves presence unknown")
+}
+
 // TestOpenReportsNoLiveLane: a plan nobody is working has no pane to
 // raise. Open says so plainly and focuses nothing.
 func TestOpenReportsNoLiveLane(t *testing.T) {

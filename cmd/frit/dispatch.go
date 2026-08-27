@@ -46,7 +46,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	if herdrErr != nil || len(hostProbs) > 0 {
+	if presenceUnknown(herdrErr, hostProbs) {
 		doc.PresenceUnknown()
 	}
 	if found {
@@ -63,6 +63,17 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// presenceUnknown decides whether open read live presence at all before
+// it names a next action. A herdr it could not reach, or a configured
+// host that answered with neither a live read nor a cached one, leaves a
+// lane possible behind the gap — distinct from a clean read that simply
+// found no lane, which does name the start rung. Kept a pure function of
+// the two read outcomes so both disjuncts drive red/green without the
+// remote read's ssh and wall clock.
+func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
+	return herdrErr != nil || len(hostProbs) > 0
 }
 
 // liveLaneFor finds the pane working one of a plan's hold branches, if
