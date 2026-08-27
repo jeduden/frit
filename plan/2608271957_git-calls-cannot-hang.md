@@ -26,7 +26,7 @@ phases:
     status: "✅"
   - n: 4
     title: casPush no longer misreports a landed push as lost
-    status: "🔲"
+    status: "🔳"
   - n: 5
     title: release and claim spend one deadline, not one per sequential call
     status: "🔲"
