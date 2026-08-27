@@ -1,7 +1,7 @@
 ---
 id: 2608272240
 title: nudge treats an unread host as presence unknown, not an absent lane
-status: "🔲"
+status: "🔳"
 summary: >-
   nudge special-cases only an unreachable herdr as "presence unknown"; a
   configured host that went unread (no cache, or no cache path) leaves
