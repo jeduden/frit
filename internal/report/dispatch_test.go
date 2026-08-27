@@ -12,8 +12,8 @@ import (
 // <id>` is named only when presence was read cleanly and no lane
 // exists — nudge would refuse a laneless plan, so start is the rung. It
 // is empty when a lane was focused (watch it, do not escalate) and
-// empty when herdr was unreachable, because a lane may be running
-// behind the socket open could not read.
+// empty when presence could not be read, because a lane may be running
+// behind the socket open could not reach.
 func TestOpenNextActionNamesStartOnlyWhenNoLaneIsLiveAndKnown(t *testing.T) {
 	laneless := NewOpen("/fleet", "atlas", 7, "Shader unit")
 	assert.Equal(t, "frit start 7", laneless.NextAction,
@@ -25,9 +25,21 @@ func TestOpenNextActionNamesStartOnlyWhenNoLaneIsLiveAndKnown(t *testing.T) {
 		"a focused lane is watched, not escalated")
 
 	unknown := NewOpen("/fleet", "atlas", 7, "Shader unit")
-	unknown.AddProblem("herdr", assert.AnError)
+	unknown.PresenceUnknown()
 	assert.Equal(t, "", unknown.NextAction,
-		"an unreachable herdr leaves presence unknown, so start is not named")
+		"unread presence leaves a lane possible, so start is not named")
+}
+
+// TestOpenNextActionSurvivesANonPresenceProblem pins that a repo-read
+// failure carried into the report — an unrelated broken checkout under
+// --all — does not suppress the escalation. open still read the target
+// plan's presence and found no lane, so start stays named; only an
+// unread presence (PresenceUnknown) clears it.
+func TestOpenNextActionSurvivesANonPresenceProblem(t *testing.T) {
+	doc := NewOpen("/fleet", "atlas", 7, "Shader unit")
+	doc.AddProblem("beacon", assert.AnError)
+	assert.Equal(t, "frit start 7", doc.NextAction,
+		"a repo-read problem does not make the target plan's presence unknown")
 }
 
 // TestStartHandoffTracksTheThreeTransitions pins the one axis a

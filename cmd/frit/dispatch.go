@@ -46,6 +46,9 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
+	if herdrErr != nil || len(hostProbs) > 0 {
+		doc.PresenceUnknown()
+	}
 	if found {
 		if err := herdr.Focus(rt.herdr, lane.Pane.PaneID); err != nil {
 			return fmt.Errorf("focus %s: %w", lane.Pane.PaneID, err)

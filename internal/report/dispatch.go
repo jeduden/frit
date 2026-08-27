@@ -43,8 +43,10 @@ type OpenDoc struct {
 	// NextAction is the verb a consumer runs when open raised nothing:
 	// frit start <id>, the rung that creates a lane, since nudge would
 	// refuse a laneless plan. It is empty once a lane is focused (watch
-	// it, do not escalate) and empty when a problem left presence
-	// unknown, because a lane may run behind a socket open could not read.
+	// it, do not escalate) and empty when PresenceUnknown records that
+	// open could not read live presence, because a lane may run behind
+	// the socket. A carried repo-read problem does not touch it — the
+	// target plan's presence was still read.
 	NextAction string `json:"next_action"`
 	// Problems carries a repository frit could not read and a herdr it
 	// could not reach. Presence is the one thing open needs live, but a
@@ -54,8 +56,8 @@ type OpenDoc struct {
 
 // NewOpen opens a handoff report for a resolved plan. NextAction starts
 // at frit start <id>, the escalation for a plan with no live lane; Focus
-// and AddProblem clear it, so it survives only when open confirmed no
-// lane exists.
+// and PresenceUnknown clear it, so it survives only when open read
+// presence and confirmed no lane exists.
 func NewOpen(root string, repo string, id int64, title string) *OpenDoc {
 	return &OpenDoc{
 		header:     newHeader("open"),
@@ -77,11 +79,18 @@ func (d *OpenDoc) Focus(lane herdr.Lane) {
 	d.NextAction = ""
 }
 
-// AddProblem records a socket frit could not read. Presence is then
-// unknown — a lane may run behind it — so no escalation is named.
+// PresenceUnknown records that open could not read live presence — a
+// herdr it could not reach, or a host it could not query. A lane may be
+// running behind the gap, so no escalation is named: NextAction clears.
+// This is distinct from AddProblem, which carries a repo frit could not
+// read without implying the target plan's presence went unread.
+func (d *OpenDoc) PresenceUnknown() { d.NextAction = "" }
+
+// AddProblem records a repository or socket frit could not read. It does
+// not touch NextAction: a carried repo-read failure does not mean the
+// target plan's presence went unread — PresenceUnknown says that.
 func (d *OpenDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
-	d.NextAction = ""
 }
 
 // NudgeDoc is what `frit nudge` composed and, with --go, sent: the typed
