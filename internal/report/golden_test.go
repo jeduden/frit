@@ -382,6 +382,9 @@ func goldenStart() *StartDoc {
 // of the already-dispatched prompt, the whole point of the field.
 func goldenStartRunning() *StartDoc {
 	doc := goldenStart()
+	// A dispatch only reaches MarkStarted under --go, so a running doc
+	// always carries go: true — pin the reachable state, not go: false.
+	doc.Go = true
 	doc.MarkStarted("wC:p1")
 
 	return doc
