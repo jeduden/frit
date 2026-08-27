@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 3
     title: A repository git refuses to answer for is named, not dropped
-    status: "🔳"
+    status: "✅"
   - n: 4
     title: casPush no longer misreports a landed push as lost
     status: "🔲"
@@ -317,7 +317,7 @@ it. Confirm it returns in roughly 3s, not a multiple of it.
 - [x] `fetchRemote` skips a remote only when the listing genuinely
       does not name it; a listing failure surfaces as `fetchRemote`'s
       own error.
-- [ ] A repository `discover.Repos` could not read is named, not
+- [x] A repository `discover.Repos` could not read is named, not
       silently dropped, and reaches `fleet.Gather`'s `Problems`.
 - [ ] `casPush` tells a confirmed-absent ref apart from a
       reconciliation read that itself failed.

@@ -3,6 +3,7 @@ package fleet
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -89,7 +90,7 @@ type Options struct {
 func Gather(
 	root, host string, run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) (Result, error) {
-	repos, err := discover.Repos(root, run)
+	repos, skipped, err := discover.Repos(root, run)
 	if err != nil {
 		return Result{}, err
 	}
@@ -98,6 +99,13 @@ func Gather(
 		Plans:    []discovery.Plan{},
 		Problems: []Problem{},
 		Coords:   map[string]Coord{},
+	}
+	for _, s := range skipped {
+		res.Problems = append(res.Problems, Problem{
+			Repo: filepath.Base(s.Dir),
+			Err: fmt.Errorf(
+				"could not read repository at %s: %w", s.Dir, s.Err),
+		})
 	}
 	ambiguous := map[string]bool{}
 	for _, repo := range repos {

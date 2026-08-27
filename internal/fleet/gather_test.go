@@ -526,3 +526,32 @@ func TestGatherLeavesAnUnfetchedDefaultBranchProblemless(t *testing.T) {
 			"no remote-tracking ref means nothing to compare")
 	}
 }
+
+// TestGatherReportsASkippedRepositoryAsAProblem: a candidate git
+// refuses to answer for does not vanish from the walk — it reaches
+// Gather's own Problems, the same channel a fetch failure already
+// reports through, and every other repository still gathers.
+func TestGatherReportsASkippedRepositoryAsAProblem(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	broken := filepath.Join(root, "broken")
+	require.NoError(t, os.MkdirAll(broken, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(broken, ".git"),
+		[]byte("gitdir: /nonexistent\n"), 0o600))
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
+		"the good repo still gathers")
+
+	var found bool
+	for _, p := range res.Problems {
+		if p.Repo == "broken" {
+			found = true
+		}
+	}
+	assert.True(t, found,
+		"a repo git refuses to answer for is a problem, not a silent drop")
+}

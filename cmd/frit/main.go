@@ -193,7 +193,7 @@ type orphansCmd struct{}
 // Run reports what is claimed but unstaffed, prepared but unstarted,
 // held past its takeover window, or already gone.
 func (o *orphansCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -451,7 +451,7 @@ type staleCmd struct {
 
 // Run reports worktrees whose branch tip has not moved for a while.
 func (s *staleCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -565,7 +565,7 @@ A repository with no plan/proto.md has nothing to check.`
 // Run scans every repository's plan directory for the semantic gaps
 // frit now depends on, read-only — see Help.
 func (d *doctorCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -997,7 +997,7 @@ type reposCmd struct{}
 
 // Run lists every repository under the configured root.
 func (r *reposCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -1034,7 +1034,7 @@ func (p *plansCmd) planDir(repoPath string) (string, error) {
 // Run reads plan files off every ref of every repository under the
 // root and indexes them. Nothing is checked out.
 func (p *plansCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}

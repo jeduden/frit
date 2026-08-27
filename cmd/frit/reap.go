@@ -26,7 +26,7 @@ type reapCmd struct {
 // worktree. It is a dry-run by default and acts only on --go, exactly
 // like nudge and start.
 func (rc *reapCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
