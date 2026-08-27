@@ -7,11 +7,11 @@
     "id": 2608161810,
     "title": "The dispatch ladder"
   },
-  "focused": true,
-  "target": "wC:p1",
-  "agent": "claude",
-  "status": "working",
-  "branch": "plan/2608161810-dispatch",
-  "next_action": "",
+  "focused": false,
+  "target": "",
+  "agent": "",
+  "status": "",
+  "branch": "",
+  "next_action": "frit start 2608161810",
   "problems": []
 }

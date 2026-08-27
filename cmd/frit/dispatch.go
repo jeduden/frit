@@ -111,6 +111,9 @@ func printOpen(out io.Writer, doc *report.OpenDoc) {
 	if !doc.Focused {
 		_, _ = fmt.Fprintf(out,
 			"no live lane for plan %d to open\n", doc.Plan.ID)
+		if doc.NextAction != "" {
+			_, _ = fmt.Fprintf(out, "  start it with %s\n", doc.NextAction)
+		}
 		return
 	}
 
