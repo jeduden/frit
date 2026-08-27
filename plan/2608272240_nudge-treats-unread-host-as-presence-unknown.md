@@ -1,7 +1,7 @@
 ---
 id: 2608272240
 title: nudge treats an unread host as presence unknown, not an absent lane
-status: "🔳"
+status: "✅"
 summary: >-
   nudge special-cases only an unreachable herdr as "presence unknown"; a
   configured host that went unread (no cache, or no cache path) leaves
@@ -15,7 +15,7 @@ depends-on: [2608260639]
 phases:
   - n: 1
     title: nudge refuses on unread presence, not an absent lane
-    status: "🔲"
+    status: "✅"
 ---
 # nudge treats an unread host as presence unknown, not an absent lane
 
@@ -101,12 +101,12 @@ refusal reason changed.
 
 ## Acceptance Criteria
 
-- [ ] nudge refuses with a presence-unknown reason when a configured host
+- [x] nudge refuses with a presence-unknown reason when a configured host
       went unread and `herdrErr` is nil
-- [ ] The unread host still travels in the document's `problems`
-- [ ] nudge sends no prompt when presence is unknown
-- [ ] An unreachable herdr still refuses with `herdr unreachable`
-- [ ] `nudgeSend`'s `no live lane` refusal is unchanged for a read-but-
+- [x] The unread host still travels in the document's `problems`
+- [x] nudge sends no prompt when presence is unknown
+- [x] An unreachable herdr still refuses with `herdr unreachable`
+- [x] `nudgeSend`'s `no live lane` refusal is unchanged for a read-but-
       laneless plan
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
