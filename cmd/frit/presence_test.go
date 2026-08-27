@@ -87,7 +87,11 @@ func TestHostProblemsFlagsStaleAndUnreachable(t *testing.T) {
 
 	require.Len(t, probs, 2)
 	assert.Equal(t, "host cold", probs[0].name)
+	assert.True(t, probs[0].noPresence,
+		"a host with nothing cached read no presence at all")
 	assert.Contains(t, probs[0].err.Error(), "no cached presence")
 	assert.Equal(t, "host stale", probs[1].name)
+	assert.False(t, probs[1].noPresence,
+		"a stale host still served cached presence, just old")
 	assert.Contains(t, probs[1].err.Error(), "5m")
 }

@@ -132,9 +132,11 @@ family answers the one question consistently.
 presence was read. That is the next rung: `nudge` refuses a laneless
 plan, and `open` has nothing to raise. It is empty when a lane was
 focused — watch it, do not escalate. It is empty too when presence could
-not be read, an unreachable herdr or an unread host, because a lane may
-run behind the gap. A carried repo-read problem (`AddProblem`) does not
-clear it. Only `PresenceUnknown` does. So an unrelated broken checkout
+not be read, an unreachable herdr or a host with no cache at all, because
+a lane may run behind the gap. A host served from stale cache is not that
+case. Its cached panes were still searched, so the rung stands. A carried
+repo-read problem (`AddProblem`) does not clear it. Only `PresenceUnknown`
+does. So an unrelated broken checkout
 under `--all` never suppresses the rung. `start` stays the authority on
 whether the rung proceeds. For a done or blocked plan it reports its own
 refusal. That is why `open` names the rung rather than reimplementing
