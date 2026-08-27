@@ -19,7 +19,7 @@ func TestReposGroupsLinkedWorktreesUnderOneRepo(t *testing.T) {
 	git(t, repo, "worktree", "add", "-q", "-b", "plan/2608142306",
 		filepath.Join(root, "atlas-fleet-index"))
 
-	got, err := Repos(root, gitwt.Exec)
+	got, _, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1, "two checkouts, one repository")
@@ -33,7 +33,7 @@ func TestReposFindsSeveralRepositories(t *testing.T) {
 	initRepo(t, root, "alpha")
 	initRepo(t, root, "beta")
 
-	got, err := Repos(root, gitwt.Exec)
+	got, _, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -46,7 +46,7 @@ func TestReposDoesNotDescendIntoARepository(t *testing.T) {
 	outer := initRepo(t, root, "outer")
 	initRepo(t, outer, "nested")
 
-	got, err := Repos(root, gitwt.Exec)
+	got, _, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1, "a vendored checkout is not a fleet lane")
@@ -58,7 +58,7 @@ func TestReposSkipsNoiseDirectories(t *testing.T) {
 	initRepo(t, filepath.Join(root, "node_modules"), "dep")
 	initRepo(t, filepath.Join(root, ".cache"), "hidden")
 
-	got, err := Repos(root, gitwt.Exec)
+	got, _, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -69,18 +69,22 @@ func TestReposOnARootWithNoRepositories(t *testing.T) {
 	require.NoError(t,
 		os.MkdirAll(filepath.Join(root, "docs"), 0o750))
 
-	got, err := Repos(root, gitwt.Exec)
+	got, _, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
 func TestReposFailsOnAMissingRoot(t *testing.T) {
-	_, err := Repos(filepath.Join(t.TempDir(), "absent"), gitwt.Exec)
+	_, _, err := Repos(filepath.Join(t.TempDir(), "absent"), gitwt.Exec)
 
 	require.Error(t, err)
 }
 
+// TestReposSkipsACandidateGitRefusesToAnswerFor: a candidate git
+// refuses to answer for does not abort the walk or vanish silently —
+// it is named in the skipped list so a caller can choose to surface
+// it, and every other candidate is still read.
 func TestReposSkipsACandidateGitRefusesToAnswerFor(t *testing.T) {
 	root := t.TempDir()
 	// A .git file that points nowhere: git errors, and the walk must
@@ -91,11 +95,14 @@ func TestReposSkipsACandidateGitRefusesToAnswerFor(t *testing.T) {
 		[]byte("gitdir: /nonexistent\n"), 0o600))
 	initRepo(t, root, "good")
 
-	got, err := Repos(root, gitwt.Exec)
+	got, skipped, err := Repos(root, gitwt.Exec)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "good", got[0].Name)
+	require.Len(t, skipped, 1)
+	assert.Equal(t, broken, skipped[0].Dir)
+	assert.Error(t, skipped[0].Err)
 }
 
 func TestSkipDirNamesNoiseAndDotfiles(t *testing.T) {

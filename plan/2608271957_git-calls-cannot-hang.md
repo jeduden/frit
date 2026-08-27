@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 3
     title: A repository git refuses to answer for is named, not dropped
-    status: "🔲"
+    status: "🔳"
   - n: 4
     title: casPush no longer misreports a landed push as lost
     status: "🔲"
