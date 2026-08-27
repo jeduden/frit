@@ -245,7 +245,7 @@ func standUpClaimWorktree(
 		Branch: branch,
 		Base:   coord.Base,
 		Path:   path,
-		Label:  fmt.Sprintf("plan %d", plan.ID),
+		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
 	}); err != nil {
 		doc.Warn(fmt.Sprintf("worktree not stood up: %v", err))
 		return

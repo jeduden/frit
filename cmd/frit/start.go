@@ -528,7 +528,7 @@ func standUpLane(
 		Branch: sp.Branch,
 		Base:   sp.Base,
 		Path:   sp.Lane,
-		Label:  fmt.Sprintf("plan %d", plan.ID),
+		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("worktree create: %w", err)

@@ -1,7 +1,7 @@
 ---
 id: 2608262155
 title: The herdr pane label names the plan's repo, not the id alone
-status: "🔲"
+status: "✅"
 summary: >-
   start labels the pane it stands a lane up in "plan <id>", so a fleet
   driving lanes across several repositories shows a column of panes that
@@ -14,6 +14,10 @@ summary: >-
   lease's herdr session, never the label text.
 model: sonnet
 depends-on: []
+phases:
+  - n: 1
+    title: The pane label carries the repo
+    status: "✅"
 ---
 # The herdr pane label names the plan's repo, not the id alone
 
@@ -96,11 +100,11 @@ string is pinned where it is composed.
 
 ## Acceptance Criteria
 
-- [ ] `start --go` labels the pane it opens with the plan's repository
+- [x] `start --go` labels the pane it opens with the plan's repository
       and id, not the id alone
-- [ ] The label is composed once, in `standUpLane`, from `plan.Repo` and
+- [x] The label is composed once, in `standUpLane`, from `plan.Repo` and
       `plan.ID`
-- [ ] No ref frit mints and no agent-binding path changes; the label
+- [x] No ref frit mints and no agent-binding path changes; the label
       stays display-only
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
