@@ -172,6 +172,26 @@ func (e *RescueConflictError) Error() string {
 			"fetch and inspect it, then delete it and retry", e.Rescue)
 }
 
+// UnconfirmedPushError reports a push that failed and whose
+// reconciliation read also failed — the same stalled or dropped
+// connection took out both calls, so casPush cannot tell a lost race,
+// a landed push, or a genuinely absent ref apart. Unlike those three,
+// a blind retry is unsafe here: the retry mints a new marker commit,
+// so it cannot land on top of a push that already succeeded.
+type UnconfirmedPushError struct {
+	PlanID int64
+	Err    error // the reconciliation read's own failure
+}
+
+func (e *UnconfirmedPushError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: push failed and could not be confirmed either way; "+
+			"it may have landed — check before retrying: %v",
+		e.PlanID, e.Err)
+}
+
+func (e *UnconfirmedPushError) Unwrap() error { return e.Err }
+
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
 //
 // An absent ref is acquired fresh at epoch 1 on the base; a ref whose
@@ -932,7 +952,14 @@ func casPush(
 		return false, marker, nil
 	}
 
-	now := remoteHolder(repoDir, opts.Remote, ref, run)
+	now, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
+	if readErr != nil {
+		// The reconciliation read failed too — the same stalled or
+		// dropped connection took out both calls. Unlike a confirmed
+		// absence, a retry here is unsafe: it mints a new marker commit,
+		// so it cannot land on top of a push that already succeeded.
+		return false, "", &UnconfirmedPushError{PlanID: opts.PlanID, Err: readErr}
+	}
 	switch now {
 	case marker:
 		// Our own marker is on the remote: the push landed even though
@@ -941,7 +968,7 @@ func casPush(
 		syncLocalRef(repoDir, ref, marker, run)
 		return false, marker, nil
 	case "":
-		// Nothing on the remote, or it could not be read: the push left
+		// The remote answered and the ref carries nothing: the push left
 		// no ref, so this is a real fault, not a lost arbitration.
 		return false, "", pushErr
 	default:

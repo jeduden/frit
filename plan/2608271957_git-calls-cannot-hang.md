@@ -26,7 +26,7 @@ phases:
     status: "✅"
   - n: 4
     title: casPush no longer misreports a landed push as lost
-    status: "🔳"
+    status: "✅"
   - n: 5
     title: release and claim spend one deadline, not one per sequential call
     status: "🔲"
@@ -319,7 +319,7 @@ it. Confirm it returns in roughly 3s, not a multiple of it.
       own error.
 - [x] A repository `discover.Repos` could not read is named, not
       silently dropped, and reaches `fleet.Gather`'s `Problems`.
-- [ ] `casPush` tells a confirmed-absent ref apart from a
+- [x] `casPush` tells a confirmed-absent ref apart from a
       reconciliation read that itself failed.
 - [ ] `release`/`claim` against a fully stalled remote return within
       roughly one `--git-timeout`, not a multiple of it.
