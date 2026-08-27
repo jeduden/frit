@@ -86,6 +86,14 @@ type cli struct {
 	// $FRIT_FETCH or a config file like --root.
 	Fetch bool `negatable:"" default:"true" env:"FRIT_FETCH" help:"Refresh remote-tracking refs; --no-fetch skips."`
 
+	// GitTimeout bounds every git subprocess so a stalled network call
+	// fails fast instead of hanging the command that made it — see
+	// gitwt.WithTimeout, wrapped around rt.git once here rather than at
+	// each call site. The default is a generous backstop: a network
+	// fetch or push takes seconds, a local op milliseconds, so a
+	// healthy call never trips it.
+	GitTimeout time.Duration `default:"60s" env:"FRIT_GIT_TIMEOUT" help:"Fail a stalled git call after this long."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -2317,6 +2325,11 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if c.Width > 0 {
 		rt.width = c.Width
 	}
+
+	// Bound every git call for the run at this one seam, rather than
+	// at each call site, so a stalled fetch or push fails fast instead
+	// of hanging the command.
+	rt.git = gitwt.WithTimeout(rt.git, c.GitTimeout)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

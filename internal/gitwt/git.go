@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Runner runs a git subcommand inside dir and returns its stdout.
@@ -38,6 +39,39 @@ func Exec(dir string, args ...string) ([]byte, error) {
 	}
 
 	return stdout.Bytes(), nil
+}
+
+// WithTimeout bounds a Runner so a stalled call fails fast instead of
+// hanging the command that made it, mirroring presence.WithTimeout for
+// gitwt's own Runner shape.
+//
+// The wrapped call keeps running in its own goroutine — the buffered
+// channel lets it deliver into nothing and exit — so bounding the
+// wait does not leak the goroutine. It bounds the wait, not the
+// process: the underlying git subprocess is not killed and is
+// orphaned when frit exits. Killing it too needs a context handed
+// down to exec.CommandContext, which is a later refinement; here
+// what the bound protects is the command returning to its caller.
+func WithTimeout(run Runner, d time.Duration) Runner {
+	return func(dir string, args ...string) ([]byte, error) {
+		type reply struct {
+			out []byte
+			err error
+		}
+
+		done := make(chan reply, 1)
+		go func() {
+			out, err := run(dir, args...)
+			done <- reply{out: out, err: err}
+		}()
+
+		select {
+		case r := <-done:
+			return r.out, r.err
+		case <-time.After(d):
+			return nil, fmt.Errorf("git: timed out after %s", d)
+		}
+	}
 }
 
 // PipeRunner runs a git subcommand with stdin attached and returns

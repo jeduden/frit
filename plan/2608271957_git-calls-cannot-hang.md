@@ -1,7 +1,7 @@
 ---
 id: 2608271957
 title: A stalled git network call cannot hang a frit verb
-status: "🔳"
+status: "✅"
 summary: >-
   release acts on one plan but first runs a full fleet gather that,
   with --fetch on by default, does one serial git fetch per repo — and
@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: A bounded git runner fails a stalled call instead of hanging
-    status: "🔲"
+    status: "✅"
 ---
 # A stalled git network call cannot hang a frit verb
 
@@ -139,13 +139,13 @@ does not prove this; the run does.
 
 ## Acceptance Criteria
 
-- [ ] `gitwt.WithTimeout` bounds a `Runner`; a fake blocking past the
+- [x] `gitwt.WithTimeout` bounds a `Runner`; a fake blocking past the
       deadline returns an error within ~`d`, a fast fake passes
       through unchanged.
-- [ ] `rt.git` is wrapped so every git call in a run is bounded, with
+- [x] `rt.git` is wrapped so every git call in a run is bounded, with
       the deadline resolvable from `--git-timeout` / `FRIT_GIT_TIMEOUT`
       and a default that never trips a healthy call.
-- [ ] Against an unreachable remote, a fetching verb returns within
+- [x] Against an unreachable remote, a fetching verb returns within
       the deadline and names the fetch stale rather than hanging.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
