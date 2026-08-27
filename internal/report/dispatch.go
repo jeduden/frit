@@ -40,34 +40,48 @@ type OpenDoc struct {
 	Agent   string       `json:"agent"`
 	Status  string       `json:"status"`
 	Branch  string       `json:"branch"`
+	// NextAction is the verb a consumer runs when open raised nothing:
+	// frit start <id>, the rung that creates a lane, since nudge would
+	// refuse a laneless plan. It is empty once a lane is focused (watch
+	// it, do not escalate) and empty when a problem left presence
+	// unknown, because a lane may run behind a socket open could not read.
+	NextAction string `json:"next_action"`
 	// Problems carries a repository frit could not read and a herdr it
 	// could not reach. Presence is the one thing open needs live, but a
 	// missing socket, like a broken checkout, is reported, not crashed on.
 	Problems []Problem `json:"problems"`
 }
 
-// NewOpen opens a handoff report for a resolved plan.
+// NewOpen opens a handoff report for a resolved plan. NextAction starts
+// at frit start <id>, the escalation for a plan with no live lane; Focus
+// and AddProblem clear it, so it survives only when open confirmed no
+// lane exists.
 func NewOpen(root string, repo string, id int64, title string) *OpenDoc {
 	return &OpenDoc{
-		header:   newHeader("open"),
-		Root:     root,
-		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
-		Problems: []Problem{},
+		header:     newHeader("open"),
+		Root:       root,
+		Plan:       DispatchPlan{Repo: repo, ID: id, Title: title},
+		NextAction: fmt.Sprintf("frit start %d", id),
+		Problems:   []Problem{},
 	}
 }
 
-// Focus records the pane open raised and the lane it belongs to.
+// Focus records the pane open raised and the lane it belongs to. A lane
+// to watch is not one to escalate, so it clears NextAction.
 func (d *OpenDoc) Focus(lane herdr.Lane) {
 	d.Focused = true
 	d.Target = lane.Pane.PaneID
 	d.Agent = lane.Pane.Agent
 	d.Status = lane.Pane.Presence()
 	d.Branch = lane.Branch
+	d.NextAction = ""
 }
 
-// AddProblem records a socket frit could not read.
+// AddProblem records a socket frit could not read. Presence is then
+// unknown — a lane may run behind it — so no escalation is named.
 func (d *OpenDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
+	d.NextAction = ""
 }
 
 // NudgeDoc is what `frit nudge` composed and, with --go, sent: the typed

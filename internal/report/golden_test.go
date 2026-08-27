@@ -49,6 +49,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"find", goldenFind()},
 		{"board", goldenBoard()},
 		{"open", goldenOpen()},
+		{"open-nolane", goldenOpenNoLane()},
 		{"nudge", goldenNudge()},
 		{"claim", goldenClaim()},
 		{"release", goldenRelease()},
@@ -306,6 +307,14 @@ func goldenOpen() *OpenDoc {
 	})
 
 	return doc
+}
+
+// goldenOpenNoLane pins the shape open reports when nothing was live to
+// raise: focused false, and next_action naming frit start <id>, the
+// rung a consumer climbs to since a laneless plan has nothing to open
+// or nudge.
+func goldenOpenNoLane() *OpenDoc {
+	return NewOpen("/fleet", "atlas", 2608161810, "The dispatch ladder")
 }
 
 // goldenNudge pins the dry-run shape: the typed slash command nudge
