@@ -263,6 +263,8 @@ func TestOpenCarriesAnUnreachableHerdr(t *testing.T) {
 	assert.False(t, doc.Focused)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	assert.Empty(t, doc.NextAction,
+		"an unread herdr leaves presence unknown, so start is not named")
 }
 
 // TestOpenReportsNoLiveLane: a plan nobody is working has no pane to
@@ -280,6 +282,8 @@ func TestOpenReportsNoLiveLane(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.False(t, rec.verb("agent", "focus"), "nothing to focus")
 	assert.Contains(t, out.String(), "no live lane")
+	assert.Contains(t, out.String(), "start it with frit start 7",
+		"a laneless plan whose presence was read names the start rung")
 }
 
 func TestOpenEmitsJSON(t *testing.T) {
