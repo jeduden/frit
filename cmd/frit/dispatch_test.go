@@ -268,18 +268,23 @@ func TestOpenCarriesAnUnreachableHerdr(t *testing.T) {
 }
 
 // TestPresenceUnknownCoversBothUnreadPaths pins the decision open makes
-// before it names a start rung: a clean presence read that simply found
-// no lane is not unknown, but either an unreachable herdr or an
-// unreadable configured host is — a lane may run behind the gap. Both
-// disjuncts are driven here because open clears next_action on either,
-// and the remote read (real ssh, wall clock) cannot be driven end to end.
+// before it names a start rung: presence is unknown only when it went
+// truly unread. An unreachable herdr, or a host that answered with
+// nothing at all — no live read and no cache — leaves a lane possible.
+// A clean read that found no lane does not, and neither does a host
+// served from stale cache: it still contributed (old) presence to the
+// search, so a laneless result there is a real one. The remote read
+// (real ssh, wall clock) cannot be driven end to end, so the disjuncts
+// are pinned on the pure function.
 func TestPresenceUnknownCoversBothUnreadPaths(t *testing.T) {
 	assert.False(t, presenceUnknown(nil, nil),
 		"a clean read that found no lane is not unknown presence")
 	assert.True(t, presenceUnknown(errors.New("dial: no socket"), nil),
 		"an unreachable herdr leaves presence unknown")
-	assert.True(t, presenceUnknown(nil, []hostProblem{{name: "host box"}}),
-		"an unreadable host leaves presence unknown")
+	assert.True(t, presenceUnknown(nil, []hostProblem{{name: "host box", noPresence: true}}),
+		"a host with no presence at all leaves presence unknown")
+	assert.False(t, presenceUnknown(nil, []hostProblem{{name: "host box"}}),
+		"a host served from stale cache still read presence, so it is known")
 }
 
 // TestOpenReportsNoLiveLane: a plan nobody is working has no pane to

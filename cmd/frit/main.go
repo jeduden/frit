@@ -617,6 +617,11 @@ const (
 type hostProblem struct {
 	name string
 	err  error
+	// noPresence marks the host that answered with nothing at all — no
+	// live read and no cache — as opposed to one served stale. A stale
+	// host still contributed its cached panes to the search, so only a
+	// noPresence host leaves presence genuinely unread.
+	noPresence bool
 }
 
 // fleetPresence reads live panes across the fleet. The local socket is
@@ -665,8 +670,9 @@ func hostProblems(statuses []presence.Status) []hostProblem {
 		switch {
 		case !s.Seen:
 			probs = append(probs, hostProblem{
-				name: "host " + string(s.Host),
-				err:  errors.New("unreachable, no cached presence"),
+				name:       "host " + string(s.Host),
+				err:        errors.New("unreachable, no cached presence"),
+				noPresence: true,
 			})
 		case !s.Fresh:
 			probs = append(probs, hostProblem{

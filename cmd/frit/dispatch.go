@@ -67,13 +67,24 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 
 // presenceUnknown decides whether open read live presence at all before
 // it names a next action. A herdr it could not reach, or a configured
-// host that answered with neither a live read nor a cached one, leaves a
-// lane possible behind the gap — distinct from a clean read that simply
-// found no lane, which does name the start rung. Kept a pure function of
-// the two read outcomes so both disjuncts drive red/green without the
-// remote read's ssh and wall clock.
+// host that answered with neither a live read nor a cache, leaves a lane
+// possible behind the gap. A host served from stale cache is not that
+// case — it still contributed its cached panes to the search, so a
+// laneless result there is a real one and the start rung stands. So is a
+// clean read that simply found no lane. Kept a pure function of the read
+// outcomes so every case drives red/green without the remote read's ssh
+// and wall clock.
 func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
-	return herdrErr != nil || len(hostProbs) > 0
+	if herdrErr != nil {
+		return true
+	}
+	for _, p := range hostProbs {
+		if p.noPresence {
+			return true
+		}
+	}
+
+	return false
 }
 
 // liveLaneFor finds the pane working one of a plan's hold branches, if
