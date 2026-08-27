@@ -51,11 +51,13 @@ func TestFleetPresenceSurfacesTheLocalSocketError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestFleetPresenceFallsBackToLocalWithoutACachePath: if no cache
-// location can be resolved, the fan-out has nowhere to fall back, so
-// fleetPresence reads the local socket and reaches no remote rather than
-// returning nothing.
-func TestFleetPresenceFallsBackToLocalWithoutACachePath(t *testing.T) {
+// TestFleetPresenceMarksHostsUnreadWithoutACachePath: if no cache
+// location can be resolved, the remotes cannot be read or reconciled, so
+// fleetPresence reads the local socket alone — but the configured hosts
+// went unread, and that travels back as a noPresence problem rather than
+// reading as a clean local-only fleet a consumer could start a duplicate
+// lane against.
+func TestFleetPresenceMarksHostsUnreadWithoutACachePath(t *testing.T) {
 	// os.UserCacheDir fails when neither is set, forcing CachePath's error.
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("HOME", "")
@@ -70,9 +72,28 @@ func TestFleetPresenceFallsBackToLocalWithoutACachePath(t *testing.T) {
 
 	panes, probs, err := fleetPresence(&cli{Hosts: []string{"box"}}, rt)
 	require.NoError(t, err)
-	assert.Empty(t, probs)
 	require.Len(t, panes, 1)
-	assert.Equal(t, "local:p1", panes[0].PaneID)
+	assert.Equal(t, "local:p1", panes[0].PaneID, "the local socket still stands")
+	require.Len(t, probs, 1, "the configured host went unread")
+	assert.Equal(t, "host box", probs[0].name)
+	assert.True(t, probs[0].noPresence,
+		"no cache path means the remote was never read")
+}
+
+// TestUnreadHostsFlagsEveryConfiguredHost: with no cache path the
+// remotes cannot be read, so every configured host comes back as a
+// noPresence problem — an empty roster yields an empty, non-nil list.
+func TestUnreadHostsFlagsEveryConfiguredHost(t *testing.T) {
+	assert.Empty(t, unreadHosts(nil))
+
+	probs := unreadHosts([]string{"box", "borg"})
+	require.Len(t, probs, 2)
+	assert.Equal(t, "host box", probs[0].name)
+	assert.Equal(t, "host borg", probs[1].name)
+	for _, p := range probs {
+		assert.True(t, p.noPresence, "no cache path means nothing was read")
+		assert.Contains(t, p.err.Error(), "no cache path")
+	}
 }
 
 // TestHostProblemsFlagsStaleAndUnreachable: a fresh host is silent, an
@@ -87,7 +108,11 @@ func TestHostProblemsFlagsStaleAndUnreachable(t *testing.T) {
 
 	require.Len(t, probs, 2)
 	assert.Equal(t, "host cold", probs[0].name)
+	assert.True(t, probs[0].noPresence,
+		"a host with nothing cached read no presence at all")
 	assert.Contains(t, probs[0].err.Error(), "no cached presence")
 	assert.Equal(t, "host stale", probs[1].name)
+	assert.False(t, probs[1].noPresence,
+		"a stale host still served cached presence, just old")
 	assert.Contains(t, probs[1].err.Error(), "5m")
 }

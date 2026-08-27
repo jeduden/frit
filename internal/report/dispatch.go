@@ -1,6 +1,10 @@
 package report
 
-import "github.com/jeduden/frit/internal/herdr"
+import (
+	"fmt"
+
+	"github.com/jeduden/frit/internal/herdr"
+)
 
 // WholePlanPhase is what a dispatch doc reports in Phase for a plan
 // that carries no ledger: the whole plan is the dispatch, so an empty
@@ -36,32 +40,88 @@ type OpenDoc struct {
 	Agent   string       `json:"agent"`
 	Status  string       `json:"status"`
 	Branch  string       `json:"branch"`
+	// NextAction is the verb a consumer runs when open raised nothing:
+	// frit start <id>, the rung that creates a lane, since nudge would
+	// refuse a laneless plan. It is empty once a lane is focused (watch
+	// it, do not escalate) and empty when presence could not be read,
+	// because a lane may run behind the socket. A carried repo-read
+	// problem does not touch it — the target plan's presence was still
+	// read. The value is not written directly: it is openNextAction of
+	// Focused and presenceUnknown, refreshed whenever either changes, so
+	// it cannot disagree with them.
+	NextAction string `json:"next_action"`
+	// presenceUnknown records that open could not read live presence — a
+	// herdr it could not reach, or a host it could not query. It stays
+	// off the wire (NextAction is the field a consumer reads) but drives
+	// the projection, so a focused lane found after an unread host still
+	// resolves correctly regardless of call order.
+	presenceUnknown bool
 	// Problems carries a repository frit could not read and a herdr it
 	// could not reach. Presence is the one thing open needs live, but a
 	// missing socket, like a broken checkout, is reported, not crashed on.
 	Problems []Problem `json:"problems"`
 }
 
-// NewOpen opens a handoff report for a resolved plan.
+// openNextAction derives the verb open hands a consumer from its two
+// authoritative facts. A focused lane is watched, not escalated; unread
+// presence leaves a lane possible, so neither names the start rung. Only
+// a plan with no lane whose presence was read escalates.
+func openNextAction(focused, presenceUnknown bool, id int64) string {
+	if focused || presenceUnknown {
+		return ""
+	}
+
+	return fmt.Sprintf("frit start %d", id)
+}
+
+// NewOpen opens a handoff report for a resolved plan. NextAction is
+// projected from the empty starting state: no lane found, presence read,
+// so frit start <id>. Focus and PresenceUnknown refresh it as they
+// change the facts it derives from.
 func NewOpen(root string, repo string, id int64, title string) *OpenDoc {
-	return &OpenDoc{
+	d := &OpenDoc{
 		header:   newHeader("open"),
 		Root:     root,
 		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
 		Problems: []Problem{},
 	}
+	d.refreshNextAction()
+
+	return d
 }
 
-// Focus records the pane open raised and the lane it belongs to.
+// refreshNextAction reprojects NextAction from the current facts. Every
+// method that changes Focused or presenceUnknown calls it, which is the
+// one place NextAction is written — it can never lag the facts.
+func (d *OpenDoc) refreshNextAction() {
+	d.NextAction = openNextAction(d.Focused, d.presenceUnknown, d.Plan.ID)
+}
+
+// Focus records the pane open raised and the lane it belongs to. A lane
+// to watch is not one to escalate, so the refreshed projection clears
+// NextAction.
 func (d *OpenDoc) Focus(lane herdr.Lane) {
 	d.Focused = true
 	d.Target = lane.Pane.PaneID
 	d.Agent = lane.Pane.Agent
 	d.Status = lane.Pane.Presence()
 	d.Branch = lane.Branch
+	d.refreshNextAction()
 }
 
-// AddProblem records a socket frit could not read.
+// PresenceUnknown records that open could not read live presence — a
+// herdr it could not reach, or a host it could not query. A lane may be
+// running behind the gap, so the refreshed projection names no
+// escalation. This is distinct from AddProblem, which carries a repo
+// frit could not read without implying the target's presence went unread.
+func (d *OpenDoc) PresenceUnknown() {
+	d.presenceUnknown = true
+	d.refreshNextAction()
+}
+
+// AddProblem records a repository or socket frit could not read. It does
+// not touch the projection: a carried repo-read failure does not mean the
+// target plan's presence went unread — PresenceUnknown says that.
 func (d *OpenDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
@@ -349,6 +409,30 @@ func (d *ReleaseDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
+// The handoff values a StartDoc reports: the one axis a consumer keys on
+// instead of re-deriving "the prompt is not mine" from started/refused.
+const (
+	// HandoffPreview is a dry run the caller would cause with --go.
+	HandoffPreview = "preview"
+	// HandoffRunning is the prompt dispatched to a spawned agent now
+	// executing it.
+	HandoffRunning = "running"
+	// HandoffNone is a refused escalation: nothing runs.
+	HandoffNone = "none"
+)
+
+// startNextAction derives the verb a consumer runs instead of the
+// dispatched prompt from the handoff alone. A running handoff hands over
+// frit open <id>, a look at the lane; every other handoff leaves the
+// prompt as the recipe and names nothing.
+func startNextAction(handoff string, id int64) string {
+	if handoff == HandoffRunning {
+		return fmt.Sprintf("frit open %d", id)
+	}
+
+	return ""
+}
+
 // StartDoc is the full escalation `frit start` composes: the claim it
 // would mint, the worktree and agent herdr would stand up, the tier the
 // plan declares, and the typed prompt it would send.
@@ -386,11 +470,16 @@ type StartDoc struct {
 	// the escalation has run.
 	Pane string `json:"pane"`
 	// Handoff is the one axis a consumer keys on instead of re-deriving
-	// "the prompt is not mine" from started/refused: "running" once the
-	// prompt is dispatched to a spawned agent now executing it,
-	// "preview" for a dry run the caller would cause with --go, "none"
-	// when the escalation was refused and nothing runs.
+	// "the prompt is not mine" from started/refused. It is one of
+	// HandoffPreview, HandoffRunning or HandoffNone, and is written only
+	// through setHandoff, which reprojects NextAction alongside it.
 	Handoff string `json:"handoff"`
+	// NextAction is the verb a consumer runs instead of the dispatched
+	// Prompt: frit open <id> once Handoff is HandoffRunning, empty on a
+	// preview or a refusal, where Prompt is still the recipe to run. It is
+	// not written directly — it is startNextAction of Handoff, refreshed
+	// by setHandoff, so it cannot disagree with the handoff it mirrors.
+	NextAction string `json:"next_action"`
 	// Refused is why the escalation was withheld — a plan not startable,
 	// or a claim lost to another machine — empty when start proceeded.
 	Refused string `json:"refused"`
@@ -422,7 +511,7 @@ func NewStart(
 		phase = WholePlanPhase
 	}
 
-	return &StartDoc{
+	d := &StartDoc{
 		header:   newHeader("start"),
 		Root:     root,
 		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
@@ -434,22 +523,32 @@ func NewStart(
 		Lane:     sp.Lane,
 		Prompt:   sp.Prompt,
 		Go:       wantGo,
-		Handoff:  "preview",
 		Problems: []Problem{},
 	}
+	d.setHandoff(HandoffPreview)
+
+	return d
+}
+
+// setHandoff moves the handoff and reprojects NextAction from it in the
+// same step, so the two are the only pair the document keeps in sync and
+// they cannot part. It is the one writer of both fields.
+func (d *StartDoc) setHandoff(handoff string) {
+	d.Handoff = handoff
+	d.NextAction = startNextAction(handoff, d.Plan.ID)
 }
 
 // Refuse records why the escalation was withheld, leaving Started false.
 func (d *StartDoc) Refuse(reason string) {
 	d.Refused = reason
-	d.Handoff = "none"
+	d.setHandoff(HandoffNone)
 }
 
 // MarkStarted records that the escalation ran and the pane it stood up.
 func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
-	d.Handoff = "running"
+	d.setHandoff(HandoffRunning)
 }
 
 // MarkResumed records that the escalation is standing the lane back up

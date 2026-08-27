@@ -263,6 +263,28 @@ func TestOpenCarriesAnUnreachableHerdr(t *testing.T) {
 	assert.False(t, doc.Focused)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	assert.Empty(t, doc.NextAction,
+		"an unread herdr leaves presence unknown, so start is not named")
+}
+
+// TestPresenceUnknownCoversBothUnreadPaths pins the decision open makes
+// before it names a start rung: presence is unknown only when it went
+// truly unread. An unreachable herdr, or a host that answered with
+// nothing at all — no live read and no cache — leaves a lane possible.
+// A clean read that found no lane does not, and neither does a host
+// served from stale cache: it still contributed (old) presence to the
+// search, so a laneless result there is a real one. The remote read
+// (real ssh, wall clock) cannot be driven end to end, so the disjuncts
+// are pinned on the pure function.
+func TestPresenceUnknownCoversBothUnreadPaths(t *testing.T) {
+	assert.False(t, presenceUnknown(nil, nil),
+		"a clean read that found no lane is not unknown presence")
+	assert.True(t, presenceUnknown(errors.New("dial: no socket"), nil),
+		"an unreachable herdr leaves presence unknown")
+	assert.True(t, presenceUnknown(nil, []hostProblem{{name: "host box", noPresence: true}}),
+		"a host with no presence at all leaves presence unknown")
+	assert.False(t, presenceUnknown(nil, []hostProblem{{name: "host box"}}),
+		"a host served from stale cache still read presence, so it is known")
 }
 
 // TestOpenReportsNoLiveLane: a plan nobody is working has no pane to
@@ -280,6 +302,8 @@ func TestOpenReportsNoLiveLane(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.False(t, rec.verb("agent", "focus"), "nothing to focus")
 	assert.Contains(t, out.String(), "no live lane")
+	assert.Contains(t, out.String(), "start it with frit start 7",
+		"a laneless plan whose presence was read names the start rung")
 }
 
 func TestOpenEmitsJSON(t *testing.T) {

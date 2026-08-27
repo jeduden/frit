@@ -46,6 +46,9 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
+	if presenceUnknown(herdrErr, hostProbs) {
+		doc.PresenceUnknown()
+	}
 	if found {
 		if err := herdr.Focus(rt.herdr, lane.Pane.PaneID); err != nil {
 			return fmt.Errorf("focus %s: %w", lane.Pane.PaneID, err)
@@ -60,6 +63,28 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// presenceUnknown decides whether open read live presence at all before
+// it names a next action. A herdr it could not reach, or a configured
+// host that answered with neither a live read nor a cache, leaves a lane
+// possible behind the gap. A host served from stale cache is not that
+// case — it still contributed its cached panes to the search, so a
+// laneless result there is a real one and the start rung stands. So is a
+// clean read that simply found no lane. Kept a pure function of the read
+// outcomes so every case drives red/green without the remote read's ssh
+// and wall clock.
+func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
+	if herdrErr != nil {
+		return true
+	}
+	for _, p := range hostProbs {
+		if p.noPresence {
+			return true
+		}
+	}
+
+	return false
 }
 
 // liveLaneFor finds the pane working one of a plan's hold branches, if
@@ -111,6 +136,9 @@ func printOpen(out io.Writer, doc *report.OpenDoc) {
 	if !doc.Focused {
 		_, _ = fmt.Fprintf(out,
 			"no live lane for plan %d to open\n", doc.Plan.ID)
+		if doc.NextAction != "" {
+			_, _ = fmt.Fprintf(out, "  start it with %s\n", doc.NextAction)
+		}
 		return
 	}
 

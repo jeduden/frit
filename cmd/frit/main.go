@@ -617,6 +617,11 @@ const (
 type hostProblem struct {
 	name string
 	err  error
+	// noPresence marks the host that answered with nothing at all — no
+	// live read and no cache — as opposed to one served stale. A stale
+	// host still contributed its cached panes to the search, so only a
+	// noPresence host leaves presence genuinely unread.
+	noPresence bool
 }
 
 // fleetPresence reads live panes across the fleet. The local socket is
@@ -640,9 +645,12 @@ func fleetPresence(
 
 	path, perr := presence.CachePath()
 	if perr != nil {
-		// With nowhere to cache last-known presence, the local socket
-		// still stands rather than nothing; the remotes wait for a cache.
-		return local, nil, nil
+		// With nowhere to reconcile last-known presence, the remotes
+		// cannot be read at all, so the local socket stands alone — but
+		// the configured hosts went unread, and that travels as a problem
+		// rather than reading as a clean local-only fleet a consumer could
+		// start a duplicate lane against.
+		return local, unreadHosts(c.Hosts), nil
 	}
 
 	exec := func(name string, args ...string) ([]byte, error) {
@@ -655,6 +663,23 @@ func fleetPresence(
 	return append(local, remotePanes...), hostProblems(statuses), nil
 }
 
+// unreadHosts flags every configured host as unread, for the degraded
+// path where no cache location resolves and the remotes cannot be read
+// at all. Each is noPresence: nothing, live or cached, was seen, so a
+// consumer must not read a laneless result as license to start.
+func unreadHosts(hosts []string) []hostProblem {
+	probs := make([]hostProblem, 0, len(hosts))
+	for _, h := range hosts {
+		probs = append(probs, hostProblem{
+			name:       "host " + h,
+			err:        errors.New("unread, no cache path to reconcile against"),
+			noPresence: true,
+		})
+	}
+
+	return probs
+}
+
 // hostProblems turns the reconciled per-host statuses into the problems
 // a report carries: a host never reached is unreachable, and one served
 // from cache is flagged with how stale its presence is. A fresh read is
@@ -665,8 +690,9 @@ func hostProblems(statuses []presence.Status) []hostProblem {
 		switch {
 		case !s.Seen:
 			probs = append(probs, hostProblem{
-				name: "host " + string(s.Host),
-				err:  errors.New("unreachable, no cached presence"),
+				name:       "host " + string(s.Host),
+				err:        errors.New("unreachable, no cached presence"),
+				noPresence: true,
 			})
 		case !s.Fresh:
 			probs = append(probs, hostProblem{

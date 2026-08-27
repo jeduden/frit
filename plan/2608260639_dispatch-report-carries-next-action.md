@@ -1,7 +1,7 @@
 ---
 id: 2608260639
 title: A dispatched handoff carries the consumer's next action, not a bare prompt
-status: "🔲"
+status: "✅"
 summary: >-
   After `frit pick --go`/`start --go`, the JSON still carries a bare
   `prompt` field that reads as "run this yourself", though the prompt
@@ -71,6 +71,9 @@ verbs are fixed by the one field.
    `frit open <id>` when a handoff is running and empty otherwise.
 2. Re-record the `start.json` golden and pin the field across the
    preview / running / none states.
+3. Extend the same field to `OpenDoc` (see the extension below): name
+   `frit start <id>` for a laneless plan whose presence was read, and
+   make `next_action` a drift-proof projection on both documents.
 
 ## Phase 1: the JSON dispatch carries the consumer's next action
 
@@ -108,21 +111,59 @@ clean.
 
 ## Execution
 
-One phase, JSON-only. The design is settled above; the phase implements
-from written assertions and is guarded by unit and golden assertions,
-with a built-binary check that the running value composes the plan id.
+One phase for `StartDoc`. The design is settled above; the phase
+implements from written assertions and is guarded by unit and golden
+assertions, with a built-binary check that the running value composes
+the plan id. The extension below carries the same field to `open`.
 
 | Phase              | Design | Implement | Gate that catches a wrong answer                                                 |
 | ------------------ | ------ | --------- | -------------------------------------------------------------------------------- |
 | 1 json next_action | opus   | sonnet    | next_action is `frit open <id>` when running, `""` on preview/none; golden holds |
 
+## Extension: open carries the same next action
+
+The plan's title is about a *dispatched handoff*, and `open` is the
+sibling rung with the same gap: its JSON reported a resolved plan but
+never the verb a consumer should run when no lane was live. This
+extension carries `next_action` to `OpenDoc` too, so the whole handoff
+family answers the one question consistently.
+
+`open`'s `next_action` is `frit start <id>` when no lane is live and
+presence was read. That is the next rung: `nudge` refuses a laneless
+plan, and `open` has nothing to raise. It is empty when a lane was
+focused — watch it, do not escalate. It is empty too when presence could
+not be read, an unreachable herdr or a host with no cache at all, because
+a lane may run behind the gap. A host served from stale cache is not that
+case. Its cached panes were still searched, so the rung stands. A carried
+repo-read problem (`AddProblem`) does not clear it. Only `PresenceUnknown`
+does. So an unrelated broken checkout
+under `--all` never suppresses the rung. `start` stays the authority on
+whether the rung proceeds. For a done or blocked plan it reports its own
+refusal. That is why `open` names the rung rather than reimplementing
+readiness.
+
+On both documents `next_action` is a projection of its discriminant, not
+lockstep state. `StartDoc.setHandoff` is the sole writer of `handoff`
+and `next_action` together. `OpenDoc.refreshNextAction` reprojects from
+`Focused` and presence. So the field can never lag the facts.
+`printOpen` surfaces the rung as a `start it with …` line. So `open`'s
+table gained a line — this extension is not JSON-only.
+
 ## Acceptance Criteria
 
-- [ ] `StartDoc` JSON always carries `next_action`
-- [ ] `next_action` is `frit open <id>` on a live `--go` dispatch and
+- [x] `StartDoc` JSON always carries `next_action`
+- [x] `next_action` is `frit open <id>` on a live `--go` dispatch and
       empty on a dry run or a refusal
-- [ ] `prompt` stays present and unchanged in every state
-- [ ] `pick --go` and `start --go` are both fixed by the one field
-- [ ] The `start.json` golden is re-recorded and every key stays present
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `prompt` stays present and unchanged in every state
+- [x] `pick --go` and `start --go` are both fixed by the one field
+- [x] The `start.json` golden is re-recorded and every key stays present
+- [x] `OpenDoc` JSON always carries `next_action`, `frit start <id>` when
+      no lane is live and presence was read, empty on a focused lane or
+      unread presence
+- [x] A carried repo-read problem does not clear `open`'s `next_action`;
+      only an unread presence does
+- [x] `next_action` is a projection of its discriminant on both docs, so
+      it cannot drift (`setHandoff`, `refreshNextAction`)
+- [x] The `open` / `open-nolane` / `start-running` goldens pin the field
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

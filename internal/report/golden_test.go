@@ -49,11 +49,13 @@ func TestGoldenShapes(t *testing.T) {
 		{"find", goldenFind()},
 		{"board", goldenBoard()},
 		{"open", goldenOpen()},
+		{"open-nolane", goldenOpenNoLane()},
 		{"nudge", goldenNudge()},
 		{"claim", goldenClaim()},
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
 		{"start", goldenStart()},
+		{"start-running", goldenStartRunning()},
 		{"start-wholeplan", goldenStartWholePlan()},
 		{"nudge-wholeplan", goldenNudgeWholePlan()},
 		{"orphans", goldenOrphans()},
@@ -308,6 +310,14 @@ func goldenOpen() *OpenDoc {
 	return doc
 }
 
+// goldenOpenNoLane pins the shape open reports when nothing was live to
+// raise: focused false, and next_action naming frit start <id>, the
+// rung a consumer climbs to since a laneless plan has nothing to open
+// or nudge.
+func goldenOpenNoLane() *OpenDoc {
+	return NewOpen("/fleet", "atlas", 2608161810, "The dispatch ladder")
+}
+
 // goldenNudge pins the dry-run shape: the typed slash command nudge
 // composed, the tier the plan declares, and the idle lane it would land
 // in — with nothing sent, because --go was not given.
@@ -364,6 +374,20 @@ func goldenStart() *StartDoc {
 			Lane:   "/fleet/atlas-dispatch-ladder",
 			Prompt: "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
 		}, false)
+}
+
+// goldenStartRunning pins the shape a live --go dispatch reports: the
+// escalation stood up and running in a pane, its handoff "running" and
+// next_action naming frit open <id> — the verb a consumer runs instead
+// of the already-dispatched prompt, the whole point of the field.
+func goldenStartRunning() *StartDoc {
+	doc := goldenStart()
+	// A dispatch only reaches MarkStarted under --go, so a running doc
+	// always carries go: true — pin the reachable state, not go: false.
+	doc.Go = true
+	doc.MarkStarted("wC:p1")
+
+	return doc
 }
 
 // goldenStartWholePlan pins the phase-less escalation shape: a plan
