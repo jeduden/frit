@@ -21,7 +21,7 @@ phases:
     status: "✅"
   - n: 2
     title: A claimed folder plan names its lane from the folder
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: The on-disk doctor scan sees folder plans and proves id sync
     status: "🔲"

@@ -15,6 +15,7 @@ import (
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/observe"
+	"github.com/jeduden/frit/internal/plans"
 	"github.com/jeduden/frit/internal/report"
 )
 
@@ -533,13 +534,20 @@ func claimRefusal(
 
 // defaultLanePath is where the lane's worktree lives by convention: a
 // sibling of the repository named for it, `<repo>-<slug>`, with the
-// slug taken from the plan file name after its id prefix — the branch
-// carries the id alone, so the human-readable name comes from the
-// file. frit does not create it — that is herdr's worktree.create —
-// but the marker records it so the lane's history names where the work
-// will live, the same path the dispatch ladder hands to herdr.
+// slug taken from the plan's own name after its id prefix — the
+// branch carries the id alone, so the human-readable name comes from
+// the file, or from the folder for a folder plan whose file is always
+// `plan.md`. frit does not create it — that is herdr's
+// worktree.create — but the marker records it so the lane's history
+// names where the work will live, the same path the dispatch ladder
+// hands to herdr.
 func defaultLanePath(repoPath, planPath string) string {
-	stem := strings.TrimSuffix(filepath.Base(planPath), ".md")
+	named := planPath
+	if filepath.Base(planPath) == plans.FixedName {
+		named = filepath.Dir(planPath)
+	}
+
+	stem := strings.TrimSuffix(filepath.Base(named), ".md")
 	slug := stem
 	if i := strings.IndexByte(stem, '_'); i >= 0 {
 		slug = stem[i+1:]
