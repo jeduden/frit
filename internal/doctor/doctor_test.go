@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,6 +39,53 @@ func writePlan(t *testing.T, root, filename, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
 		filepath.Join(root, "plan", filename), []byte(content), 0o600))
+}
+
+// writeFolderPlan lays a folder plan's fixed plan.md into
+// root/plan/<folder>/plan.md.
+func writeFolderPlan(t *testing.T, root, folder, content string) {
+	t.Helper()
+	dir := filepath.Join(root, "plan", folder)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t,
+		os.WriteFile(filepath.Join(dir, "plan.md"), []byte(content), 0o600))
+}
+
+// cleanPlanWithID renders a plan with no semantic gaps, so a fixture
+// built from it isolates whatever check the test adds beyond it.
+func cleanPlanWithID(id int64) string {
+	return fmt.Sprintf(`---
+id: %d
+title: A clean plan
+status: "🔲"
+model: sonnet
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# A clean plan
+
+## Goal
+
+Ship the thing.
+
+## Phase 1: One
+
+Do the one thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate |
+| ----- | ------ | --------- | ---- |
+| 1 one | sonnet | sonnet    | test one |
+
+## Tasks
+
+1. Do it.
+
+## Acceptance Criteria
+
+- [ ] It is done.
+`, id)
 }
 
 const cleanPlan = `---
@@ -287,4 +335,41 @@ model: bogus
 	assert.Equal(t, int64(200), got[2].ID)
 	assert.Less(t, got[0].Check, got[1].Check,
 		"same plan, checks sort by name: goal before schema")
+}
+
+// TestScanSeesFolderPlansAndProvesIDSync is Phase 3's RED: a folder
+// plan is scanned for the same gaps a flat plan is, and a plan of
+// either shape whose on-disk name disagrees with its front-matter id
+// is reported — never crashed on, never silently skipped.
+func TestScanSeesFolderPlansAndProvesIDSync(t *testing.T) {
+	root := newFixtureRoot(t)
+	writeFolderPlan(t, root, "2601030000_synced", cleanPlanWithID(2601030000))
+	writeFolderPlan(t, root, "2601040000_skewed", cleanPlanWithID(2601999999))
+	writeFolderPlan(t, root, "notanid_x", cleanPlanWithID(999))
+	writePlan(t, root, "2601060000_flatskew.md", cleanPlanWithID(2601999999))
+
+	got, err := Scan(root, "plan")
+	require.NoError(t, err)
+
+	byPath := map[string][]Finding{}
+	for _, f := range got {
+		byPath[f.Path] = append(byPath[f.Path], f)
+	}
+
+	assert.Empty(t,
+		byPath[filepath.Join("plan", "2601030000_synced", "plan.md")],
+		"a folder plan whose name agrees with its id is scanned clean, "+
+			"like a flat plan")
+
+	skewed := byPath[filepath.Join("plan", "2601040000_skewed", "plan.md")]
+	require.Len(t, skewed, 1)
+	assert.Equal(t, "id-sync", skewed[0].Check)
+
+	notAnID := byPath[filepath.Join("plan", "notanid_x", "plan.md")]
+	require.Len(t, notAnID, 1, "a non-numeric prefix is a mismatch, not a crash")
+	assert.Equal(t, "id-sync", notAnID[0].Check)
+
+	flatSkew := byPath["plan/2601060000_flatskew.md"]
+	require.Len(t, flatSkew, 1, "the id-sync check is not folder-only")
+	assert.Equal(t, "id-sync", flatSkew[0].Check)
 }
