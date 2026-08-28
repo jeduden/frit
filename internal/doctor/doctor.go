@@ -19,11 +19,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jeduden/mdsmith/pkg/mdsmith"
 
 	"github.com/jeduden/frit/internal/planmeta"
+	"github.com/jeduden/frit/internal/plans"
 )
 
 // ErrNoSchema reports a repository whose plan directory carries no
@@ -39,8 +41,8 @@ type Finding struct {
 	// Path is the plan file's path, relative to root.
 	Path string
 	// Check names which of doctor's checks produced this finding —
-	// "goal", "execution-row", "tier" or "schema" — matching the
-	// vocabulary the doctor --help text documents.
+	// "goal", "execution-row", "tier", "schema" or "id-sync" —
+	// matching the vocabulary the doctor --help text documents.
 	Check string
 	// Message is what is wrong, in prose. For "goal" and "schema" this
 	// is mdsmith's own diagnostic message, carried through rather than
@@ -57,11 +59,10 @@ func Scan(root, planDir string) ([]Finding, error) {
 		return nil, ErrNoSchema
 	}
 
-	paths, err := filepath.Glob(filepath.Join(root, planDir, "[0-9]*_*.md"))
+	paths, err := planPaths(root, planDir)
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
 
 	sess, err := mdsmith.NewSession(mdsmith.SessionOptions{
 		Workspace: mdsmith.OSWorkspace{Root: root},
@@ -91,6 +92,31 @@ func Scan(root, planDir string) ([]Finding, error) {
 	return out, nil
 }
 
+// planPaths lists every plan on disk, flat or folder: a flat
+// plan/*.md file, and each subdirectory's one fixed plan.md one level
+// deep — the same shape off-refs discovery keeps, so doctor and
+// discovery never drift on what counts as a folder plan. The folder
+// half stays loose by design: any one-level <dir>/plan.md is a
+// candidate, and a folder not named for its id is caught by the
+// id-sync check below rather than excluded here.
+func planPaths(root, planDir string) ([]string, error) {
+	flat, err := filepath.Glob(filepath.Join(root, planDir, "[0-9]*_*.md"))
+	if err != nil {
+		return nil, err
+	}
+
+	folder, err := filepath.Glob(
+		filepath.Join(root, planDir, "*", plans.FixedName))
+	if err != nil {
+		return nil, err
+	}
+
+	paths := append(flat, folder...)
+	sort.Strings(paths)
+
+	return paths, nil
+}
+
 // scanFile checks one plan file: planmeta's own body-derived checks,
 // plus whatever of mdsmith's diagnostics doctor cares about. A file
 // planmeta cannot parse as a plan is skipped rather than reported —
@@ -113,6 +139,9 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 	}
 
 	findings := checkPlan(plan, rel)
+	if f := checkIDSync(plan.ID, rel); f != nil {
+		findings = append(findings, *f)
+	}
 
 	diags, _ := sess.Check(rel, source)
 	findings = append(findings, checkDiagnostics(plan.ID, rel, diags)...)
@@ -152,6 +181,44 @@ func checkPlan(p planmeta.Plan, path string) []Finding {
 	}
 
 	return out
+}
+
+// checkIDSync reports a plan whose on-disk name disagrees with its
+// front-matter id: a flat file's stem, or a folder plan's folder name,
+// carries the same <id>_<slug> convention and the same latent skew, so
+// one check covers both shapes. Names are compared as strings, never
+// parsed, so a non-numeric or missing prefix is simply a mismatch —
+// never a crash, never a skip.
+func checkIDSync(id int64, rel string) *Finding {
+	token := leadingIDToken(rel)
+	want := strconv.FormatInt(id, 10)
+	if token == want {
+		return nil
+	}
+
+	return &Finding{
+		ID: id, Path: rel, Check: "id-sync",
+		Message: fmt.Sprintf(
+			"name %q does not match front-matter id %d", token, id),
+	}
+}
+
+// leadingIDToken takes the id token a plan's on-disk name carries: a
+// folder plan's folder name, or a flat plan's own file stem, up to its
+// first underscore.
+func leadingIDToken(rel string) string {
+	name := filepath.Base(rel)
+	if name == plans.FixedName {
+		name = filepath.Base(filepath.Dir(rel))
+	} else {
+		name = strings.TrimSuffix(name, ".md")
+	}
+
+	if i := strings.IndexByte(name, '_'); i >= 0 {
+		name = name[:i]
+	}
+
+	return name
 }
 
 // badTier returns the first of design or implement that names no

@@ -24,7 +24,7 @@ phases:
     status: "✅"
   - n: 3
     title: The on-disk doctor scan sees folder plans and proves id sync
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: Proto, scaffold, skills and mdsmith teach the folder layout
     status: "🔲"

@@ -557,14 +557,18 @@ func (d *doctorCmd) Help() string {
                   table
   tier            an Execution row naming a tier that is not haiku,
                   sonnet or opus
+  id-sync         a plan's on-disk name disagrees with its
+                  front-matter id — flat file stem or folder name,
+                  either shape
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
 repository's own plan/proto.md, rather than reimplementing a checker.
-execution-row and tier read the body data frit already parses for
-next and show — mdsmith's schema has no way to see inside a markdown
-table's cells, or cross-reference a table's rows against another
-section's headings.
+execution-row, tier and id-sync read the body and file-name data frit
+already parses for next and show — mdsmith's schema has no way to see
+inside a markdown table's cells, cross-reference a table's rows
+against another section's headings, or compare a file name to a
+front-matter field.
 
 A repository with no plan/proto.md has nothing to check.`
 }
