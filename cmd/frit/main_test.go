@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
@@ -328,6 +329,72 @@ func TestGitTimeoutMustBePositive(t *testing.T) {
 
 	assert.NotEqual(t, 0, code)
 	assert.Contains(t, errb.String(), "--git-timeout must be positive")
+}
+
+// blockingHerdr fakes a wedged herdr socket: the call starts, then
+// never returns within any reasonable bound. It is the hang the seam
+// wiring must survive.
+func blockingHerdr(agent map[string]any) herdr.Runner {
+	body := herdrReturning(agent)
+	return func(args ...string) ([]byte, error) {
+		time.Sleep(150 * time.Millisecond)
+
+		return body(args...)
+	}
+}
+
+// TestHerdrTimeoutFlagReachesTheHerdrRunner proves --herdr-timeout is
+// wired into rt.herdr, not just parsed: a wedged herdr read under a 1ns
+// bound loses the race for every call, so who finishes with the live
+// agent absent — presence read as unreachable — rather than hanging on
+// it, while the default bound still surfaces the pane.
+func TestHerdrTimeoutFlagReachesTheHerdrRunner(t *testing.T) {
+	isolate(t)
+	repo := repoOnPlan(t, t.TempDir(), "atlas",
+		"plan/2608161808-herdr-join")
+	withHerdr(t, blockingHerdr(map[string]any{
+		"agent":                   "claude",
+		"agent_status":            "working",
+		"cwd":                     repo,
+		"pane_id":                 "wC:p1",
+		"workspace_id":            "wC",
+		"terminal_title_stripped": "Land the join",
+	}))
+
+	var normal, errb bytes.Buffer
+	code := run([]string{"who", "--root", repo}, &normal, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, normal.String(), "claude",
+		"the default bound outwaits the fake and surfaces the pane")
+
+	var bounded bytes.Buffer
+	errb.Reset()
+	before := time.Now()
+	code = run([]string{"who", "--root", repo, "--herdr-timeout", "1ns"},
+		&bounded, &errb)
+	elapsed := time.Since(before)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, bounded.String(), "claude",
+		"a 1ns bound loses the race, so the wedged herdr read is dropped")
+	assert.Less(t, elapsed, 100*time.Millisecond,
+		"who returns without waiting out the wedged herdr")
+}
+
+// TestHerdrTimeoutMustBePositive: a zero or negative bound would trip
+// every herdr call the way TestGitTimeoutMustBePositive's does its git
+// ones, and look like herdr is unreachable rather than naming the
+// misconfigured flag. frit rejects it up front instead.
+func TestHerdrTimeoutMustBePositive(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "atlas")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"who", "--root", root, "--herdr-timeout", "0s"},
+		&out, &errb)
+
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "--herdr-timeout must be positive")
 }
 
 func TestRefNamesEveryWorktreeState(t *testing.T) {
