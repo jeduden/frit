@@ -110,7 +110,9 @@ hanging.
 - Add the `HerdrTimeout` field to the `cli` struct in
   [main.go](../cmd/frit/main.go): `default:"60s"`,
   `env:"FRIT_HERDR_TIMEOUT"`, help "Fail a stalled herdr call after
-  this long.", beside `GitTimeout`.
+  this.", beside `GitTimeout`. The longer `FRIT_HERDR_TIMEOUT` env name
+  leaves no room for `GitTimeout`'s "after this long." wording under the
+  120-column `lll` cap, so the help is trimmed.
 - Reject a non-positive `HerdrTimeout` up front, in the same block
   that rejects `GitTimeout`.
 - Wrap `rt.herdr = herdr.WithTimeout(rt.herdr, c.HerdrTimeout)` at the
