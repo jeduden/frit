@@ -79,6 +79,8 @@ func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
 	assert.Contains(t, out.String(), "started plan 7")
 	assert.True(t, rec.verb("agent", "prompt", "wZ:p1", "/plan-phase 7"),
 		"the whole-plan prompt carries no phase token")
+	assert.True(t, rec.hasArg("atlas plan 7"),
+		"the pane label names the plan's repo, not the id alone")
 }
 
 // TestStartRefusesAnAllDonePhasedPlan: a phased ledger whose every
