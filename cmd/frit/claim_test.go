@@ -913,3 +913,22 @@ func TestClaimLeavesADoneGlyphWithAFreshWindow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, remote, tip, "a fresh window leaves the ref alone")
 }
+
+// TestDefaultLanePathNamesAFolderPlanFromItsFolder: a folder plan's
+// file is always plan.md, so the slug must come from the folder that
+// carries the <id>_<slug> convention instead.
+func TestDefaultLanePathNamesAFolderPlanFromItsFolder(t *testing.T) {
+	got := defaultLanePath("/x/acme",
+		"plan/2601020000_folder-plans/plan.md")
+
+	assert.Equal(t, "/x/acme-folder-plans", got)
+}
+
+// TestDefaultLanePathStillNamesAFlatPlanFromItsFile: the flat shape is
+// unchanged by the folder rule.
+func TestDefaultLanePathStillNamesAFlatPlanFromItsFile(t *testing.T) {
+	got := defaultLanePath("/x/acme",
+		"plan/2601020000_folder-plans.md")
+
+	assert.Equal(t, "/x/acme-folder-plans", got)
+}
