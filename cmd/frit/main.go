@@ -96,6 +96,13 @@ type cli struct {
 	// either would trip on every call, including a local one.
 	GitTimeout time.Duration `default:"60s" env:"FRIT_GIT_TIMEOUT" help:"Fail a stalled git call after this long."`
 
+	// HerdrTimeout bounds every herdr subprocess the same way, at the
+	// same seam: rt.herdr is the single-host read board, who, and the
+	// held-plan presence check release and claim take all go through, so
+	// an unresponsive herdr socket would otherwise hang them with nothing
+	// printed. Must be positive for the same reason GitTimeout is.
+	HerdrTimeout time.Duration `default:"60s" env:"FRIT_HERDR_TIMEOUT" help:"Fail a stalled herdr call after this."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -2338,6 +2345,11 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 			"frit: --git-timeout must be positive, got %s\n", c.GitTimeout)
 		return 2
 	}
+	if c.HerdrTimeout <= 0 {
+		_, _ = fmt.Fprintf(stderr,
+			"frit: --herdr-timeout must be positive, got %s\n", c.HerdrTimeout)
+		return 2
+	}
 
 	// Bound every git call for the run at this one seam, rather than
 	// at each call site, so a stalled fetch or push fails fast instead
@@ -2347,6 +2359,10 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	// bound.
 	rt.git = gitwt.WithTimeout(rt.git, c.GitTimeout)
 	rt.gitPipe = gitwt.WithTimeoutPipe(rt.gitPipe, c.GitTimeout)
+	// The other subprocess a verb shells out to. rt.herdr is a plain
+	// exec of the herdr binary; bound here so a wedged socket cannot hang
+	// a verb that reads presence.
+	rt.herdr = herdr.WithTimeout(rt.herdr, c.HerdrTimeout)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

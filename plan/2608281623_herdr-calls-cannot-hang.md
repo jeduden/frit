@@ -1,7 +1,7 @@
 ---
 id: 2608281623
 title: A stalled herdr call cannot hang a frit verb
-status: "🔳"
+status: "✅"
 summary: >-
   `frit release` and any verb that reads presence for a held plan calls
   `herdr agent list` through `rt.herdr`, a raw unbounded subprocess. A
@@ -16,7 +16,7 @@ depends-on: [2608271957]
 phases:
   - n: 1
     title: A bounded herdr runner fails a stalled call instead of hanging
-    status: "🔳"
+    status: "✅"
 ---
 # A stalled herdr call cannot hang a frit verb
 
@@ -135,14 +135,14 @@ promptly under a 1ns bound — the whole point of the change.
 
 ## Acceptance Criteria
 
-- [ ] `herdr.WithTimeout` returns a timeout error when the wrapped
+- [x] `herdr.WithTimeout` returns a timeout error when the wrapped
       runner has not returned within the bound, and passes a prompt
       call's output and error through unchanged
-- [ ] `rt.herdr` is wrapped at the dispatch seam, so `release`,
+- [x] `rt.herdr` is wrapped at the dispatch seam, so `release`,
       `claim`, `board` and `who` all finish against a wedged herdr
       instead of hanging with nothing printed
-- [ ] `--herdr-timeout` (`FRIT_HERDR_TIMEOUT`, default 60s) is
+- [x] `--herdr-timeout` (`FRIT_HERDR_TIMEOUT`, default 60s) is
       accepted, and a non-positive value is rejected up front naming
       the flag
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

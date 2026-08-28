@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Runner runs a herdr subcommand and returns its stdout.
@@ -46,6 +47,39 @@ func run(name string, args ...string) ([]byte, error) {
 	}
 
 	return stdout.Bytes(), nil
+}
+
+// WithTimeout bounds a Runner so a stalled herdr call fails fast
+// instead of hanging the verb that made it, the way gitwt.WithTimeout
+// bounds a git Runner. Every single-host herdr read — board, who, and
+// the held-plan presence check release and claim take — goes through
+// rt.herdr, so wrapping it once at the dispatch seam bounds them all.
+//
+// It bounds the wait, not the process: the underlying herdr subprocess
+// is not killed and is orphaned when frit exits. The buffered channel
+// lets the wrapped call deliver into nothing and exit, so bounding the
+// wait does not leak the goroutine once herdr eventually returns.
+func WithTimeout(run Runner, d time.Duration) Runner {
+	return func(args ...string) ([]byte, error) {
+		type reply struct {
+			out []byte
+			err error
+		}
+
+		done := make(chan reply, 1)
+		go func() {
+			out, err := run(args...)
+			done <- reply{out: out, err: err}
+		}()
+
+		select {
+		case r := <-done:
+			return r.out, r.err
+		case <-time.After(d):
+			return nil, fmt.Errorf("herdr %s: timed out after %s",
+				strings.Join(args, " "), d)
+		}
+	}
 }
 
 // List reads the live panes from a herdr server.
