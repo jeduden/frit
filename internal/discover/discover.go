@@ -17,6 +17,15 @@ import (
 	"github.com/jeduden/frit/internal/gitwt"
 )
 
+// Skipped is a repository candidate git refused to answer for — its
+// directory and the error CommonDir or List returned — so a caller
+// that keeps a diagnostic channel can name it instead of letting it
+// vanish from every command's output with nothing said about why.
+type Skipped struct {
+	Dir string
+	Err error
+}
+
 // Repo is one git repository and every worktree attached to it.
 type Repo struct {
 	// Name is the main worktree's directory basename.
@@ -47,26 +56,36 @@ var skipDirs = map[string]bool{
 // Grouping is by git common directory, so the many sibling
 // worktrees of one repository collapse into a single Repo rather
 // than appearing as dozens of unrelated checkouts. A candidate that
-// git refuses to answer for is skipped rather than failing the walk:
-// one broken checkout should not blind the whole board.
-func Repos(root string, run gitwt.Runner) ([]Repo, error) {
+// git refuses to answer for does not fail the walk: it is reported
+// back in skipped instead, so one broken checkout does not blind the
+// whole board but is not silently unaccounted for either.
+func Repos(root string, run gitwt.Runner) ([]Repo, []Skipped, error) {
 	candidates, err := findWorkTrees(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	seen := make(map[string]bool, len(candidates))
 	out := make([]Repo, 0, len(candidates))
+	skipped := make([]Skipped, 0)
 
 	for _, dir := range candidates {
 		common, err := gitwt.CommonDir(dir, run)
-		if err != nil || seen[common] {
+		if err != nil {
+			skipped = append(skipped, Skipped{Dir: dir, Err: err})
+			continue
+		}
+		if seen[common] {
 			continue
 		}
 		seen[common] = true
 
 		worktrees, err := gitwt.List(dir, run)
-		if err != nil || len(worktrees) == 0 {
+		if err != nil {
+			skipped = append(skipped, Skipped{Dir: dir, Err: err})
+			continue
+		}
+		if len(worktrees) == 0 {
 			continue
 		}
 
@@ -86,7 +105,7 @@ func Repos(root string, run gitwt.Runner) ([]Repo, error) {
 		return out[i].Path < out[j].Path
 	})
 
-	return out, nil
+	return out, skipped, nil
 }
 
 // findWorkTrees returns every directory under root that carries a

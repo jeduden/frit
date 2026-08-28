@@ -86,6 +86,16 @@ type cli struct {
 	// $FRIT_FETCH or a config file like --root.
 	Fetch bool `negatable:"" default:"true" env:"FRIT_FETCH" help:"Refresh remote-tracking refs; --no-fetch skips."`
 
+	// GitTimeout bounds every git subprocess so a stalled network call
+	// fails fast instead of hanging the command that made it — see
+	// gitwt.WithTimeout and gitwt.WithTimeoutPipe, wrapped around
+	// rt.git and rt.gitPipe once here rather than at each call site.
+	// The default is a generous backstop: a network fetch or push
+	// takes seconds, a local op milliseconds, so a healthy call never
+	// trips it. Must be positive: run() rejects zero or negative, since
+	// either would trip on every call, including a local one.
+	GitTimeout time.Duration `default:"60s" env:"FRIT_GIT_TIMEOUT" help:"Fail a stalled git call after this long."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -183,7 +193,7 @@ type orphansCmd struct{}
 // Run reports what is claimed but unstaffed, prepared but unstarted,
 // held past its takeover window, or already gone.
 func (o *orphansCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -441,7 +451,7 @@ type staleCmd struct {
 
 // Run reports worktrees whose branch tip has not moved for a while.
 func (s *staleCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -555,7 +565,7 @@ A repository with no plan/proto.md has nothing to check.`
 // Run scans every repository's plan directory for the semantic gaps
 // frit now depends on, read-only — see Help.
 func (d *doctorCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -987,7 +997,7 @@ type reposCmd struct{}
 
 // Run lists every repository under the configured root.
 func (r *reposCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -1024,7 +1034,7 @@ func (p *plansCmd) planDir(repoPath string) (string, error) {
 // Run reads plan files off every ref of every repository under the
 // root and indexes them. Nothing is checked out.
 func (p *plansCmd) Run(c *cli, rt *runtime) error {
-	repos, err := discover.Repos(c.Root, rt.git)
+	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
 	}
@@ -2317,6 +2327,26 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if c.Width > 0 {
 		rt.width = c.Width
 	}
+
+	// A non-positive bound would make every git call — including a
+	// trivial local one — lose the race against time.After instantly,
+	// so the run would fail every call and look like every repository
+	// is unreachable rather than pointing at the misconfigured flag.
+	// Reject it up front instead.
+	if c.GitTimeout <= 0 {
+		_, _ = fmt.Fprintf(stderr,
+			"frit: --git-timeout must be positive, got %s\n", c.GitTimeout)
+		return 2
+	}
+
+	// Bound every git call for the run at this one seam, rather than
+	// at each call site, so a stalled fetch or push fails fast instead
+	// of hanging the command. gitPipe's batch reads are normally
+	// local, but a partial clone's promisor remote can still pull a
+	// missing object over the network on demand, so it gets the same
+	// bound.
+	rt.git = gitwt.WithTimeout(rt.git, c.GitTimeout)
+	rt.gitPipe = gitwt.WithTimeoutPipe(rt.gitPipe, c.GitTimeout)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
