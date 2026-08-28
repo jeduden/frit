@@ -88,4 +88,5 @@ footer: |
 | 2608271957 | ✅     | sonnet | [A stalled git network call cannot hang a frit verb](plan/2608271957_git-calls-cannot-hang.md)                                         |
 | 2608272240 | ✅     | sonnet | [nudge treats an unread host as presence unknown, not an absent lane](plan/2608272240_nudge-treats-unread-host-as-presence-unknown.md) |
 | 2608280653 | 🔲     | sonnet | [A plan may be a folder holding a fixed plan.md, beside flat plan files](plan/2608280653_folder-based-plans.md)                        |
+| 2608281623 | 🔲     | sonnet | [A stalled herdr call cannot hang a frit verb](plan/2608281623_herdr-calls-cannot-hang.md)                                             |
 <?/catalog?>
