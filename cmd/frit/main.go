@@ -184,7 +184,7 @@ func repoLanes(
 	// default-branch status can: a plan done there is landed work, and
 	// its claim ref is not a live hold. Reading the index costs the
 	// orphan report the same plan walk the fleet already runs.
-	files, err := plans.Collect(repo.Path, cfg.PlanDir, rt.git, rt.gitPipe)
+	files, _, err := plans.Collect(repo.Path, cfg.PlanDir, rt.git, rt.gitPipe)
 	if err != nil {
 		return nil, landedEvidence{}, err
 	}
@@ -1056,7 +1056,7 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 
-		files, err := plans.Collect(repo.Path, dir,
+		files, _, err := plans.Collect(repo.Path, dir,
 			rt.git, rt.gitPipe)
 		if err != nil {
 			// One unreadable repository must not blind the rest.

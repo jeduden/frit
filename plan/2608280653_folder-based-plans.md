@@ -1,7 +1,7 @@
 ---
 id: 2608280653
 title: A plan may be a folder holding a fixed plan.md, beside flat plan files
-status: "🔲"
+status: "🔳"
 summary: >-
   A plan is a single `plan/<id>_<slug>.md` file today; a plan that
   needs companion files (research, fixtures, diagrams) has nowhere to
@@ -18,7 +18,7 @@ depends-on: []
 phases:
   - n: 1
     title: Off-refs discovery reads a plan folder's plan.md as one plan
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: A claimed folder plan names its lane from the folder
     status: "🔲"

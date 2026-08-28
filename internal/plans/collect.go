@@ -4,6 +4,7 @@ package plans
 
 import (
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -13,6 +14,15 @@ import (
 
 // DefaultDir is where plan files live by convention.
 const DefaultDir = "plan"
+
+// FixedName is a plan folder's one fixed inner file, the folder
+// counterpart to a flat plan/<id>_<slug>.md file.
+const FixedName = "plan.md"
+
+// mislaidPlan matches a dropped file's base name against the same
+// <id>_<slug>.md shape a flat plan carries, so a plan-like file left
+// in the wrong place is reported rather than silently lost.
+var mislaidPlan = regexp.MustCompile(`^[0-9].*_.*\.md$`)
 
 // File is one plan file as it exists on one ref.
 //
@@ -45,35 +55,39 @@ func (f File) Short() string {
 // a few hundred working trees.
 func Collect(
 	dir, subdir string, run gitwt.Runner, pipe gitwt.PipeRunner,
-) ([]File, error) {
+) ([]File, []string, error) {
 	refs, err := gitobj.Refs(dir, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	trees, err := gitobj.TreeOIDs(dir, subdir, refs, pipe)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	entries, err := entriesByTree(dir, subdir, trees, run)
+	entries, ignored, err := entriesByTree(dir, subdir, trees, run)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	blobs, err := gitobj.Blobs(dir, blobOIDs(entries), pipe)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return assemble(refs, trees, entries, blobs), nil
+	return assemble(refs, trees, entries, blobs), ignored, nil
 }
 
-// entriesByTree lists each distinct tree exactly once.
+// entriesByTree lists each distinct tree exactly once, and collects
+// every mislaid plan-like path across all of them, deduplicated and
+// sorted so the report is stable.
 func entriesByTree(
 	dir, subdir string, trees map[string]string, run gitwt.Runner,
-) (map[string][]gitobj.TreeEntry, error) {
+) (map[string][]gitobj.TreeEntry, []string, error) {
 	out := make(map[string][]gitobj.TreeEntry)
+	seen := map[string]bool{}
+	var ignored []string
 
 	for _, tree := range trees {
 		if _, done := out[tree]; done {
@@ -81,34 +95,70 @@ func entriesByTree(
 		}
 		listed, err := gitobj.TreeEntries(dir, tree, run)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		out[tree] = markdownOnly(subdir, listed)
+		kept, mislaid := markdownOnly(subdir, listed)
+		out[tree] = kept
+		for _, p := range mislaid {
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			ignored = append(ignored, p)
+		}
 	}
+	sort.Strings(ignored)
 
-	return out, nil
+	return out, ignored, nil
 }
 
 // markdownOnly keeps the blobs that are plan files and restores
-// their repository-relative path.
+// their repository-relative path: a flat plan/*.md file, or a
+// folder's one fixed plan.md one level deep. Everything else beneath
+// the plan directory is not a plan; among what is dropped, a path
+// whose base still looks like a plan file name is a mislaid plan,
+// returned separately so it is reported rather than lost.
 //
 // The tree being listed is the subdirectory's own tree, so ls-tree
-// reports "a.md" where the repository holds "plan/a.md". Rejoining
-// the prefix here keeps Path meaning the same thing everywhere else
-// in frit. Sub-trees and non-markdown attachments are not plans.
+// reports "a.md" where the repository holds "plan/a.md", and
+// "folder/plan.md" where the repository holds "plan/folder/plan.md".
+// Depth is measured on that subdir-relative path, before the prefix
+// is rejoined, so a nested plan-dir still counts a folder as one
+// level deep.
 func markdownOnly(
 	subdir string, entries []gitobj.TreeEntry,
-) []gitobj.TreeEntry {
+) ([]gitobj.TreeEntry, []string) {
 	kept := make([]gitobj.TreeEntry, 0, len(entries))
+	var mislaid []string
 	for _, e := range entries {
 		if e.Type != "blob" || !strings.HasSuffix(e.Path, ".md") {
 			continue
 		}
-		e.Path = path.Join(subdir, e.Path)
-		kept = append(kept, e)
+		if isPlanPath(e.Path) {
+			e.Path = path.Join(subdir, e.Path)
+			kept = append(kept, e)
+			continue
+		}
+		if mislaidPlan.MatchString(path.Base(e.Path)) {
+			mislaid = append(mislaid, path.Join(subdir, e.Path))
+		}
 	}
 
-	return kept
+	return kept, mislaid
+}
+
+// isPlanPath reports whether a subdir-relative path is a flat plan
+// (one segment) or a folder plan's fixed plan.md (one folder deep).
+func isPlanPath(relPath string) bool {
+	segments := strings.Split(relPath, "/")
+	switch len(segments) {
+	case 1:
+		return true
+	case 2:
+		return segments[1] == FixedName
+	default:
+		return false
+	}
 }
 
 // blobOIDs collects the distinct object ids to fetch, sorted so the
