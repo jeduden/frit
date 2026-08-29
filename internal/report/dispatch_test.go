@@ -104,6 +104,27 @@ func TestStartNextActionTracksTheThreeTransitions(t *testing.T) {
 	assert.Equal(t, "", refused.NextAction, "a refusal names no next action")
 }
 
+// TestStartPromptDispatchedTracksTheThreeTransitions pins the boolean a
+// consumer checks instead of re-deriving "is this prompt mine to run"
+// from handoff: false on a fresh preview, true once MarkStarted sends
+// it into a spawned agent's pane, and false again on a refusal, where
+// Prompt is still the caller's recipe.
+func TestStartPromptDispatchedTracksTheThreeTransitions(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	assert.False(t, doc.PromptDispatched, "a fresh doc has not dispatched its prompt")
+
+	doc.MarkStarted("wZ:p1")
+	assert.True(t, doc.PromptDispatched,
+		"a started escalation has sent its prompt into the pane")
+
+	refused := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	refused.Refuse("already held")
+	assert.False(t, refused.PromptDispatched,
+		"a refusal never dispatched its prompt")
+}
+
 // TestNewStartRendersAnEmptyPhaseAsWholePlan: a phase-less plan is
 // dispatched as one whole-plan prompt, so its doc reports that rather
 // than a blank phase cell — blank reads as a missing field, not a

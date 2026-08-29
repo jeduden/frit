@@ -456,7 +456,15 @@ type StartDoc struct {
 	Base   string `json:"base"`
 	Lane   string `json:"lane"`
 	// Prompt is the whole composed slash command, the note folded in.
+	// See PromptDispatched for whether it has already been sent into a
+	// pane rather than left for the caller to run.
 	Prompt string `json:"prompt"`
+	// PromptDispatched is true exactly when Handoff is HandoffRunning —
+	// the prompt was sent into the pane — and false for a preview or a
+	// refusal, where Prompt is still the caller's recipe. It is written
+	// only through setHandoff, beside NextAction, so the three cannot
+	// part.
+	PromptDispatched bool `json:"prompt_dispatched"`
 	// Go is whether --go was given; Started is whether the escalation ran.
 	// They differ on a refusal: --go on an unstartable plan runs nothing.
 	Go      bool `json:"go"`
@@ -472,7 +480,8 @@ type StartDoc struct {
 	// Handoff is the one axis a consumer keys on instead of re-deriving
 	// "the prompt is not mine" from started/refused. It is one of
 	// HandoffPreview, HandoffRunning or HandoffNone, and is written only
-	// through setHandoff, which reprojects NextAction alongside it.
+	// through setHandoff, which reprojects NextAction and
+	// PromptDispatched alongside it.
 	Handoff string `json:"handoff"`
 	// NextAction is the verb a consumer runs instead of the dispatched
 	// Prompt: frit open <id> once Handoff is HandoffRunning, empty on a
@@ -530,12 +539,13 @@ func NewStart(
 	return d
 }
 
-// setHandoff moves the handoff and reprojects NextAction from it in the
-// same step, so the two are the only pair the document keeps in sync and
-// they cannot part. It is the one writer of both fields.
+// setHandoff moves the handoff and reprojects NextAction and
+// PromptDispatched from it in the same step, so the three stay in sync
+// and cannot part. It is the one writer of all three fields.
 func (d *StartDoc) setHandoff(handoff string) {
 	d.Handoff = handoff
 	d.NextAction = startNextAction(handoff, d.Plan.ID)
+	d.PromptDispatched = handoff == HandoffRunning
 }
 
 // Refuse records why the escalation was withheld, leaving Started false.
