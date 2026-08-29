@@ -313,6 +313,7 @@ func startExecute(
 		doc.Prompt = text
 	}
 
+	resume := resumeTip != ""
 	lease, err := startAcquire(rt, plan, sc, sp, resumeTip)
 	if err != nil {
 		// A lost race, or a veto, is returned, not swallowed: buildStart
@@ -321,8 +322,17 @@ func startExecute(
 		return err
 	}
 
-	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text)
+	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text, resume)
 	if err != nil {
+		if resume {
+			// startAcquire's own renewal above already stands — this
+			// lane already holds the lease, resumed on its own token,
+			// not seized. A pane it could not find is a stand-up
+			// failure, not a reason to give the lease up, so there is
+			// nothing here to release; the unwind below is for a fresh
+			// acquire or takeover's worktree.create branch only.
+			return err
+		}
 		// The lease is minted but nothing answers behind it. Tear down
 		// whatever herdr already stood up — the worktree and pane, if
 		// any — so the abort is atomic rather than leaving a freed claim
@@ -520,16 +530,26 @@ func paneNotReady(err error) bool {
 		strings.Contains(msg, "not an available shell")
 }
 
-// standUpLane hands the checkout, the agent, the prompt and the focus to
-// herdr in turn and returns the pane it opened, and the herdr session
-// the started agent was given — on failure too, once a pane exists, so
-// the unwind can name what stood up. Every call here is herdr's — frit
-// spawns nothing it does not hand straight over — and `agent read` is
-// deliberately never among them.
-func standUpLane(
+// laneStandUpPane is the pane standUpLane drives from: a resume's own
+// current pane — read the way currentSession already does, since a
+// resume runs from inside the lane it is resuming — or, for a fresh
+// acquire or a takeover, the pane herdr's worktree.create just opened.
+// A resume skips worktree.create entirely: the lane's own checkout
+// already occupies that path, and calling it anyway would fail with
+// "already used by worktree at <path>".
+func laneStandUpPane(
 	rt *runtime, plan discovery.Plan, sp report.StartPlan,
-	repoPath, text string,
-) (string, string, error) {
+	repoPath string, resume bool,
+) (string, error) {
+	if resume {
+		pane, err := herdr.CurrentPane(rt.herdr)
+		if err != nil {
+			return "", fmt.Errorf("current pane: %w", err)
+		}
+
+		return pane.PaneID, nil
+	}
+
 	pane, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
 		CWD:    repoPath,
 		Branch: sp.Branch,
@@ -538,7 +558,30 @@ func standUpLane(
 		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("worktree create: %w", err)
+		return "", fmt.Errorf("worktree create: %w", err)
+	}
+
+	return pane, nil
+}
+
+// standUpLane hands the checkout, the agent, the prompt and the focus to
+// herdr in turn and returns the pane it opened, and the herdr session
+// the started agent was given — on failure too, once a pane exists, so
+// the unwind can name what stood up. Every call here is herdr's — frit
+// spawns nothing it does not hand straight over — and `agent read` is
+// deliberately never among them.
+//
+// resume is true when the caller already sits inside the lane it is
+// resuming: standUpLane then drives the pane it is already in rather
+// than creating a worktree at a path its own checkout already
+// occupies.
+func standUpLane(
+	rt *runtime, plan discovery.Plan, sp report.StartPlan,
+	repoPath, text string, resume bool,
+) (string, string, error) {
+	pane, err := laneStandUpPane(rt, plan, sp, repoPath, resume)
+	if err != nil {
+		return "", "", err
 	}
 
 	if err := startAgent(rt, plan, sp, pane); err != nil {

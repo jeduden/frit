@@ -1,7 +1,7 @@
 ---
 id: 2608291751
 title: A merged human plan/<id> branch is not read as landed lease work
-status: "🔳"
+status: "✅"
 summary: >-
   `frit claim` reads a merged, human-authored `plan/<id>` branch — the
   branch a plan file was written and PR-merged on — as the plan's own
@@ -30,7 +30,7 @@ phases:
     status: "✅"
   - n: 4
     title: a start resumed from its own lane skips worktree create
-    status: "🔲"
+    status: "✅"
 ---
 # A merged human plan/<id> branch is not read as landed lease work
 
@@ -261,23 +261,23 @@ answer.
 
 ## Acceptance Criteria
 
-- [ ] `parseMarker` rejects a body whose subject kind is not a frit
+- [x] `parseMarker` rejects a body whose subject kind is not a frit
       marker kind, so a plan-authoring commit is never a lease marker
-- [ ] Every genuine marker — claim, beat, release, takeover, legacy
+- [x] Every genuine marker — claim, beat, release, takeover, legacy
       decorated claim — still parses
-- [ ] `frit claim` on a merged, human-authored `plan/<id>` branch
+- [x] `frit claim` on a merged, human-authored `plan/<id>` branch
       refuses as a lost race: no `scavenged:` line, no "set plan <id> to
       ✅"
-- [ ] The marker-kind list lives in one helper shared by `parseMarker`
+- [x] The marker-kind list lives in one helper shared by `parseMarker`
       and `terminalMarkerKind`
-- [ ] A worktree on the plan's branch at a path other than the recorded
+- [x] A worktree on the plan's branch at a path other than the recorded
       lane path is reported by `frit orphans`
-- [ ] `frit reap --go` tears that foreign checkout down
-- [ ] A `frit claim` whose worktree stand-up fails releases the lease it
+- [x] `frit reap --go` tears that foreign checkout down
+- [x] A `frit claim` whose worktree stand-up fails releases the lease it
       minted and reports the refusal; the next `claim` acquires at once
-- [ ] `claim` and `start` unwind a failed stand-up through one shared
+- [x] `claim` and `start` unwind a failed stand-up through one shared
       helper
-- [ ] A `frit start` resumed from inside its own lane never calls
+- [x] A `frit start` resumed from inside its own lane never calls
       `worktree create` and drives the agent in the current pane
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
