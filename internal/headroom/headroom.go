@@ -12,6 +12,8 @@ package headroom
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 
 	"github.com/jeduden/mdsmith/pkg/markdown"
 	"github.com/jeduden/mdsmith/pkg/mdsmith"
@@ -40,6 +42,25 @@ func ReserveLines(source []byte, percent int) int {
 	lines := markdown.CountLines(body)
 
 	return (lines*percent + 99) / 100
+}
+
+// Session opens an mdsmith session against repoPath's own .mdsmith.yml,
+// the same rule config every other check in the repository runs
+// against. A repository with no such file gets mdsmith's own built-in
+// defaults — including max-file-length's 300-line cap — rather than
+// failing to open at all: mdsmith itself runs on those defaults with
+// no config file present, and a repository frit indexes is not
+// required to ship one.
+func Session(repoPath string) (*mdsmith.Session, error) {
+	cfg := mdsmith.ConfigSource(mdsmith.ConfigYAML(""))
+	if _, err := os.Stat(filepath.Join(repoPath, ".mdsmith.yml")); err == nil {
+		cfg = mdsmith.ConfigPath(filepath.Join(repoPath, ".mdsmith.yml"))
+	}
+
+	return mdsmith.NewSession(mdsmith.SessionOptions{
+		Workspace: mdsmith.OSWorkspace{Root: repoPath},
+		Config:    cfg,
+	})
 }
 
 // Room reports how many of reserve padding lines fit onto rel's

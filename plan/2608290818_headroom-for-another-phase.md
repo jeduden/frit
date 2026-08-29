@@ -18,7 +18,7 @@ phases:
     status: "✅"
   - n: 2
     title: pick carries the headroom signal
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: init and help name the reserve
     status: "🔲"

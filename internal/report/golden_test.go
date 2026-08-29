@@ -158,19 +158,22 @@ func goldenReady() *ReadyDoc {
 	return doc
 }
 
-// goldenPick pins the ranked-candidate shape: a startable plan, and a
-// matured takeover — a held plan whose lease has been observed stale,
-// carrying the observed age a consumer applies its own threshold to.
+// goldenPick pins the ranked-candidate shape: a startable plan with no
+// room left for another phase, and a matured takeover — a held plan
+// whose lease has been observed stale, carrying the observed age a
+// consumer applies its own threshold to. The capped plan keeps its
+// rank; NoHeadroom just says it cannot be written to.
 func goldenPick() *PickDoc {
 	doc := NewPick("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{
 		{
 			Key: "forge:atlas:2608161809", Repo: "atlas",
 			ID: 2608161809, Status: "🔲",
-			Title:   "Discovery — what can I start",
-			Summary: "The verbs that make dispatch usable.",
-			Model:   "opus",
-			Path:    "plan/2608161809_discovery-readiness-verbs.md",
+			Title:      "Discovery — what can I start",
+			Summary:    "The verbs that make dispatch usable.",
+			Model:      "opus",
+			Path:       "plan/2608161809_discovery-readiness-verbs.md",
+			NoHeadroom: true, HeadroomShort: 4,
 		},
 		{
 			Key: "forge:orrery:7", Repo: "orrery", ID: 7, Status: "🔲",

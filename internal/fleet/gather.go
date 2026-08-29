@@ -15,6 +15,7 @@ import (
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/headroom"
 	"github.com/jeduden/frit/internal/index"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/planmeta"
@@ -109,7 +110,7 @@ func Gather(
 	}
 	ambiguous := map[string]bool{}
 	for _, repo := range repos {
-		entries, held, leaseTips, coord, problems, err := gatherRepo(
+		entries, held, leaseTips, coord, headrooms, problems, err := gatherRepo(
 			host, repo, run, pipe, opts)
 		if err != nil {
 			res.Problems = append(res.Problems,
@@ -120,7 +121,7 @@ func Gather(
 		recordCoord(&res, ambiguous, repo.Name, coord)
 		for _, e := range entries {
 			res.Plans = append(res.Plans,
-				planOf(repo.Name, e, held, leaseTips))
+				planOf(repo.Name, e, held, leaseTips, headrooms))
 		}
 	}
 
@@ -157,6 +158,30 @@ func recordCoord(
 	res.Coords[name] = coord
 }
 
+// parseProblems reports index.Build's parse errors and plans.Collect's
+// mislaid files as one repository's problems, split out of gatherRepo
+// to keep it under the linter's length cap.
+func parseProblems(repoName string, errs []error, mislaid []string) []Problem {
+	problems := make([]Problem, 0, len(errs)+len(mislaid))
+	for _, e := range errs {
+		problems = append(problems, Problem{
+			Repo:    repoName,
+			Err:     e,
+			NotPlan: errors.Is(e, planmeta.ErrNoFrontMatter),
+		})
+	}
+	for _, p := range mislaid {
+		problems = append(problems, Problem{
+			Repo: repoName,
+			Err: fmt.Errorf(
+				"%s looks like a plan but is not %s; it is not read",
+				p, plans.FixedName),
+		})
+	}
+
+	return problems
+}
+
 // gatherRepo reads one repository's plans, the ids its lanes hold, and
 // the coordinate a lease is minted from. The coordinate reuses the
 // config and the default-ref cascade this loop already resolved, so it
@@ -165,11 +190,11 @@ func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
-	[]Problem, error,
+	map[int64]headroomInfo, []Problem, error,
 ) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, nil, err
 	}
 
 	var fetchErr error
@@ -179,31 +204,16 @@ func gatherRepo(
 
 	files, mislaid, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, nil, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
 	entries, errs := index.Build(host, repo.Name, preferred, files)
-	problems := make([]Problem, 0, len(errs)+len(mislaid))
-	for _, e := range errs {
-		problems = append(problems, Problem{
-			Repo:    repo.Name,
-			Err:     e,
-			NotPlan: errors.Is(e, planmeta.ErrNoFrontMatter),
-		})
-	}
-	for _, p := range mislaid {
-		problems = append(problems, Problem{
-			Repo: repo.Name,
-			Err: fmt.Errorf(
-				"%s looks like a plan but is not %s; it is not read",
-				p, plans.FixedName),
-		})
-	}
+	problems := parseProblems(repo.Name, errs, mislaid)
 
 	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, nil, err
 	}
 	if p := staleFetch(repo, cfg.Remote, fetchErr, refs); p != nil {
 		problems = append(problems, *p)
@@ -215,11 +225,66 @@ func gatherRepo(
 	held, leaseTips, err := heldBranches(
 		repo, cfg, preferred, refs, index.LandedIDs(entries, preferred), run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, nil, err
+	}
+
+	headrooms, problem := headroomFor(repo, cfg, files, entries)
+	if problem != nil {
+		problems = append(problems, *problem)
 	}
 
 	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
-		problems, nil
+		headrooms, problems, nil
+}
+
+// headroomInfo is one plan's "room for another phase" signal.
+type headroomInfo struct {
+	No    bool
+	Short int
+}
+
+// headroomFor computes each entry's headroom signal against the
+// repository's own reserve, using the same internal/headroom oracle
+// doctor runs. A reserve of 0 disables it outright — no session is even
+// opened. A session that fails to open (a malformed .mdsmith.yml) is
+// reported as a problem rather than failing the whole gather: the fleet
+// index carries no schema requirement of its own the way doctor does,
+// so one repository's broken config must not blind every other plan.
+func headroomFor(
+	repo discover.Repo, cfg repocfg.Config, files []plans.File, entries []index.Entry,
+) (map[int64]headroomInfo, *Problem) {
+	if cfg.HeadroomReserve <= 0 {
+		return nil, nil
+	}
+
+	sess, err := headroom.Session(repo.Path)
+	if err != nil {
+		return nil, &Problem{Repo: repo.Name, Err: fmt.Errorf(
+			"could not open mdsmith session for headroom: %w", err)}
+	}
+
+	content := map[string][]byte{}
+	for _, f := range files {
+		content[f.OID] = f.Content
+	}
+
+	out := map[int64]headroomInfo{}
+	for _, e := range entries {
+		v := e.Primary()
+		src, ok := content[v.OID]
+		if !ok {
+			continue
+		}
+
+		reserve := headroom.ReserveLines(src, cfg.HeadroomReserve)
+		room, err := headroom.Room(sess, v.Path, src, reserve)
+		if err != nil || room >= reserve {
+			continue
+		}
+		out[e.Key.ID] = headroomInfo{No: true, Short: reserve - room}
+	}
+
+	return out, nil
 }
 
 // fetchRemote refreshes remote's tracking refs so Gather reads landed
@@ -459,27 +524,30 @@ func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
 // view, tagging it held when a lane claims its id.
 func planOf(
 	repoName string, e index.Entry, held map[int64][]string,
-	leaseTips map[int64]string,
+	leaseTips map[int64]string, headrooms map[int64]headroomInfo,
 ) discovery.Plan {
 	v := e.Primary()
 	holds := held[e.Key.ID]
+	hr := headrooms[e.Key.ID]
 
 	return discovery.Plan{
-		Key:       e.Key.String(),
-		Repo:      repoName,
-		ID:        e.Key.ID,
-		Status:    v.Plan.Status,
-		Title:     v.Plan.Title,
-		Summary:   v.Plan.Summary,
-		Model:     v.Plan.Model,
-		Goal:      v.Plan.Goal,
-		DependsOn: v.Plan.DependsOn,
-		Phases:    v.Plan.Phases,
-		Path:      v.Path,
-		Branches:  shortBranches(e),
-		Held:      len(holds) > 0,
-		Holds:     holds,
-		HoldTip:   leaseTips[e.Key.ID],
+		Key:           e.Key.String(),
+		Repo:          repoName,
+		ID:            e.Key.ID,
+		Status:        v.Plan.Status,
+		Title:         v.Plan.Title,
+		Summary:       v.Plan.Summary,
+		Model:         v.Plan.Model,
+		Goal:          v.Plan.Goal,
+		DependsOn:     v.Plan.DependsOn,
+		Phases:        v.Plan.Phases,
+		Path:          v.Path,
+		Branches:      shortBranches(e),
+		Held:          len(holds) > 0,
+		Holds:         holds,
+		HoldTip:       leaseTips[e.Key.ID],
+		NoHeadroom:    hr.No,
+		HeadroomShort: hr.Short,
 	}
 }
 

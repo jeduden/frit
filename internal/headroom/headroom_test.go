@@ -1,6 +1,8 @@
 package headroom
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,4 +72,37 @@ func TestRoomPaddedToTheCapReturnsLessThanTheReserve(t *testing.T) {
 	assert.Less(t, room, reserve,
 		"290 body lines plus the full 29-line reserve would exceed the 300-line cap")
 	assert.Equal(t, 10, room, "300 - 290 lines of headroom actually fit")
+}
+
+// TestSessionUsesTheRepositoryOwnMdsmithYML pins that a repository's own
+// .mdsmith.yml is honored — a custom max-file-length would otherwise be
+// silently ignored by the oracle.
+func TestSessionUsesTheRepositoryOwnMdsmithYML(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".mdsmith.yml"),
+		[]byte("rules:\n  max-file-length:\n    max: 5\n"), 0o600))
+
+	sess, err := Session(root)
+	require.NoError(t, err)
+
+	room, err := Room(sess, "plan/1_x.md", plan(3), 10)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, room, "3 body lines already sit 2 short of the 5-line cap")
+}
+
+// TestSessionToleratesAMissingMdsmithYML pins that a repository with no
+// .mdsmith.yml still opens a session — mdsmith itself runs on its own
+// built-in defaults with no config file at all, and the oracle must not
+// refuse to open just because a repository indexed by frit ships none.
+func TestSessionToleratesAMissingMdsmithYML(t *testing.T) {
+	root := t.TempDir()
+
+	sess, err := Session(root)
+	require.NoError(t, err)
+
+	room, err := Room(sess, "plan/1_x.md", plan(50), 5)
+
+	require.NoError(t, err)
+	assert.Equal(t, 5, room, "the built-in 300-line default leaves plenty of room")
 }

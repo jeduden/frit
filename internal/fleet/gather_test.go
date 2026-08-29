@@ -1,12 +1,15 @@
 package fleet
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jeduden/mdsmith/pkg/markdown"
 
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -42,6 +45,89 @@ func repoWithPlan(t *testing.T, root, name string, id int) string {
 	gitCmd(t, dir, "commit", "-q", "-m", "plan")
 
 	return dir
+}
+
+// repoWithPaddedPlan builds a one-commit repository like repoWithPlan,
+// but pads its plan's body to exactly bodyLines lines — close enough to
+// mdsmith's own 300-line default cap to prove the headroom signal end
+// to end, without the repository shipping a .mdsmith.yml of its own.
+func repoWithPaddedPlan(t *testing.T, root, name string, id, bodyLines int) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "plan"), 0o750))
+	gitCmd(t, dir, "init", "-q", "-b", "main")
+	gitCmd(t, dir, "config", "user.email", "t@example.com")
+	gitCmd(t, dir, "config", "user.name", "frit-test")
+
+	header := "---\nid: " + strconv.Itoa(id) +
+		"\ntitle: Shader unit\nstatus: \"🔲\"\n---\n# Shader unit\n"
+	_, body := markdown.StripFrontMatter([]byte(header))
+	have := markdown.CountLines(body)
+
+	var b strings.Builder
+	b.WriteString(header)
+	for i := have; i < bodyLines; i++ {
+		fmt.Fprintf(&b, "Padding line %d.\n", i)
+	}
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "plan", "plan.md"), []byte(b.String()), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "plan")
+
+	return dir
+}
+
+// TestGatherCarriesTheHeadroomShortfall is Phase 2's RED: a plan padded
+// to within mdsmith's default 300-line cap carries NoHeadroom and its
+// shortfall onto the fleet's plan record, using the default 10%
+// reserve a repository with no .frit.yml still gets.
+func TestGatherCarriesTheHeadroomShortfall(t *testing.T) {
+	root := t.TempDir()
+	repoWithPaddedPlan(t, root, "atlas", 7, 290)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 1)
+	assert.True(t, res.Plans[0].NoHeadroom)
+	assert.Equal(t, 19, res.Plans[0].HeadroomShort,
+		"29-line reserve, 10 lines of room: 19 lines short")
+}
+
+// TestGatherReportsFullHeadroomForAnOrdinaryPlan pins the other side:
+// a small plan has plenty of room, so NoHeadroom is false and the
+// shortfall is 0 — the field is present, never omitted, but reads as
+// nothing wrong.
+func TestGatherReportsFullHeadroomForAnOrdinaryPlan(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 1)
+	assert.False(t, res.Plans[0].NoHeadroom)
+	assert.Equal(t, 0, res.Plans[0].HeadroomShort)
+}
+
+// TestGatherHeadroomReserveZeroDisablesTheSignal pins that a repository
+// naming headroom-reserve: 0 gets no headroom signal at all, even for a
+// plan that would otherwise trip it — the same disabling repocfg and
+// doctor already honor.
+func TestGatherHeadroomReserveZeroDisablesTheSignal(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPaddedPlan(t, root, "atlas", 7, 290)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".frit.yml"), []byte("headroom-reserve: 0\n"), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "disable headroom")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 1)
+	assert.False(t, res.Plans[0].NoHeadroom)
 }
 
 // TestGatherCarriesRepoCoordinates: the gather hands back each

@@ -2183,10 +2183,22 @@ func printReady(out io.Writer, doc *report.ReadyDoc, width int) {
 	rows := make([][]string, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
 		rows = append(rows, []string{
-			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model), p.Title,
+			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model),
+			headroomLabel(p), p.Title,
 		})
 	}
 	fitTable(out, width, rows)
+}
+
+// headroomLabel notes a plan with no room left to append another
+// "## Phase N" section, blank for the common case of a plan with room
+// so the column stays quiet unless there is something to say.
+func headroomLabel(p report.PlanCard) string {
+	if !p.NoHeadroom {
+		return ""
+	}
+
+	return fmt.Sprintf("-%d", p.HeadroomShort)
 }
 
 // fitTable renders rows as an aligned table, trimming each row's final
