@@ -297,6 +297,92 @@ func TestFindOnAHealthyRepositoryIsSilent(t *testing.T) {
 	assert.False(t, got.Any())
 }
 
+// TestFindNamesAForeignCheckoutOffTheRecordedLanePath pins gap 2: a
+// lane with a live hold recording lane path A and a worktree checked
+// out on the branch at path B — neither Unstaffed (it has a checkout)
+// nor Stranded (it has a live hold) — is reported as a foreign
+// checkout instead of swallowed as healthy.
+func TestFindNamesAForeignCheckoutOffTheRecordedLanePath(t *testing.T) {
+	worktrees := []gitwt.Worktree{wt("/lanes/b", "plan/42")}
+	built := []Lane{{
+		PlanID: 42,
+		Holds: []Hold{{
+			Ref: "refs/heads/plan/42", Branch: "plan/42", PlanID: 42,
+			Lane: "/lanes/a",
+		}},
+		Worktrees: worktrees,
+	}}
+
+	got := Find(built, worktrees)
+
+	require.Len(t, got.Foreign, 1)
+	assert.Equal(t, int64(42), got.Foreign[0].PlanID)
+	assert.Equal(t, "/lanes/b", got.Foreign[0].Worktree.Path)
+	assert.Empty(t, got.Unstaffed, "the lane has a checkout")
+	assert.Empty(t, got.Stranded, "the lane has a live hold")
+	assert.True(t, got.Any())
+}
+
+// TestFindDoesNotFlagACheckoutAtItsOwnRecordedLanePath: the healthy
+// shape — a checkout standing exactly where its own hold's marker
+// recorded it — is not a foreign checkout.
+func TestFindDoesNotFlagACheckoutAtItsOwnRecordedLanePath(t *testing.T) {
+	worktrees := []gitwt.Worktree{wt("/lanes/a", "plan/42")}
+	built := []Lane{{
+		PlanID: 42,
+		Holds: []Hold{{
+			Ref: "refs/heads/plan/42", Branch: "plan/42", PlanID: 42,
+			Lane: "/lanes/a",
+		}},
+		Worktrees: worktrees,
+	}}
+
+	got := Find(built, worktrees)
+
+	assert.Empty(t, got.Foreign)
+}
+
+// TestFindDoesNotFlagAForeignCheckoutWhenTheLanePathIsUnknown: a hold
+// whose marker was never read authorizes no path at all, so nothing is
+// flagged — the fail-safe direction, since a blank read must not turn
+// every checkout foreign.
+func TestFindDoesNotFlagAForeignCheckoutWhenTheLanePathIsUnknown(t *testing.T) {
+	worktrees := []gitwt.Worktree{wt("/lanes/b", "plan/42")}
+	built := []Lane{{
+		PlanID:    42,
+		Holds:     []Hold{{Ref: "refs/heads/plan/42", Branch: "plan/42", PlanID: 42}},
+		Worktrees: worktrees,
+	}}
+
+	got := Find(built, worktrees)
+
+	assert.Empty(t, got.Foreign, "an unread marker authorizes no path")
+}
+
+// TestWithLanePathsFillsInHoldsFromTheGivenMap: the marker's lane:
+// trailer, read wherever the caller has git access to do so, rides on
+// the hold it belongs to by ref name. A hold missing from the map is
+// left blank, the same as one whose marker was never read; Build
+// itself stays pure and untouched.
+func TestWithLanePathsFillsInHoldsFromTheGivenMap(t *testing.T) {
+	built := []Lane{{
+		PlanID: 42,
+		Holds: []Hold{
+			{Ref: "refs/heads/plan/42", Branch: "plan/42", PlanID: 42},
+			{Ref: "refs/remotes/origin/plan/42", Branch: "plan/42", PlanID: 42},
+		},
+	}}
+
+	got := WithLanePaths(built, map[string]string{
+		"refs/heads/plan/42": "/lanes/a",
+	})
+
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Holds, 2)
+	assert.Equal(t, "/lanes/a", got[0].Holds[0].Lane)
+	assert.Equal(t, "", got[0].Holds[1].Lane, "a ref missing from the map is left blank")
+}
+
 func TestStaleMeasuresFromTheBranchTip(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	old := now.Add(-40 * 24 * time.Hour).Unix()
