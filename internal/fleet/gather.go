@@ -271,6 +271,10 @@ func headroomFor(
 	out := map[int64]headroomInfo{}
 	for _, e := range entries {
 		v := e.Primary()
+		if v.Plan.Done() || v.Plan.Superseded() {
+			continue
+		}
+
 		src, ok := content[v.OID]
 		if !ok {
 			continue
