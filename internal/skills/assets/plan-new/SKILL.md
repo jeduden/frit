@@ -42,7 +42,9 @@ an editor, not a frit verb.
    and long sentences), `mdsmith fix PLAN.md`, then `mdsmith check .`.
 7. **Health-check.** `{{frit}} doctor` scans every plan on disk; find
    this id in its output — no missing Goal, no Execution row short of a
-   phase, no tier `plan/proto.md` rejects. Fix the plan, not the check.
+   phase, no tier `plan/proto.md` rejects, no `headroom` finding
+   (a live plan already short of room for another phase). Fix the
+   plan, not the check.
 8. **Commit** the plan file and PLAN.md together: `plan <id>: <title>`.
 
 ## Notes

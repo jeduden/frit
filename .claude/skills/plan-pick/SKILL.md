@@ -27,7 +27,10 @@ was claimed.
 To look before claiming, without minting a hold:
 
 - `go run ./cmd/frit ready` lists the plans startable now — deps done, nobody
-  holds.
+  holds. A negative number in its column, or `headroom_short` under
+  `--json`, means the plan is short of room for another `## Phase N`
+  section: it still ranks, but claim it knowing the next phase you
+  write may need to trim first.
 - `go run ./cmd/frit find <text>` searches plan titles and summaries to resolve
   a plan by a fragment.
 - `go run ./cmd/frit board` shows who holds what.

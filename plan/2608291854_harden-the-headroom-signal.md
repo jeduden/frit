@@ -29,7 +29,7 @@ phases:
     status: "✅"
   - n: 5
     title: the headroom signal ships its skill text
-    status: "🔲"
+    status: "✅"
   - n: 6
     title: pad and fits carry their own tests
     status: "🔲"
