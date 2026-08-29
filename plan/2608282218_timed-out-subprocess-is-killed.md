@@ -1,7 +1,7 @@
 ---
 id: 2608282218
 title: A timed-out subprocess is killed, not left to linger
-status: "🔲"
+status: "✅"
 summary: >-
   frit's timeout decorators bound the caller's wait but leave the
   stalled git or herdr subprocess running: it reparents to init when
@@ -17,13 +17,13 @@ depends-on: [2608281623]
 phases:
   - n: 1
     title: gitwt kills a timed-out git subprocess
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: herdr kills a timed-out herdr subprocess
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: presence kills a timed-out probe
-    status: "🔲"
+    status: "✅"
 ---
 # A timed-out subprocess is killed, not left to linger
 
@@ -199,14 +199,14 @@ file's decorators plus its seam.
 
 ## Acceptance Criteria
 
-- [ ] gitwt's `WithTimeout`, `WithDeadline` and `WithTimeoutPipe` run
+- [x] gitwt's `WithTimeout`, `WithDeadline` and `WithTimeoutPipe` run
       over `exec.CommandContext`, so a timed-out git subprocess is
       killed, proven by the exec's own `Run` returning within the bound
-- [ ] `herdr.WithTimeout` runs over `exec.CommandContext`, so a
+- [x] `herdr.WithTimeout` runs over `exec.CommandContext`, so a
       timed-out herdr subprocess is killed
-- [ ] `presence.WithTimeout` runs over `exec.CommandContext`, so a
+- [x] `presence.WithTimeout` runs over `exec.CommandContext`, so a
       timed-out remote probe is killed
-- [ ] `Exec`, `ExecPipe` and `herdr.Run` keep working for any caller
+- [x] `Exec`, `ExecPipe` and `herdr.Run` keep working for any caller
       still on the contextless form
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

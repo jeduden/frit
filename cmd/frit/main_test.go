@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -332,14 +333,22 @@ func TestGitTimeoutMustBePositive(t *testing.T) {
 }
 
 // blockingHerdr fakes a wedged herdr socket: the call starts, then
-// never returns within any reasonable bound. It is the hang the seam
-// wiring must survive.
-func blockingHerdr(agent map[string]any) herdr.Runner {
+// only returns once ctx is done or 150ms passes, whichever comes
+// first — the way a real herdr subprocess killed by a fired context
+// returns promptly instead of running on. It is context-aware rather
+// than a plain herdr.Runner because withHerdr's fakes are closures
+// with nothing to kill, so this is the one test that needs the real
+// seam: it sets herdrRunner directly instead of going through
+// withHerdr's context-dropping shim.
+func blockingHerdr(agent map[string]any) herdr.ContextRunner {
 	body := herdrReturning(agent)
-	return func(args ...string) ([]byte, error) {
-		time.Sleep(150 * time.Millisecond)
-
-		return body(args...)
+	return func(ctx context.Context, args ...string) ([]byte, error) {
+		select {
+		case <-time.After(150 * time.Millisecond):
+			return body(args...)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
@@ -352,14 +361,16 @@ func TestHerdrTimeoutFlagReachesTheHerdrRunner(t *testing.T) {
 	isolate(t)
 	repo := repoOnPlan(t, t.TempDir(), "atlas",
 		"plan/2608161808-herdr-join")
-	withHerdr(t, blockingHerdr(map[string]any{
+	prevHerdrRunner := herdrRunner
+	herdrRunner = blockingHerdr(map[string]any{
 		"agent":                   "claude",
 		"agent_status":            "working",
 		"cwd":                     repo,
 		"pane_id":                 "wC:p1",
 		"workspace_id":            "wC",
 		"terminal_title_stripped": "Land the join",
-	}))
+	})
+	t.Cleanup(func() { herdrRunner = prevHerdrRunner })
 
 	var normal, errb bytes.Buffer
 	code := run([]string{"who", "--root", repo}, &normal, &errb)

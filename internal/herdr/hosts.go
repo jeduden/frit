@@ -1,12 +1,21 @@
 package herdr
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // ExecFunc runs a process and returns its stdout. It is the seam
 // ListHosts fans out over and WithTimeout wraps: run in production, a
 // fake in tests, or a timeout-bounded run when a slow host must not
 // stall the board.
 type ExecFunc func(name string, args ...string) ([]byte, error)
+
+// ContextExecFunc is the context-aware form of ExecFunc, the way
+// ContextRunner is the context-aware form of Runner. RunContext
+// satisfies it directly, so presence.WithTimeout can wrap the real
+// exec.CommandContext-backed core rather than an adapter around it.
+type ContextExecFunc func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 // Host is where a herdr socket lives. The empty Host is this machine,
 // read through the local herdr binary; any other value is an ssh

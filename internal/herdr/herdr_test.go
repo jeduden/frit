@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 // TestRunReturnsStdout drives the success path with a real external
 // command, so the plumbing is exercised without a herdr on the box.
 func TestRunReturnsStdout(t *testing.T) {
-	out, err := run("echo", "hello")
+	out, err := runContext(context.Background(), "echo", "hello")
 	require.NoError(t, err)
 	assert.Equal(t, "hello\n", string(out))
 }
@@ -20,7 +21,7 @@ func TestRunReturnsStdout(t *testing.T) {
 // root: the binary is not there, and run says so rather than returning
 // empty output that would read as "no agents".
 func TestRunSurfacesAMissingBinary(t *testing.T) {
-	_, err := run("frit-no-such-herdr-binary")
+	_, err := runContext(context.Background(), "frit-no-such-herdr-binary")
 	assert.Error(t, err)
 }
 

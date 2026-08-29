@@ -42,7 +42,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	// to one repository's own lease ref, so it shares a single deadline
 	// instead: a stalled remote should cost roughly --git-timeout, not
 	// a multiple of it across the pre-push read, the push and a retry.
-	rt.git = gitwt.WithDeadline(gitwt.Exec, time.Now().Add(c.GitTimeout))
+	rt.git = gitwt.WithDeadline(gitwt.ExecContext, time.Now().Add(c.GitTimeout))
 
 	plan, err := resolveSelector(rt, cc.Selector, res.Plans, true)
 	if err != nil {

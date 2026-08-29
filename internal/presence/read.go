@@ -25,7 +25,7 @@ type Options struct {
 // can surface. A failed read never propagates, and a cache-write
 // failure is swallowed: neither one may block the board.
 func Read(
-	hosts []herdr.Host, exec herdr.ExecFunc,
+	hosts []herdr.Host, exec herdr.ContextExecFunc,
 	path string, opt Options, now time.Time,
 ) ([]herdr.Pane, []Status) {
 	cache := Load(path)

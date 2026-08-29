@@ -1,6 +1,7 @@
 package gitwt
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -8,10 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestRunContextKillsTheChildWhenTheContextExpires is the proof a
+// timed-out call is killed rather than abandoned: exec.CommandContext
+// kills sleep the moment ctx fires, so Run cannot return until it
+// does. A fast return here is only possible because the child died,
+// not because the wait merely gave up on it.
+func TestRunContextKillsTheChildWhenTheContextExpires(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	before := time.Now()
+	_, err := runContext(ctx, "sleep", "5")
+	elapsed := time.Since(before)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, time.Second)
+}
+
 // TestWithTimeoutPassesAFastCallThrough: a runner that answers within
 // the bound returns its output and error unchanged.
 func TestWithTimeoutPassesAFastCallThrough(t *testing.T) {
-	run := func(dir string, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		return []byte("ok"), nil
 	}
 
@@ -22,16 +40,21 @@ func TestWithTimeoutPassesAFastCallThrough(t *testing.T) {
 
 // TestWithTimeoutBoundsAStalledCall is the hang-fast rule: a runner
 // that outlasts the bound returns a timeout error within roughly the
-// bound, not after the fake eventually unblocks. The error names the
+// bound, not after the fake eventually unblocks. The fake stands in
+// for exec.CommandContext: it obeys ctx and dies the moment the bound
+// fires, the way a real killed subprocess does. The error names the
 // subcommand that stalled, the way Exec's own error does, so a
 // multi-repo run doesn't leave the reader guessing which git call hung.
 func TestWithTimeoutBoundsAStalledCall(t *testing.T) {
 	started := make(chan struct{})
-	run := func(dir string, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		close(started)
-		time.Sleep(time.Second)
-
-		return []byte("late"), nil
+		select {
+		case <-time.After(time.Second):
+			return []byte("late"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	before := time.Now()
@@ -49,7 +72,7 @@ func TestWithTimeoutBoundsAStalledCall(t *testing.T) {
 // TestWithTimeoutPipePassesAFastCallThrough: a pipe runner that
 // answers within the bound returns its output and error unchanged.
 func TestWithTimeoutPipePassesAFastCallThrough(t *testing.T) {
-	run := func(dir string, stdin []byte, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
 		return []byte("ok"), nil
 	}
 
@@ -62,14 +85,18 @@ func TestWithTimeoutPipePassesAFastCallThrough(t *testing.T) {
 // TestWithTimeoutPipeBoundsAStalledCall: the batch cat-file path gets
 // the same hang-fast bound as an ordinary Runner call — a partial
 // clone's promisor remote can pull a missing object over the network
-// on demand, so this path is not purely local either.
+// on demand, so this path is not purely local either. The fake obeys
+// ctx the way a real killed subprocess does.
 func TestWithTimeoutPipeBoundsAStalledCall(t *testing.T) {
 	started := make(chan struct{})
-	run := func(dir string, stdin []byte, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
 		close(started)
-		time.Sleep(time.Second)
-
-		return []byte("late"), nil
+		select {
+		case <-time.After(time.Second):
+			return []byte("late"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	before := time.Now()
@@ -87,7 +114,7 @@ func TestWithTimeoutPipeBoundsAStalledCall(t *testing.T) {
 // TestWithDeadlinePassesAFastCallThrough: a call well inside the
 // deadline returns its output and error unchanged.
 func TestWithDeadlinePassesAFastCallThrough(t *testing.T) {
-	run := func(dir string, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		return []byte("ok"), nil
 	}
 
@@ -101,13 +128,17 @@ func TestWithDeadlinePassesAFastCallThrough(t *testing.T) {
 // compounding-latency fix: unlike WithTimeout, which re-arms a fixed
 // duration on every call, WithDeadline's calls share one clock. A
 // call that spends most of the budget leaves the next call only what
-// remains, not a fresh full duration.
+// remains, not a fresh full duration. The fake obeys ctx the way a
+// real killed subprocess does.
 func TestWithDeadlineSharesOneBudgetAcrossSequentialCalls(t *testing.T) {
 	wrapped := WithDeadline(
-		func(dir string, args ...string) ([]byte, error) {
-			time.Sleep(70 * time.Millisecond)
-
-			return []byte("ok"), nil
+		func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+			select {
+			case <-time.After(70 * time.Millisecond):
+				return []byte("ok"), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		},
 		time.Now().Add(100*time.Millisecond))
 
@@ -131,7 +162,7 @@ func TestWithDeadlineSharesOneBudgetAcrossSequentialCalls(t *testing.T) {
 // full --git-timeout before failing.
 func TestWithDeadlineFailsImmediatelyOnceTheBudgetIsExhausted(t *testing.T) {
 	called := false
-	run := func(dir string, args ...string) ([]byte, error) {
+	run := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		called = true
 
 		return []byte("ok"), nil
