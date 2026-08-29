@@ -122,10 +122,14 @@ func TestClaimStandsUpItsWorktree(t *testing.T) {
 		"the report names the isolated checkout to work in")
 }
 
-// TestClaimWarnsWhenTheWorktreeFails: the ref is atomic and minted first,
-// so a herdr that cannot stand the worktree up is a warning, not a lost
-// claim — the lease still stands, locally and on origin.
-func TestClaimWarnsWhenTheWorktreeFails(t *testing.T) {
+// TestClaimReleasesTheLeaseWhenTheWorktreeStandUpFails: a claim whose
+// worktree stand-up fails must not leave an atomic hold standing with
+// no token behind it — no lane ever persisted one, since standing the
+// lane up is exactly what failed. The lease claim just minted is
+// released — a release marker, never a delete — and the report reads
+// as an ordinary refusal naming the stand-up cause, not "claimed:
+// true" with a warning.
+func TestClaimReleasesTheLeaseWhenTheWorktreeStandUpFails(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
@@ -140,10 +144,51 @@ func TestClaimWarnsWhenTheWorktreeFails(t *testing.T) {
 	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "claimed plan 7", "the lease stands")
-	assert.Contains(t, out.String(), "warning", "a failed worktree warns")
-	_, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
-	require.NoError(t, err, "the atomic lease is minted before the worktree")
+	assert.Contains(t, out.String(), "refused: plan 7")
+	assert.Contains(t, out.String(), "herdr down",
+		"the refusal names the stand-up cause")
+	assert.NotContains(t, out.String(), "claimed plan 7")
+
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err, "the ref still exists — released, not deleted")
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", local)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: release",
+		"the failed stand-up releases the lease it minted")
+}
+
+// TestClaimAfterAFailedStandUpAcquiresAtOnce: the released lease
+// ended, it was not merely abandoned — a following claim acquires
+// straight away, at the next epoch, with no takeover window to wait
+// out.
+func TestClaimAfterAFailedStandUpAcquiresAtOnce(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return nil, errors.New("herdr down")
+		}
+		return nil, nil
+	})
+	var first bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &first, &first)
+	require.Equal(t, 0, code, first.String())
+
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+	code = run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "claimed plan 7",
+		"the next claim acquires at once, no takeover window")
+
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", local)
+	require.NoError(t, err)
+	assert.Contains(t, body, "epoch:   2", "the released hold ended; this is the next epoch")
 }
 
 // TestLostRaceRefusalNamesTheHolder: the refusal wording distinguishes a
