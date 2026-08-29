@@ -2316,11 +2316,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 
 	var c cli
 	rt := &runtime{
-		stdout:  stdout,
-		stderr:  stderr,
-		git:     gitwt.Exec,
-		gitPipe: gitwt.ExecPipe,
-		width:   terminalWidth(stdout),
+		stdout: stdout,
+		stderr: stderr,
+		width:  terminalWidth(stdout),
 	}
 
 	parser, err := newParser(&c, stdout, stderr)
