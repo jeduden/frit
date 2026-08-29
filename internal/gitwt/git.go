@@ -2,6 +2,7 @@ package gitwt
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -15,112 +16,121 @@ import (
 // function with no state to construct.
 type Runner func(dir string, args ...string) ([]byte, error)
 
-// Exec is the Runner that actually shells out to git.
-//
-// dir is always passed as `-C <dir>` rather than by setting the
-// process working directory: frit walks many repositories in one run,
-// and a shared cwd would make the result order-dependent.
-func Exec(dir string, args ...string) ([]byte, error) {
-	full := append([]string{"-C", dir}, args...)
-	cmd := exec.Command("git", full...)
+// ContextRunner is the context-aware form of Runner: a bound handed
+// in through ctx, rather than baked into the closure, so
+// exec.CommandContext can kill the subprocess when the caller's
+// context is done. WithTimeout and WithDeadline wrap one of these and
+// hand back a plain Runner.
+type ContextRunner func(ctx context.Context, dir string, args ...string) ([]byte, error)
 
+// waitDelay bounds how long runOutput waits for stdout/stderr to hit
+// EOF once the child has been killed or has exited. Killing the
+// direct child (git) does not close pipe descriptors a grandchild —
+// an ssh transport or credential helper — inherited and kept open;
+// without a bound, Wait would then block on that orphan instead of on
+// git, silently reopening the hang this package exists to close.
+const waitDelay = 5 * time.Second
+
+// runOutput runs the already-built cmd and words stdout, stderr and
+// the error the way gitwt always has. It is the piece runContext and
+// ExecPipeContext share, since a pipe call needs cmd.Stdin set before
+// running but otherwise behaves identically.
+func runOutput(cmd *exec.Cmd, name string, args []string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.WaitDelay = waitDelay
 
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			return nil, fmt.Errorf("git %s: %w",
-				strings.Join(args, " "), err)
+			return nil, fmt.Errorf("%s %s: %w",
+				name, strings.Join(args, " "), err)
 		}
-		return nil, fmt.Errorf("git %s: %w: %s",
-			strings.Join(args, " "), err, msg)
+		return nil, fmt.Errorf("%s %s: %w: %s",
+			name, strings.Join(args, " "), err, msg)
 	}
 
 	return stdout.Bytes(), nil
 }
 
-// raceTimeout runs f in its own goroutine and returns what it
-// delivers if that happens within d; otherwise it returns the error
-// onTimeout builds. WithTimeout and WithTimeoutPipe share this rather
-// than each carrying their own copy of the same goroutine-plus-select
-// shape — only what varies (how the call is made, how its timeout
-// error is worded) is left to the caller.
-//
-// The goroutine keeps running after a timeout — the buffered channel
-// lets it deliver into nothing and exit — so bounding the wait does
-// not leak the goroutine once f eventually returns. If f never
-// returns at all (a genuinely wedged call, the exact case this
-// exists to bound), the goroutine is not reclaimed until the process
-// exits; that is the bounds-the-wait-not-the-process tradeoff below.
-func raceTimeout(
-	f func() ([]byte, error), d time.Duration, onTimeout func() error,
-) ([]byte, error) {
-	type reply struct {
-		out []byte
-		err error
-	}
+// runContext is the shared exec core: it runs name with args under
+// ctx. exec.CommandContext kills the child the moment ctx is done, so
+// Run cannot return before that kill completes — the bound moves from
+// the caller's wait into the process itself.
+func runContext(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runOutput(exec.CommandContext(ctx, name, args...), name, args)
+}
 
-	done := make(chan reply, 1)
-	go func() {
-		out, err := f()
-		done <- reply{out: out, err: err}
-	}()
+// ExecContext is the context-aware form of Exec: dir is always passed
+// as `-C <dir>` rather than by setting the process working directory,
+// since frit walks many repositories in one run and a shared cwd
+// would make the result order-dependent.
+func ExecContext(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	full := append([]string{"-C", dir}, args...)
+	return runContext(ctx, "git", full...)
+}
 
-	select {
-	case r := <-done:
-		return r.out, r.err
-	case <-time.After(d):
-		return nil, onTimeout()
-	}
+// Exec is the Runner that actually shells out to git. It is
+// ExecContext against a context that is never cancelled, so any
+// caller still on the plain Runner shape is unaffected.
+func Exec(dir string, args ...string) ([]byte, error) {
+	return ExecContext(context.Background(), dir, args...)
 }
 
 // WithTimeout bounds a Runner so a stalled call fails fast instead of
 // hanging the command that made it, mirroring presence.WithTimeout for
 // gitwt's own Runner shape.
 //
-// It bounds the wait, not the process: the underlying git subprocess
-// is not killed and is orphaned when frit exits. Killing it too needs
-// a context handed down to exec.CommandContext, which is a later
-// refinement; here what the bound protects is the command returning
-// to its caller.
-func WithTimeout(run Runner, d time.Duration) Runner {
+// It builds a context bounded by d and calls the context-aware base
+// through it, so exec.CommandContext kills the underlying git
+// subprocess the moment the bound fires rather than leaving it to
+// run on after Runner returns.
+func WithTimeout(run ContextRunner, d time.Duration) Runner {
 	return func(dir string, args ...string) ([]byte, error) {
-		return raceTimeout(
-			func() ([]byte, error) { return run(dir, args...) }, d,
-			func() error {
-				return fmt.Errorf("git %s: timed out after %s",
-					strings.Join(args, " "), d)
-			})
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		defer cancel()
+
+		out, err := run(ctx, dir, args...)
+		if err != nil && ctx.Err() != nil {
+			return nil, fmt.Errorf("git %s: timed out after %s",
+				strings.Join(args, " "), d)
+		}
+		return out, err
 	}
 }
 
-// WithTimeoutPipe bounds a PipeRunner the same way WithTimeout bounds
-// a Runner. The batch plumbing this wraps is normally local, but a
-// partial clone's promisor remote can pull a missing object over the
-// network on demand — the same network bound applies here too.
-func WithTimeoutPipe(run PipeRunner, d time.Duration) PipeRunner {
+// WithTimeoutPipe bounds a context-aware PipeRunner the same way
+// WithTimeout bounds a Runner. The batch plumbing this wraps is
+// normally local, but a partial clone's promisor remote can pull a
+// missing object over the network on demand — the same network bound
+// applies here too.
+func WithTimeoutPipe(run ContextPipeRunner, d time.Duration) PipeRunner {
 	return func(dir string, stdin []byte, args ...string) ([]byte, error) {
-		return raceTimeout(
-			func() ([]byte, error) { return run(dir, stdin, args...) }, d,
-			func() error {
-				return fmt.Errorf("git %s: timed out after %s",
-					strings.Join(args, " "), d)
-			})
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		defer cancel()
+
+		out, err := run(ctx, dir, stdin, args...)
+		if err != nil && ctx.Err() != nil {
+			return nil, fmt.Errorf("git %s: timed out after %s",
+				strings.Join(args, " "), d)
+		}
+		return out, err
 	}
 }
 
-// WithDeadline bounds a Runner the way WithTimeout does, but every
-// call made through the same wrapped Runner shares one clock instead
-// of each re-arming a fixed duration. A mutating verb like release or
-// claim chains several sequential git calls against one remote — the
-// gather's fetch, an ls-remote, the push, a retry's ls-remote — and
-// each independently re-armed with the full --git-timeout can cost a
-// multiple of it against a fully stalled remote. WithDeadline instead
-// spends down one shared budget: a call made after it is exhausted
-// returns at once, without starting.
-func WithDeadline(run Runner, deadline time.Time) Runner {
+// WithDeadline bounds a context-aware Runner the way WithTimeout
+// does, but every call made through the same wrapped Runner shares
+// one clock instead of each re-arming a fixed duration. A mutating
+// verb like release or claim chains several sequential git calls
+// against one remote — the gather's fetch, an ls-remote, the push, a
+// retry's ls-remote — and each independently re-armed with the full
+// --git-timeout can cost a multiple of it against a fully stalled
+// remote. WithDeadline instead spends down one shared budget: a call
+// made after it is exhausted returns at once, without starting, and a
+// call still running when the deadline fires has its subprocess
+// killed by a context built against that same deadline.
+func WithDeadline(run ContextRunner, deadline time.Time) Runner {
 	return func(dir string, args ...string) ([]byte, error) {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -129,12 +139,15 @@ func WithDeadline(run Runner, deadline time.Time) Runner {
 				strings.Join(args, " "))
 		}
 
-		return raceTimeout(
-			func() ([]byte, error) { return run(dir, args...) }, remaining,
-			func() error {
-				return fmt.Errorf("git %s: timed out after %s",
-					strings.Join(args, " "), remaining)
-			})
+		ctx, cancel := context.WithDeadline(context.Background(), deadline)
+		defer cancel()
+
+		out, err := run(ctx, dir, args...)
+		if err != nil && ctx.Err() != nil {
+			return nil, fmt.Errorf("git %s: timed out after %s",
+				strings.Join(args, " "), remaining)
+		}
+		return out, err
 	}
 }
 
@@ -148,27 +161,24 @@ func WithDeadline(run Runner, deadline time.Time) Runner {
 // every ordinary call.
 type PipeRunner func(dir string, stdin []byte, args ...string) ([]byte, error)
 
-// ExecPipe is the PipeRunner that shells out to git.
-func ExecPipe(dir string, stdin []byte, args ...string) ([]byte, error) {
+// ContextPipeRunner is the context-aware form of PipeRunner, the way
+// ContextRunner is the context-aware form of Runner.
+type ContextPipeRunner func(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error)
+
+// ExecPipeContext is the context-aware form of ExecPipe.
+func ExecPipeContext(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
 	full := append([]string{"-C", dir}, args...)
-	cmd := exec.Command("git", full...)
+	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Stdin = bytes.NewReader(stdin)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	return runOutput(cmd, "git", full)
+}
 
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return nil, fmt.Errorf("git %s: %w",
-				strings.Join(args, " "), err)
-		}
-		return nil, fmt.Errorf("git %s: %w: %s",
-			strings.Join(args, " "), err, msg)
-	}
-
-	return stdout.Bytes(), nil
+// ExecPipe is the PipeRunner that shells out to git. It is
+// ExecPipeContext against a context that is never cancelled, so any
+// caller still on the plain PipeRunner shape is unaffected.
+func ExecPipe(dir string, stdin []byte, args ...string) ([]byte, error) {
+	return ExecPipeContext(context.Background(), dir, stdin, args...)
 }
 
 // List returns every worktree of the repository containing dir.

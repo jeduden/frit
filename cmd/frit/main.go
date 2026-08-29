@@ -2366,8 +2366,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	// local, but a partial clone's promisor remote can still pull a
 	// missing object over the network on demand, so it gets the same
 	// bound.
-	rt.git = gitwt.WithTimeout(rt.git, c.GitTimeout)
-	rt.gitPipe = gitwt.WithTimeoutPipe(rt.gitPipe, c.GitTimeout)
+	rt.git = gitwt.WithTimeout(gitwt.ExecContext, c.GitTimeout)
+	rt.gitPipe = gitwt.WithTimeoutPipe(gitwt.ExecPipeContext, c.GitTimeout)
 	// The other subprocess a verb shells out to. rt.herdr is a plain
 	// exec of the herdr binary; bound here so a wedged socket cannot hang
 	// a verb that reads presence.

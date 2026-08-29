@@ -17,7 +17,7 @@ depends-on: [2608281623]
 phases:
   - n: 1
     title: gitwt kills a timed-out git subprocess
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: herdr kills a timed-out herdr subprocess
     status: "🔲"
