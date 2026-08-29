@@ -143,6 +143,21 @@ func TestMarkdownOnlyDropsTreesAndRejoinsThePrefix(t *testing.T) {
 	assert.Empty(t, ignored)
 }
 
+func TestIsFolderPlanFileMatchesOnlyTheFixedName(t *testing.T) {
+	assert.True(t, IsFolderPlanFile("plan.md"))
+	assert.True(t, IsFolderPlanFile("plan/2601010000_x/plan.md"))
+	assert.False(t, IsFolderPlanFile("2601010000_x.md"))
+	assert.False(t, IsFolderPlanFile("plan/2601010000_x.md"))
+}
+
+func TestIsPlanPathAcceptsAFlatFileOrAOneDeepFolderPlan(t *testing.T) {
+	assert.True(t, isPlanPath("2601010000_x.md"), "a flat plan")
+	assert.True(t, isPlanPath("2601010000_x/plan.md"), "one folder deep")
+	assert.False(t, isPlanPath("2601010000_x/notes.md"),
+		"one folder deep but not the fixed name")
+	assert.False(t, isPlanPath("a/2601010000_x/plan.md"), "two folders deep")
+}
+
 func TestBlobOIDsAreDistinctAndSorted(t *testing.T) {
 	got := blobOIDs(map[string][]gitobj.TreeEntry{
 		"t1": {{OID: "bbbb"}, {OID: "aaaa"}},

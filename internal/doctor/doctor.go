@@ -121,10 +121,18 @@ func planPaths(root, planDir string) ([]string, error) {
 // plus whatever of mdsmith's diagnostics doctor cares about. A file
 // planmeta cannot parse as a plan is skipped rather than reported —
 // that gap belongs to whichever verb reads the fleet index, not to a
-// health report scoped to plans it can already read.
+// health report scoped to plans it can already read. A directory is
+// skipped the same way: filepath.Glob matches directories as well as
+// files, and the folder shape makes "plan.md" a name a stray
+// directory can plausibly collide with, so one such entry must not
+// fail the whole scan and lose every other plan's findings with it.
 func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
+		return nil, err
+	}
+
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
 		return nil, err
 	}
 
@@ -208,7 +216,7 @@ func checkIDSync(id int64, rel string) *Finding {
 // first underscore.
 func leadingIDToken(rel string) string {
 	name := filepath.Base(rel)
-	if name == plans.FixedName {
+	if plans.IsFolderPlanFile(rel) {
 		name = filepath.Base(filepath.Dir(rel))
 	} else {
 		name = strings.TrimSuffix(name, ".md")

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/jeduden/frit/internal/gitwt"
@@ -51,21 +52,32 @@ func TestCollectKeepsAFolderPlanAndReportsAMislaidFile(t *testing.T) {
 	assert.Len(t, entries, 2, "the flat plan and the folder plan, once each")
 }
 
-func minimalPlan(id int64) string {
-	return "---\nid: " + itoaFolder(id) +
-		"\ntitle: t\nstatus: \"🔲\"\n---\n# t\n"
+// TestCollectReportsAFolderPlanNestedTooDeep: a folder plan's fixed
+// plan.md carries no id of its own — the id lives in the folder name
+// one level up — so the mislaid check must look at the parent
+// directory, not the dropped file's own base name, or a folder plan
+// placed a level too deep vanishes with no trace at all.
+func TestCollectReportsAFolderPlanNestedTooDeep(t *testing.T) {
+	dir := folderInitRepo(t)
+	git(t, dir, "checkout", "-q", "-b", "plan/nested")
+	folderWrite(t, dir, "plan/archive/2601020000_deep/plan.md",
+		minimalPlan(2601020000))
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "nested")
+	git(t, dir, "checkout", "-q", "main")
+
+	got, ignored, err := plans.Collect(
+		dir, plans.DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	require.NoError(t, err)
+
+	assert.Empty(t, got, "too deep to be kept as a plan")
+	assert.Contains(t, ignored, "plan/archive/2601020000_deep/plan.md",
+		"a folder plan nested one level too deep is reported, not lost")
 }
 
-func itoaFolder(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	var d []byte
-	for n > 0 {
-		d = append([]byte{byte('0' + n%10)}, d...)
-		n /= 10
-	}
-	return string(d)
+func minimalPlan(id int64) string {
+	return "---\nid: " + strconv.FormatInt(id, 10) +
+		"\ntitle: t\nstatus: \"🔲\"\n---\n# t\n"
 }
 
 func folderInitRepo(t *testing.T) string {

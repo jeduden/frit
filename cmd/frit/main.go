@@ -1060,12 +1060,17 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 			continue
 		}
 
-		files, _, err := plans.Collect(repo.Path, dir,
+		files, mislaid, err := plans.Collect(repo.Path, dir,
 			rt.git, rt.gitPipe)
 		if err != nil {
 			// One unreadable repository must not blind the rest.
 			doc.AddProblem(repo.Name, err)
 			continue
+		}
+		for _, m := range mislaid {
+			doc.AddProblem(repo.Name, fmt.Errorf(
+				"%s looks like a plan but is not %s; it is not read",
+				m, plans.FixedName))
 		}
 
 		entries, problems := index.Build(host, repo.Name,

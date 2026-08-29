@@ -88,42 +88,9 @@ Do the one thing.
 `, id)
 }
 
-const cleanPlan = `---
-id: 100
-title: A clean plan
-status: "🔲"
-model: sonnet
-phases:
-  - { n: 1, title: 'One', status: "🔲" }
----
-# A clean plan
-
-## Goal
-
-Ship the thing.
-
-## Phase 1: One
-
-Do the one thing.
-
-## Execution
-
-| Phase | Design | Implement | Gate |
-| ----- | ------ | --------- | ---- |
-| 1 one | sonnet | sonnet    | test one |
-
-## Tasks
-
-1. Do it.
-
-## Acceptance Criteria
-
-- [ ] It is done.
-`
-
 func TestScanFindsNothingOnACleanPlan(t *testing.T) {
 	root := newFixtureRoot(t)
-	writePlan(t, root, "100_a-clean-plan.md", cleanPlan)
+	writePlan(t, root, "100_a-clean-plan.md", cleanPlanWithID(100))
 
 	got, err := Scan(root, "plan")
 
@@ -372,4 +339,58 @@ func TestScanSeesFolderPlansAndProvesIDSync(t *testing.T) {
 	flatSkew := byPath["plan/2601060000_flatskew.md"]
 	require.Len(t, flatSkew, 1, "the id-sync check is not folder-only")
 	assert.Equal(t, "id-sync", flatSkew[0].Check)
+}
+
+// TestScanSkipsADirectoryThatMatchesAPlanGlob: filepath.Glob matches
+// directories as well as files, and a folder plan makes "plan.md" a
+// name a directory can plausibly collide with (a typo'd folder-plan
+// path, or a flat-glob match on a directory literally named like
+// "<id>_<slug>.md"). One such entry must not make Scan fail outright
+// and lose every other plan's findings — it is skipped like any other
+// non-plan path.
+func TestScanSkipsADirectoryThatMatchesAPlanGlob(t *testing.T) {
+	root := newFixtureRoot(t)
+	writePlan(t, root, "2601030000_ok.md", cleanPlanWithID(2601030000))
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(root, "plan", "2601020000_oops.md"), 0o750))
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err, "one bad path must not blind the whole scan")
+	assert.Empty(t, got, "the one real plan is clean")
+}
+
+func TestPlanPathsListsFlatAndFolderPlansTogetherSorted(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "plan"), 0o750))
+	writePlan(t, root, "2601020000_b.md", "")
+	writePlan(t, root, "2601010000_a.md", "")
+	writeFolderPlan(t, root, "2601015000_mid", "")
+
+	got, err := planPaths(root, "plan")
+
+	require.NoError(t, err)
+	want := []string{
+		filepath.Join(root, "plan", "2601010000_a.md"),
+		filepath.Join(root, "plan", "2601015000_mid", "plan.md"),
+		filepath.Join(root, "plan", "2601020000_b.md"),
+	}
+	assert.Equal(t, want, got)
+}
+
+func TestCheckIDSyncFlagsOnlyAMismatch(t *testing.T) {
+	assert.Nil(t, checkIDSync(2601010000, "plan/2601010000_x.md"))
+
+	got := checkIDSync(2601010000, "plan/2601999999_x.md")
+	require.NotNil(t, got)
+	assert.Equal(t, "id-sync", got.Check)
+}
+
+func TestLeadingIDTokenReadsTheFolderNameForAFolderPlan(t *testing.T) {
+	assert.Equal(t, "2601010000",
+		leadingIDToken("plan/2601010000_x/plan.md"))
+	assert.Equal(t, "2601010000",
+		leadingIDToken("plan/2601010000_x.md"))
+	assert.Equal(t, "noid",
+		leadingIDToken("plan/noid/plan.md"), "no underscore, name as-is")
 }

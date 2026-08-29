@@ -4,6 +4,7 @@ package plans
 
 import (
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -19,10 +20,30 @@ const DefaultDir = "plan"
 // counterpart to a flat plan/<id>_<slug>.md file.
 const FixedName = "plan.md"
 
+// IsFolderPlanFile reports whether a path's final segment names a
+// folder plan's fixed inner file, as opposed to a flat plan file. It
+// is the one predicate discovery, lane naming and doctor share for
+// that question, so the three cannot silently drift on what counts as
+// a folder plan — discovery still owns depth (isPlanPath below), the
+// question this answers alone. filepath.Base is used rather than
+// path.Base so a caller may pass either a git-relative path (always
+// "/") or an OS path (native separators; "/" is a folder plan's
+// contract too on Windows, filepath.Base already recognizes both).
+func IsFolderPlanFile(p string) bool {
+	return filepath.Base(p) == FixedName
+}
+
 // mislaidPlan matches a dropped file's base name against the same
 // <id>_<slug>.md shape a flat plan carries, so a plan-like file left
 // in the wrong place is reported rather than silently lost.
 var mislaidPlan = regexp.MustCompile(`^[0-9].*_.*\.md$`)
+
+// mislaidFolderPlan matches a dropped plan.md's parent directory name
+// against the same <id>_<slug> shape a plan folder carries. A folder
+// plan's own base name is always the fixed plan.md, which carries no
+// id, so a folder nested deeper than one level is invisible to
+// mislaidPlan unless its parent name is checked instead.
+var mislaidFolderPlan = regexp.MustCompile(`^[0-9].*_.*$`)
 
 // File is one plan file as it exists on one ref.
 //
@@ -116,8 +137,12 @@ func entriesByTree(
 // their repository-relative path: a flat plan/*.md file, or a
 // folder's one fixed plan.md one level deep. Everything else beneath
 // the plan directory is not a plan; among what is dropped, a path
-// whose base still looks like a plan file name is a mislaid plan,
-// returned separately so it is reported rather than lost.
+// whose base still looks like a plan file name — or whose base is the
+// fixed plan.md sitting under a directory that looks like a plan
+// folder — is a mislaid plan, returned separately so it is reported
+// rather than lost. A folder plan's own base name carries no id, so
+// the parent directory is what a too-deep folder plan is recognized
+// by.
 //
 // The tree being listed is the subdirectory's own tree, so ls-tree
 // reports "a.md" where the repository holds "plan/a.md", and
@@ -139,7 +164,11 @@ func markdownOnly(
 			kept = append(kept, e)
 			continue
 		}
-		if mislaidPlan.MatchString(path.Base(e.Path)) {
+		base := path.Base(e.Path)
+		lost := mislaidPlan.MatchString(base) ||
+			(IsFolderPlanFile(base) &&
+				mislaidFolderPlan.MatchString(path.Base(path.Dir(e.Path))))
+		if lost {
 			mislaid = append(mislaid, path.Join(subdir, e.Path))
 		}
 	}
@@ -155,7 +184,7 @@ func isPlanPath(relPath string) bool {
 	case 1:
 		return true
 	case 2:
-		return segments[1] == FixedName
+		return IsFolderPlanFile(segments[1])
 	default:
 		return false
 	}

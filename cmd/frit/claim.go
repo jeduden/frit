@@ -543,7 +543,7 @@ func claimRefusal(
 // hands to herdr.
 func defaultLanePath(repoPath, planPath string) string {
 	named := planPath
-	if filepath.Base(planPath) == plans.FixedName {
+	if plans.IsFolderPlanFile(planPath) {
 		named = filepath.Dir(planPath)
 	}
 

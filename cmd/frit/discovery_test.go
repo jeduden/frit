@@ -178,6 +178,31 @@ func TestPlansHidesNonPlansUntilAll(t *testing.T) {
 	assert.Contains(t, errb.String(), "no front matter")
 }
 
+// TestPlansReportsAMislaidPlan: a plan-like file dropped in the wrong
+// place — here, one directory too deep — is surfaced as a problem by
+// `frit plans` itself, the same as `frit board` and `frit ready`
+// already do through the fleet gather. It is not held back by --all:
+// unlike a benign non-plan, a mislaid plan is a real problem.
+func TestPlansReportsAMislaidPlan(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
+	mislaid := filepath.Join(repo, "plan", "archive", "2_mislaid.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(mislaid), 0o750))
+	require.NoError(t, os.WriteFile(mislaid, []byte(
+		"---\nid: 2\ntitle: Mislaid\nstatus: \"🔲\"\n---\n# Mislaid\n"),
+		0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "mislay a plan")
+
+	var out, errb bytes.Buffer
+	require.Equal(t, 0, run([]string{"plans", "--root", root}, &out, &errb))
+	assert.Contains(t, errb.String(), "archive/2_mislaid.md",
+		"a mislaid plan-like file is reported by frit plans, not lost")
+	assert.Contains(t, errb.String(), "it is not read")
+}
+
 // TestNotAPlanIsAbsentFromJSONUntilAll: the same rule holds in the
 // document, so a consumer is not handed the noise either until it asks.
 func TestNotAPlanIsAbsentFromJSONUntilAll(t *testing.T) {
