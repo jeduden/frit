@@ -157,12 +157,11 @@ func scanFile(sess *mdsmith.Session, root, path string, headroomPercent int) ([]
 	diags, _ := sess.Check(rel, source)
 	findings = append(findings, checkDiagnostics(plan.ID, rel, diags)...)
 
+	// checkHeadroom's error is discarded like sess.Check's above: one
+	// plan's oracle trouble must not blind the whole scan and lose
+	// every other plan's findings with it.
 	if headroomPercent > 0 {
-		f, err := checkHeadroom(sess, plan.ID, rel, source, headroomPercent)
-		if err != nil {
-			return nil, err
-		}
-		if f != nil {
+		if f, _ := checkHeadroom(sess, plan.ID, rel, source, headroomPercent); f != nil {
 			findings = append(findings, *f)
 		}
 	}
