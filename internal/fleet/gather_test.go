@@ -86,7 +86,8 @@ func TestGatherCarriesTheHeadroomShortfall(t *testing.T) {
 	root := t.TempDir()
 	repoWithPaddedPlan(t, root, "atlas", 7, 290)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Headroom: true})
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
@@ -101,7 +102,8 @@ func TestGatherReportsFullHeadroomForAnOrdinaryPlan(t *testing.T) {
 	root := t.TempDir()
 	repoWithPlan(t, root, "atlas", 7)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Headroom: true})
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
@@ -120,11 +122,38 @@ func TestGatherHeadroomReserveZeroDisablesTheSignal(t *testing.T) {
 	gitCmd(t, dir, "add", "-A")
 	gitCmd(t, dir, "commit", "-q", "-m", "disable headroom")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Headroom: true})
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
 	assert.Equal(t, 0, res.Plans[0].HeadroomShort)
+}
+
+// TestGatherOnlyOpensTheHeadroomSessionWhenAsked is Phase 4's RED: a
+// malformed .mdsmith.yml would fail the headroom session open, but
+// that only happens — and only shows up as a problem — when the
+// caller asks for the signal. The other thirteen fleet verbs pass
+// Headroom: false and never pay for a session they would discard.
+func TestGatherOnlyOpensTheHeadroomSessionWhenAsked(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPlan(t, root, "atlas", 7)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".mdsmith.yml"), []byte("not: [valid: yaml"), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "malformed config")
+
+	without, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	require.NoError(t, err)
+	assert.Empty(t, without.Problems,
+		"a verb that never asked for headroom must not open its session")
+
+	with, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{Headroom: true})
+	require.NoError(t, err)
+	require.Len(t, with.Problems, 1,
+		"ready/pick still surface the broken config they need the session for")
+	assert.Contains(t, with.Problems[0].Err.Error(), "headroom")
 }
 
 // TestGatherCarriesRepoCoordinates: the gather hands back each

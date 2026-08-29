@@ -26,7 +26,7 @@ phases:
     status: "✅"
   - n: 4
     title: the oracle runs only where its answer is shown
-    status: "🔲"
+    status: "✅"
   - n: 5
     title: the headroom signal ships its skill text
     status: "🔲"
@@ -168,32 +168,41 @@ Gate: the new test and every existing `doctor` test pass; `go test
 ## Phase 4: the oracle runs only where its answer is shown
 
 `gatherFleet` computes the headroom signal only for the verbs that
-render it, not on every one of the fifteen. Where the effective cap is
-all a decision needs, it is read from
-`Session.Kinds(path).Rules["max-file-length"].Final`. That direct read
-replaces the binary search and its repeated `Session.Check` passes.
+render it, not on every one of the fifteen.
 
 This phase is a proving slice. The RED reproduction fixes the real shape
 before the GREEN sites, since routing the signal only to `ready`/`pick`
 touches the shared gather.
 
-RED first:
+RED first, in
+[gather_test.go](../internal/fleet/gather_test.go). A repository gets a
+malformed `.mdsmith.yml`. A plain `Gather` opens no headroom session and
+reports no problem. `Gather` with the caller opted in still fails with
+the expected problem. That is the call-count proof, with no need to
+instrument `Session.Check` itself.
 
-- A benchmark or call-count test showing `orphans`/`board`/`drift` no
-  longer open the headroom session or run the oracle.
-- A test that the cap read from `Session.Kinds` matches the oracle's
-  answer on a plan with and without a repo `max-file-length` override,
-  so the direct read is provably the same number.
+GREEN: a `fleet.Options.Headroom bool` gates `headroomFor`. Only
+`gatherFleetWithHeadroom` in [main.go](../cmd/frit/main.go) sets it,
+called by `ready` and `pick`. The other thirteen verbs keep the plain
+`gatherFleet` and never open the session.
 
-GREEN sites are settled once the slice shows whether the cheaper path is
-gating the existing oracle to the two verbs, reading the cap directly,
-or both. The package doc in
-[headroom.go](../internal/headroom/headroom.go) is corrected either way,
-since its "not reachable" premise is now false.
+The slice settled the second question in the proving slice's favor. A
+probe against the real API shows
+`Session.Kinds(path).Rules["max-file-length"].Final` reads `true`, not
+`{"max": N}`, for the common no-override case. Recovering the cap would
+still mean falling back to the rule's own built-in 300 default — a
+second copy of that number, the exact drift the package doc already
+warns against. `pad` and `fits` stay exactly as they are, since Phase 6
+tests them; only gating shipped. The package doc in
+[headroom.go](../internal/headroom/headroom.go) is corrected to say why
+it still asks the oracle rather than reading `Session.Kinds` for real,
+not that the cap is unreachable.
 
-Gate: the call-count and equivalence tests pass; `ready`/`pick` still
-report the same shortfalls they do today, confirmed against the built
-binary; `go test ./...` and `mdsmith check .` clean.
+Gate: the new gather test passes; `orphans`/`board`/`drift` open no
+headroom session (proven against a malformed-config repo, both with the
+built binary and in the test); `ready`/`pick` still report the same
+shortfalls they do today, confirmed against the built binary; `go test
+./...` and `mdsmith check .` clean.
 
 ## Phase 5: the headroom signal ships its skill text
 
