@@ -67,10 +67,7 @@ func Scan(root, planDir string, headroomPercent int) ([]Finding, error) {
 		return nil, err
 	}
 
-	sess, err := mdsmith.NewSession(mdsmith.SessionOptions{
-		Workspace: mdsmith.OSWorkspace{Root: root},
-		Config:    mdsmith.ConfigPath(filepath.Join(root, ".mdsmith.yml")),
-	})
+	sess, err := headroom.Session(root)
 	if err != nil {
 		return nil, err
 	}

@@ -23,7 +23,7 @@ phases:
     status: "✅"
   - n: 3
     title: doctor and headroom share one session opener
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: the oracle runs only where its answer is shown
     status: "🔲"
