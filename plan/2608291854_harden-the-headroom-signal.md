@@ -1,7 +1,7 @@
 ---
 id: 2608291854
 title: Harden the headroom check and the signal it ships
-status: "🔲"
+status: "🔳"
 summary: >-
   The headroom signal shipped in PR #103 (plan 2608290818) has cleanup
   a code review surfaced. `doctor` runs the check on every plan, so a

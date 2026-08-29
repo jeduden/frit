@@ -95,10 +95,17 @@ Do the one thing.
 // bodyLines lines, so a test can drive it right up against mdsmith's
 // max-file-length cap without hand-counting the base template.
 func paddedPlanWithID(id int64, bodyLines int) string {
+	return paddedPlanWithStatus(id, "🔲", bodyLines)
+}
+
+// paddedPlanWithStatus is paddedPlanWithID with the front-matter
+// status a test wants to drive, so the headroom-done gate can be
+// checked against a ✅ plan without a second template to maintain.
+func paddedPlanWithStatus(id int64, status string, bodyLines int) string {
 	base := fmt.Sprintf(`---
 id: %d
 title: A padded plan
-status: "🔲"
+status: %q
 model: sonnet
 ---
 # A padded plan
@@ -114,7 +121,7 @@ Ship the thing.
 ## Acceptance Criteria
 
 - [ ] It is done.
-`, id)
+`, id, status)
 
 	_, body := markdown.StripFrontMatter([]byte(base))
 	have := markdown.CountLines(body)
@@ -168,6 +175,23 @@ func TestScanWithReserveZeroEmitsNoHeadroomFinding(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, findingsByCheck(got, "headroom"))
+}
+
+// TestScanSkipsHeadroomForADonePlan is Phase 1's RED: a ✅ plan will
+// never grow another phase, so its shortfall is unactionable and
+// doctor must not name it — even padded past the same reserve that
+// still trips the finding on a live 🔲 plan.
+func TestScanSkipsHeadroomForADonePlan(t *testing.T) {
+	root := newFixtureRoot(t)
+	writePlan(t, root, "108_done.md", paddedPlanWithStatus(108, "✅", 290))
+	writePlan(t, root, "109_live.md", paddedPlanWithStatus(109, "🔲", 290))
+
+	got, err := Scan(root, "plan", 10)
+
+	require.NoError(t, err)
+	headroom := findingsByCheck(got, "headroom")
+	require.Len(t, headroom, 1, "only the live plan is flagged")
+	assert.Equal(t, int64(109), headroom[0].ID, "done plan must not be flagged")
 }
 
 func TestScanFindsNothingOnACleanPlan(t *testing.T) {
