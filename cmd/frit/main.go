@@ -560,6 +560,10 @@ func (d *doctorCmd) Help() string {
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
+  headroom        a plan with no room left to append another
+                  "## Phase N" section, within its headroom-reserve
+                  percent (.frit.yml; default 10, 0 disables this
+                  check)
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
@@ -568,7 +572,9 @@ execution-row, tier and id-sync read the body and file-name data frit
 already parses for next and show — mdsmith's schema has no way to see
 inside a markdown table's cells, cross-reference a table's rows
 against another section's headings, or compare a file name to a
-front-matter field.
+front-matter field. headroom pads an in-memory copy of the plan and
+asks the same mdsmith session whether max-file-length would fire,
+rather than reading the configured cap directly.
 
 A repository with no plan/proto.md has nothing to check.`
 }
