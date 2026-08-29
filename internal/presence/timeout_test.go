@@ -1,6 +1,7 @@
 package presence
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestWithTimeoutKillsAGenuinelySlowProbe(t *testing.T) {
 // TestWithTimeoutPassesAPromptReadThrough: a runner that answers within
 // the bound returns its output unchanged, timeout or not.
 func TestWithTimeoutPassesAPromptReadThrough(t *testing.T) {
-	exec := func(name string, args ...string) ([]byte, error) {
+	exec := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte("ok"), nil
 	}
 
@@ -39,14 +40,18 @@ func TestWithTimeoutPassesAPromptReadThrough(t *testing.T) {
 // TestWithTimeoutBoundsASlowHost is the "merely slow is treated the
 // same as dead" rule: a runner that outlasts the bound returns a
 // timeout error instead of hanging, so reconciliation renders it stale
-// rather than blocking the board on it.
+// rather than blocking the board on it. The fake obeys ctx the way a
+// real killed subprocess does.
 func TestWithTimeoutBoundsASlowHost(t *testing.T) {
 	started := make(chan struct{})
-	exec := func(name string, args ...string) ([]byte, error) {
+	exec := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		close(started)
-		time.Sleep(time.Second)
-
-		return []byte("late"), nil
+		select {
+		case <-time.After(time.Second):
+			return []byte("late"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	out, err := WithTimeout(exec, time.Millisecond)("ssh", "box", "herdr")

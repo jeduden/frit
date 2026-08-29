@@ -674,12 +674,9 @@ func fleetPresence(
 		return local, unreadHosts(c.Hosts), nil
 	}
 
-	exec := func(name string, args ...string) ([]byte, error) {
-		return herdr.Run(name, args...)
-	}
 	opt := presence.Options{TTL: hostReadTTL, Timeout: hostReadTimeout}
 	remotePanes, statuses := presence.Read(
-		toHosts(c.Hosts), exec, path, opt, time.Now())
+		toHosts(c.Hosts), herdr.RunContext, path, opt, time.Now())
 
 	return append(local, remotePanes...), hostProblems(statuses), nil
 }

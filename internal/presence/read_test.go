@@ -1,6 +1,7 @@
 package presence
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sort"
@@ -29,7 +30,7 @@ type probeRecorder struct {
 	fail   map[string]error
 }
 
-func (p *probeRecorder) exec(name string, args ...string) ([]byte, error) {
+func (p *probeRecorder) exec(ctx context.Context, name string, args ...string) ([]byte, error) {
 	host := "" // local: command("", args) → name "herdr", no host in argv
 	if name == "ssh" {
 		host = args[0]
