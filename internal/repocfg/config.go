@@ -38,6 +38,11 @@ const DefaultHoldPattern = "plan/{id}-*"
 // DefaultRemote is where a claim lease is pushed by convention.
 const DefaultRemote = "origin"
 
+// DefaultHeadroomReserve is the percent of a plan's body length kept
+// in reserve for another phase section, when a repository names none
+// of its own.
+const DefaultHeadroomReserve = 10
+
 // Config is one repository's settings.
 type Config struct {
 	// PlanDir is where plan files live, relative to the repository
@@ -58,6 +63,10 @@ type Config struct {
 	// SampleGap is S_max: the longest gap a staleness window tolerates
 	// between two samples before it voids and restarts (F12).
 	SampleGap time.Duration `yaml:"-"`
+	// HeadroomReserve is the percent of a plan's body length doctor
+	// and pick keep in reserve for a future "## Phase N" section.
+	// 0 disables the headroom finding entirely.
+	HeadroomReserve int `yaml:"headroom-reserve"`
 }
 
 // fileConfig is what a .frit.yml unmarshals into. TakeoverWindow and
@@ -72,6 +81,10 @@ type fileConfig struct {
 	Base           string   `yaml:"base"`
 	TakeoverWindow string   `yaml:"takeover-window"`
 	SampleGap      string   `yaml:"sample-gap"`
+	// HeadroomReserve is a pointer because 0 is a meaningful value —
+	// "disable the finding" — distinct from the key being omitted,
+	// which an int alone cannot tell apart.
+	HeadroomReserve *int `yaml:"headroom-reserve"`
 }
 
 // Default is the configuration a repository gets when it ships no
@@ -87,8 +100,9 @@ func Default() Config {
 		// origin/HEAD → main → master → HEAD cascade, computed where
 		// the lease is dated. Baking a guess in here would drag a git
 		// dependency into repocfg, which reads config and nothing else.
-		TakeoverWindow: discovery.DefaultTakeoverWindow,
-		SampleGap:      discovery.DefaultSampleGap,
+		TakeoverWindow:  discovery.DefaultTakeoverWindow,
+		SampleGap:       discovery.DefaultSampleGap,
+		HeadroomReserve: DefaultHeadroomReserve,
 	}
 }
 
@@ -147,6 +161,9 @@ func Load(repoDir string) (Config, error) {
 				"%s: sample-gap: %w", FileName, err)
 		}
 		cfg.SampleGap = d
+	}
+	if file.HeadroomReserve != nil {
+		cfg.HeadroomReserve = *file.HeadroomReserve
 	}
 
 	return cfg, nil

@@ -28,7 +28,7 @@ func newSession(t *testing.T) *mdsmith.Session {
 func plan(bodyLines int) []byte {
 	var b strings.Builder
 	b.WriteString("---\nid: 1\ntitle: x\n---\n")
-	for i := 0; i < bodyLines; i++ {
+	for range bodyLines {
 		b.WriteString("body line\n")
 	}
 
@@ -57,7 +57,10 @@ func TestRoomWithPlentyOfRoomReturnsTheFullReserve(t *testing.T) {
 
 func TestRoomPaddedToTheCapReturnsLessThanTheReserve(t *testing.T) {
 	sess := newSession(t)
-	src := plan(290) // 4 lines of front matter + 290 body lines = 294 total
+	// max-file-length counts body lines only — mdsmith strips front
+	// matter before the rule ever sees the file, so 290 body lines
+	// leaves only 10 lines of headroom under the 300-line cap.
+	src := plan(290)
 	reserve := ReserveLines(src, 10)
 	require.Equal(t, 29, reserve)
 
@@ -65,6 +68,6 @@ func TestRoomPaddedToTheCapReturnsLessThanTheReserve(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Less(t, room, reserve,
-		"294 total lines plus the full 29-line reserve would exceed the 300-line cap")
-	assert.Equal(t, 6, room, "300 - 294 lines of headroom actually fit")
+		"290 body lines plus the full 29-line reserve would exceed the 300-line cap")
+	assert.Equal(t, 10, room, "300 - 290 lines of headroom actually fit")
 }

@@ -588,7 +588,7 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
+		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir, cfg.HeadroomReserve)
 		if err != nil {
 			if errors.Is(err, doctorpkg.ErrNoSchema) {
 				continue

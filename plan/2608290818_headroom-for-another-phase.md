@@ -1,7 +1,7 @@
 ---
 id: 2608290818
 title: doctor and pick warn a plan has no room for another phase
-status: "🔲"
+status: "🔳"
 summary: >-
   A plan can sit at its markdown line cap with no room for a `## Phase
   N` section, and nothing in frit says so until an executor has picked
@@ -15,7 +15,7 @@ depends-on: []
 phases:
   - n: 1
     title: doctor reports a plan with no headroom
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: pick carries the headroom signal
     status: "🔲"
