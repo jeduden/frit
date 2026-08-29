@@ -16,7 +16,9 @@
     "held": false,
     "stale": false,
     "stale_seconds": 0,
-    "dead": false
+    "dead": false,
+    "no_headroom": false,
+    "headroom_short": 0
   },
   "phase": {
     "n": "2",

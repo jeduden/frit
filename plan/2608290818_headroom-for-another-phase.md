@@ -1,7 +1,7 @@
 ---
 id: 2608290818
 title: doctor and pick warn a plan has no room for another phase
-status: "🔲"
+status: "✅"
 summary: >-
   A plan can sit at its markdown line cap with no room for a `## Phase
   N` section, and nothing in frit says so until an executor has picked
@@ -15,13 +15,13 @@ depends-on: []
 phases:
   - n: 1
     title: doctor reports a plan with no headroom
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: pick carries the headroom signal
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: init and help name the reserve
-    status: "🔲"
+    status: "✅"
 ---
 # doctor and pick warn a plan has no room for another phase
 
@@ -194,16 +194,16 @@ output, per `plan/proto.md`.
 
 ## Acceptance Criteria
 
-- [ ] `.frit.yml` `headroom-reserve` is read by `repocfg`, defaults to
+- [x] `.frit.yml` `headroom-reserve` is read by `repocfg`, defaults to
       10, and `0` disables the finding
-- [ ] An `internal/headroom` oracle reports how much of a reserve fits
+- [x] An `internal/headroom` oracle reports how much of a reserve fits
       by padding an in-memory copy and asking mdsmith, never reading the
       cap directly
-- [ ] `doctor` emits a `headroom` finding, naming the shortfall, for a
+- [x] `doctor` emits a `headroom` finding, naming the shortfall, for a
       plan with no room for another phase section
-- [ ] `pick` carries the same signal in its row and `--json`, and a
+- [x] `pick` carries the same signal in its row and `--json`, and a
       capped plan keeps its rank
-- [ ] `frit init` writes the commented `headroom-reserve` default and
+- [x] `frit init` writes the commented `headroom-reserve` default and
       `doctor --help` catalogues the `headroom` check
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

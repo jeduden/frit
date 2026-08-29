@@ -75,6 +75,15 @@ type Plan struct {
 	// a live session that simply has not renewed yet is not Dead, and
 	// an unreachable herdr answers Dead false, falling back to Stale.
 	Dead bool
+	// NoHeadroom reports a plan with no room left for another
+	// "## Phase N" section — the internal/headroom oracle's answer,
+	// carried here because it needs an mdsmith.Session, which this
+	// pure package never opens. A startable plan keeps its rank even
+	// when this is true; it just cannot be written to.
+	NoHeadroom bool
+	// HeadroomShort is how many lines short of its reserve the plan
+	// is, meaningful only when NoHeadroom is true.
+	HeadroomShort int
 }
 
 // NotStarted reports a plan nobody has begun.

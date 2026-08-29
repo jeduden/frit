@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1040,6 +1041,37 @@ func TestPickRanksAndTrims(t *testing.T) {
 	require.Len(t, doc.Plans, 1)
 	assert.Equal(t, int64(2), doc.Plans[0].ID,
 		"the plan freeing the most downstream work ranks first")
+}
+
+// TestPickCarriesTheHeadroomSignal is Phase 2's gate: a plan padded
+// within mdsmith's default 300-line cap carries the headroom signal on
+// its card, in both the table and --json, and stays ranked as
+// startable — it just cannot be written to.
+func TestPickCarriesTheHeadroomSignal(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Capped plan", nil,
+		strings.Repeat("Padding line.\n", 290))
+	commitPlan(t, repo, 8, "🔲", "Roomy plan", nil, "")
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "--root", root)
+
+	require.Len(t, doc.Plans, 2, "the capped plan is still ranked, not withheld")
+	byID := map[int64]report.PlanCard{}
+	for _, p := range doc.Plans {
+		byID[p.ID] = p
+	}
+	assert.True(t, byID[7].NoHeadroom)
+	assert.Greater(t, byID[7].HeadroomShort, 0)
+	assert.False(t, byID[8].NoHeadroom)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"pick", "--root", root}, &out, &errb)
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "-"+strconv.Itoa(byID[7].HeadroomShort),
+		"the table notes the shortfall")
 }
 
 // leaseRef parks refs/heads/plan/<id> on a fresh lease marker of the
