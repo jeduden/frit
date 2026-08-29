@@ -69,7 +69,8 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		reaped, refused := reapStranded(
 			rt, repo, found.Stranded, evidence, remote, base, rc.Go, progress)
 		pruned, refusedPruned := reapPruned(
-			rt, repo, found.Prunable, found.Empty, rc.Go, progress)
+			rt, repo, found.Prunable, found.Empty,
+			foreignWorktrees(found.Foreign), rc.Go, progress)
 		dropped, refusedHolds := reapUnstaffed(
 			rt, repo, found.Unstaffed, res.Plans, remote, base, window,
 			rc.Go, progress)
@@ -412,10 +413,12 @@ func holds(lane lanes.Lane, branch string) bool {
 	return false
 }
 
-// reapPruned tears down every prunable and never-started worktree the
-// same way a stranded checkout is — git worktree remove — but leaves
-// any branch it stands on alone: unlike a landed lane's, a prunable or
-// empty checkout's branch may still be live work under another name.
+// reapPruned tears down every prunable, never-started, or foreign
+// worktree the same way a stranded checkout is — git worktree
+// remove — but leaves any branch it stands on alone: unlike a landed
+// lane's, none of these three kinds' branches is confirmed done, so a
+// foreign checkout's branch stays a live hold and a prunable or empty
+// one's may still be live work under another name.
 //
 // lanes.Find's two loops are independent, so a worktree whose branch
 // ref vanished without landing (S79) reads a zero-commit HEAD exactly
@@ -428,7 +431,7 @@ func holds(lane lanes.Lane, branch string) bool {
 // reaped.
 func reapPruned(
 	rt *runtime, repo discover.Repo,
-	prunable, empty []gitwt.Worktree, doGo bool, progress io.Writer,
+	prunable, empty, foreign []gitwt.Worktree, doGo bool, progress io.Writer,
 ) ([]report.PrunedWorktree, []report.RefusedWorktree) {
 	pruned := []report.PrunedWorktree{}
 	refused := []report.RefusedWorktree{}
@@ -455,8 +458,22 @@ func reapPruned(
 	}
 	classify(prunable, "prunable")
 	classify(empty, "empty")
+	classify(foreign, "foreign")
 
 	return pruned, refused
+}
+
+// foreignWorktrees strips lanes.ForeignCheckout down to the worktrees
+// reapPruned's own kind-agnostic teardown acts on — the plan id is
+// only orphans' to report, since a foreign checkout's teardown never
+// touches its branch.
+func foreignWorktrees(fc []lanes.ForeignCheckout) []gitwt.Worktree {
+	out := make([]gitwt.Worktree, 0, len(fc))
+	for _, f := range fc {
+		out = append(out, f.Worktree)
+	}
+
+	return out
 }
 
 // printReap writes a block per repository with something reaped or

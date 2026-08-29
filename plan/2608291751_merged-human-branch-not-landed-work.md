@@ -24,7 +24,7 @@ phases:
     status: "✅"
   - n: 2
     title: a foreign checkout on the plan branch is an orphan
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: a claim whose stand-up fails releases what it minted
     status: "🔲"

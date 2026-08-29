@@ -192,7 +192,42 @@ func repoLanes(
 	landed := index.LandedIDs(entries, preferred)
 	evidence := landedEvidence{Merged: merged, ByPlanID: landed}
 
-	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), evidence, nil
+	built := lanes.Build(repo.Worktrees, refs, merged, landed, holds)
+	built = lanes.WithLanePaths(built, laneOf(repo.Path, cfg.Remote, refs, built, rt.git))
+
+	return built, evidence, nil
+}
+
+// laneOf reads the lane: trailer each live hold's own claim marker
+// carries, keyed by the hold's ref — the one place a foreign checkout
+// can be told apart from the lane its lease actually authorized. A
+// ref whose marker cannot be read, or that carries none, is simply
+// left out of the map, the same "authorizes nothing" WithLanePaths
+// already treats a missing entry as.
+func laneOf(
+	repoPath, remote string, refs []gitobj.Ref, built []lanes.Lane, run gitwt.Runner,
+) map[string]string {
+	oid := map[string]string{}
+	for _, r := range refs {
+		oid[r.Name] = r.OID
+	}
+
+	out := map[string]string{}
+	for _, lane := range built {
+		for _, h := range lane.Holds {
+			tip := oid[h.Ref]
+			if tip == "" {
+				continue
+			}
+			m, ok := claim.ReadMarker(repoPath,
+				claim.LeaseOptions{PlanID: lane.PlanID, Remote: remote}, tip, run)
+			if ok && m.Lane != "" {
+				out[h.Ref] = m.Lane
+			}
+		}
+	}
+
+	return out
 }
 
 type orphansCmd struct{}
