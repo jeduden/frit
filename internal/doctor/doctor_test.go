@@ -20,6 +20,21 @@ import (
 // the fixture honest about what a real plan must satisfy.
 func newFixtureRoot(t *testing.T) string {
 	t.Helper()
+	root := newFixtureRootNoConfig(t)
+
+	cfg, err := os.ReadFile(filepath.Join("..", "..", ".mdsmith.yml"))
+	require.NoError(t, err)
+	require.NoError(t,
+		os.WriteFile(filepath.Join(root, ".mdsmith.yml"), cfg, 0o600))
+
+	return root
+}
+
+// newFixtureRootNoConfig is newFixtureRoot without the .mdsmith.yml, so
+// a test can drive the no-config case doctor's session open must share
+// with headroom.Session.
+func newFixtureRootNoConfig(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 
 	proto, err := os.ReadFile(filepath.Join("..", "..", "plan", "proto.md"))
@@ -27,11 +42,6 @@ func newFixtureRoot(t *testing.T) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "plan"), 0o750))
 	require.NoError(t,
 		os.WriteFile(filepath.Join(root, "plan", "proto.md"), proto, 0o600))
-
-	cfg, err := os.ReadFile(filepath.Join("..", "..", ".mdsmith.yml"))
-	require.NoError(t, err)
-	require.NoError(t,
-		os.WriteFile(filepath.Join(root, ".mdsmith.yml"), cfg, 0o600))
 
 	return root
 }
@@ -192,6 +202,20 @@ func TestScanSkipsHeadroomForADonePlan(t *testing.T) {
 	headroom := findingsByCheck(got, "headroom")
 	require.Len(t, headroom, 1, "only the live plan is flagged")
 	assert.Equal(t, int64(109), headroom[0].ID, "done plan must not be flagged")
+}
+
+// TestScanOpensSessionOnDefaultsWithNoConfig is Phase 3's RED: a repo
+// with plan/proto.md but no .mdsmith.yml scans on mdsmith's built-in
+// defaults, the same no-config behaviour headroom.Session already
+// gives, rather than failing to open the session at all.
+func TestScanOpensSessionOnDefaultsWithNoConfig(t *testing.T) {
+	root := newFixtureRootNoConfig(t)
+	writePlan(t, root, "110_clean.md", cleanPlanWithID(110))
+
+	got, err := Scan(root, "plan", 10)
+
+	require.NoError(t, err)
+	assert.Empty(t, findingsByCheck(got, "headroom"))
 }
 
 func TestScanFindsNothingOnACleanPlan(t *testing.T) {
