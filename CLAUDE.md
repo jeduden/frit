@@ -261,7 +261,7 @@ Follows the standard Go project layout:
 
 - `cmd/frit/` — main entry point
 - `internal/` — private packages
-- `plan/` — plan files, indexed by PLAN.md
+- `plan/` — plan files, indexed by PLAN.md, flat or in a folder with companions
 
 ## Code Style
 

@@ -10,7 +10,7 @@ phases: >-
   status: "🔲" | "🔳" | "✅" | "⛔"}] | *[]
 ---
 <?require
-filename: "[0-9]*_*.md"
+filename: "*.md"
 ?>
 
 # ?
@@ -31,6 +31,18 @@ filename: "[0-9]*_*.md"
   - Taken already? Add one minute and check again.
   - frit keys a plan as host:repo:id across the whole
     fleet, so the id only has to be unique per repo.
+
+  Layout:
+  - A plan is one file, `plan/<id>_<slug>.md`, or a
+    folder, `plan/<id>_<slug>/plan.md`, holding
+    companion files (research, fixtures, diagrams)
+    beside it. Both key by the front-matter `id:`; the
+    naming convention is checked by the `plan` kind's
+    `path-pattern:` in `.mdsmith.yml`, not by the
+    `filename:` require above.
+  - A folder plan sits one directory deeper than a
+    flat plan, so a Markdown link to a repo path needs
+    one extra `../`.
 
   Status values:
   - 🔲 not started

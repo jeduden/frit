@@ -555,3 +555,34 @@ func TestGatherReportsASkippedRepositoryAsAProblem(t *testing.T) {
 	assert.True(t, found,
 		"a repo git refuses to answer for is a problem, not a silent drop")
 }
+
+// TestGatherReportsAMislaidPlanAsAProblem: a plan-like file dropped
+// somewhere plans.Collect will not read it — one directory too deep —
+// surfaces as a Problem the gather carries, not a silent drop, and it
+// is not the benign NotPlan kind: a mislaid plan is a real problem.
+func TestGatherReportsAMislaidPlanAsAProblem(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPlan(t, root, "atlas", 7)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "plan", "archive"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "plan", "archive", "8_mislaid.md"),
+		[]byte("---\nid: 8\ntitle: Mislaid\nstatus: \"🔲\"\n---\n# Mislaid\n"),
+		0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "mislay a plan")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	require.NoError(t, err)
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" &&
+			strings.Contains(p.Err.Error(), "archive/8_mislaid.md") {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found, "a mislaid plan is reported, not lost")
+	assert.False(t, found.NotPlan,
+		"a mislaid plan is a real problem, not the benign not-a-plan kind")
+}

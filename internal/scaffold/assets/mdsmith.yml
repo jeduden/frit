@@ -49,6 +49,7 @@ rules:
     field: id
     include:
       - "plan/*.md"
+      - "plan/*/plan.md"
     exclude:
       - "plan/proto.md"
 
@@ -66,7 +67,10 @@ kinds:
       paragraph-readability: false
       paragraph-structure: false
   plan:
-    path-pattern: "plan/{proto.md,[0-9][0-9]*_*.md}"
+    # The folder shape's `*/plan.md` is loose by design, unlike the
+    # flat shape's id-prefixed name: frit's own doctor id-sync check
+    # is what catches a folder not named for its id, not this pattern.
+    path-pattern: "plan/{proto.md,[0-9][0-9]*_*.md,*/plan.md}"
     rules:
       required-structure:
         schema: plan/proto.md
@@ -78,5 +82,19 @@ kinds:
 kind-assignment:
   - glob: ["**/proto.md"]
     kinds: [proto]
-  - glob: ["plan/*.md"]
+  - glob: ["plan/*.md", "plan/*/plan.md"]
     kinds: [plan]
+
+overrides:
+  # A plan folder's companion files (research, fixtures, diagrams) are
+  # freeform; plan.md itself keeps the plan kind and its full checks,
+  # so it is excluded here.
+  - glob: ["plan/*/*.md", "!plan/*/plan.md"]
+    rules:
+      first-line-heading: false
+      heading-increment: false
+      paragraph-readability: false
+      paragraph-structure: false
+      max-file-length: false
+      cross-file-reference-integrity: false
+      required-structure: false

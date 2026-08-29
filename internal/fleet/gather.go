@@ -177,19 +177,27 @@ func gatherRepo(
 		fetchErr = fetchRemote(repo.Path, cfg.Remote, run)
 	}
 
-	files, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
+	files, mislaid, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
 		return nil, nil, nil, Coord{}, nil, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
 	entries, errs := index.Build(host, repo.Name, preferred, files)
-	problems := make([]Problem, 0, len(errs))
+	problems := make([]Problem, 0, len(errs)+len(mislaid))
 	for _, e := range errs {
 		problems = append(problems, Problem{
 			Repo:    repo.Name,
 			Err:     e,
 			NotPlan: errors.Is(e, planmeta.ErrNoFrontMatter),
+		})
+	}
+	for _, p := range mislaid {
+		problems = append(problems, Problem{
+			Repo: repo.Name,
+			Err: fmt.Errorf(
+				"%s looks like a plan but is not %s; it is not read",
+				p, plans.FixedName),
 		})
 	}
 

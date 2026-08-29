@@ -22,7 +22,7 @@ func TestCollectReadsAPlanFromABranchWithNoWorktree(t *testing.T) {
 	// Leave main checked out; the plan branch has no worktree.
 	git(t, dir, "checkout", "-q", "main")
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -38,7 +38,7 @@ func TestCollectReadsContentWithNewlinesIntact(t *testing.T) {
 	dir := initRepo(t)
 	addPlanOnBranch(t, dir, "plan/multi", "plan/a.md", body)
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -54,7 +54,7 @@ func TestCollectSeesEveryRefIncludingRemotesAndTags(t *testing.T) {
 	git(t, dir, "update-ref", "refs/remotes/peer/plan/one",
 		"refs/heads/plan/one")
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	refs := map[string]bool{}
@@ -72,7 +72,7 @@ func TestCollectSharesContentBetweenIdenticalRefs(t *testing.T) {
 	git(t, dir, "update-ref", "refs/remotes/peer/plan/one",
 		"refs/heads/plan/one")
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(got), 2)
@@ -83,7 +83,7 @@ func TestCollectSharesContentBetweenIdenticalRefs(t *testing.T) {
 func TestCollectIgnoresRefsWithoutAPlanDirectory(t *testing.T) {
 	dir := initRepo(t)
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	assert.Empty(t, got, "main carries no plans and that is not a fault")
@@ -98,7 +98,7 @@ func TestCollectKeepsOnlyMarkdown(t *testing.T) {
 	git(t, dir, "commit", "-q", "-m", "mixed")
 	git(t, dir, "checkout", "-q", "main")
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -114,7 +114,7 @@ func TestCollectIsSortedByRefThenPath(t *testing.T) {
 	git(t, dir, "commit", "-q", "-m", "two")
 	git(t, dir, "checkout", "-q", "main")
 
-	got, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
+	got, _, err := Collect(dir, DefaultDir, gitwt.Exec, gitwt.ExecPipe)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -123,7 +123,7 @@ func TestCollectIsSortedByRefThenPath(t *testing.T) {
 }
 
 func TestCollectFailsOnANonRepository(t *testing.T) {
-	_, err := Collect(t.TempDir(), DefaultDir,
+	_, _, err := Collect(t.TempDir(), DefaultDir,
 		gitwt.Exec, gitwt.ExecPipe)
 
 	require.Error(t, err)
@@ -132,7 +132,7 @@ func TestCollectFailsOnANonRepository(t *testing.T) {
 func TestMarkdownOnlyDropsTreesAndRejoinsThePrefix(t *testing.T) {
 	// ls-tree reports paths relative to the tree it was given, so
 	// the inputs here carry no "plan/" prefix and the outputs do.
-	got := markdownOnly("plan", []gitobj.TreeEntry{
+	got, ignored := markdownOnly("plan", []gitobj.TreeEntry{
 		{Type: "blob", Path: "a.md"},
 		{Type: "blob", Path: "notes.txt"},
 		{Type: "tree", Path: "sub"},
@@ -140,6 +140,22 @@ func TestMarkdownOnlyDropsTreesAndRejoinsThePrefix(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "plan/a.md", got[0].Path)
+	assert.Empty(t, ignored)
+}
+
+func TestIsFolderPlanFileMatchesOnlyTheFixedName(t *testing.T) {
+	assert.True(t, IsFolderPlanFile("plan.md"))
+	assert.True(t, IsFolderPlanFile("plan/2601010000_x/plan.md"))
+	assert.False(t, IsFolderPlanFile("2601010000_x.md"))
+	assert.False(t, IsFolderPlanFile("plan/2601010000_x.md"))
+}
+
+func TestIsPlanPathAcceptsAFlatFileOrAOneDeepFolderPlan(t *testing.T) {
+	assert.True(t, isPlanPath("2601010000_x.md"), "a flat plan")
+	assert.True(t, isPlanPath("2601010000_x/plan.md"), "one folder deep")
+	assert.False(t, isPlanPath("2601010000_x/notes.md"),
+		"one folder deep but not the fixed name")
+	assert.False(t, isPlanPath("a/2601010000_x/plan.md"), "two folders deep")
 }
 
 func TestBlobOIDsAreDistinctAndSorted(t *testing.T) {

@@ -1,7 +1,7 @@
 ---
 id: 2608280653
 title: A plan may be a folder holding a fixed plan.md, beside flat plan files
-status: "🔲"
+status: "✅"
 summary: >-
   A plan is a single `plan/<id>_<slug>.md` file today; a plan that
   needs companion files (research, fixtures, diagrams) has nowhere to
@@ -18,16 +18,16 @@ depends-on: []
 phases:
   - n: 1
     title: Off-refs discovery reads a plan folder's plan.md as one plan
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: A claimed folder plan names its lane from the folder
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: The on-disk doctor scan sees folder plans and proves id sync
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: Proto, scaffold, skills and mdsmith teach the folder layout
-    status: "🔲"
+    status: "✅"
 ---
 # A plan may be a folder holding a fixed plan.md, beside flat plan files
 
@@ -292,20 +292,20 @@ running the built frit.
 
 ## Acceptance Criteria
 
-- [ ] `Collect` returns a folder's `plan.md`, drops its companion
+- [x] `Collect` returns a folder's `plan.md`, drops its companion
       files, reports a dropped plan-like `.md` as a problem, and
       `index.Build` indexes the folder plan under its front-matter id
-- [ ] A claimed folder plan's lane path takes its slug from the folder,
+- [x] A claimed folder plan's lane path takes its slug from the folder,
       not from `plan.md`
-- [ ] `doctor.Scan` scans a folder plan for the goal, execution-row and
+- [x] `doctor.Scan` scans a folder plan for the goal, execution-row and
       tier gaps, and reports any plan — flat or folder — whose name id
       disagrees with its front-matter `id:`
-- [ ] `plan/proto.md`, the scaffold assets, `plan-new`, `CLAUDE.md` and
+- [x] `plan/proto.md`, the scaffold assets, `plan-new`, `CLAUDE.md` and
       the consented `.mdsmith.yml` globs describe the folder layout, and
       a folder plan lints and is id-guarded
-- [ ] Both `<?catalog?>` globs in PLAN.md include the folder shape, so
+- [x] Both `<?catalog?>` globs in PLAN.md include the folder shape, so
       a folder plan appears in the regenerated catalog
-- [ ] A freeform companion `.md` in a plan folder passes
+- [x] A freeform companion `.md` in a plan folder passes
       `mdsmith check .` under the new override
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
