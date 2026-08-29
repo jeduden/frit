@@ -27,7 +27,7 @@ phases:
     status: "✅"
   - n: 3
     title: a claim whose stand-up fails releases what it minted
-    status: "🔲"
+    status: "✅"
   - n: 4
     title: a start resumed from its own lane skips worktree create
     status: "🔲"

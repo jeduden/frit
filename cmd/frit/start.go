@@ -338,7 +338,10 @@ func startExecute(
 				err = errors.Join(handoffError(sp.Lane, pane, err), tdErr)
 			}
 		}
-		if relErr := releaseLease(rt, sc, plan, sp, lease.Tip); relErr != nil {
+		coord := fleet.Coord{Path: sc.repoPath, Remote: sc.remote, Base: sc.base}
+		if relErr := releaseLease(
+			rt, coord, plan, sp.Branch, sp.Base, sp.Lane, lease.Tip,
+		); relErr != nil {
 			return errors.Join(err, relErr)
 		}
 
@@ -431,27 +434,31 @@ func handoffError(lane, pane string, err error) error {
 		lane, pane, err)
 }
 
-// releaseLease unwinds a lease minted before a handoff that then
-// failed: the release transition, a pushed marker rather than a
-// delete, so the plan frees while the history stays for the next
-// acquire to CAS on. It returns nil when the release lands, and an
-// error naming the still-held ref when it did not take — a failed
-// unwind is surfaced and can be found, not left as a silent orphan for
-// the next run to trip over.
+// releaseLease unwinds a lease minted before a handoff, or a claim's
+// own worktree stand-up, that then failed: the release transition, a
+// pushed marker rather than a delete, so the plan frees while the
+// history stays for the next acquire to CAS on. It returns nil when
+// the release lands, and an error naming the still-held ref when it
+// did not take — a failed unwind is surfaced and can be found, not
+// left as a silent orphan for the next run to trip over.
+//
+// It takes fleet.Coord rather than start's own startContext so both
+// rungs — start's handoff and claim's worktree stand-up — reach one
+// helper instead of each unwinding the lease its own way.
 func releaseLease(
-	rt *runtime, sc startContext, plan discovery.Plan,
-	sp report.StartPlan, tip string,
+	rt *runtime, coord fleet.Coord, plan discovery.Plan,
+	branch, base, lane, tip string,
 ) error {
-	if _, err := claim.Release(sc.repoPath, claim.LeaseOptions{
+	if _, err := claim.Release(coord.Path, claim.LeaseOptions{
 		PlanID: plan.ID,
-		Remote: sc.remote,
-		Base:   sp.Base,
+		Remote: coord.Remote,
+		Base:   base,
 		Holder: hostname(),
-		Lane:   sp.Lane,
+		Lane:   lane,
 	}, tip, rt.git); err != nil {
 		return fmt.Errorf(
 			"lease %s could not be released and is left on the remote; "+
-				"run frit orphans to find it: %w", sp.Branch, err)
+				"run frit orphans to find it: %w", branch, err)
 	}
 
 	return nil

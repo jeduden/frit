@@ -271,6 +271,18 @@ func (d *ClaimDoc) Warn(reason string) { d.Warning = reason }
 // Refuse records why no lease was minted, leaving Claimed false.
 func (d *ClaimDoc) Refuse(reason string) { d.Refused = reason }
 
+// Unwound records a claim whose fresh lease was released after its
+// worktree stand-up failed: no lane ever persisted a token for it, so
+// the atomic hold is undone rather than left standing with nothing
+// behind it. Claimed and Base, set by the earlier Minted, are both
+// cleared, so the report reads exactly like an ordinary refusal
+// rather than a claim that half-succeeded.
+func (d *ClaimDoc) Unwound(reason string) {
+	d.Claimed = false
+	d.Base = ""
+	d.Refused = reason
+}
+
 // ScavengedRef records the work ref a refusal cleaned up on landed
 // evidence, and where its unlanded work was parked, if anywhere.
 func (d *ClaimDoc) ScavengedRef(branch, rescue string) {

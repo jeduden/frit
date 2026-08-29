@@ -10,6 +10,7 @@ import (
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
@@ -744,10 +745,10 @@ func TestReleaseLeaseSurfacesADanglingLease(t *testing.T) {
 	rt := &runtime{git: unwindGit(func() ([]byte, error) {
 		return nil, errors.New("remote hung up")
 	})}
-	sc := startContext{repoPath: "/repo", remote: "origin"}
-	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+	coord := fleet.Coord{Path: "/repo", Remote: "origin"}
 
-	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
+	err := releaseLease(rt, coord, discovery.Plan{ID: 7},
+		"plan/7", "origin/main", "", "tipsha")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "plan/7")
@@ -760,10 +761,10 @@ func TestReleaseLeaseIsSilentWhenTheUnwindTakes(t *testing.T) {
 	rt := &runtime{git: unwindGit(func() ([]byte, error) {
 		return nil, nil
 	})}
-	sc := startContext{repoPath: "/repo", remote: "origin"}
-	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+	coord := fleet.Coord{Path: "/repo", Remote: "origin"}
 
-	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
+	err := releaseLease(rt, coord, discovery.Plan{ID: 7},
+		"plan/7", "origin/main", "", "tipsha")
 
 	assert.NoError(t, err)
 }

@@ -40,6 +40,23 @@ func herdrReturning(agents ...map[string]any) herdr.Runner {
 	return func(...string) ([]byte, error) { return body, nil }
 }
 
+// herdrReturningWithWorktree is herdrReturning plus a working
+// worktree.create — the two combined a claim test needs to exercise
+// its veto or takeover mechanics and still reach a stood-up worktree,
+// since a bare herdrReturning answers every call with the same
+// agent-list body and worktree.create then fails parsing it.
+func herdrReturningWithWorktree(agents ...map[string]any) herdr.Runner {
+	agentList := herdrReturning(agents...)
+
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+
+		return agentList(args...)
+	}
+}
+
 // repoOnPlan builds a repository parked on a plan branch, which is what
 // a lane under active work looks like.
 func repoOnPlan(t *testing.T, parent, name, branch string) string {
