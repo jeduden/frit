@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -15,22 +16,27 @@ import (
 // implementation stays one function with no state to construct.
 type Runner func(args ...string) ([]byte, error)
 
-// Exec is the Runner that shells out to the local herdr binary.
-func Exec(args ...string) ([]byte, error) {
-	return run("herdr", args...)
-}
+// ContextRunner is the context-aware form of Runner: a bound handed in
+// through ctx, rather than baked into the closure, so
+// exec.CommandContext can kill the subprocess when the caller's
+// context is done. WithTimeout wraps one of these and hands back a
+// plain Runner, mirroring gitwt.ContextRunner.
+type ContextRunner func(ctx context.Context, args ...string) ([]byte, error)
 
-// Run is the ExecFunc that shells out to an arbitrary process, the seam
-// ListHosts fans out over in production: the local herdr binary for the
-// local host, and `ssh <host> herdr …` for a remote one.
-func Run(name string, args ...string) ([]byte, error) {
-	return run(name, args...)
-}
+// waitDelay bounds how long runContext waits for stdout/stderr to hit
+// EOF once the child has been killed or has exited, the same fix
+// gitwt's core needed: killing the direct child does not close pipe
+// descriptors a grandchild — ssh, in the remote-host case — inherited
+// and kept open.
+const waitDelay = 5 * time.Second
 
-// run invokes name with args, taking the binary name so a test can
-// drive the success and failure paths without a herdr on the machine.
-func run(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+// runContext is the shared exec core: it runs name with args under
+// ctx. exec.CommandContext kills the child the moment ctx is done, so
+// Run cannot return before that kill completes — the bound moves from
+// the caller's wait into the process itself.
+func runContext(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = waitDelay
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -49,36 +55,54 @@ func run(name string, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// WithTimeout bounds a Runner so a stalled herdr call fails fast
-// instead of hanging the verb that made it, the way gitwt.WithTimeout
-// bounds a git Runner. Every single-host herdr read — board, who, and
-// the held-plan presence check release and claim take — goes through
-// rt.herdr, so wrapping it once at the dispatch seam bounds them all.
+// ExecContext is the context-aware form of Exec.
+func ExecContext(ctx context.Context, args ...string) ([]byte, error) {
+	return runContext(ctx, "herdr", args...)
+}
+
+// Exec is the Runner that shells out to the local herdr binary. It is
+// ExecContext against a context that is never cancelled, so any
+// caller still on the plain Runner shape is unaffected.
+func Exec(args ...string) ([]byte, error) {
+	return ExecContext(context.Background(), args...)
+}
+
+// RunContext is the context-aware form of Run.
+func RunContext(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runContext(ctx, name, args...)
+}
+
+// Run is the ExecFunc that shells out to an arbitrary process, the seam
+// ListHosts fans out over in production: the local herdr binary for the
+// local host, and `ssh <host> herdr …` for a remote one. It is
+// RunContext against a context that is never cancelled, so any caller
+// still on the plain ExecFunc shape is unaffected.
+func Run(name string, args ...string) ([]byte, error) {
+	return RunContext(context.Background(), name, args...)
+}
+
+// WithTimeout bounds a context-aware Runner so a stalled herdr call
+// fails fast instead of hanging the verb that made it, the way
+// gitwt.WithTimeout bounds a git Runner. Every single-host herdr read
+// — board, who, and the held-plan presence check release and claim
+// take — goes through rt.herdr, so wrapping it once at the dispatch
+// seam bounds them all.
 //
-// It bounds the wait, not the process: the underlying herdr subprocess
-// is not killed and is orphaned when frit exits. The buffered channel
-// lets the wrapped call deliver into nothing and exit, so bounding the
-// wait does not leak the goroutine once herdr eventually returns.
-func WithTimeout(run Runner, d time.Duration) Runner {
+// It builds a context bounded by d and calls the context-aware base
+// through it, so exec.CommandContext kills the underlying herdr
+// subprocess the moment the bound fires rather than leaving it to run
+// on after Runner returns.
+func WithTimeout(run ContextRunner, d time.Duration) Runner {
 	return func(args ...string) ([]byte, error) {
-		type reply struct {
-			out []byte
-			err error
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		defer cancel()
 
-		done := make(chan reply, 1)
-		go func() {
-			out, err := run(args...)
-			done <- reply{out: out, err: err}
-		}()
-
-		select {
-		case r := <-done:
-			return r.out, r.err
-		case <-time.After(d):
+		out, err := run(ctx, args...)
+		if err != nil && ctx.Err() != nil {
 			return nil, fmt.Errorf("herdr %s: timed out after %s",
 				strings.Join(args, " "), d)
 		}
+		return out, err
 	}
 }
 

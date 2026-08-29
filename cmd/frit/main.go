@@ -993,11 +993,13 @@ type runtime struct {
 }
 
 // herdrRunner is how commands reach a herdr server. It is a package
-// variable rather than wired straight to herdr.Exec so a test can
-// install a fake socket without a herdr on the machine — git commands
-// fake with a real temporary repository, but there is no throwaway
-// herdr server to stand up the same way.
-var herdrRunner = herdr.Exec
+// variable rather than wired straight to herdr.ExecContext so a test
+// can install a fake socket without a herdr on the machine — git
+// commands fake with a real temporary repository, but there is no
+// throwaway herdr server to stand up the same way. It is context-aware
+// so the seam that wraps it with herdr.WithTimeout can still kill the
+// real subprocess when a test has not overridden it.
+var herdrRunner herdr.ContextRunner = herdr.ExecContext
 
 // exitCode unwinds kong's os.Exit call so run can return it instead.
 // kong exits the process on --help and on a usage error, which would
@@ -2321,7 +2323,6 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		stderr:  stderr,
 		git:     gitwt.Exec,
 		gitPipe: gitwt.ExecPipe,
-		herdr:   herdrRunner,
 		width:   terminalWidth(stdout),
 	}
 
@@ -2370,8 +2371,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	rt.gitPipe = gitwt.WithTimeoutPipe(gitwt.ExecPipeContext, c.GitTimeout)
 	// The other subprocess a verb shells out to. rt.herdr is a plain
 	// exec of the herdr binary; bound here so a wedged socket cannot hang
-	// a verb that reads presence.
-	rt.herdr = herdr.WithTimeout(rt.herdr, c.HerdrTimeout)
+	// a verb that reads presence, and the bound kills the herdr
+	// subprocess rather than leaving it to run on.
+	rt.herdr = herdr.WithTimeout(herdrRunner, c.HerdrTimeout)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

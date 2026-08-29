@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -15,10 +16,15 @@ import (
 // withHerdr installs a fake herdr socket for one test and restores the
 // real one after. Unlike git, there is no throwaway server to stand
 // up, so the seam is a package variable rather than a temp directory.
+// The fake stays a plain Runner — it is a closure, not a real
+// subprocess, so it has no context to honor — and is adapted to the
+// context-aware herdrRunner here, the one place that matters.
 func withHerdr(t *testing.T, runner herdr.Runner) {
 	t.Helper()
 	prev := herdrRunner
-	herdrRunner = runner
+	herdrRunner = func(ctx context.Context, args ...string) ([]byte, error) {
+		return runner(args...)
+	}
 	t.Cleanup(func() { herdrRunner = prev })
 }
 

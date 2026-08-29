@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: herdr kills a timed-out herdr subprocess
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: presence kills a timed-out probe
     status: "🔲"
