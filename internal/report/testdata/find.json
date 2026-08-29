@@ -19,7 +19,6 @@
       "stale": false,
       "stale_seconds": 0,
       "dead": false,
-      "no_headroom": false,
       "headroom_short": 0
     }
   ],

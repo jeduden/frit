@@ -79,9 +79,9 @@ func repoWithPaddedPlan(t *testing.T, root, name string, id, bodyLines int) stri
 }
 
 // TestGatherCarriesTheHeadroomShortfall is Phase 2's RED: a plan padded
-// to within mdsmith's default 300-line cap carries NoHeadroom and its
-// shortfall onto the fleet's plan record, using the default 10%
-// reserve a repository with no .frit.yml still gets.
+// to within mdsmith's default 300-line cap carries its shortfall onto
+// the fleet's plan record, using the default 10% reserve a repository
+// with no .frit.yml still gets.
 func TestGatherCarriesTheHeadroomShortfall(t *testing.T) {
 	root := t.TempDir()
 	repoWithPaddedPlan(t, root, "atlas", 7, 290)
@@ -90,15 +90,13 @@ func TestGatherCarriesTheHeadroomShortfall(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
-	assert.True(t, res.Plans[0].NoHeadroom)
 	assert.Equal(t, 19, res.Plans[0].HeadroomShort,
 		"29-line reserve, 10 lines of room: 19 lines short")
 }
 
 // TestGatherReportsFullHeadroomForAnOrdinaryPlan pins the other side:
-// a small plan has plenty of room, so NoHeadroom is false and the
-// shortfall is 0 — the field is present, never omitted, but reads as
-// nothing wrong.
+// a small plan has plenty of room, so the shortfall is 0 — the field is
+// present, never omitted, but reads as nothing wrong.
 func TestGatherReportsFullHeadroomForAnOrdinaryPlan(t *testing.T) {
 	root := t.TempDir()
 	repoWithPlan(t, root, "atlas", 7)
@@ -107,7 +105,6 @@ func TestGatherReportsFullHeadroomForAnOrdinaryPlan(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
-	assert.False(t, res.Plans[0].NoHeadroom)
 	assert.Equal(t, 0, res.Plans[0].HeadroomShort)
 }
 
@@ -127,7 +124,7 @@ func TestGatherHeadroomReserveZeroDisablesTheSignal(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
-	assert.False(t, res.Plans[0].NoHeadroom)
+	assert.Equal(t, 0, res.Plans[0].HeadroomShort)
 }
 
 // TestGatherCarriesRepoCoordinates: the gather hands back each

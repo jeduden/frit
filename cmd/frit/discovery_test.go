@@ -1063,9 +1063,8 @@ func TestPickCarriesTheHeadroomSignal(t *testing.T) {
 	for _, p := range doc.Plans {
 		byID[p.ID] = p
 	}
-	assert.True(t, byID[7].NoHeadroom)
 	assert.Greater(t, byID[7].HeadroomShort, 0)
-	assert.False(t, byID[8].NoHeadroom)
+	assert.Equal(t, 0, byID[8].HeadroomShort)
 
 	var out, errb bytes.Buffer
 	code := run([]string{"pick", "--root", root}, &out, &errb)

@@ -31,12 +31,10 @@ type PlanCard struct {
 	// confirms is gone: a takeover candidate at once, whether or not
 	// Stale has also matured.
 	Dead bool `json:"dead"`
-	// NoHeadroom marks a plan with no room left to append another
-	// "## Phase N" section — startable, but not writable. HeadroomShort
-	// is how many lines short of its reserve it is, meaningful only
-	// when NoHeadroom is true.
-	NoHeadroom    bool `json:"no_headroom"`
-	HeadroomShort int  `json:"headroom_short"`
+	// HeadroomShort is how many lines short of its reserve the plan is
+	// — 0 means it has room to append another "## Phase N" section, a
+	// positive value means it is startable but not writable.
+	HeadroomShort int `json:"headroom_short"`
 }
 
 // cardOf projects a discovery plan into its wire shape.
@@ -55,7 +53,6 @@ func cardOf(p discovery.Plan) PlanCard {
 		Stale:         p.Stale,
 		StaleSeconds:  int64(p.StaleFor / time.Second),
 		Dead:          p.Dead,
-		NoHeadroom:    p.NoHeadroom,
 		HeadroomShort: p.HeadroomShort,
 	}
 }

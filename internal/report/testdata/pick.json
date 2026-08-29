@@ -18,7 +18,6 @@
       "stale": false,
       "stale_seconds": 0,
       "dead": false,
-      "no_headroom": true,
       "headroom_short": 4
     },
     {
@@ -35,7 +34,6 @@
       "stale": true,
       "stale_seconds": 10800,
       "dead": false,
-      "no_headroom": false,
       "headroom_short": 0
     }
   ],
