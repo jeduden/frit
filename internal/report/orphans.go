@@ -33,6 +33,9 @@ type OrphanRepo struct {
 	Empty      []Worktree     `json:"empty"`
 	Prunable   []Worktree     `json:"prunable"`
 	Migratable []Migratable   `json:"migratable"`
+	// Foreign are checkouts standing on a plan's branch at a path no
+	// live hold recorded as its lane.
+	Foreign []ForeignCheckout `json:"foreign"`
 	// StaleHolds are held plans ready to be taken over — a takeover
 	// window that has matured — nobody has acted on yet, read from the
 	// same observation fold board and claim use rather than lanes.Find's
@@ -65,6 +68,15 @@ type Migratable struct {
 	PlanID int64  `json:"plan_id"`
 	From   string `json:"from"`
 	To     string `json:"to"`
+}
+
+// ForeignCheckout is one checkout standing on a plan's branch at a
+// path none of its live holds recorded as its lane — neither
+// Unstaffed nor Stranded, since this lane carries both a hold and a
+// checkout, just not at the same place.
+type ForeignCheckout struct {
+	PlanID   int64    `json:"plan_id"`
+	Worktree Worktree `json:"worktree"`
 }
 
 // Deserted is one held plan whose bound session herdr reports gone and
@@ -111,6 +123,7 @@ type Hold struct {
 func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
 		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0 ||
+		len(r.Foreign) > 0 ||
 		len(r.StaleHolds) > 0 || len(r.Deserted) > 0 || len(r.Rescued) > 0
 }
 
@@ -133,6 +146,7 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 		Empty:      worktreesOf(found.Empty),
 		Prunable:   worktreesOf(found.Prunable),
 		Migratable: make([]Migratable, 0, len(found.Migratable)),
+		Foreign:    make([]ForeignCheckout, 0, len(found.Foreign)),
 		StaleHolds: []StaleHold{},
 		Deserted:   []Deserted{},
 		Rescued:    []Rescued{},
@@ -149,6 +163,12 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 	for _, m := range found.Migratable {
 		repo.Migratable = append(repo.Migratable,
 			Migratable{PlanID: m.PlanID, From: m.From, To: m.To})
+	}
+
+	for _, fc := range found.Foreign {
+		repo.Foreign = append(repo.Foreign, ForeignCheckout{
+			PlanID: fc.PlanID, Worktree: WorktreeOf(fc.Worktree),
+		})
 	}
 
 	d.Repos = append(d.Repos, repo)

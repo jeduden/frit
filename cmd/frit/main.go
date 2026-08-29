@@ -431,6 +431,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 			_, _ = fmt.Fprintf(tw, "  decorated hold, migrate\tplan %d\t%s → %s\n",
 				m.PlanID, m.From, m.To)
 		}
+		for _, fc := range repo.Foreign {
+			_, _ = fmt.Fprintf(tw, "  foreign checkout\t%s\t%s\n",
+				fc.Worktree.Name, fc.Worktree.Branch)
+		}
 		for _, s := range repo.StaleHolds {
 			age := (time.Duration(s.StaleSeconds) * time.Second).Round(time.Minute)
 			_, _ = fmt.Fprintf(tw, "  stale, takeover candidate\tplan %d\t%s (%s)\n",
