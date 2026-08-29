@@ -1,12 +1,30 @@
 package gitwt
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestRunContextKillsTheChildWhenTheContextExpires is the proof a
+// timed-out call is killed rather than abandoned: exec.CommandContext
+// kills sleep the moment ctx fires, so Run cannot return until it
+// does. A fast return here is only possible because the child died,
+// not because the wait merely gave up on it.
+func TestRunContextKillsTheChildWhenTheContextExpires(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	before := time.Now()
+	_, err := runContext(ctx, "sleep", "5")
+	elapsed := time.Since(before)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, time.Second)
+}
 
 // TestWithTimeoutPassesAFastCallThrough: a runner that answers within
 // the bound returns its output and error unchanged.

@@ -1,7 +1,7 @@
 ---
 id: 2608282218
 title: A timed-out subprocess is killed, not left to linger
-status: "🔲"
+status: "🔳"
 summary: >-
   frit's timeout decorators bound the caller's wait but leave the
   stalled git or herdr subprocess running: it reparents to init when
