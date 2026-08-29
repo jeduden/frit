@@ -1,7 +1,7 @@
 ---
 id: 2608291751
 title: A merged human plan/<id> branch is not read as landed lease work
-status: "🔲"
+status: "🔳"
 summary: >-
   `frit claim` reads a merged, human-authored `plan/<id>` branch — the
   branch a plan file was written and PR-merged on — as the plan's own
@@ -21,7 +21,7 @@ depends-on: []
 phases:
   - n: 1
     title: a plan-authoring commit is not a lease marker
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: a foreign checkout on the plan branch is an orphan
     status: "🔲"
