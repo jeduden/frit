@@ -78,6 +78,11 @@ type Options struct {
 	// lease branch deleted on the remote reads as landed rather than
 	// held on a checkout that has not fetched since.
 	Fetch bool
+	// Headroom runs the internal/headroom oracle and opens the
+	// mdsmith session it needs. Only the verbs that render the
+	// signal — ready and pick — ask for it; the other thirteen never
+	// pay for a session open or an oracle pass they would discard.
+	Headroom bool
 }
 
 // Gather reads every repository under root and flattens its plan index
@@ -228,9 +233,13 @@ func gatherRepo(
 		return nil, nil, nil, Coord{}, nil, nil, err
 	}
 
-	headrooms, problem := headroomFor(repo, cfg, files, entries)
-	if problem != nil {
-		problems = append(problems, *problem)
+	var headrooms map[int64]int
+	if opts.Headroom {
+		var problem *Problem
+		headrooms, problem = headroomFor(repo, cfg, files, entries)
+		if problem != nil {
+			problems = append(problems, *problem)
+		}
 	}
 
 	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
@@ -239,13 +248,17 @@ func gatherRepo(
 
 // headroomFor computes each entry's headroom shortfall against the
 // repository's own reserve, using the same internal/headroom oracle
-// doctor runs. A reserve of 0 disables it outright — no session is even
-// opened. A session that fails to open (a malformed .mdsmith.yml) is
-// reported as a problem rather than failing the whole gather: the fleet
-// index carries no schema requirement of its own the way doctor does,
-// so one repository's broken config must not blind every other plan.
-// A plan with room enough is simply absent from the map; a caller reads
-// a missing entry as 0, the same as a plan with room.
+// doctor runs. gatherRepo calls it only when Options.Headroom asks for
+// it — ready and pick are the only two of the fleet's fifteen verbs
+// that render the signal, so the other thirteen never pay for the
+// session it opens. A reserve of 0 disables it outright too — no
+// session is even opened. A session that fails to open (a malformed
+// .mdsmith.yml) is reported as a problem rather than failing the whole
+// gather: the fleet index carries no schema requirement of its own the
+// way doctor does, so one repository's broken config must not blind
+// every other plan. A plan with room enough is simply absent from the
+// map; a caller reads a missing entry as 0, the same as a plan with
+// room.
 func headroomFor(
 	repo discover.Repo, cfg repocfg.Config, files []plans.File, entries []index.Entry,
 ) (map[int64]int, *Problem) {

@@ -2,12 +2,14 @@
 // left to grow another "## Phase N" section before mdsmith's own
 // max-file-length rule would fire?
 //
-// It never reads the configured cap directly — mdsmith does not
-// expose it through pkg/mdsmith's public API, and a second copy of
-// the number here would drift the moment the repository's own
-// .mdsmith.yml changes it. Instead it asks the oracle: pad an
-// in-memory copy of the plan's source and let the session that
-// already validates it answer.
+// mdsmith v0.54.0 exposes the effective cap directly through
+// Session.Kinds, but this package still asks the oracle instead of
+// reading and recomputing against it: pad an in-memory copy of the
+// plan's source and let the session that already validates it answer.
+// Session.Check already carries mdsmith's own line-counting rules —
+// front-matter stripping, the trailing-newline edge case — so asking
+// it again here would duplicate that logic rather than reuse it, the
+// same risk of drift a second copy of the cap itself would run.
 package headroom
 
 import (

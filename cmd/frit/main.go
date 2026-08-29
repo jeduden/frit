@@ -1194,8 +1194,19 @@ func hostname() string {
 // gatherFleet reads every repository's plans and holds into the view
 // the discovery verbs share.
 func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
-	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe,
-		fleet.Options{Fetch: c.Fetch})
+	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch})
+}
+
+// gatherFleetWithHeadroom is gatherFleet plus the headroom signal.
+// ready and pick are the only two of the fleet's verbs that render
+// it, so they are the only callers that ask for it — every other verb
+// calls gatherFleet and never opens the mdsmith session it needs.
+func gatherFleetWithHeadroom(c *cli, rt *runtime) (fleet.Result, error) {
+	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch, Headroom: true})
+}
+
+func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, error) {
+	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe, opts)
 	if err != nil {
 		return res, err
 	}
@@ -1515,7 +1526,7 @@ type readyCmd struct {
 // Run lists every plan startable now: not begun, held by nobody, and
 // with every dependency done, across all repositories and refs.
 func (r *readyCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleet(c, rt)
+	res, err := gatherFleetWithHeadroom(c, rt)
 	if err != nil {
 		return err
 	}
@@ -1550,7 +1561,7 @@ type pickCmd struct {
 // the top candidate outright — the selection the skill used to make by
 // hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleet(c, rt)
+	res, err := gatherFleetWithHeadroom(c, rt)
 	if err != nil {
 		return err
 	}
