@@ -16,8 +16,10 @@ an editor, not a frit verb.
 ## Method
 
 1. **Id.** `date -u +%y%m%d%H%M`. If `plan/<id>_*` exists, add a
-   minute and retry. It is both the frontmatter `id:` and the filename
-   prefix: `plan/<id>_<kebab-slug>.md`.
+   minute and retry. It is both the frontmatter `id:` and the
+   filename prefix: `plan/<id>_<kebab-slug>.md`, or a folder
+   `plan/<id>_<kebab-slug>/plan.md` for one with companions
+   (research, fixtures, diagrams).
 2. **Reuse first.** Search for machinery that already does what the
    plan needs; `## Context` names what was searched and why each
    candidate was or was not reused.
@@ -49,6 +51,8 @@ an editor, not a frit verb.
   `## Tasks` alone carries them.
 - Never renumber phases — append. `depends-on:` lists plan ids this
   plan cannot start before.
+- A folder plan sits one directory deeper than a flat plan: a repo
+  path link copied from a flat plan needs one more `../`.
 - A phase that ships or edits a skill gates on the claim, not the copy:
   run the command against the built `frit` and confirm the output
   matches. Lint and `TestDogfoodCopiesMatchCanonical` pass on a false
