@@ -73,6 +73,24 @@
           "to": "plan/42"
         }
       ],
+      "foreign": [
+        {
+          "plan_id": 2608291751,
+          "worktree": {
+            "path": "/fleet/atlas-off-lane",
+            "name": "atlas-off-lane",
+            "head": "cafef00d",
+            "branch": "plan/2608291751",
+            "detached": false,
+            "bare": false,
+            "locked": false,
+            "lock_reason": "",
+            "prunable": false,
+            "prune_reason": "",
+            "has_commit": true
+          }
+        }
+      ],
       "stale_holds": [
         {
           "plan_id": 7,
@@ -104,6 +122,7 @@
       "empty": [],
       "prunable": [],
       "migratable": [],
+      "foreign": [],
       "stale_holds": [],
       "deserted": [],
       "rescued": []

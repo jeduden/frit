@@ -703,6 +703,40 @@ func TestReapJSONLeavesStderrEmptyWhenPruningAWorktree(t *testing.T) {
 	assert.Empty(t, errb.String(), "the JSON path writes nothing to stderr")
 }
 
+// TestReapRemovesAForeignCheckoutButLeavesTheBranchWithGo pins gap 2's
+// teardown: a checkout standing on a plan's branch at a path the
+// claim marker never recorded as its lane is torn down under --go,
+// but the branch itself — still a live hold — is left standing,
+// unlike a stranded lane's landed teardown, which deletes both.
+func TestReapRemovesAForeignCheckoutButLeavesTheBranchWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "box-a", Lane: "/lanes/authorized",
+	}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	lane := filepath.Join(root, "atlas-off-lane")
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-off-lane")
+	assert.Contains(t, out.String(), "foreign")
+	_, statErr := os.Stat(lane)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"the off-lane checkout is removed")
+	tip, err := holdRef(t, repo, 7)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tip,
+		"the live hold survives — only the checkout is torn down")
+}
+
 // TestReapRemovesAnEmptyWorktreeWithGo: a worktree prepared but never
 // worked — an unborn branch, all-zero HEAD — is removed under --go.
 func TestReapRemovesAnEmptyWorktreeWithGo(t *testing.T) {

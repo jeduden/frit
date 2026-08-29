@@ -44,6 +44,16 @@ func found() lanes.Orphans {
 		Migratable: []lanes.Migratable{
 			{PlanID: 42, From: "plan/42-x", To: "plan/42"},
 		},
+		Foreign: []lanes.ForeignCheckout{
+			{
+				PlanID: 2608291751,
+				Worktree: gitwt.Worktree{
+					Path:   "/fleet/atlas-off-lane",
+					Branch: "plan/2608291751",
+					Head:   "cafef00d",
+				},
+			},
+		},
 	}
 }
 
@@ -73,6 +83,10 @@ func TestOrphansKeepsTheKindsApart(t *testing.T) {
 	assert.Equal(t, int64(42), repo.Migratable[0].PlanID)
 	assert.Equal(t, "plan/42-x", repo.Migratable[0].From)
 	assert.Equal(t, "plan/42", repo.Migratable[0].To)
+	require.Len(t, repo.Foreign, 1)
+	assert.Equal(t, int64(2608291751), repo.Foreign[0].PlanID)
+	assert.Equal(t, "atlas-off-lane", repo.Foreign[0].Worktree.Name)
+	assert.Equal(t, "plan/2608291751", repo.Foreign[0].Worktree.Branch)
 }
 
 // TestOrphansKeepsCleanRepositories is what the table cannot say. A
@@ -92,6 +106,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.NotNil(t, doc.Repos[0].Empty)
 	assert.NotNil(t, doc.Repos[0].Prunable)
 	assert.NotNil(t, doc.Repos[0].Migratable)
+	assert.NotNil(t, doc.Repos[0].Foreign)
 	assert.NotNil(t, doc.Repos[0].StaleHolds)
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
@@ -106,6 +121,7 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Empty: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Prunable: []Worktree{{}}}.Any())
 	assert.True(t, OrphanRepo{Migratable: []Migratable{{}}}.Any())
+	assert.True(t, OrphanRepo{Foreign: []ForeignCheckout{{}}}.Any())
 	assert.True(t, OrphanRepo{StaleHolds: []StaleHold{{}}}.Any())
 	assert.True(t, OrphanRepo{Deserted: []Deserted{{}}}.Any())
 	assert.True(t, OrphanRepo{Rescued: []Rescued{{}}}.Any(),

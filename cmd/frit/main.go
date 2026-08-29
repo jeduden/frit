@@ -192,7 +192,61 @@ func repoLanes(
 	landed := index.LandedIDs(entries, preferred)
 	evidence := landedEvidence{Merged: merged, ByPlanID: landed}
 
-	return lanes.Build(repo.Worktrees, refs, merged, landed, holds), evidence, nil
+	built := lanes.Build(repo.Worktrees, refs, merged, landed, holds)
+	built = lanes.WithLanePaths(built, laneOf(repo.Path, cfg.Remote, refs, built, rt.git))
+
+	return built, evidence, nil
+}
+
+// laneOf reads the lane: trailer each live hold's own claim marker
+// carries, keyed by the hold's ref — the one place a foreign checkout
+// can be told apart from the lane its lease actually authorized. A
+// ref whose marker cannot be read, or that carries none, is simply
+// left out of the map, the same "authorizes nothing" WithLanePaths
+// already treats a missing entry as.
+func laneOf(
+	repoPath, remote string, refs []gitobj.Ref, built []lanes.Lane, run gitwt.Runner,
+) map[string]string {
+	oid := map[string]string{}
+	for _, r := range refs {
+		oid[r.Name] = r.OID
+	}
+
+	// A local hold and its remote-tracking copy usually share one tip,
+	// so this dedupes the marker read across them — a live lease is
+	// almost always held on both refs at once, and reading its own tip
+	// twice per lane would double the subprocess count for no new
+	// information.
+	type key struct {
+		planID int64
+		tip    string
+	}
+	cache := map[key]string{}
+
+	out := map[string]string{}
+	for _, lane := range built {
+		for _, h := range lane.Holds {
+			tip := oid[h.Ref]
+			if tip == "" {
+				continue
+			}
+			k := key{lane.PlanID, tip}
+			l, cached := cache[k]
+			if !cached {
+				m, ok := claim.ReadMarker(repoPath,
+					claim.LeaseOptions{PlanID: lane.PlanID, Remote: remote}, tip, run)
+				if ok {
+					l = m.Lane
+				}
+				cache[k] = l
+			}
+			if l != "" {
+				out[h.Ref] = l
+			}
+		}
+	}
+
+	return out
 }
 
 type orphansCmd struct{}
@@ -430,6 +484,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, m := range repo.Migratable {
 			_, _ = fmt.Fprintf(tw, "  decorated hold, migrate\tplan %d\t%s → %s\n",
 				m.PlanID, m.From, m.To)
+		}
+		for _, fc := range repo.Foreign {
+			_, _ = fmt.Fprintf(tw, "  foreign checkout\t%s\t%s\n",
+				fc.Worktree.Name, fc.Worktree.Branch)
 		}
 		for _, s := range repo.StaleHolds {
 			age := (time.Duration(s.StaleSeconds) * time.Second).Round(time.Minute)

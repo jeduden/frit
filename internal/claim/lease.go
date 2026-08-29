@@ -814,20 +814,41 @@ func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 // markerRelease — or "" when the subject is none of them. It exists so
 // Held can re-check a --grep hit against the one line that is its
 // actual message, the same prefix-not-whole-line tolerance markerSubject
-// gives the legacy decorated claim.
+// gives the legacy decorated claim. A beat is a genuine marker kind but
+// not a terminal one, so it reads through markerKind and is then
+// filtered out here rather than duplicating the kind list.
 func terminalMarkerKind(subject string, planID int64) string {
-	rest, ok := strings.CutPrefix(subject, fmt.Sprintf("plan %d: ", planID))
-	if !ok {
+	kind, ok := markerKind(subject, planID)
+	if !ok || kind == markerBeat {
 		return ""
 	}
-	if rest == markerTakeover || rest == markerRelease {
-		return rest
+
+	return kind
+}
+
+// markerKind reports which of frit's marker kinds a subject line
+// actually is — claim, beat, release or takeover — or ok false when the
+// subject carries the "plan <id>: " prefix but names something else, a
+// plan-authoring commit's title chief among them. The legacy decorated
+// claim, whose subject carries a lane slug behind the kind, resolves to
+// plain markerClaim, the same prefix-not-whole-line tolerance
+// markerSubject already gives it. This is the one list terminalMarkerKind
+// and parseMarker both read through, so a marker kind is never declared
+// in two places.
+func markerKind(subject string, planID int64) (string, bool) {
+	rest, ok := strings.CutPrefix(subject, fmt.Sprintf("plan %d: ", planID))
+	if !ok {
+		return "", false
+	}
+	switch rest {
+	case markerBeat, markerRelease, markerTakeover:
+		return rest, true
 	}
 	if rest == markerClaim || strings.HasPrefix(rest, markerClaim+" ") {
-		return markerClaim
+		return markerClaim, true
 	}
 
-	return ""
+	return "", false
 }
 
 // leaseBranch is the work ref's branch name: plan/<id>, id only, so
@@ -1195,15 +1216,17 @@ func leaseMessage(
 
 // parseMarker reads a lease marker from a commit body: the kind off
 // the subject line, the trailers beneath it. ok is false for a body
-// that is not this plan's marker — a work commit, or another plan's.
+// that is not this plan's marker — a work commit, another plan's, or a
+// plan-authoring commit whose subject shares the "plan <id>: " prefix
+// but names a title rather than one of frit's marker kinds.
 func parseMarker(planID int64, body string) (Marker, bool) {
 	lines := strings.Split(body, "\n")
-	kind, ok := strings.CutPrefix(lines[0], fmt.Sprintf("plan %d: ", planID))
-	if !ok || kind == "" {
+	kind, ok := markerKind(lines[0], planID)
+	if !ok {
 		return Marker{}, false
 	}
 
-	m := Marker{Kind: strings.TrimSpace(kind)}
+	m := Marker{Kind: kind}
 	for _, line := range lines[1:] {
 		key, val, found := strings.Cut(line, ":")
 		if !found {

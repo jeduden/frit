@@ -10,6 +10,7 @@ import (
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
@@ -17,10 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// startHerdr fakes a herdr that answers worktree.create with a pane and
-// agent.list with that same pane bound to a session, and records every
-// other call, so a test can assert the escalation ran the right
-// handshake — and, just as important, never read an agent back.
+// startHerdr fakes a herdr that answers worktree.create and pane.current
+// with the same pane, and agent.list with that pane bound to a session,
+// and records every other call, so a test can assert the escalation ran
+// the right handshake — and, just as important, never read an agent
+// back. pane.current is what a resumed start reads instead of standing
+// a fresh worktree up.
 func startHerdr() (herdr.Runner, *herdrCalls) {
 	rec := &herdrCalls{}
 
@@ -30,6 +33,9 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
 		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
 			return []byte(`{"result":{"agents":[{"agent":"claude",` +
@@ -81,6 +87,8 @@ func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
 		"the whole-plan prompt carries no phase token")
 	assert.True(t, rec.hasArg("atlas plan 7"),
 		"the pane label names the plan's repo, not the id alone")
+	assert.True(t, rec.verb("worktree", "create"),
+		"a fresh acquire, with no persisted token, still creates the worktree")
 }
 
 // TestStartRefusesAnAllDonePhasedPlan: a phased ledger whose every
@@ -535,6 +543,10 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 	assert.Contains(t, got, "resumed plan 7")
 	assert.True(t, rec.verb("agent", "start", "plan-7"),
 		"a resumed lease still stands a fresh agent up")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a resume drives the pane it is already in, not a fresh worktree")
+	assert.True(t, rec.verb("pane", "current"),
+		"the pane to drive is read the way currentSession already does")
 
 	// The chain now carries two beats: the resume itself, CASed from the
 	// lane's own persisted token, and the session bind riding atop it
@@ -554,6 +566,97 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, renewed.Tip, parent,
 		"the resume is CASed from the lane's own persisted token")
+}
+
+// TestStartResumeRenewsWithTheLaneItIsActuallyRunningFrom: a resumed
+// lease's renewal must record where the checkout genuinely is, not
+// defaultLanePath's naming convention — the two diverge whenever the
+// lane was set up somewhere other than the convention (here, a plain
+// tempdir), and orphans/reap now trust the marker's lane: trailer to
+// tell a foreign checkout apart from the real one (gap 2). Recording
+// the wrong path would make reap tear down this very lane.
+func TestStartResumeRenewsWithTheLaneItIsActuallyRunningFrom(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "lane:    "+lane,
+		"the renewed marker names the lane's real path, "+
+			"not the naming convention's")
+}
+
+// TestStartRefusesWhenAResumeCannotFindItsCurrentPane: a resume that
+// cannot read the pane it is running in must not fall through to
+// worktree.create — that would fail anyway, since the lane's own
+// checkout already occupies the path. It is a stand-up failure, not a
+// lease problem: the resume's own renewal above already stands, so
+// nothing here is released.
+func TestStartRefusesWhenAResumeCannotFindItsCurrentPane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return nil, errors.New("dial unix .herdr.sock: no such file")
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a resume that cannot find its pane refuses")
+	assert.Contains(t, errb.String(), "no such file",
+		"the refusal names the cause")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a resume never falls through to create")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	subject, err := gitCapture(t, repo, "log", "-1", "--format=%s", tip)
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject,
+		"the resume's own renewal stands; nothing is released")
 }
 
 // TestStartResumesALaneWhoseOwnCommitsAdvancedTheTip: the prescribed
@@ -744,10 +847,10 @@ func TestReleaseLeaseSurfacesADanglingLease(t *testing.T) {
 	rt := &runtime{git: unwindGit(func() ([]byte, error) {
 		return nil, errors.New("remote hung up")
 	})}
-	sc := startContext{repoPath: "/repo", remote: "origin"}
-	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+	coord := fleet.Coord{Path: "/repo", Remote: "origin"}
 
-	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
+	err := releaseLease(rt, coord, discovery.Plan{ID: 7},
+		"plan/7", "origin/main", "", "tipsha")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "plan/7")
@@ -760,10 +863,10 @@ func TestReleaseLeaseIsSilentWhenTheUnwindTakes(t *testing.T) {
 	rt := &runtime{git: unwindGit(func() ([]byte, error) {
 		return nil, nil
 	})}
-	sc := startContext{repoPath: "/repo", remote: "origin"}
-	sp := report.StartPlan{Branch: "plan/7", Base: "origin/main"}
+	coord := fleet.Coord{Path: "/repo", Remote: "origin"}
 
-	err := releaseLease(rt, sc, discovery.Plan{ID: 7}, sp, "tipsha")
+	err := releaseLease(rt, coord, discovery.Plan{ID: 7},
+		"plan/7", "origin/main", "", "tipsha")
 
 	assert.NoError(t, err)
 }

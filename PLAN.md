@@ -94,6 +94,6 @@ footer: |
 | 2608282218 | ✅     | sonnet | [A timed-out subprocess is killed, not left to linger](plan/2608282218_timed-out-subprocess-is-killed.md)                              |
 | 2608290817 | ✅     | sonnet | [The dispatch report marks its prompt already dispatched](plan/2608290817_pick-report-marks-prompt-dispatched.md)                      |
 | 2608290818 | ✅     | sonnet | [doctor and pick warn a plan has no room for another phase](plan/2608290818_headroom-for-another-phase.md)                             |
-| 2608291751 | 🔲     | sonnet | [A merged human plan/<id> branch is not read as landed lease work](plan/2608291751_merged-human-branch-not-landed-work.md)             |
+| 2608291751 | ✅     | sonnet | [A merged human plan/<id> branch is not read as landed lease work](plan/2608291751_merged-human-branch-not-landed-work.md)             |
 | 2608291854 | 🔲     | sonnet | [Harden the headroom check and the signal it ships](plan/2608291854_harden-the-headroom-signal.md)                                     |
 <?/catalog?>

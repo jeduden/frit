@@ -31,6 +31,12 @@ type Hold struct {
 	Branch string
 	// PlanID is the plan the ref claims.
 	PlanID int64
+	// Lane is the worktree path the claim marker's own lane: trailer
+	// recorded when this hold was minted — "" when no marker for it
+	// was ever read. It is the lease's own record of where the
+	// checkout it authorized belongs, which is what tells a foreign
+	// checkout apart from the one the lease actually stood up.
+	Lane string
 }
 
 // Lane is one plan, its claims, and the checkouts working them.
@@ -126,6 +132,26 @@ func Build(
 	return collect(byID)
 }
 
+// WithLanePaths fills in each hold's Lane from laneOf, keyed by the
+// hold's own Ref — the marker's lane: trailer, read wherever the
+// caller has git access to do so. Build stays pure and git-free, so
+// this is a separate pass rather than a Build parameter; a ref
+// missing from laneOf leaves that hold's Lane "", the same as one
+// whose marker was never read. built is copied, not mutated in place.
+func WithLanePaths(built []Lane, laneOf map[string]string) []Lane {
+	out := make([]Lane, len(built))
+	for i, lane := range built {
+		holds := make([]Hold, len(lane.Holds))
+		for j, h := range lane.Holds {
+			h.Lane = laneOf[h.Ref]
+			holds[j] = h
+		}
+		out[i] = Lane{PlanID: lane.PlanID, Holds: holds, Worktrees: lane.Worktrees}
+	}
+
+	return out
+}
+
 // laneFor returns the lane for a plan id, creating it on first use.
 func laneFor(byID map[int64]*Lane, id int64) *Lane {
 	lane, ok := byID[id]
@@ -182,13 +208,29 @@ type Orphans struct {
 	// Migratable are holds decorated in the legacy shape rather than
 	// the lease protocol's id-only ref.
 	Migratable []Migratable
+	// Foreign are checkouts standing on a plan's branch at a path no
+	// live hold recorded as its lane.
+	Foreign []ForeignCheckout
 }
 
 // Any reports whether anything was found, so a caller can stay quiet
 // when a repository is in good order.
 func (o Orphans) Any() bool {
 	return len(o.Unstaffed) > 0 || len(o.Stranded) > 0 ||
-		len(o.Empty) > 0 || len(o.Prunable) > 0 || len(o.Migratable) > 0
+		len(o.Empty) > 0 || len(o.Prunable) > 0 || len(o.Migratable) > 0 ||
+		len(o.Foreign) > 0
+}
+
+// ForeignCheckout is a worktree standing on a plan's branch at a path
+// none of its live holds ever recorded as the lane they were minted
+// for. It is neither Unstaffed (this lane has a checkout) nor
+// Stranded (this lane still has a live hold), so neither report ever
+// named it — the shape a human-authored plan/<id> checkout left off
+// the lane path leaves, and the one that made herdr's own worktree
+// create fail with nowhere to be seen.
+type ForeignCheckout struct {
+	PlanID   int64
+	Worktree gitwt.Worktree
 }
 
 // Find classifies what is abandoned.
@@ -222,6 +264,7 @@ func Find(built []Lane, worktrees []gitwt.Worktree) Orphans {
 				o.Stranded = append(o.Stranded, live)
 			}
 		}
+		o.Foreign = append(o.Foreign, foreignCheckouts(lane)...)
 	}
 
 	for _, wt := range worktrees {
@@ -252,6 +295,39 @@ func migratable(lane Lane) []Migratable {
 				PlanID: lane.PlanID, From: h.Branch, To: target,
 			})
 		}
+	}
+
+	return out
+}
+
+// foreignCheckouts names a lane's worktrees standing at a path other
+// than the one recorded for their own branch's hold — only meaningful
+// when that specific hold's own marker was actually read. A worktree
+// is checked against the Lane its own branch's hold recorded, never a
+// sibling hold's: a lane migrating off a decorated branch carries two
+// live holds at once (Migratable's own shape), and pooling every
+// hold's Lane into one set used to flag the decorated branch's
+// genuine checkout as foreign merely because the canonical hold
+// happened to record a different path. A branch whose own hold's
+// marker was never read authorizes no path at all, so nothing is
+// flagged rather than every checkout misread as foreign on a blank
+// read. A prunable worktree is git's own "already gone" and is left
+// to that report instead.
+func foreignCheckouts(lane Lane) []ForeignCheckout {
+	byBranch := map[string]string{}
+	for _, h := range lane.Holds {
+		if h.Lane != "" {
+			byBranch[h.Branch] = h.Lane
+		}
+	}
+
+	var out []ForeignCheckout
+	for _, wt := range lane.Worktrees {
+		authorized, ok := byBranch[wt.Branch]
+		if wt.Prunable || !ok || authorized == wt.Path {
+			continue
+		}
+		out = append(out, ForeignCheckout{PlanID: lane.PlanID, Worktree: wt})
 	}
 
 	return out

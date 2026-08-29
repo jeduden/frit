@@ -95,11 +95,12 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if err := mintClaim(rt, doc, plan, coord); err != nil {
+	minted, err := mintClaim(rt, doc, plan, coord)
+	if err != nil {
 		return err
 	}
 	if doc.Claimed {
-		standUpClaimWorktree(rt, doc, plan, branch, coord)
+		standUpClaimWorktree(rt, doc, plan, branch, coord, minted.Tip)
 	}
 
 	return renderClaim(c, rt, doc)
@@ -241,13 +242,15 @@ func currentSession(rt *runtime) string {
 
 // standUpClaimWorktree hands the freshly claimed lane's checkout to
 // herdr, so an agent works it in a worktree of its own rather than in
-// the shared clone. The lease is already atomic and minted; a herdr that
-// cannot stand the worktree up is recorded as a warning, not a failure,
-// so a lost checkout never reads as a lost claim. The agent and its
-// prompt stay start's rung — claim stands up the checkout only.
+// the shared clone. A herdr that cannot stand the worktree up releases
+// the lease claim just minted (unwindFailedStandUp): no lane ever
+// persisted a token for it, so a hold left standing here would have
+// nothing behind it and only a takeover window could end it. The
+// agent and its prompt stay start's rung — claim stands up the
+// checkout only.
 func standUpClaimWorktree(
 	rt *runtime, doc *report.ClaimDoc,
-	plan discovery.Plan, branch string, coord fleet.Coord,
+	plan discovery.Plan, branch string, coord fleet.Coord, tip string,
 ) {
 	path := defaultLanePath(coord.Path, plan.Path)
 	if _, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
@@ -257,10 +260,27 @@ func standUpClaimWorktree(
 		Path:   path,
 		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
 	}); err != nil {
-		doc.Warn(fmt.Sprintf("worktree not stood up: %v", err))
+		unwindFailedStandUp(rt, doc, plan, coord, branch, path, tip, err)
 		return
 	}
 	doc.Stood(path)
+}
+
+// unwindFailedStandUp releases the lease standUpClaimWorktree just
+// found could not be stood up — the same unwind start's own handoff
+// failure already runs, through the helper both rungs share
+// (releaseLease). A release that itself fails is reported alongside
+// the stand-up cause rather than swallowed, so a dangling lease can be
+// found instead of trusted.
+func unwindFailedStandUp(
+	rt *runtime, doc *report.ClaimDoc, plan discovery.Plan,
+	coord fleet.Coord, branch, lane, tip string, standErr error,
+) {
+	reason := fmt.Sprintf("worktree not stood up: %v", standErr)
+	if relErr := releaseLease(rt, coord, plan, branch, coord.Base, lane, tip); relErr != nil {
+		reason = fmt.Sprintf("%s; %s", reason, relErr)
+	}
+	doc.Unwound(reason)
 }
 
 // mintClaim acquires the lease from the coordinate the gather already
@@ -274,7 +294,7 @@ func standUpClaimWorktree(
 func mintClaim(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, coord fleet.Coord,
-) error {
+) (claim.Lease, error) {
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID,
 		Remote: coord.Remote,
@@ -287,13 +307,13 @@ func mintClaim(
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
 			scavengeLanded(rt, doc, plan, coord, err)
-			return nil
+			return claim.Lease{}, nil
 		}
-		return err
+		return claim.Lease{}, err
 	}
 	doc.Minted(minted.BaseSHA)
 
-	return nil
+	return minted, nil
 }
 
 // scavengeLanded cleans the ref behind a lost race whose winner has
