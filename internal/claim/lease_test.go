@@ -458,6 +458,64 @@ func TestParseMarker(t *testing.T) {
 	assert.False(t, ok, "another plan's marker does not read as this one's")
 }
 
+// TestParseMarkerRejectsAPlanAuthoringSubject pins gap 1: the commit
+// that authors a plan's own file shares frit's "plan <id>: " prefix,
+// but its subject is a title, not one of frit's marker kinds — it must
+// never parse as a lease marker.
+func TestParseMarkerRejectsAPlanAuthoringSubject(t *testing.T) {
+	_, ok := parseMarker(7,
+		"plan 7: a merged human branch is not landed lease work\n\nbody")
+	assert.False(t, ok, "a plan title is not a marker kind")
+}
+
+// TestParseMarkerAcceptsEveryGenuineMarkerKind: every real marker kind
+// — claim, beat, release, takeover, and the legacy decorated claim —
+// still parses, with Kind resolved to the canonical kind markerKind
+// shares with terminalMarkerKind.
+func TestParseMarkerAcceptsEveryGenuineMarkerKind(t *testing.T) {
+	opts := LeaseOptions{PlanID: 7, Holder: "box-a", Lane: "/lanes/a"}
+	for _, kind := range []string{
+		markerClaim, markerBeat, markerRelease, markerTakeover,
+	} {
+		body := leaseMessage(kind, opts, 1, "cafe", "")
+		m, ok := parseMarker(7, body)
+		require.True(t, ok, kind)
+		assert.Equal(t, kind, m.Kind, kind)
+	}
+
+	m, ok := parseMarker(7, "plan 7: claim shader\n\n"+
+		"epoch:   1\nnonce:   cafe\nholder:  box-a\nlane:    -\nsession: -")
+	require.True(t, ok, "legacy decorated claim")
+	assert.Equal(t, markerClaim, m.Kind, "the decorated subject still resolves to claim")
+}
+
+// TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker pins the
+// claim-protocol edge: a plan/<id> branch whose only commit is the
+// human-authored plan file, merged into base by PR, must not read as a
+// landed lease — heldError finds no marker at all, so claim would
+// refuse as a lost race, never scavenge and never advise ✅.
+func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "checkout", "-q", "-b", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(work, "plan.md"), []byte("plan body\n"), 0o600))
+	gitCmd(t, work, "add", "-A")
+	gitCmd(t, work, "commit", "-q", "-m", "plan 7: a plan title")
+	gitCmd(t, work, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, work, "rev-parse", "plan/7")
+
+	gitCmd(t, work, "checkout", "-q", "main")
+	gitCmd(t, work, "merge", "-q", "--no-ff", "plan/7", "-m", "merge plan 7")
+	gitCmd(t, work, "push", "-q", "origin", "main")
+
+	opts := leaseOptions("box-a", "/lanes/a")
+	err := heldError(work, opts, tip, gitwt.Exec)
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	assert.False(t, held.Known, "a plan-authoring commit is not a lease marker")
+	assert.False(t, held.Landed, "no marker was read, so nothing is reported landed")
+}
+
 // TestHeldFindsAClaimOrTakeoverReachableFromTip: the ordinary shapes a
 // live lease takes all read as held — a bare claim, a claim beneath
 // later work, a takeover, and the legacy decorated claim whose subject
