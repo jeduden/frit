@@ -159,8 +159,10 @@ func scanFile(sess *mdsmith.Session, root, path string, headroomPercent int) ([]
 
 	// checkHeadroom's error is discarded like sess.Check's above: one
 	// plan's oracle trouble must not blind the whole scan and lose
-	// every other plan's findings with it.
-	if headroomPercent > 0 {
+	// every other plan's findings with it. A done or superseded plan
+	// will never grow another phase, so its shortfall is unactionable
+	// and the check is skipped rather than reported.
+	if headroomPercent > 0 && !plan.Done() && !plan.Superseded() {
 		if f, _ := checkHeadroom(sess, plan.ID, rel, source, headroomPercent); f != nil {
 			findings = append(findings, *f)
 		}

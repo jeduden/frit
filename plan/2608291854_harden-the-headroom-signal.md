@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: doctor skips a done plan's headroom check
-    status: "🔲"
+    status: "✅"
   - n: 2
     title: the headroom signal is one number, not a number and a bool
     status: "🔲"
