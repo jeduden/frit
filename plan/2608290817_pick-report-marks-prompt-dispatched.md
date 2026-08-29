@@ -1,7 +1,7 @@
 ---
 id: 2608290817
 title: The dispatch report marks its prompt already dispatched
-status: "🔲"
+status: "🔳"
 summary: >-
   After `frit start`/`pick --go`, the JSON still carries a bare
   `prompt` field that reads as "run this yourself", identical in shape
