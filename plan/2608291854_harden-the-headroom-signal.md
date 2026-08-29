@@ -1,7 +1,7 @@
 ---
 id: 2608291854
 title: Harden the headroom check and the signal it ships
-status: "🔳"
+status: "✅"
 summary: >-
   The headroom signal shipped in PR #103 (plan 2608290818) has cleanup
   a code review surfaced. `doctor` runs the check on every plan, so a
@@ -32,7 +32,7 @@ phases:
     status: "✅"
   - n: 6
     title: pad and fits carry their own tests
-    status: "🔲"
+    status: "✅"
 ---
 # Harden the headroom check and the signal it ships
 
@@ -267,20 +267,20 @@ shape and sonnet implements against the assertion.
 
 ## Acceptance Criteria
 
-- [ ] `doctor` reports no `headroom` finding for a ✅ or ⛔ plan, and
+- [x] `doctor` reports no `headroom` finding for a ✅ or ⛔ plan, and
       still reports one for a 🔲/🔳 plan past its reserve
-- [ ] `pick`/`ready` never surface a done plan's shortfall
-- [ ] The headroom signal is carried as one `HeadroomShort int`;
+- [x] `pick`/`ready` never surface a done plan's shortfall
+- [x] The headroom signal is carried as one `HeadroomShort int`;
       `NoHeadroom` is removed from every layer and the JSON
-- [ ] `doctor` and `headroom` open the mdsmith session through one
+- [x] `doctor` and `headroom` open the mdsmith session through one
       helper with one missing-config policy
-- [ ] `orphans`, `board`, `drift` and the other non-showing verbs no
+- [x] `orphans`, `board`, `drift` and the other non-showing verbs no
       longer run the headroom oracle
-- [ ] `internal/headroom`'s package doc no longer claims the cap is
+- [x] `internal/headroom`'s package doc no longer claims the cap is
       unreachable through `pkg/mdsmith`
-- [ ] `plan-pick` and `plan-new` name the headroom column and key, in
+- [x] `plan-pick` and `plan-new` name the headroom column and key, in
       the asset and the dogfooded copy
-- [ ] `pad` and `fits` each have a dedicated test, and `pad`'s
+- [x] `pad` and `fits` each have a dedicated test, and `pad`'s
       trailing-newline branch is driven red then green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

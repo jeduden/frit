@@ -106,3 +106,59 @@ func TestSessionToleratesAMissingMdsmithYML(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5, room, "the built-in 300-line default leaves plenty of room")
 }
+
+// TestPadInsertsANewlineBeforePaddingAnUnterminatedSource is Phase 6's
+// RED for pad's trailing-newline branch: without the inserted newline
+// the first pad line would merge into source's own last line, one line
+// short of what n claims.
+func TestPadInsertsANewlineBeforePaddingAnUnterminatedSource(t *testing.T) {
+	src := []byte("line one\nline two") // no trailing newline
+
+	got := pad(src, 2)
+
+	want := "line one\nline two\n" +
+		"<!-- headroom padding -->\n<!-- headroom padding -->\n"
+	assert.Equal(t, want, string(got))
+}
+
+// TestPadDoesNotDoubleTheBlankOnAnAlreadyTerminatedSource pins the
+// other side of the same branch: a source already ending in a newline
+// gets no inserted blank, so it pads identically to the unterminated
+// case above once normalized.
+func TestPadDoesNotDoubleTheBlankOnAnAlreadyTerminatedSource(t *testing.T) {
+	src := []byte("line one\nline two\n")
+
+	got := pad(src, 2)
+
+	want := "line one\nline two\n" +
+		"<!-- headroom padding -->\n<!-- headroom padding -->\n"
+	assert.Equal(t, want, string(got))
+}
+
+// TestPadOnEmptySourceAddsNoLeadingNewline pins the guard against an
+// empty source: len(source) > 0 must be checked before indexing its
+// last byte, or an empty plan file would panic pad rather than just
+// receiving its n padding lines.
+func TestPadOnEmptySourceAddsNoLeadingNewline(t *testing.T) {
+	got := pad(nil, 2)
+
+	want := "<!-- headroom padding -->\n<!-- headroom padding -->\n"
+	assert.Equal(t, want, string(got))
+}
+
+// TestFitsReportsWhetherThePaddedSourceStillPassesTheCap is Phase 6's
+// RED for fits: the same 290-body-line plan TestRoomPaddedToTheCap...
+// already pins at a 10-line room, checked directly here at the
+// boundary rather than through Room's search.
+func TestFitsReportsWhetherThePaddedSourceStillPassesTheCap(t *testing.T) {
+	sess := newSession(t)
+	src := plan(290)
+
+	ok, err := fits(sess, "plan/1_x.md", src, 10)
+	require.NoError(t, err)
+	assert.True(t, ok, "290 body lines + 10 padding lines sits right at the 300-line cap")
+
+	ok, err = fits(sess, "plan/1_x.md", src, 11)
+	require.NoError(t, err)
+	assert.False(t, ok, "290 body lines + 11 padding lines trips the 300-line cap")
+}
