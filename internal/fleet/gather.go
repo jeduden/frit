@@ -190,7 +190,7 @@ func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
-	map[int64]headroomInfo, []Problem, error,
+	map[int64]int, []Problem, error,
 ) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
@@ -237,22 +237,18 @@ func gatherRepo(
 		headrooms, problems, nil
 }
 
-// headroomInfo is one plan's "room for another phase" signal.
-type headroomInfo struct {
-	No    bool
-	Short int
-}
-
-// headroomFor computes each entry's headroom signal against the
+// headroomFor computes each entry's headroom shortfall against the
 // repository's own reserve, using the same internal/headroom oracle
 // doctor runs. A reserve of 0 disables it outright — no session is even
 // opened. A session that fails to open (a malformed .mdsmith.yml) is
 // reported as a problem rather than failing the whole gather: the fleet
 // index carries no schema requirement of its own the way doctor does,
 // so one repository's broken config must not blind every other plan.
+// A plan with room enough is simply absent from the map; a caller reads
+// a missing entry as 0, the same as a plan with room.
 func headroomFor(
 	repo discover.Repo, cfg repocfg.Config, files []plans.File, entries []index.Entry,
-) (map[int64]headroomInfo, *Problem) {
+) (map[int64]int, *Problem) {
 	if cfg.HeadroomReserve <= 0 {
 		return nil, nil
 	}
@@ -268,7 +264,7 @@ func headroomFor(
 		content[f.OID] = f.Content
 	}
 
-	out := map[int64]headroomInfo{}
+	out := map[int64]int{}
 	for _, e := range entries {
 		v := e.Primary()
 		if v.Plan.Done() || v.Plan.Superseded() {
@@ -285,7 +281,7 @@ func headroomFor(
 		if err != nil || room >= reserve {
 			continue
 		}
-		out[e.Key.ID] = headroomInfo{No: true, Short: reserve - room}
+		out[e.Key.ID] = reserve - room
 	}
 
 	return out, nil
@@ -528,11 +524,10 @@ func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
 // view, tagging it held when a lane claims its id.
 func planOf(
 	repoName string, e index.Entry, held map[int64][]string,
-	leaseTips map[int64]string, headrooms map[int64]headroomInfo,
+	leaseTips map[int64]string, headrooms map[int64]int,
 ) discovery.Plan {
 	v := e.Primary()
 	holds := held[e.Key.ID]
-	hr := headrooms[e.Key.ID]
 
 	return discovery.Plan{
 		Key:           e.Key.String(),
@@ -550,8 +545,7 @@ func planOf(
 		Held:          len(holds) > 0,
 		Holds:         holds,
 		HoldTip:       leaseTips[e.Key.ID],
-		NoHeadroom:    hr.No,
-		HeadroomShort: hr.Short,
+		HeadroomShort: headrooms[e.Key.ID],
 	}
 }
 

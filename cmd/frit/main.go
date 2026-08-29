@@ -2200,7 +2200,7 @@ func printReady(out io.Writer, doc *report.ReadyDoc, width int) {
 // "## Phase N" section, blank for the common case of a plan with room
 // so the column stays quiet unless there is something to say.
 func headroomLabel(p report.PlanCard) string {
-	if !p.NoHeadroom {
+	if p.HeadroomShort <= 0 {
 		return ""
 	}
 

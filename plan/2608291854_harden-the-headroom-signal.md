@@ -20,7 +20,7 @@ phases:
     status: "✅"
   - n: 2
     title: the headroom signal is one number, not a number and a bool
-    status: "🔲"
+    status: "✅"
   - n: 3
     title: doctor and headroom share one session opener
     status: "🔲"
