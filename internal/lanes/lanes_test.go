@@ -359,6 +359,34 @@ func TestFindDoesNotFlagAForeignCheckoutWhenTheLanePathIsUnknown(t *testing.T) {
 	assert.Empty(t, got.Foreign, "an unread marker authorizes no path")
 }
 
+// TestFindDoesNotFlagACheckoutAuthorizedByASiblingHoldOnTheSameLane:
+// a lane migrating off a decorated hold carries two live holds at
+// once (Migratable's own shape) — the canonical hold's own recorded
+// Lane must not be checked against a checkout standing on the
+// DECORATED hold's branch. Before this fix, foreignCheckouts pooled
+// every hold's Lane into one set for the whole lane, so the decorated
+// branch's own genuine checkout was flagged foreign — and reap --go
+// would tear it down — merely because a sibling hold happened to
+// record a different path.
+func TestFindDoesNotFlagACheckoutAuthorizedByASiblingHoldOnTheSameLane(t *testing.T) {
+	worktrees := []gitwt.Worktree{wt("/lanes/shader", "plan/42-shader")}
+	built := []Lane{{
+		PlanID: 42,
+		Holds: []Hold{
+			{Ref: "refs/heads/plan/42", Branch: "plan/42", PlanID: 42,
+				Lane: "/lanes/canonical"},
+			{Ref: "refs/heads/plan/42-shader", Branch: "plan/42-shader", PlanID: 42},
+		},
+		Worktrees: worktrees,
+	}}
+
+	got := Find(built, worktrees)
+
+	assert.Empty(t, got.Foreign,
+		"the decorated hold's own checkout is legitimate, "+
+			"even though the canonical hold recorded a different lane")
+}
+
 // TestWithLanePathsFillsInHoldsFromTheGivenMap: the marker's lane:
 // trailer, read wherever the caller has git access to do so, rides on
 // the hold it belongs to by ref name. A hold missing from the map is

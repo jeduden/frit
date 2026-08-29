@@ -300,28 +300,31 @@ func migratable(lane Lane) []Migratable {
 	return out
 }
 
-// foreignCheckouts names a lane's worktrees standing at a path none of
-// its live holds recorded as their lane — only meaningful when the
-// lane carries both a hold and a checkout, since that is exactly the
-// shape Unstaffed and Stranded both miss. A hold whose own marker was
-// never read authorizes no path at all; when none of a lane's holds
-// carry a known Lane, nothing here is flagged rather than every
-// checkout misread as foreign on a blank read. A prunable worktree is
-// git's own "already gone" and is left to that report instead.
+// foreignCheckouts names a lane's worktrees standing at a path other
+// than the one recorded for their own branch's hold — only meaningful
+// when that specific hold's own marker was actually read. A worktree
+// is checked against the Lane its own branch's hold recorded, never a
+// sibling hold's: a lane migrating off a decorated branch carries two
+// live holds at once (Migratable's own shape), and pooling every
+// hold's Lane into one set used to flag the decorated branch's
+// genuine checkout as foreign merely because the canonical hold
+// happened to record a different path. A branch whose own hold's
+// marker was never read authorizes no path at all, so nothing is
+// flagged rather than every checkout misread as foreign on a blank
+// read. A prunable worktree is git's own "already gone" and is left
+// to that report instead.
 func foreignCheckouts(lane Lane) []ForeignCheckout {
-	authorized := map[string]bool{}
+	byBranch := map[string]string{}
 	for _, h := range lane.Holds {
 		if h.Lane != "" {
-			authorized[h.Lane] = true
+			byBranch[h.Branch] = h.Lane
 		}
-	}
-	if len(authorized) == 0 {
-		return nil
 	}
 
 	var out []ForeignCheckout
 	for _, wt := range lane.Worktrees {
-		if wt.Prunable || authorized[wt.Path] {
+		authorized, ok := byBranch[wt.Branch]
+		if wt.Prunable || !ok || authorized == wt.Path {
 			continue
 		}
 		out = append(out, ForeignCheckout{PlanID: lane.PlanID, Worktree: wt})

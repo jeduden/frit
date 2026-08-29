@@ -568,6 +568,44 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 		"the resume is CASed from the lane's own persisted token")
 }
 
+// TestStartResumeRenewsWithTheLaneItIsActuallyRunningFrom: a resumed
+// lease's renewal must record where the checkout genuinely is, not
+// defaultLanePath's naming convention — the two diverge whenever the
+// lane was set up somewhere other than the convention (here, a plain
+// tempdir), and orphans/reap now trust the marker's lane: trailer to
+// tell a foreign checkout apart from the real one (gap 2). Recording
+// the wrong path would make reap tear down this very lane.
+func TestStartResumeRenewsWithTheLaneItIsActuallyRunningFrom(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "lane:    "+lane,
+		"the renewed marker names the lane's real path, "+
+			"not the naming convention's")
+}
+
 // TestStartRefusesWhenAResumeCannotFindItsCurrentPane: a resume that
 // cannot read the pane it is running in must not fall through to
 // worktree.create — that would fail anyway, since the lane's own

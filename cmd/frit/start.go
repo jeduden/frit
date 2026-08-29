@@ -90,7 +90,7 @@ func buildStart(
 	// the lane in, so a resume cannot be checked either.
 	coord, coordOK := res.Coords[plan.Repo]
 	cwd, _ := os.Getwd()
-	resumeTip := startResumeTip(rt, plan, coord, coordOK, cwd)
+	resumeLane, resumeTip := startResumeTip(rt, plan, coord, coordOK, cwd)
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess. A
@@ -133,7 +133,9 @@ func buildStart(
 	}
 
 	if doGo {
-		if err := startExecute(rt, doc, plan, sp, sc, edit, resumeTip); err != nil {
+		if err := startExecute(
+			rt, doc, plan, sp, sc, edit, resumeLane, resumeTip,
+		); err != nil {
 			if errors.Is(err, claim.ErrLostRace) {
 				doc.Refuse(lostRaceRefusal(err))
 				scavengeLanded(rt, doc, plan, coord, err)
@@ -151,21 +153,25 @@ func buildStart(
 // startResumeTip resolves the lane's own lease from its persisted
 // token, when start is run from that exact lane — ahead of the
 // "already held" refusal, exactly as claim orders it (F9, F11, S3,
-// S21). "" when the plan carries no matching coordinate, or none of
-// the resume conditions hold; start's ordinary claim path is then the
-// arbiter.
+// S21). Both return values are "" when the plan carries no matching
+// coordinate, or none of the resume conditions hold; start's ordinary
+// claim path is then the arbiter. lane is resumeToken's own
+// cwd-derived path — the lane's real location, not the naming
+// convention composeStart computes — since a resumed renewal must
+// record where the checkout genuinely is: orphans and reap now trust
+// that record to tell a foreign checkout apart from the real one.
 func startResumeTip(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
-) string {
+) (lane, tip string) {
 	if !coordOK {
-		return ""
+		return "", ""
 	}
-	_, tip, ok := resumeToken(rt, plan, coord, cwd)
+	lane, tip, ok := resumeToken(rt, plan, coord, cwd)
 	if !ok {
-		return ""
+		return "", ""
 	}
 
-	return tip
+	return lane, tip
 }
 
 // desertedRefusal names the yield that retires a deserted hold read
@@ -257,6 +263,14 @@ type startContext struct {
 	base     string
 }
 
+// coord is startContext's own fields back as the fleet.Coord releaseLease
+// and startAcquire's takeover path both take — the reverse of
+// startContextOf, so the two never drift into declaring the same three
+// fields by hand at each call site.
+func (sc startContext) coord() fleet.Coord {
+	return fleet.Coord{Path: sc.repoPath, Remote: sc.remote, Base: sc.base}
+}
+
 // startContextOf reads the escalation's inputs off the coordinate the
 // gather already resolved — the repository path, its remote and the
 // base — so start dates a lease from the one fleet walk rather than a
@@ -295,7 +309,7 @@ func composeStart(
 // lost to another machine is carried as a refusal, not a fault.
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
-	sp report.StartPlan, sc startContext, edit bool, resumeTip string,
+	sp report.StartPlan, sc startContext, edit bool, resumeLane, resumeTip string,
 ) error {
 	// Amend the prompt before minting anything: an editor that fails to
 	// launch, or a prompt left empty, must abort with no claim pushed and
@@ -314,7 +328,17 @@ func startExecute(
 	}
 
 	resume := resumeTip != ""
-	lease, err := startAcquire(rt, plan, sc, sp, resumeTip)
+	// A resumed renewal is CASed against the lane it is actually
+	// running from (resumeLane), never the naming convention sp.Lane
+	// computes: the two diverge the moment the checkout was set up off
+	// that convention, or the plan file's slug has since changed, and
+	// orphans/reap now trust the marker's lane: trailer to tell a
+	// foreign checkout apart from the real one.
+	lane := sp.Lane
+	if resume {
+		lane = resumeLane
+	}
+	lease, err := startAcquire(rt, plan, sc, sp, lane, resumeTip)
 	if err != nil {
 		// A lost race, or a veto, is returned, not swallowed: buildStart
 		// records it as a refusal for start, and pick --go retries past it
@@ -348,16 +372,15 @@ func startExecute(
 				err = errors.Join(handoffError(sp.Lane, pane, err), tdErr)
 			}
 		}
-		coord := fleet.Coord{Path: sc.repoPath, Remote: sc.remote, Base: sc.base}
 		if relErr := releaseLease(
-			rt, coord, plan, sp.Branch, sp.Base, sp.Lane, lease.Tip,
+			rt, sc.coord(), plan, sp.Branch, sp.Base, sp.Lane, lease.Tip,
 		); relErr != nil {
 			return errors.Join(err, relErr)
 		}
 
 		return err
 	}
-	bindSession(rt, doc, plan, sp, sc, lease.Tip, session)
+	bindSession(rt, doc, plan, sp, sc, lane, lease.Tip, session)
 	doc.MarkStarted(pane)
 
 	return nil
@@ -369,16 +392,21 @@ func startExecute(
 // bound session vetoes a stale hold, a matured one is seized, and a
 // fresh plan is acquired outright. start meets the same lease protocol
 // claim does; it just goes on to stand the lane up afterward.
+//
+// lane is the path CASed onto the marker's own lane: trailer — the
+// resumed lane's real location for a resume, sp.Lane's naming
+// convention otherwise, since a fresh acquire or takeover is what
+// stands the checkout up there in the first place.
 func startAcquire(
 	rt *runtime, plan discovery.Plan, sc startContext,
-	sp report.StartPlan, resumeTip string,
+	sp report.StartPlan, lane, resumeTip string,
 ) (claim.Lease, error) {
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID,
 		Remote: sc.remote,
 		Base:   sp.Base,
 		Holder: hostname(),
-		Lane:   sp.Lane,
+		Lane:   lane,
 	}
 	if resumeTip != "" {
 		opts.Session = currentSession(rt)
@@ -386,15 +414,15 @@ func startAcquire(
 		return claim.Resume(sc.repoPath, opts, resumeTip, rt.git)
 	}
 
-	coord := fleet.Coord{Path: sc.repoPath, Remote: sc.remote, Base: sc.base}
-
-	return mintOrTakeOver(rt, plan, coord, opts)
+	return mintOrTakeOver(rt, plan, sc.coord(), opts)
 }
 
 // bindSession records the started agent's herdr session on the lease:
 // a beat CASed from the tip the acquire just minted, carrying the
 // session trailer, so a later takeover can ask herdr whether this
-// lease's holder is still alive (F3, S61).
+// lease's holder is still alive (F3, S61). lane is the same path
+// startAcquire just CASed in, so the bind's own beat does not clobber
+// a resume's accurate lane back to sp.Lane's naming convention.
 //
 // A failed bind is a warning, never an abort: the lane is up and
 // working, the lease is valid on the remote, and an unbound lease only
@@ -402,7 +430,7 @@ func startAcquire(
 // healthy lane down over a decoration would be the worse failure.
 func bindSession(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
-	sp report.StartPlan, sc startContext, tip, session string,
+	sp report.StartPlan, sc startContext, lane, tip, session string,
 ) {
 	if session == "" {
 		return
@@ -412,7 +440,7 @@ func bindSession(
 		Remote:  sc.remote,
 		Base:    sp.Base,
 		Holder:  hostname(),
-		Lane:    sp.Lane,
+		Lane:    lane,
 		Session: session,
 	}, tip, rt.git); err != nil {
 		doc.AddProblem(plan.Repo, fmt.Errorf(

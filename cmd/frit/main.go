@@ -212,6 +212,17 @@ func laneOf(
 		oid[r.Name] = r.OID
 	}
 
+	// A local hold and its remote-tracking copy usually share one tip,
+	// so this dedupes the marker read across them — a live lease is
+	// almost always held on both refs at once, and reading its own tip
+	// twice per lane would double the subprocess count for no new
+	// information.
+	type key struct {
+		planID int64
+		tip    string
+	}
+	cache := map[key]string{}
+
 	out := map[string]string{}
 	for _, lane := range built {
 		for _, h := range lane.Holds {
@@ -219,10 +230,18 @@ func laneOf(
 			if tip == "" {
 				continue
 			}
-			m, ok := claim.ReadMarker(repoPath,
-				claim.LeaseOptions{PlanID: lane.PlanID, Remote: remote}, tip, run)
-			if ok && m.Lane != "" {
-				out[h.Ref] = m.Lane
+			k := key{lane.PlanID, tip}
+			l, cached := cache[k]
+			if !cached {
+				m, ok := claim.ReadMarker(repoPath,
+					claim.LeaseOptions{PlanID: lane.PlanID, Remote: remote}, tip, run)
+				if ok {
+					l = m.Lane
+				}
+				cache[k] = l
+			}
+			if l != "" {
+				out[h.Ref] = l
 			}
 		}
 	}
