@@ -1,7 +1,7 @@
 ---
 id: 2608290817
 title: The dispatch report marks its prompt already dispatched
-status: "🔳"
+status: "✅"
 summary: >-
   After `frit start`/`pick --go`, the JSON still carries a bare
   `prompt` field that reads as "run this yourself", identical in shape
@@ -17,7 +17,7 @@ depends-on: []
 phases:
   - n: 1
     title: the JSON marks the prompt as already dispatched
-    status: "🔲"
+    status: "✅"
 ---
 # The dispatch report marks its prompt already dispatched
 
@@ -97,13 +97,13 @@ field guarded by a focused unit test and the golden files.
 
 ## Acceptance Criteria
 
-- [ ] `StartDoc` JSON always carries `prompt_dispatched`
-- [ ] `prompt_dispatched` is `true` for a running handoff, `false` for a
+- [x] `StartDoc` JSON always carries `prompt_dispatched`
+- [x] `prompt_dispatched` is `true` for a running handoff, `false` for a
       preview or a refusal
-- [ ] `prompt_dispatched` is written only through `setHandoff`, so it
+- [x] `prompt_dispatched` is written only through `setHandoff`, so it
       cannot disagree with `handoff` or `next_action`
-- [ ] `pick --go` and `start --go` are both fixed, since both render
+- [x] `pick --go` and `start --go` are both fixed, since both render
       through the one `StartDoc`
-- [ ] The text rendering is unchanged
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The text rendering is unchanged
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

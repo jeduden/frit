@@ -14,6 +14,7 @@
   "base": "refs/remotes/origin/main",
   "lane": "/fleet/atlas-dispatch-ladder",
   "prompt": "/plan-phase 2608161810 3\n\nskip the flaky VRT case",
+  "prompt_dispatched": false,
   "go": false,
   "started": false,
   "resumed": false,

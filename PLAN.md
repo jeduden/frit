@@ -92,6 +92,6 @@ footer: |
 | 2608280653 | ✅     | sonnet | [A plan may be a folder holding a fixed plan.md, beside flat plan files](plan/2608280653_folder-based-plans.md)                        |
 | 2608281623 | ✅     | sonnet | [A stalled herdr call cannot hang a frit verb](plan/2608281623_herdr-calls-cannot-hang.md)                                             |
 | 2608282218 | ✅     | sonnet | [A timed-out subprocess is killed, not left to linger](plan/2608282218_timed-out-subprocess-is-killed.md)                              |
-| 2608290817 | 🔲     | sonnet | [The dispatch report marks its prompt already dispatched](plan/2608290817_pick-report-marks-prompt-dispatched.md)                      |
+| 2608290817 | ✅     | sonnet | [The dispatch report marks its prompt already dispatched](plan/2608290817_pick-report-marks-prompt-dispatched.md)                      |
 | 2608290818 | 🔲     | sonnet | [doctor and pick warn a plan has no room for another phase](plan/2608290818_headroom-for-another-phase.md)                             |
 <?/catalog?>
