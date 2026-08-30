@@ -5,7 +5,7 @@ go 1.25.11
 require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/alecthomas/kong-yaml v0.2.0
-	github.com/jeduden/mdsmith v0.54.0
+	github.com/jeduden/mdsmith v0.55.1
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/stretchr/testify v1.12.0
 	golang.org/x/term v0.45.0

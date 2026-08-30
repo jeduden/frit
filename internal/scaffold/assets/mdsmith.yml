@@ -74,6 +74,39 @@ kinds:
     rules:
       required-structure:
         schema: plan/proto.md
+  phase-spec:
+    # A folder plan's own phase-N.md spec: the working brief `frit
+    # phase` bundles for a session. Freeform prose — RED, GREEN and
+    # the gate are paragraphs, the way an inline `## Phase N` section
+    # already writes them, not headings — so the rules that assume a
+    # heading opener step aside, and the schema only pins the
+    # filename.
+    path-pattern: "plan/*/phase-*.md"
+    schema:
+      filename: "phase-*.md"
+    rules:
+      first-line-heading: false
+      heading-increment: false
+      token-budget:
+        mode: heuristic
+        max: 800
+  phase-record:
+    # A phase's living record: parked notes while the phase stays
+    # open, a `## Handoff` heading once it closes — level 2 by
+    # convention, so the same structural rules step aside here too.
+    # `frit phase` finds Handoff itself by walking the heading, not
+    # this schema, which only pins the filename.
+    path-pattern: "plan/*/phase-*.result.md"
+    schema:
+      filename: "phase-*.result.md"
+    rules:
+      first-line-heading: false
+      heading-increment: false
+      paragraph-readability: false
+      paragraph-structure: false
+      token-budget:
+        mode: heuristic
+        max: 900
 
 # Order matters: proto applies first so plan/proto.md also picks up the
 # plan kind, whose required-structure.schema points back at the file
@@ -84,12 +117,17 @@ kind-assignment:
     kinds: [proto]
   - glob: ["plan/*.md", "plan/*/plan.md"]
     kinds: [plan]
+  - glob: ["plan/*/phase-*.md", "!plan/*/phase-*.result.md"]
+    kinds: [phase-spec]
+  - glob: ["plan/*/phase-*.result.md"]
+    kinds: [phase-record]
 
 overrides:
   # A plan folder's companion files (research, fixtures, diagrams) are
-  # freeform; plan.md itself keeps the plan kind and its full checks,
-  # so it is excluded here.
-  - glob: ["plan/*/*.md", "!plan/*/plan.md"]
+  # freeform; plan.md keeps the plan kind and its full checks, and
+  # phase-N.md/phase-N.result.md keep their own kinds above, so both
+  # are excluded here.
+  - glob: ["plan/*/*.md", "!plan/*/plan.md", "!plan/*/phase-*.md"]
     rules:
       first-line-heading: false
       heading-increment: false
