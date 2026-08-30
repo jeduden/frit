@@ -118,6 +118,24 @@ func TestPlanNewFrontsDoctor(t *testing.T) {
 	}
 }
 
+// TestPlanNewDefaultsToFolderPlanWithPhaseFiles guards plan/2608300937
+// Phase 3: plan-new authors a folder plan with each phase in its own
+// phase-N.md, not a "## Phase N" section in plan.md, now that the
+// headroom signal that used to warn about that growth has retired.
+func TestPlanNewDefaultsToFolderPlanWithPhaseFiles(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-new/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-new skill: %v", err)
+	}
+	body := string(data)
+	if !contains(body, "phase-1.md") {
+		t.Fatal("plan-new skill does not name phase-1.md as Phase 1's file")
+	}
+	if contains(body, "headroom") {
+		t.Fatal("plan-new skill still mentions the retired headroom check")
+	}
+}
+
 // TestPlanSyncFrontsDrift guards the standing rule CLAUDE.md records:
 // a new agent-facing verb ships with the thin skill that fronts it.
 // plan-sync's own evidence gathering is exactly what drift now
