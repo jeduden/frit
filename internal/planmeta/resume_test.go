@@ -182,3 +182,69 @@ func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.HasPhase)
 }
+
+// TestResumeSurfacesAnUnreadableResultFile is CLAUDE.md's Defensive
+// Code rule, driven for Resume's `case !os.IsNotExist(err)` branch: a
+// phase-N.result.md that exists but cannot be read as a plain file —
+// here, a directory sitting where the file belongs — must surface the
+// read error rather than being silently treated as "not done yet".
+func TestResumeSurfacesAnUnreadableResultFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md", "Do the first thing.")
+	require.NoError(t, os.Mkdir(
+		filepath.Join(dir, "phase-1.result.md"), 0o750))
+
+	_, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.Error(t, err)
+}
+
+// TestPhaseSpecNumbersOrdersNumericallyThenBySplitToken is
+// phaseSpecNumbers' own dedicated test, pinning the ordering rule
+// Resume's callers rely on directly rather than only through Resume's
+// end-to-end cases: leading digits first, then the full token breaks
+// a tie within a split phase, and a companion result file or an
+// unrelated name is never counted as a spec.
+func TestPhaseSpecNumbersOrdersNumericallyThenBySplitToken(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-10.md", "")
+	writePhaseFile(t, dir, "phase-2.md", "")
+	writePhaseFile(t, dir, "phase-3b.md", "")
+	writePhaseFile(t, dir, "phase-3a.md", "")
+	writePhaseFile(t, dir, "phase-3.result.md", "")
+	writePhaseFile(t, dir, "notaphase.txt", "")
+
+	got, err := phaseSpecNumbers(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2", "3a", "3b", "10"}, got)
+}
+
+// TestExecutionRowForReadsTheNamedPhasesTierAndGate is
+// executionRowFor's own dedicated test.
+func TestExecutionRowForReadsTheNamedPhasesTierAndGate(t *testing.T) {
+	body := []byte("## Execution\n\n" +
+		"| Phase | Design | Implement | Gate |\n" +
+		"| --- | --- | --- | --- |\n" +
+		"| 2 second | sonnet | opus | test two |\n")
+
+	tier, gate, ok := executionRowFor(body, PhaseNumber("2"))
+
+	assert.True(t, ok)
+	assert.Equal(t, "opus", tier)
+	assert.Equal(t, "test two", gate)
+}
+
+// TestExecutionRowForMissingPhaseReportsNotOK pins the other side: a
+// phase number the table carries no row for reports ok=false rather
+// than a zero-value row indistinguishable from an empty tier and gate.
+func TestExecutionRowForMissingPhaseReportsNotOK(t *testing.T) {
+	body := []byte("## Execution\n\n" +
+		"| Phase | Design | Implement | Gate |\n" +
+		"| --- | --- | --- | --- |\n" +
+		"| 2 second | sonnet | opus | test two |\n")
+
+	_, _, ok := executionRowFor(body, PhaseNumber("9"))
+
+	assert.False(t, ok)
+}

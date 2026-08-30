@@ -239,3 +239,36 @@ func TestPhaseRefusesOutsideThePlansOwnLane(t *testing.T) {
 	require.NotEqual(t, 0, code)
 	assert.Contains(t, errb.String(), "own lane")
 }
+
+// TestPhaseInsideItsOwnLaneReadsTheWorkingTreeStatus is a code-review
+// fix: phase already requires standing in the plan's own lane and
+// already reads that lane's own plan.md for the bundle, but the plan
+// card it reported still came from the fleet's last-fetched
+// default-branch copy. A status flip made in the lane but not yet
+// merged — exactly what plan-phase's own closing commit produces —
+// must show up here the same way next and show's own laneOverride
+// already guarantees.
+func TestPhaseInsideItsOwnLaneReadsTheWorkingTreeStatus(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writeFolderPlan(t, repo, 100, "🔳", "Layered work",
+		"1 first | sonnet | sonnet | test one\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	dir := writeFolderPlan(t, wt, 100, "✅", "Layered work",
+		"1 first | sonnet | sonnet | test one\n")
+	writePhaseCompanion(t, dir, "phase-1.md", "Do the first thing.")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "flip status in the lane")
+	t.Chdir(wt)
+	var doc report.PhaseDoc
+
+	emit(t, &doc, "phase", "--root", root)
+
+	assert.Equal(t, "✅", doc.Plan.Status,
+		"phase must read the lane's own plan.md, not the fetched default-branch copy")
+}

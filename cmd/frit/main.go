@@ -1739,6 +1739,20 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	// phase always runs inside the plan's own lane (checked above), so
+	// its own plan.md — just read into body — is authoritative over
+	// whatever the fleet's last-fetched default-branch copy carries.
+	// Without this, a status flip or a Goal/DependsOn edit made in the
+	// lane but not yet merged would print stale here even though the
+	// bundle below reads the same file fresh — the same staleness
+	// laneOverride exists to close for next and show.
+	if local, err := planmeta.Parse(body); err == nil {
+		plan.Status = local.Status
+		plan.Phases = local.Phases
+		plan.Goal = local.Goal
+		plan.DependsOn = local.DependsOn
+	}
+
 	// Only a folder plan's plan.md sits in a directory of its own; a
 	// flat plan's parent is plan/, shared by every flat plan in the
 	// repository, so it is never globbed for phase-N.md files.
