@@ -97,5 +97,5 @@ footer: |
 | 2608291751 | ✅     | sonnet | [A merged human plan/<id> branch is not read as landed lease work](plan/2608291751_merged-human-branch-not-landed-work.md)             |
 | 2608291854 | ✅     | sonnet | [Harden the headroom check and the signal it ships](plan/2608291854_harden-the-headroom-signal.md)                                     |
 | 2608300937 | ✅     | sonnet | [Per-phase files give a plan a token-cheap resume bundle](plan/2608300937_per-phase-files-token-cheap-resume/plan.md)                  |
-| 2608302230 | 🔲     | sonnet | [Scaffold PLAN.md index includes folder plans](plan/2608302230_scaffold-index-includes-folder-plans.md)                                |
+| 2608302230 | ✅     | sonnet | [Scaffold PLAN.md index includes folder plans](plan/2608302230_scaffold-index-includes-folder-plans.md)                                |
 <?/catalog?>

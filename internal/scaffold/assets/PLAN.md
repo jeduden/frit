@@ -5,6 +5,7 @@
 <?catalog
 glob:
   - "plan/*.md"
+  - "plan/*/plan.md"
   - "!plan/proto.md"
 where: 'status: "🔳"'
 sort: numeric:id
@@ -29,6 +30,7 @@ Nothing in progress.
 <?catalog
 glob:
   - "plan/*.md"
+  - "plan/*/plan.md"
   - "!plan/proto.md"
 sort: numeric:id
 header: |

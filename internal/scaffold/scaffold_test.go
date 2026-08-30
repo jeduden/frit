@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,6 +109,17 @@ func TestWritePlanIndexWritesTheSeed(t *testing.T) {
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, planIndex, got)
+}
+
+// TestPlanIndexCatalogsFolderPlans pins that both catalog blocks in the
+// seed glob folder plans (plan/<id>_slug/plan.md), not only flat plans,
+// so a repo on the folder shape does not silently drop plans from its
+// generated index. The proto exclusion must survive in each block.
+func TestPlanIndexCatalogsFolderPlans(t *testing.T) {
+	assert.Equal(t, 2, bytes.Count(planIndex, []byte(`"plan/*/plan.md"`)),
+		"both catalog blocks glob folder plans")
+	assert.Equal(t, 2, bytes.Count(planIndex, []byte(`"!plan/proto.md"`)),
+		"both catalog blocks still exclude the proto")
 }
 
 func TestWritePlanIndexRefusesToClobber(t *testing.T) {

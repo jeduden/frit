@@ -1,7 +1,7 @@
 ---
 id: 2608302230
 title: Scaffold PLAN.md index includes folder plans
-status: "🔲"
+status: "✅"
 summary: >-
   The scaffold PLAN.md catalog seed globs `plan/*.md`, which matches a
   flat `plan/<id>_slug.md` plan but not a folder plan
@@ -60,11 +60,11 @@ a content assertion on `planIndex` is the natural red/green home.
 
 ## Acceptance Criteria
 
-- [ ] Both catalog blocks in the scaffold PLAN.md glob `plan/*/plan.md`
+- [x] Both catalog blocks in the scaffold PLAN.md glob `plan/*/plan.md`
       alongside `plan/*.md`, each still excluding `plan/proto.md`
-- [ ] A test proves the seed indexes folder plans (fails before the
+- [x] A test proves the seed indexes folder plans (fails before the
       edit, passes after)
-- [ ] A folder plan appears in the rendered index when mdsmith renders
+- [x] A folder plan appears in the rendered index when mdsmith renders
       a repo scaffolded from the seed
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
