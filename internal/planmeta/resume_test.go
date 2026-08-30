@@ -144,6 +144,7 @@ func TestResumeFallsBackToTheLedgerWhenNoPhaseFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
 	assert.Equal(t, PhaseNumber("2"), got.N)
+	assert.Equal(t, "Second", got.Title)
 	assert.Equal(t, "Do the second thing.", got.Spec)
 	assert.Equal(t, "opus", got.Tier)
 	assert.Empty(t, got.ResultPath)

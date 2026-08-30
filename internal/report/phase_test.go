@@ -14,7 +14,7 @@ import (
 func TestNewPhaseCarriesTheBundle(t *testing.T) {
 	doc := NewPhase("/fleet", discovery.Plan{Repo: "atlas", ID: 100},
 		planmeta.Bundle{
-			N: "2", Spec: "Do the second thing.",
+			N: "2", Title: "Second sitting", Spec: "Do the second thing.",
 			HandoffIn: "Phase one landed cleanly.", Notes: "Parked.",
 			Tier: "opus", Gate: "test two",
 			ResultPath: "phase-2.result.md", HasPhase: true,
@@ -23,6 +23,7 @@ func TestNewPhaseCarriesTheBundle(t *testing.T) {
 	assert.Equal(t, "phase", doc.Command)
 	assert.True(t, doc.HasPhase)
 	assert.Equal(t, "2", doc.Phase.N)
+	assert.Equal(t, "Second sitting", doc.Phase.Title)
 	assert.Equal(t, "Do the second thing.", doc.Phase.Spec)
 	assert.Equal(t, "Phase one landed cleanly.", doc.Phase.HandoffIn)
 	assert.Equal(t, "Parked.", doc.Phase.Notes)

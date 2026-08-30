@@ -10,9 +10,12 @@ import (
 // in-progress notes, the tier and gate its Execution row names, and
 // the result file to write. Every field is empty rather than absent
 // when the plan fell back to its plan.md ledger, which carries no
-// per-phase files of its own.
+// per-phase files of its own. Title is likewise empty for a
+// phase-file plan, which has no title convention yet for its own
+// phase-N.md.
 type PhaseBundleCard struct {
 	N          string `json:"n"`
+	Title      string `json:"title"`
 	Spec       string `json:"spec"`
 	HandoffIn  string `json:"handoff_in"`
 	Notes      string `json:"notes"`
@@ -61,7 +64,7 @@ func (d *PhaseDoc) AddProblem(repo string, err error) {
 // phaseBundleCard projects a resume bundle into its wire shape.
 func phaseBundleCard(b planmeta.Bundle) PhaseBundleCard {
 	return PhaseBundleCard{
-		N: string(b.N), Spec: b.Spec, HandoffIn: b.HandoffIn,
+		N: string(b.N), Title: b.Title, Spec: b.Spec, HandoffIn: b.HandoffIn,
 		Notes: b.Notes, Tier: b.Tier, Gate: b.Gate,
 		ResultPath: b.ResultPath,
 	}

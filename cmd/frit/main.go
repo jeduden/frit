@@ -2221,8 +2221,8 @@ func printPhase(out io.Writer, doc *report.PhaseDoc) {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\n",
-		p.Repo, p.ID, doc.Phase.N,
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title,
 		modelLabel(doc.Phase.Tier), orDash(doc.Phase.Gate))
 	_ = tw.Flush()
 	if doc.Phase.Spec != "" {

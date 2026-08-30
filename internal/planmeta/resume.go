@@ -17,8 +17,13 @@ import (
 // its own in-progress notes, the tier and gate its Execution row
 // names, and the result file to write. HasPhase is false when every
 // phase is done, the way Plan.FirstOpenPhase reports none left.
+//
+// Title is carried only for a ledger phase, whose `phases:` entry
+// already names one; a phase-file plan has no title convention yet
+// for its own phase-N.md, so Title is empty there.
 type Bundle struct {
 	N          PhaseNumber
+	Title      string
 	Spec       string
 	HandoffIn  string
 	Notes      string
@@ -123,6 +128,7 @@ func resumeFromLedger(planBody []byte) (Bundle, error) {
 
 	return Bundle{
 		N:        phase.N,
+		Title:    phase.Title,
 		Spec:     phase.Body,
 		Tier:     phase.Tier,
 		Gate:     phase.Gate,

@@ -153,6 +153,8 @@ func TestPhaseFallsBackToThePlanLedgerWithNoPhaseFiles(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.Contains(t, got, "phase 2")
+	assert.Contains(t, got, "Second",
+		"a ledger phase's title is still surfaced, the way next showed it")
 	assert.Contains(t, got, "Do the second thing.")
 	assert.False(t, strings.Contains(got, "phase-2.result.md"),
 		"a ledger plan names no per-phase result file")
