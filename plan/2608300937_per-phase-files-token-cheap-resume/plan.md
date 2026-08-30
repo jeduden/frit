@@ -26,7 +26,7 @@ phases:
     status: "✅"
   - n: 2
     title: mdsmith bump and the phase-spec/phase-record kinds
-    status: "🔳"
+    status: "✅"
 ---
 # Per-phase files give a plan a token-cheap resume bundle
 
@@ -295,12 +295,12 @@ report shape the later phases reuse.
 - [x] A plan with no `phase-N.md` files reports its open phase from the
       `plan.md` ledger and sections, unchanged
 - [ ] `plan-new` authors a folder plan by default
-- [ ] A `phase-N.md` spec and a `phase-N.result.md` record each lint
+- [x] A `phase-N.md` spec and a `phase-N.result.md` record each lint
       under their own mdsmith kind, with a token budget, and the
       freeform companion override no longer covers them
-- [ ] The new kinds ship in both frit's `.mdsmith.yml` and the scaffold
+- [x] The new kinds ship in both frit's `.mdsmith.yml` and the scaffold
       default, so a fresh `frit init` repo lints the layout unconfigured
-- [ ] mdsmith is bumped to v0.55.1 in go.mod and the CI action pin
+- [x] mdsmith is bumped to v0.55.1 in go.mod and the CI action pin
       together, and `mdsmith check .` stays clean
 - [x] A thin skill fronts `frit phase`, shipped in the same change as
       the verb
