@@ -114,6 +114,24 @@ func TestResumeFallsBackToTheLedgerWhenNoPhaseFiles(t *testing.T) {
 	assert.Empty(t, got.HandoffIn)
 }
 
+// TestResumeWithNoDirectoryUsesTheLedger: an empty dir — a flat
+// plan's own signal that it has no directory of its own to glob —
+// resumes from the ledger without ever touching the filesystem, the
+// same answer a folder plan with no phase-N.md files gives.
+func TestResumeWithNoDirectoryUsesTheLedger(t *testing.T) {
+	body := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'First', status: \"✅\" }\n" +
+		"  - { n: 2, title: 'Second', status: \"🔲\" }\n" +
+		"---\n# T\n\n## Phase 2: Second\n\nDo the second thing.\n"
+
+	got, err := Resume("", []byte(body))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("2"), got.N)
+	assert.Equal(t, "Do the second thing.", got.Spec)
+}
+
 // TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone mirrors
 // FirstOpenPhase's own "none left" case for a phase-file plan.
 func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone(t *testing.T) {

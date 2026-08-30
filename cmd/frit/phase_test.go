@@ -158,6 +158,39 @@ func TestPhaseFallsBackToThePlanLedgerWithNoPhaseFiles(t *testing.T) {
 		"a ledger plan names no per-phase result file")
 }
 
+// TestPhaseIgnoresAStrayFileInTheSharedFlatPlanDirectory: a flat
+// plan's own directory is plan/ itself, shared by every flat plan in
+// the repository. A phase-N.md sitting there — mislaid, or another
+// plan's leftover — must never be read as this plan's own phase file;
+// a flat plan always resumes from its plan.md ledger.
+func TestPhaseIgnoresAStrayFileInTheSharedFlatPlanDirectory(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔲"), "## Phase 2: Second\n\nDo the second thing.\n")
+	writePhaseCompanion(t, filepath.Join(repo, "plan"), "phase-9.md",
+		"A stray file belonging to nothing.")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"phase", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "phase 2")
+	assert.Contains(t, got, "Do the second thing.")
+	assert.False(t, strings.Contains(got, "phase 9"),
+		"a stray plan/phase-9.md must not be read as this plan's own")
+	assert.False(t, strings.Contains(got, "stray file"),
+		"a stray plan/phase-9.md must not be read as this plan's own")
+}
+
 // TestPhaseEmitsJSON pins the wire shape: the open phase's number,
 // spec, and the plan it belongs to.
 func TestPhaseEmitsJSON(t *testing.T) {
