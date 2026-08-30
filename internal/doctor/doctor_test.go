@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/jeduden/mdsmith/pkg/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,8 +29,8 @@ func newFixtureRoot(t *testing.T) string {
 }
 
 // newFixtureRootNoConfig is newFixtureRoot without the .mdsmith.yml, so
-// a test can drive the no-config case doctor's session open must share
-// with headroom.Session.
+// a test can drive the no-config case doctor's session open must
+// handle.
 func newFixtureRootNoConfig(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -100,129 +98,24 @@ Do the one thing.
 `, id)
 }
 
-// paddedPlanWithID renders a clean, schema-valid plan whose body is
-// padded with extra acceptance-criteria bullets to reach exactly
-// bodyLines lines, so a test can drive it right up against mdsmith's
-// max-file-length cap without hand-counting the base template.
-func paddedPlanWithID(id int64, bodyLines int) string {
-	return paddedPlanWithStatus(id, "🔲", bodyLines)
-}
-
-// paddedPlanWithStatus is paddedPlanWithID with the front-matter
-// status a test wants to drive, so the headroom-done gate can be
-// checked against a ✅ plan without a second template to maintain.
-func paddedPlanWithStatus(id int64, status string, bodyLines int) string {
-	base := fmt.Sprintf(`---
-id: %d
-title: A padded plan
-status: %q
-model: sonnet
----
-# A padded plan
-
-## Goal
-
-Ship the thing.
-
-## Tasks
-
-1. Do it.
-
-## Acceptance Criteria
-
-- [ ] It is done.
-`, id, status)
-
-	_, body := markdown.StripFrontMatter([]byte(base))
-	have := markdown.CountLines(body)
-
-	var b strings.Builder
-	b.WriteString(base)
-	for i := have; i < bodyLines; i++ {
-		fmt.Fprintf(&b, "- [ ] Padding item %d.\n", i)
-	}
-
-	return b.String()
-}
-
-// findingsByCheck filters got down to the ones naming check.
-func findingsByCheck(got []Finding, check string) []Finding {
-	var out []Finding
-	for _, f := range got {
-		if f.Check == check {
-			out = append(out, f)
-		}
-	}
-
-	return out
-}
-
-// TestScanFlagsAPlanWithNoHeadroom is Phase 1's RED: a plan padded to
-// within the 300-line cap has no room left for the reserve a 10%
-// headroom-reserve demands, while a short plan carries plenty.
-func TestScanFlagsAPlanWithNoHeadroom(t *testing.T) {
-	root := newFixtureRoot(t)
-	writePlan(t, root, "105_padded.md", paddedPlanWithID(105, 290))
-	writePlan(t, root, "106_short.md", cleanPlanWithID(106))
-
-	got, err := Scan(root, "plan", 10)
-
-	require.NoError(t, err)
-	padded := findingsByCheck(got, "headroom")
-	require.Len(t, padded, 1, "only the padded plan has no headroom")
-	assert.Equal(t, int64(105), padded[0].ID)
-	assert.Contains(t, padded[0].Message, "short")
-}
-
-// TestScanWithReserveZeroEmitsNoHeadroomFinding pins that a
-// headroom-reserve of 0 disables the finding entirely, even for a
-// plan that would otherwise trip it.
-func TestScanWithReserveZeroEmitsNoHeadroomFinding(t *testing.T) {
-	root := newFixtureRoot(t)
-	writePlan(t, root, "107_padded.md", paddedPlanWithID(107, 290))
-
-	got, err := Scan(root, "plan", 0)
-
-	require.NoError(t, err)
-	assert.Empty(t, findingsByCheck(got, "headroom"))
-}
-
-// TestScanSkipsHeadroomForADonePlan is Phase 1's RED: a ✅ plan will
-// never grow another phase, so its shortfall is unactionable and
-// doctor must not name it — even padded past the same reserve that
-// still trips the finding on a live 🔲 plan.
-func TestScanSkipsHeadroomForADonePlan(t *testing.T) {
-	root := newFixtureRoot(t)
-	writePlan(t, root, "108_done.md", paddedPlanWithStatus(108, "✅", 290))
-	writePlan(t, root, "109_live.md", paddedPlanWithStatus(109, "🔲", 290))
-
-	got, err := Scan(root, "plan", 10)
-
-	require.NoError(t, err)
-	headroom := findingsByCheck(got, "headroom")
-	require.Len(t, headroom, 1, "only the live plan is flagged")
-	assert.Equal(t, int64(109), headroom[0].ID, "done plan must not be flagged")
-}
-
-// TestScanOpensSessionOnDefaultsWithNoConfig is Phase 3's RED: a repo
-// with plan/proto.md but no .mdsmith.yml scans on mdsmith's built-in
-// defaults, the same no-config behaviour headroom.Session already
-// gives, rather than failing to open the session at all.
+// TestScanOpensSessionOnDefaultsWithNoConfig: a repo with plan/proto.md
+// but no .mdsmith.yml scans on mdsmith's own built-in defaults, rather
+// than failing to open the session at all.
 func TestScanOpensSessionOnDefaultsWithNoConfig(t *testing.T) {
 	root := newFixtureRootNoConfig(t)
 	writePlan(t, root, "110_clean.md", cleanPlanWithID(110))
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
-	assert.Empty(t, findingsByCheck(got, "headroom"))
+	assert.Empty(t, got)
 }
 
 func TestScanFindsNothingOnACleanPlan(t *testing.T) {
 	root := newFixtureRoot(t)
 	writePlan(t, root, "100_a-clean-plan.md", cleanPlanWithID(100))
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -232,7 +125,7 @@ func TestScanReportsErrNoSchemaWhenProtoIsMissing(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "plan"), 0o750))
 
-	_, err := Scan(root, "plan", 10)
+	_, err := Scan(root, "plan")
 
 	require.ErrorIs(t, err, ErrNoSchema)
 }
@@ -259,7 +152,7 @@ model: sonnet
 `
 	writePlan(t, root, "101_an-empty-goal.md", src)
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -292,7 +185,7 @@ Ship it.
 `
 	writePlan(t, root, "102_a-bad-model.md", src)
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -330,7 +223,7 @@ Do the one thing.
 `
 	writePlan(t, root, "103_a-phase-with-no-row.md", src)
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -374,7 +267,7 @@ Do the one thing.
 `
 	writePlan(t, root, "104_a-phase-with-a-bad-tier.md", src)
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -423,7 +316,7 @@ model: bogus
 - [ ] y
 `)
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err)
 	require.Len(t, got, 3)
@@ -445,7 +338,7 @@ func TestScanSeesFolderPlansAndProvesIDSync(t *testing.T) {
 	writeFolderPlan(t, root, "notanid_x", cleanPlanWithID(999))
 	writePlan(t, root, "2601060000_flatskew.md", cleanPlanWithID(2601999999))
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 	require.NoError(t, err)
 
 	byPath := map[string][]Finding{}
@@ -484,7 +377,7 @@ func TestScanSkipsADirectoryThatMatchesAPlanGlob(t *testing.T) {
 	require.NoError(t, os.MkdirAll(
 		filepath.Join(root, "plan", "2601020000_oops.md"), 0o750))
 
-	got, err := Scan(root, "plan", 10)
+	got, err := Scan(root, "plan")
 
 	require.NoError(t, err, "one bad path must not blind the whole scan")
 	assert.Empty(t, got, "the one real plan is clean")

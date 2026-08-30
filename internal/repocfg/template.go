@@ -62,11 +62,6 @@ remote: ` + DefaultRemote + `
 takeover-window: 2h
 sample-gap: 30m
 
-# How much of a plan's length, as a percent, doctor and pick keep in
-# reserve for another "## Phase N" section — the shortfall a headroom
-# finding names. 0 disables the finding entirely.
-headroom-reserve: 10
-
 # The ref a claim lease is dated against.
 #
 # Left unset, base is derived from git through the

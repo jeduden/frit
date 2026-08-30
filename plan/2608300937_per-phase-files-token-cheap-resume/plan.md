@@ -1,7 +1,7 @@
 ---
 id: 2608300937
 title: Per-phase files give a plan a token-cheap resume bundle
-status: "🔳"
+status: "✅"
 summary: >-
   A folder plan keeps every phase inside one plan.md, so a phase read
   parses the whole file and the file grows until the headroom signal
@@ -146,8 +146,8 @@ what completes the phase, so there is no separate status flip to keep
 honest. The one-mutation rule is untouched: frit still mints only the
 claim.
 
-**Headroom is superseded.** The [headroom signal](../../internal/headroom)
-answers "is there room for another `## Phase N` in `plan.md`". With
+**Headroom is superseded.** The `internal/headroom` signal answers "is
+there room for another `## Phase N` in `plan.md`". With
 phases in their own files, `plan.md` does not grow with phases, so the
 question loses its force. The remedy for "no room" is now "split the
 phases out", a structural fix, not a warning. A later phase retires the
@@ -295,7 +295,7 @@ report shape the later phases reuse.
 - [x] It names the result file to write for the open phase
 - [x] A plan with no `phase-N.md` files reports its open phase from the
       `plan.md` ledger and sections, unchanged
-- [ ] `plan-new` authors a folder plan by default
+- [x] `plan-new` authors a folder plan by default
 - [x] A `phase-N.md` spec and a `phase-N.result.md` record each lint
       under their own mdsmith kind, with a token budget, and the
       freeform companion override no longer covers them

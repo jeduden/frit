@@ -101,14 +101,6 @@ func TestTemplateWritesTheStalenessClockKeys(t *testing.T) {
 	assert.Contains(t, Template, "sample-gap: 30m")
 }
 
-// TestTemplateWritesTheHeadroomReserveKey pins that headroom-reserve is
-// written as an active setting, built from its literal default — like
-// the staleness clock, it has one, so there is nothing to derive.
-func TestTemplateWritesTheHeadroomReserveKey(t *testing.T) {
-	assert.Contains(t, Template, "headroom-reserve: 10")
-	assert.Contains(t, Template, "0 disables")
-}
-
 // TestTemplateLeavesBaseCommented pins that base appears only as a
 // commented example, because its default is derived from git and an
 // active empty value would be wrong.

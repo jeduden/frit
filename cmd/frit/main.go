@@ -619,10 +619,6 @@ func (d *doctorCmd) Help() string {
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
-  headroom        a plan with no room left to append another
-                  "## Phase N" section, within its headroom-reserve
-                  percent (.frit.yml; default 10, 0 disables this
-                  check)
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
@@ -631,9 +627,7 @@ execution-row, tier and id-sync read the body and file-name data frit
 already parses for next and show — mdsmith's schema has no way to see
 inside a markdown table's cells, cross-reference a table's rows
 against another section's headings, or compare a file name to a
-front-matter field. headroom pads an in-memory copy of the plan and
-asks the same mdsmith session whether max-file-length would fire,
-rather than reading the configured cap directly.
+front-matter field.
 
 A repository with no plan/proto.md has nothing to check.`
 }
@@ -653,7 +647,7 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir, cfg.HeadroomReserve)
+		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
 		if err != nil {
 			if errors.Is(err, doctorpkg.ErrNoSchema) {
 				continue
@@ -1198,14 +1192,6 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch})
 }
 
-// gatherFleetWithHeadroom is gatherFleet plus the headroom signal.
-// ready and pick are the only two of the fleet's verbs that render
-// it, so they are the only callers that ask for it — every other verb
-// calls gatherFleet and never opens the mdsmith session it needs.
-func gatherFleetWithHeadroom(c *cli, rt *runtime) (fleet.Result, error) {
-	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch, Headroom: true})
-}
-
 func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, error) {
 	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe, opts)
 	if err != nil {
@@ -1527,7 +1513,7 @@ type readyCmd struct {
 // Run lists every plan startable now: not begun, held by nobody, and
 // with every dependency done, across all repositories and refs.
 func (r *readyCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleetWithHeadroom(c, rt)
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -1562,7 +1548,7 @@ type pickCmd struct {
 // the top candidate outright — the selection the skill used to make by
 // hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleetWithHeadroom(c, rt)
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -2359,22 +2345,10 @@ func printReady(out io.Writer, doc *report.ReadyDoc, width int) {
 	rows := make([][]string, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
 		rows = append(rows, []string{
-			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model),
-			headroomLabel(p), p.Title,
+			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model), p.Title,
 		})
 	}
 	fitTable(out, width, rows)
-}
-
-// headroomLabel notes a plan with no room left to append another
-// "## Phase N" section, blank for the common case of a plan with room
-// so the column stays quiet unless there is something to say.
-func headroomLabel(p report.PlanCard) string {
-	if p.HeadroomShort <= 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("-%d", p.HeadroomShort)
 }
 
 // fitTable renders rows as an aligned table, trimming each row's final

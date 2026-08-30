@@ -3,7 +3,7 @@
 No more appending `## Phase N` sections to `plan.md`. `plan.md` no
 longer grows with phases. So headroom's question — is there room for
 another phase section — has no answer left to give. The signal
-retires: the [internal/headroom](../../internal/headroom) package,
+retires: the `internal/headroom` package,
 doctor's `headroom` check, the `headroom-reserve` config key, the
 `HeadroomShort` field carried through discovery, fleet and report, the
 CLI wiring in `ready` and `pick`, and the mentions in the `plan-new`
@@ -27,7 +27,7 @@ RED:
    row, in a built `ready` table, carries no shortfall column. It
    fails today — the column still prints `-19`.
 
-GREEN, deleting [internal/headroom](../../internal/headroom) outright:
+GREEN, deleting `internal/headroom` outright:
 
 - Fold its `Session` opener into
   [doctor.go](../../internal/doctor/doctor.go) as an unexported

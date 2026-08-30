@@ -70,7 +70,7 @@ so #104's claim fixes are not held behind them.
   `Session.Check` passes per plan. And mdsmith v0.54.0 now exposes the
   effective cap directly — `Session.Kinds(uri).Rules["max-file-length"].Final`
   carries `{"max": N}` — so the premise in
-  [headroom.go](../internal/headroom/headroom.go)'s package doc, that
+  `headroom.go`'s package doc, that
   the cap is not reachable, no longer holds.
 - **Two sessions.** `headroom.Session` falls back to `ConfigYAML("")`
   when a repo has no `.mdsmith.yml`; `doctor.Scan` builds its own
@@ -81,7 +81,7 @@ so #104's claim fixes are not held behind them.
   step 7 still lists doctor's checks without `headroom`. CLAUDE.md's
   Shipping Skills rule requires the skill in the same change as the verb.
 - **Untested helpers.** `pad` and `fits` in
-  [headroom.go](../internal/headroom/headroom.go) have no dedicated
+  `headroom.go` have no dedicated
   test, and `pad`'s trailing-newline branch is a defensive branch no
   test drives — against CLAUDE.md's Defensive Code and dedicated-test
   rules.
@@ -194,7 +194,7 @@ still mean falling back to the rule's own built-in 300 default — a
 second copy of that number, the exact drift the package doc already
 warns against. `pad` and `fits` stay exactly as they are, since Phase 6
 tests them; only gating shipped. The package doc in
-[headroom.go](../internal/headroom/headroom.go) is corrected to say why
+`headroom.go` is corrected to say why
 it still asks the oracle rather than reading `Session.Kinds` for real,
 not that the cap is unreachable.
 
@@ -229,11 +229,11 @@ the installed `plan-pick`/`plan-new` carry the headroom lines. `go test
 
 ## Phase 6: pad and fits carry their own tests
 
-`pad` and `fits` in [headroom.go](../internal/headroom/headroom.go) each
+`pad` and `fits` in `headroom.go` each
 gain a dedicated unit test. `pad`'s trailing-newline branch is driven
 red first, per CLAUDE.md's Defensive Code rule.
 
-RED, in [headroom_test.go](../internal/headroom/headroom_test.go):
+RED, in `headroom_test.go`:
 
 - `pad` on a source whose last byte is not `\n` inserts the newline, so
   the padded source has exactly the claimed line count; a source already

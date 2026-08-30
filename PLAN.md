@@ -22,9 +22,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                 |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
-| 2608300937 | sonnet | [Per-phase files give a plan a token-cheap resume bundle](plan/2608300937_per-phase-files-token-cheap-resume/plan.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -98,5 +96,5 @@ footer: |
 | 2608290818 | ✅     | sonnet | [doctor and pick warn a plan has no room for another phase](plan/2608290818_headroom-for-another-phase.md)                             |
 | 2608291751 | ✅     | sonnet | [A merged human plan/<id> branch is not read as landed lease work](plan/2608291751_merged-human-branch-not-landed-work.md)             |
 | 2608291854 | ✅     | sonnet | [Harden the headroom check and the signal it ships](plan/2608291854_harden-the-headroom-signal.md)                                     |
-| 2608300937 | 🔳     | sonnet | [Per-phase files give a plan a token-cheap resume bundle](plan/2608300937_per-phase-files-token-cheap-resume/plan.md)                  |
+| 2608300937 | ✅     | sonnet | [Per-phase files give a plan a token-cheap resume bundle](plan/2608300937_per-phase-files-token-cheap-resume/plan.md)                  |
 <?/catalog?>
