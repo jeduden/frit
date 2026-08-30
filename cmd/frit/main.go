@@ -1747,11 +1747,20 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 			"frit phase must run inside plan %d's own lane", plan.ID)
 	}
 
-	body, err := os.ReadFile(filepath.Join(root, plan.Path))
+	planFile := filepath.Join(root, plan.Path)
+	body, err := os.ReadFile(planFile)
 	if err != nil {
 		return err
 	}
-	bundle, err := planmeta.Resume(filepath.Dir(filepath.Join(root, plan.Path)), body)
+
+	// Only a folder plan's plan.md sits in a directory of its own; a
+	// flat plan's parent is plan/, shared by every flat plan in the
+	// repository, so it is never globbed for phase-N.md files.
+	var dir string
+	if plans.IsFolderPlanFile(plan.Path) {
+		dir = filepath.Dir(planFile)
+	}
+	bundle, err := planmeta.Resume(dir, body)
 	if err != nil {
 		return err
 	}

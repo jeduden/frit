@@ -35,13 +35,20 @@ var specFileRE = regexp.MustCompile(`^phase-([0-9]+)\.md$`)
 
 // Resume finds a plan's open phase and assembles its working bundle.
 //
-// dir is the plan's own directory — where a folder plan's phase-N.md
-// and phase-N.result.md files live — and planBody is the plan.md
-// bytes already read from there. When dir carries no phase-N.md at
-// all, Resume falls back to planBody's own `phases:` ledger and
-// `## Phase N` sections, so a flat or inline-section plan resumes
-// unchanged.
+// dir is a folder plan's own directory — where its phase-N.md and
+// phase-N.result.md files live — and planBody is the plan.md bytes
+// already read from there. dir is "" for a flat plan, which has no
+// directory of its own: its path's parent is plan/, shared by every
+// flat plan in the repository, and a phase-N.md glob-matched there
+// could belong to any of them. An empty dir, like a folder plan's
+// directory carrying no phase-N.md, falls back to planBody's own
+// `phases:` ledger and `## Phase N` sections, so a flat or
+// inline-section plan resumes unchanged.
 func Resume(dir string, planBody []byte) (Bundle, error) {
+	if dir == "" {
+		return resumeFromLedger(planBody)
+	}
+
 	specs, err := phaseSpecNumbers(dir)
 	if err != nil {
 		return Bundle{}, err
