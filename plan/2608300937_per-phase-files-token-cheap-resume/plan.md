@@ -24,6 +24,9 @@ phases:
   - n: 1
     title: frit phase finds the open phase and emits the working bundle
     status: "✅"
+  - n: 2
+    title: mdsmith bump and the phase-spec/phase-record kinds
+    status: "🔳"
 ---
 # Per-phase files give a plan a token-cheap resume bundle
 
@@ -159,9 +162,13 @@ move.
    bundle (spec, previous handoff, own notes, tier, gate, result path),
    with a fallback to the `plan.md` ledger and sections, and ship the
    thin skill that fronts the verb.
-2. (determined after Phase 1)
-3. (determined after Phase 1)
-4. (determined after Phase 1)
+2. Bump mdsmith to v0.55.1; add `phase-spec` and `phase-record` mdsmith
+   kinds, each with a required-structure schema and a token budget, for
+   `phase-N.md`/`phase-N.result.md`; narrow the freeform companion
+   override to exclude them; ship both kinds in frit's own
+   `.mdsmith.yml` and the scaffold default.
+3. `plan-new` authors a folder plan with `phase-N.md`/`phase-N.result.md`
+   by default, and the headroom signal retires.
 
 ## Phase 1: frit phase finds the open phase and emits the working bundle
 
@@ -217,15 +224,63 @@ its token budget; `go test ./...`, `go vet ./...`,
 `go tool -modfile=tools/go.mod golangci-lint run` and `mdsmith check .`
 stay clean.
 
+## Phase 2: mdsmith bump and the phase-spec/phase-record kinds
+
+`phase-N.md` and `phase-N.result.md` become first-class mdsmith kinds —
+`phase-spec` and `phase-record`. Each carries a required-structure
+schema pinning the filename, plus a token budget the way the `skill`
+kind keeps one. A spec or a record earns real rules this way, instead
+of the freeform companion override's blanket "everything off." The
+freeform override narrows to exclude both. Both kinds ship in frit's
+own `.mdsmith.yml` and in the scaffold default,
+[mdsmith.yml](../../internal/scaffold/assets/mdsmith.yml), so a fresh
+`frit init` repo lints the layout unconfigured. mdsmith bumps to
+v0.55.1 first. go.mod and the CI action pin move together, per
+[development.md](../../docs/development.md), so the new kinds are
+authored against the version CI runs.
+
+RED: a Go test builds a fixture repo carrying frit's own `.mdsmith.yml`
+— copied, the way [doctor_test.go](../../cmd/frit/doctor_test.go)
+already does for its own fixtures. The fixture also carries an
+oversized `phase-N.md` and `phase-N.result.md` under a folder plan.
+Today's config still runs the freeform companion override; neither
+`phase-spec` nor `phase-record` exists yet. So mdsmith's own
+`Session.Check` reports no `token-budget` diagnostic for either file,
+and the test's assertion that one fires fails.
+
+GREEN: add the two kinds to `.mdsmith.yml`. `phase-spec` gets
+`path-pattern: "plan/*/phase-*.md"`, a schema pinning
+`filename: "phase-*.md"`, `first-line-heading`/`heading-increment`
+turned off since a spec stays prose, and a token budget of 800.
+`phase-record` gets `path-pattern: "plan/*/phase-*.result.md"`, a
+schema pinning `filename: "phase-*.result.md"`, the same two rules off
+plus `paragraph-readability`/`paragraph-structure` — its own
+`## Handoff` heading opens at level 2 — and a token budget of 900. Add
+`kind-assignment` entries assigning them by glob; negate the
+`phase-record` glob out of the `phase-spec` one so a result file never
+double-matches the spec kind. Narrow the freeform override's glob to
+exclude `phase-*.md`. Mirror both new kinds into the scaffold default.
+Bump `github.com/jeduden/mdsmith` to v0.55.1 in `go.mod`/`go.sum` and
+in the CI action pin and its `version:` input, in
+[ci.yml](../../.github/workflows/ci.yml).
+
+Gate: the RED test's fixture now reports `token-budget` for both
+oversized files. A well-formed `phase-N.result.md` carrying only a
+`## Handoff` heading — the shape
+[phase-1.result.md](phase-1.result.md) already is — still lints clean
+under the new `phase-record` kind. `go test ./...`, `go vet ./...`,
+`go tool -modfile=tools/go.mod golangci-lint run` and
+`mdsmith check .`, built at v0.55.1, stay clean.
+
 ## Execution
 
 Phase 1 is the proving slice: it fixes the folder fixture and the bundle
-report shape the later phases reuse. The remaining phases are declared
-once the slice shows the real shape.
+report shape the later phases reuse.
 
 | Phase                          | Design | Implement | Gate that catches a wrong answer                                         |
 | ------------------------------ | ------ | --------- | ------------------------------------------------------------------------ |
 | 1 frit phase finds and bundles | opus   | sonnet    | in the lane, phase names phase 2, prints its spec, phase 1 handoff, path |
+| 2 mdsmith bump and phase kinds | opus   | sonnet    | mdsmith check . passes; RED fixture's token-budget fires for both kinds  |
 
 ## Acceptance Criteria
 
