@@ -1,7 +1,7 @@
 ---
 id: 2608300937
 title: Per-phase files give a plan a token-cheap resume bundle
-status: "🔲"
+status: "🔳"
 summary: >-
   A folder plan keeps every phase inside one plan.md, so a phase read
   parses the whole file and the file grows until the headroom signal
@@ -23,7 +23,7 @@ depends-on: [2608280653]
 phases:
   - n: 1
     title: frit phase finds the open phase and emits the working bundle
-    status: "🔲"
+    status: "✅"
 ---
 # Per-phase files give a plan a token-cheap resume bundle
 
@@ -229,15 +229,15 @@ once the slice shows the real shape.
 
 ## Acceptance Criteria
 
-- [ ] Inside a folder plan's own lane, `frit phase` names the first
+- [x] Inside a folder plan's own lane, `frit phase` names the first
       `phase-N.md` whose result carries no `## Handoff` heading as the
       open phase and reports its spec
-- [ ] The done-test parses the result for a `## Handoff` top-level
+- [x] The done-test parses the result for a `## Handoff` top-level
       heading, so a fenced or quoted mention does not complete a phase
-- [ ] It carries the previous phase's `## Handoff` and the open phase's
+- [x] It carries the previous phase's `## Handoff` and the open phase's
       own in-progress notes, each empty when absent
-- [ ] It names the result file to write for the open phase
-- [ ] A plan with no `phase-N.md` files reports its open phase from the
+- [x] It names the result file to write for the open phase
+- [x] A plan with no `phase-N.md` files reports its open phase from the
       `plan.md` ledger and sections, unchanged
 - [ ] `plan-new` authors a folder plan by default
 - [ ] A `phase-N.md` spec and a `phase-N.result.md` record each lint
@@ -247,8 +247,8 @@ once the slice shows the real shape.
       default, so a fresh `frit init` repo lints the layout unconfigured
 - [ ] mdsmith is bumped to v0.55.1 in go.mod and the CI action pin
       together, and `mdsmith check .` stays clean
-- [ ] A thin skill fronts `frit phase`, shipped in the same change as
+- [x] A thin skill fronts `frit phase`, shipped in the same change as
       the verb
-- [ ] frit writes no plan file; the skill writes the per-phase files
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] frit writes no plan file; the skill writes the per-phase files
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

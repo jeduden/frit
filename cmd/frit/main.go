@@ -123,6 +123,7 @@ type cli struct {
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
 	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks; --go claims and starts the top."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
+	Phase   phaseCmd   `cmd:"" help:"Bundle the open phase's spec, prior handoff, notes, tier and gate."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
@@ -1712,6 +1713,61 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
+type phaseCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+}
+
+// Run finds a plan's open phase and reports the working bundle a
+// session resumes it from: the open phase's spec, the previous
+// phase's handoff, its own in-progress notes, the tier and gate, and
+// the result file to write.
+//
+// Unlike next and show, whose lane override is a bonus when the cwd
+// happens to stand in the resolved plan's own lane, phase requires
+// it: a folder plan's phase-N.md and phase-N.result.md files live
+// only in a worktree, never in the fleet's default-branch index, so
+// there is nothing to bundle from outside the lane.
+func (p *phaseCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, p.Selector, res.Plans, false)
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	repo, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
+	if !ok || repo != plan.Repo || id != plan.ID {
+		return fmt.Errorf(
+			"frit phase must run inside plan %d's own lane", plan.ID)
+	}
+
+	body, err := os.ReadFile(filepath.Join(root, plan.Path))
+	if err != nil {
+		return err
+	}
+	bundle, err := planmeta.Resume(filepath.Dir(filepath.Join(root, plan.Path)), body)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewPhase(c.Root, plan, bundle)
+	carryProblems(doc, res.Problems, c.All)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printPhase(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
 type boardCmd struct {
 	Wip     bool   `help:"Only plans in progress, not those merely not started."`
 	Columns string `help:"Comma-separated columns to show: host, repo, id, status, held, agent, title."`
@@ -2137,6 +2193,42 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Body)
 	}
 	printRescue(out, doc.Rescue)
+}
+
+// printPhase writes the working bundle for a plan's open phase: its
+// number, tier and gate, the spec to work from, the previous phase's
+// handoff, any in-progress notes already parked, and the result file
+// to write. Each of the optional pieces is printed only when the
+// bundle actually carries one, so a plan resumed from its plan.md
+// ledger — which carries no handoff, notes or result path of its
+// own — prints just the phase line and its spec.
+func printPhase(out io.Writer, doc *report.PhaseDoc) {
+	p := doc.Plan
+	if !doc.HasPhase {
+		_, _ = fmt.Fprintf(out, "%s %d  %s  (no open phase)\n",
+			p.Repo, p.ID, p.Title)
+
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N,
+		modelLabel(doc.Phase.Tier), orDash(doc.Phase.Gate))
+	_ = tw.Flush()
+	if doc.Phase.Spec != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Spec)
+	}
+	if doc.Phase.HandoffIn != "" {
+		_, _ = fmt.Fprintf(out, "\nHandoff from the previous phase:\n%s\n",
+			doc.Phase.HandoffIn)
+	}
+	if doc.Phase.Notes != "" {
+		_, _ = fmt.Fprintf(out, "\nIn-progress notes:\n%s\n", doc.Phase.Notes)
+	}
+	if doc.Phase.ResultPath != "" {
+		_, _ = fmt.Fprintf(out, "\nWrite the handoff to %s\n", doc.Phase.ResultPath)
+	}
 }
 
 // printRescue lists a plan's rescue refs, so stranded commits a
