@@ -10,8 +10,8 @@ summary: >-
   during the phase, not only at its close: a model parks a follow-up or
   side quest there and stays on task, and writes a Handoff section when
   the phase lands. A phase is done when that marker is present, so the
-  open phase is the first phase-N.md whose result lacks it — a grep, in
-  a lane or off a ref, needing no frontmatter ledger. A new frit phase
+  open phase is the first phase-N.md whose result lacks it — a glob and
+  a parse, in a lane or off a ref, needing no frontmatter ledger. A new frit phase
   verb hands a working session its bundle: the open phase's spec, the
   previous phase's handoff, its own parked notes, the tier, the gate,
   and the result file to write. A thin skill fronts it so a cheap model
@@ -60,9 +60,13 @@ phase in its own file, its state is the filesystem, not frontmatter.
 follow-up or a side quest it parks it there and stays on the phase,
 rather than chasing the tangent — which bloats context — or losing it
 when the cache drops. At the close the model writes a `## Handoff`
-section: the outcome and what the next phase inherits. That marker is the
-done-test. So the open phase is the first `phase-N.md` whose result file
-lacks a `## Handoff` — a grep, needing no `phases:` list to stay in sync.
+section: the outcome and what the next phase inherits. A phase is done
+when that section is present as a top-level heading. frit finds it with
+the same markdown AST walk it uses for `## Goal` and `## Phase N`, not a
+raw substring. So a `## Handoff` quoted in a parked note or fenced in a
+code block does not count the phase done. The open phase is then the
+first `phase-N.md` whose result file is absent or carries no `## Handoff`
+heading — a glob and a parse, needing no `phases:` list to stay in sync.
 The result file is the work artifact, so the state cannot drift from the
 truth the way a hand-flipped ledger can.
 
@@ -79,12 +83,12 @@ skill fronts every verb" rule), carrying the loop as a fixed recipe
 within the 650-token budget, so a small model runs it rather than
 reconstructing it.
 
-**Readable both ways.** The open-phase grep works in a lane (list the
+**Readable both ways.** Finding the open phase works in a lane (list the
 plan folder) and off a ref: [collect.go](../../internal/plans/collect.go)
 already walks a ref's plan tree over the recursive `ls-tree -r` that
 [gitobj](../../internal/gitobj/git.go) runs, so the `phase-N.md` and
 `phase-N.result.md` blobs on a ref are enumerable, and the `## Handoff`
-marker is read from the result blob. The fleet view can report phase
+heading is parsed from the result blob. The fleet view can report phase
 progress, and open follow-ups, from the files alone.
 
 **Folder plans are the enabler.** Plan
@@ -181,17 +185,22 @@ worktree on the plan's work ref. Run `frit phase` with the cwd in that
 worktree. Assert the report names Phase 2 as the open phase, carries
 `phase-2.md`'s body as the spec, carries `phase-1.result.md`'s handoff,
 and names `phase-2.result.md` as the file to write. A second case: the
-same plan with a `phase-2.result.md` that has a `## Follow-ups` heading
-but no `## Handoff` still reports Phase 2 open and carries those notes. A
-third case: a plan with no `phase-N.md` files reports its open phase from
-the `plan.md` ledger and sections, proving the fallback.
+same plan with a `phase-2.result.md` whose `## Follow-ups` notes quote a
+`## Handoff` line inside a code fence, but carry no `## Handoff` heading
+of their own, still reports Phase 2 open and carries those notes —
+proving the done-test parses headings, not substrings. A third case: a
+plan with no `phase-N.md` files reports its open phase from the `plan.md`
+ledger and sections, proving the fallback.
 
 GREEN: add a resume assembler beside
 [planmeta.Parse](../../internal/planmeta/plan.go). It takes the plan's
 directory and globs `phase-*.md`, ordering them numerically by N so
 `phase-2` precedes `phase-10`. It returns the first phase whose result
-file is absent or lacks a `## Handoff`. With it come the spec text, the
-previous phase's handoff text, and the open phase's own notes text. When
+file is absent or carries no `## Handoff` top-level heading — detected by
+parsing the result through the mdsmith AST, not a substring match, so a
+fenced or quoted `## Handoff` in a parked note does not count. With it
+come the spec text, the previous phase's handoff text, and the open
+phase's own notes text. When
 the glob finds no `phase-N.md`, return the ledger's `FirstOpenPhase` and
 its section body. Add the `phase` verb in [cmd/frit](../../cmd/frit), wired
 to the in-lane worktree root. Add a bundle report model in
@@ -221,8 +230,10 @@ once the slice shows the real shape.
 ## Acceptance Criteria
 
 - [ ] Inside a folder plan's own lane, `frit phase` names the first
-      `phase-N.md` whose result lacks a `## Handoff` as the open phase
-      and reports its spec
+      `phase-N.md` whose result carries no `## Handoff` heading as the
+      open phase and reports its spec
+- [ ] The done-test parses the result for a `## Handoff` top-level
+      heading, so a fenced or quoted mention does not complete a phase
 - [ ] It carries the previous phase's `## Handoff` and the open phase's
       own in-progress notes, each empty when absent
 - [ ] It names the result file to write for the open phase
