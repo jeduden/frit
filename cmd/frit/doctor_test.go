@@ -144,9 +144,10 @@ func TestDoctorHelpListsTheChecksAndTheirProvenance(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	for _, want := range []string{
-		"goal", "schema", "execution-row", "tier", "id-sync", "headroom",
+		"goal", "schema", "execution-row", "tier", "id-sync",
 		"plan/proto.md", "github.com/jeduden/mdsmith/pkg/mdsmith",
 	} {
 		assert.Contains(t, got, want)
 	}
+	assert.NotContains(t, got, "headroom", "the retired check is gone")
 }

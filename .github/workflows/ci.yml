@@ -68,9 +68,9 @@ jobs:
       # Pinned to the same mdsmith version go.mod imports, so the
       # linter and the library frit parses plans with are one release.
       # Bump both together.
-      - uses: jeduden/mdsmith@2ab4b2949e9420b2eb73f4239091fd647c4b5e80 # v0.54.0
+      - uses: jeduden/mdsmith@0ca0d2f7c95ab53e3e9ed8851150af98b95088fb # v0.55.1
         with:
-          version: v0.54.0
+          version: v0.55.1
           args: check .
 
   # Workflows are the newest attack surface in this repository and the

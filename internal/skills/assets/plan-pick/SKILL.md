@@ -27,10 +27,7 @@ was claimed.
 To look before claiming, without minting a hold:
 
 - `{{frit}} ready` lists the plans startable now — deps done, nobody
-  holds. A negative number in its column, or `headroom_short` under
-  `--json`, means the plan is short of room for another `## Phase N`
-  section: it still ranks, but claim it knowing the next phase you
-  write may need to trim first.
+  holds.
 - `{{frit}} find <text>` searches plan titles and summaries to resolve
   a plan by a fragment.
 - `{{frit}} board` shows who holds what.

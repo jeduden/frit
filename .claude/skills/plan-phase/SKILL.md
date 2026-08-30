@@ -1,11 +1,11 @@
 ---
 name: plan-phase
 description: >-
-  Execute one phase of a plan on a small budget: load only its
-  frontmatter, Goal and the one "## Phase N" section, work red then
-  green, and flip status inside the same commits that land the work.
-  Trigger on "execute phase N of plan X", "continue plan X", "run the
-  next phase", or "work on plan X".
+  Execute one phase of a plan on a small budget: load only its open
+  phase's bundle — spec, prior handoff, notes, tier and gate — work
+  red then green, and close the phase inside the same commits that
+  land the work. Trigger on "execute phase N of plan X", "continue
+  plan X", "run the next phase", or "work on plan X".
 ---
 # plan-phase
 
@@ -19,18 +19,23 @@ commit, so the ledger can never go stale.
 
 ## Method
 
-1. **Load the phase.** `go run ./cmd/frit next <id>` gives the first phase not
-   done — its body, tier, gate; `go run ./cmd/frit show <id>` gives the Goal
+1. **Load the phase.** `go run ./cmd/frit phase <id>` bundles the open phase in
+   one call: its spec, tier, gate, the previous phase's handoff, and
+   any notes already parked, plus the result file to write when the
+   plan carries per-phase files. `go run ./cmd/frit show <id>` gives the Goal
    and any blocker. Open nothing else.
 2. **Honor the answers.** "already done" means stop and report, not
-   redo. Honor the tier `next` names.
+   redo. Honor the tier `phase` names.
 3. **Red then green.** Commit the failing test first, then the code
    that passes it. Verify with the narrowest instrument, then the
-   phase's gate.
-4. **Flip status in the same commit.**
+   phase's gate. Park a follow-up or a side quest in the result file
+   `phase` named rather than chasing it.
+4. **Close the phase in the same commit.**
 
   - First commit of the plan → plan `status:` 🔲 → 🔳.
-  - A phase's closing commit → its `phases:` entry → ✅.
+  - A phase-file plan (`phase` named a result path) → write that
+     file's `## Handoff`: the outcome, what the next phase inherits.
+  - A ledgered plan (no result path) → flip its `phases:` entry → ✅.
   - The last phase's closing commit → tick met Acceptance Criteria,
      plan `status:` → ✅, `mdsmith fix PLAN.md`. Then `mdsmith check .`
      stays clean.
@@ -47,6 +52,6 @@ commit, so the ledger can never go stale.
 
 - One phase per invocation. For the whole plan, loop and report
   between phases.
-- A phase already passing still gets its closing commit and ✅ flip —
-  say so.
-- frit never edits a plan; the status flips are yours.
+- A phase already passing still gets its closing commit and its close
+  — a `## Handoff` or a ✅ flip, whichever the plan uses — say so.
+- frit only reads; every plan and phase file you write is yours.

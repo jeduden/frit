@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1043,34 +1043,23 @@ func TestPickRanksAndTrims(t *testing.T) {
 		"the plan freeing the most downstream work ranks first")
 }
 
-// TestPickCarriesTheHeadroomSignal is Phase 2's gate: a plan padded
-// within mdsmith's default 300-line cap carries the headroom signal on
-// its card, in both the table and --json, and stays ranked as
-// startable — it just cannot be written to.
-func TestPickCarriesTheHeadroomSignal(t *testing.T) {
+// TestReadyCarriesNoHeadroomColumn is Phase 3's gate: the headroom
+// signal has retired, so a plan padded within mdsmith's default
+// 300-line cap renders with no shortfall column — just its title.
+func TestReadyCarriesNoHeadroomColumn(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
 	commitPlan(t, repo, 7, "🔲", "Capped plan", nil,
 		strings.Repeat("Padding line.\n", 290))
-	commitPlan(t, repo, 8, "🔲", "Roomy plan", nil, "")
-	var doc report.PickDoc
-
-	emit(t, &doc, "pick", "--root", root)
-
-	require.Len(t, doc.Plans, 2, "the capped plan is still ranked, not withheld")
-	byID := map[int64]report.PlanCard{}
-	for _, p := range doc.Plans {
-		byID[p.ID] = p
-	}
-	assert.Greater(t, byID[7].HeadroomShort, 0)
-	assert.Equal(t, 0, byID[8].HeadroomShort)
 
 	var out, errb bytes.Buffer
-	code := run([]string{"pick", "--root", root}, &out, &errb)
+	code := run([]string{"ready", "--root", root}, &out, &errb)
+
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "-"+strconv.Itoa(byID[7].HeadroomShort),
-		"the table notes the shortfall")
+	assert.Contains(t, out.String(), "Capped plan")
+	assert.False(t, regexp.MustCompile(`-\d+`).MatchString(out.String()),
+		"no headroom shortfall column survives")
 }
 
 // leaseRef parks refs/heads/plan/<id> on a fresh lease marker of the

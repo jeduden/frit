@@ -123,6 +123,7 @@ type cli struct {
 	Ready   readyCmd   `cmd:"" help:"List plans startable now: deps done, nobody holds."`
 	Pick    pickCmd    `cmd:"" help:"Rank startable plans by how much each unblocks; --go claims and starts the top."`
 	Next    nextCmd    `cmd:"" help:"Report the first phase of a plan not yet done."`
+	Phase   phaseCmd   `cmd:"" help:"Bundle the open phase's spec, prior handoff, notes, tier and gate."`
 	Show    showCmd    `cmd:"" help:"Show a plan and everything that blocks it."`
 	Find    findCmd    `cmd:"" help:"Search plan titles and summaries across every ref."`
 	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
@@ -618,10 +619,6 @@ func (d *doctorCmd) Help() string {
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
-  headroom        a plan with no room left to append another
-                  "## Phase N" section, within its headroom-reserve
-                  percent (.frit.yml; default 10, 0 disables this
-                  check)
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
@@ -630,9 +627,7 @@ execution-row, tier and id-sync read the body and file-name data frit
 already parses for next and show — mdsmith's schema has no way to see
 inside a markdown table's cells, cross-reference a table's rows
 against another section's headings, or compare a file name to a
-front-matter field. headroom pads an in-memory copy of the plan and
-asks the same mdsmith session whether max-file-length would fire,
-rather than reading the configured cap directly.
+front-matter field.
 
 A repository with no plan/proto.md has nothing to check.`
 }
@@ -652,7 +647,7 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
-		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir, cfg.HeadroomReserve)
+		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
 		if err != nil {
 			if errors.Is(err, doctorpkg.ErrNoSchema) {
 				continue
@@ -1197,14 +1192,6 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch})
 }
 
-// gatherFleetWithHeadroom is gatherFleet plus the headroom signal.
-// ready and pick are the only two of the fleet's verbs that render
-// it, so they are the only callers that ask for it — every other verb
-// calls gatherFleet and never opens the mdsmith session it needs.
-func gatherFleetWithHeadroom(c *cli, rt *runtime) (fleet.Result, error) {
-	return gatherFleetOpts(c, rt, fleet.Options{Fetch: c.Fetch, Headroom: true})
-}
-
 func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, error) {
 	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe, opts)
 	if err != nil {
@@ -1526,7 +1513,7 @@ type readyCmd struct {
 // Run lists every plan startable now: not begun, held by nobody, and
 // with every dependency done, across all repositories and refs.
 func (r *readyCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleetWithHeadroom(c, rt)
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -1561,7 +1548,7 @@ type pickCmd struct {
 // the top candidate outright — the selection the skill used to make by
 // hand — running start's own claim-and-stand-up path on it.
 func (pc *pickCmd) Run(c *cli, rt *runtime) error {
-	res, err := gatherFleetWithHeadroom(c, rt)
+	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err
 	}
@@ -1707,6 +1694,84 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printShow(rt.stdout, doc, c.All)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+type phaseCmd struct {
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
+}
+
+// Run finds a plan's open phase and reports the working bundle a
+// session resumes it from: the open phase's spec, the previous
+// phase's handoff, its own in-progress notes, the tier and gate, and
+// the result file to write.
+//
+// Unlike next and show, whose lane override is a bonus when the cwd
+// happens to stand in the resolved plan's own lane, phase requires
+// it: a folder plan's phase-N.md and phase-N.result.md files live
+// only in a worktree, never in the fleet's default-branch index, so
+// there is nothing to bundle from outside the lane.
+func (p *phaseCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, p.Selector, res.Plans, false)
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	repo, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
+	if !ok || repo != plan.Repo || id != plan.ID {
+		return fmt.Errorf(
+			"frit phase must run inside plan %d's own lane", plan.ID)
+	}
+
+	planFile := filepath.Join(root, plan.Path)
+	body, err := os.ReadFile(planFile)
+	if err != nil {
+		return err
+	}
+
+	// phase always runs inside the plan's own lane (checked above), so
+	// its own plan.md — just read into body — is authoritative over
+	// whatever the fleet's last-fetched default-branch copy carries.
+	// Without this, a status flip or a Goal/DependsOn edit made in the
+	// lane but not yet merged would print stale here even though the
+	// bundle below reads the same file fresh — the same staleness
+	// laneOverride exists to close for next and show.
+	if local, err := planmeta.Parse(body); err == nil {
+		plan.Status = local.Status
+		plan.Phases = local.Phases
+		plan.Goal = local.Goal
+		plan.DependsOn = local.DependsOn
+	}
+
+	// Only a folder plan's plan.md sits in a directory of its own; a
+	// flat plan's parent is plan/, shared by every flat plan in the
+	// repository, so it is never globbed for phase-N.md files.
+	var dir string
+	if plans.IsFolderPlanFile(plan.Path) {
+		dir = filepath.Dir(planFile)
+	}
+	bundle, err := planmeta.Resume(dir, body)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewPhase(c.Root, plan, bundle)
+	carryProblems(doc, res.Problems, c.All)
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printPhase(rt.stdout, doc)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -2139,6 +2204,42 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 	printRescue(out, doc.Rescue)
 }
 
+// printPhase writes the working bundle for a plan's open phase: its
+// number, tier and gate, the spec to work from, the previous phase's
+// handoff, any in-progress notes already parked, and the result file
+// to write. Each of the optional pieces is printed only when the
+// bundle actually carries one, so a plan resumed from its plan.md
+// ledger — which carries no handoff, notes or result path of its
+// own — prints just the phase line and its spec.
+func printPhase(out io.Writer, doc *report.PhaseDoc) {
+	p := doc.Plan
+	if !doc.HasPhase {
+		_, _ = fmt.Fprintf(out, "%s %d  %s  (no open phase)\n",
+			p.Repo, p.ID, p.Title)
+
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintf(tw, "%s\t%d\tphase %s\t%s\t%s\t%s\n",
+		p.Repo, p.ID, doc.Phase.N, doc.Phase.Title,
+		modelLabel(doc.Phase.Tier), orDash(doc.Phase.Gate))
+	_ = tw.Flush()
+	if doc.Phase.Spec != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Spec)
+	}
+	if doc.Phase.HandoffIn != "" {
+		_, _ = fmt.Fprintf(out, "\nHandoff from the previous phase:\n%s\n",
+			doc.Phase.HandoffIn)
+	}
+	if doc.Phase.Notes != "" {
+		_, _ = fmt.Fprintf(out, "\nIn-progress notes:\n%s\n", doc.Phase.Notes)
+	}
+	if doc.Phase.ResultPath != "" {
+		_, _ = fmt.Fprintf(out, "\nWrite the handoff to %s\n", doc.Phase.ResultPath)
+	}
+}
+
 // printRescue lists a plan's rescue refs, so stranded commits a
 // scavenge or a yield parked are found again. Silent when there are
 // none, the same convention orphans and stale use for a clean report.
@@ -2258,22 +2359,10 @@ func printReady(out io.Writer, doc *report.ReadyDoc, width int) {
 	rows := make([][]string, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
 		rows = append(rows, []string{
-			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model),
-			headroomLabel(p), p.Title,
+			p.Repo, strconv.FormatInt(p.ID, 10), modelLabel(p.Model), p.Title,
 		})
 	}
 	fitTable(out, width, rows)
-}
-
-// headroomLabel notes a plan with no room left to append another
-// "## Phase N" section, blank for the common case of a plan with room
-// so the column stays quiet unless there is something to say.
-func headroomLabel(p report.PlanCard) string {
-	if p.HeadroomShort <= 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("-%d", p.HeadroomShort)
 }
 
 // fitTable renders rows as an aligned table, trimming each row's final

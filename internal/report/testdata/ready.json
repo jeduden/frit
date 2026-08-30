@@ -19,8 +19,7 @@
       "held": false,
       "stale": false,
       "stale_seconds": 0,
-      "dead": false,
-      "headroom_short": 0
+      "dead": false
     }
   ],
   "problems": [

@@ -65,41 +65,6 @@ func TestLoadKeepsRemoteAndBaseDefaultsForOmittedKeys(t *testing.T) {
 	assert.Empty(t, got.Base, "omitting base keeps it derived")
 }
 
-func TestDefaultHeadroomReserveIsTenPercent(t *testing.T) {
-	assert.Equal(t, 10, Default().HeadroomReserve)
-}
-
-func TestLoadOverridesHeadroomReserve(t *testing.T) {
-	dir := write(t, "headroom-reserve: 25\n")
-
-	got, err := Load(dir)
-
-	require.NoError(t, err)
-	assert.Equal(t, 25, got.HeadroomReserve)
-}
-
-// TestLoadHeadroomReserveZeroDisablesIt pins that an explicit 0 is
-// honored rather than read as "omitted" and reset to the default —
-// 0 is how a repository turns the finding off.
-func TestLoadHeadroomReserveZeroDisablesIt(t *testing.T) {
-	dir := write(t, "headroom-reserve: 0\n")
-
-	got, err := Load(dir)
-
-	require.NoError(t, err)
-	assert.Equal(t, 0, got.HeadroomReserve)
-}
-
-func TestLoadKeepsHeadroomReserveDefaultForOmittedKey(t *testing.T) {
-	dir := write(t, "plan-dir: docs/plans\n")
-
-	got, err := Load(dir)
-
-	require.NoError(t, err)
-	assert.Equal(t, 10, got.HeadroomReserve,
-		"omitting headroom-reserve keeps its default")
-}
-
 func TestLoadOnARepoWithNoFileGetsTheDefaults(t *testing.T) {
 	got, err := Load(t.TempDir())
 

@@ -24,7 +24,6 @@ import (
 
 	"github.com/jeduden/mdsmith/pkg/mdsmith"
 
-	"github.com/jeduden/frit/internal/headroom"
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/plans"
 )
@@ -42,9 +41,8 @@ type Finding struct {
 	// Path is the plan file's path, relative to root.
 	Path string
 	// Check names which of doctor's checks produced this finding —
-	// "goal", "execution-row", "tier", "schema", "id-sync" or
-	// "headroom" — matching the vocabulary the doctor --help text
-	// documents.
+	// "goal", "execution-row", "tier", "schema" or "id-sync" —
+	// matching the vocabulary the doctor --help text documents.
 	Check string
 	// Message is what is wrong, in prose. For "goal" and "schema" this
 	// is mdsmith's own diagnostic message, carried through rather than
@@ -54,9 +52,8 @@ type Finding struct {
 
 // Scan reads every plan file in root/planDir on disk and reports its
 // semantic gaps, sorted by plan id then check so the same tree always
-// reports in the same order. headroomPercent is the repository's
-// headroom-reserve setting; 0 turns the "headroom" check off.
-func Scan(root, planDir string, headroomPercent int) ([]Finding, error) {
+// reports in the same order.
+func Scan(root, planDir string) ([]Finding, error) {
 	protoPath := filepath.Join(root, planDir, planmeta.ProtoName)
 	if _, err := os.Stat(protoPath); err != nil {
 		return nil, ErrNoSchema
@@ -67,14 +64,14 @@ func Scan(root, planDir string, headroomPercent int) ([]Finding, error) {
 		return nil, err
 	}
 
-	sess, err := headroom.Session(root)
+	sess, err := openSession(root)
 	if err != nil {
 		return nil, err
 	}
 
 	var out []Finding
 	for _, p := range paths {
-		findings, err := scanFile(sess, root, p, headroomPercent)
+		findings, err := scanFile(sess, root, p)
 		if err != nil {
 			return nil, err
 		}
@@ -90,6 +87,24 @@ func Scan(root, planDir string, headroomPercent int) ([]Finding, error) {
 	})
 
 	return out, nil
+}
+
+// openSession opens an mdsmith session against root's own .mdsmith.yml,
+// the same rule config every other check in the repository runs
+// against. A repository with no such file gets mdsmith's own built-in
+// defaults rather than failing to open at all: mdsmith itself runs on
+// those defaults with no config file present, and a repository frit
+// indexes is not required to ship one.
+func openSession(root string) (*mdsmith.Session, error) {
+	cfg := mdsmith.ConfigSource(mdsmith.ConfigYAML(""))
+	if _, err := os.Stat(filepath.Join(root, ".mdsmith.yml")); err == nil {
+		cfg = mdsmith.ConfigPath(filepath.Join(root, ".mdsmith.yml"))
+	}
+
+	return mdsmith.NewSession(mdsmith.SessionOptions{
+		Workspace: mdsmith.OSWorkspace{Root: root},
+		Config:    cfg,
+	})
 }
 
 // planPaths lists every plan on disk, flat or folder: a flat
@@ -126,7 +141,7 @@ func planPaths(root, planDir string) ([]string, error) {
 // files, and the folder shape makes "plan.md" a name a stray
 // directory can plausibly collide with, so one such entry must not
 // fail the whole scan and lose every other plan's findings with it.
-func scanFile(sess *mdsmith.Session, root, path string, headroomPercent int) ([]Finding, error) {
+func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return nil, err
@@ -153,17 +168,6 @@ func scanFile(sess *mdsmith.Session, root, path string, headroomPercent int) ([]
 
 	diags, _ := sess.Check(rel, source)
 	findings = append(findings, checkDiagnostics(plan.ID, rel, diags)...)
-
-	// checkHeadroom's error is discarded like sess.Check's above: one
-	// plan's oracle trouble must not blind the whole scan and lose
-	// every other plan's findings with it. A done or superseded plan
-	// will never grow another phase, so its shortfall is unactionable
-	// and the check is skipped rather than reported.
-	if headroomPercent > 0 && !plan.Done() && !plan.Superseded() {
-		if f, _ := checkHeadroom(sess, plan.ID, rel, source, headroomPercent); f != nil {
-			findings = append(findings, *f)
-		}
-	}
 
 	return findings, nil
 }
@@ -251,31 +255,6 @@ func badTier(design, implement string) string {
 	}
 
 	return ""
-}
-
-// checkHeadroom reports a plan short of the room a percent%-of-body
-// reserve demands: less room than the reserve calls for means no
-// "## Phase N" section can be appended before mdsmith's own
-// max-file-length rule fires. A plan with room enough returns nil.
-func checkHeadroom(
-	sess *mdsmith.Session, id int64, rel string, source []byte, percent int,
-) (*Finding, error) {
-	reserve := headroom.ReserveLines(source, percent)
-
-	room, err := headroom.Room(sess, rel, source, reserve)
-	if err != nil {
-		return nil, err
-	}
-	if room >= reserve {
-		return nil, nil
-	}
-
-	return &Finding{
-		ID: id, Path: rel, Check: "headroom",
-		Message: fmt.Sprintf(
-			"%d line(s) short of the %d%% reserve for another phase section",
-			reserve-room, percent),
-	}, nil
 }
 
 // checkDiagnostics filters mdsmith's own findings to the two doctor

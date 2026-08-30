@@ -1,8 +1,7 @@
 {
   "schema": 1,
-  "command": "next",
+  "command": "phase",
   "root": "/fleet",
-  "source": "default-branch",
   "plan": {
     "key": "forge:atlas:2608161809",
     "repo": "atlas",
@@ -12,7 +11,7 @@
     "summary": "",
     "model": "opus",
     "depends_on": [],
-    "path": "plan/2608161809_discovery-readiness-verbs.md",
+    "path": "plan/2608161809_discovery-readiness-verbs/plan.md",
     "held": false,
     "stale": false,
     "stale_seconds": 0,
@@ -20,15 +19,14 @@
   },
   "phase": {
     "n": "2",
-    "title": "ready",
-    "status": "🔳",
+    "title": "",
+    "spec": "Wire ready to the readiness rule.",
+    "handoff_in": "Phase one landed cleanly.",
+    "notes": "Parked: the sort key needs its own test.",
     "tier": "sonnet",
     "gate": "test ready lists a startable plan",
-    "body": "Parse the readiness rule and wire it to a verb."
+    "result_path": "phase-2.result.md"
   },
   "has_phase": true,
-  "rescue": [
-    "refs/frit/rescue/2608161809/box-a"
-  ],
   "problems": []
 }

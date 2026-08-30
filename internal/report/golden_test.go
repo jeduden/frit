@@ -44,6 +44,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"pick", goldenPick()},
 		{"next", goldenNext()},
 		{"next-lane", goldenNextLane()},
+		{"phase", goldenPhase()},
 		{"show", goldenShow()},
 		{"show-lane", goldenShowLane()},
 		{"find", goldenFind()},
@@ -158,22 +159,19 @@ func goldenReady() *ReadyDoc {
 	return doc
 }
 
-// goldenPick pins the ranked-candidate shape: a startable plan with no
-// room left for another phase, and a matured takeover — a held plan
-// whose lease has been observed stale, carrying the observed age a
-// consumer applies its own threshold to. The capped plan keeps its
-// rank; HeadroomShort just says it cannot be written to.
+// goldenPick pins the ranked-candidate shape: a startable plan, and a
+// matured takeover — a held plan whose lease has been observed stale,
+// carrying the observed age a consumer applies its own threshold to.
 func goldenPick() *PickDoc {
 	doc := NewPick("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{
 		{
 			Key: "forge:atlas:2608161809", Repo: "atlas",
 			ID: 2608161809, Status: "🔲",
-			Title:         "Discovery — what can I start",
-			Summary:       "The verbs that make dispatch usable.",
-			Model:         "opus",
-			Path:          "plan/2608161809_discovery-readiness-verbs.md",
-			HeadroomShort: 4,
+			Title:   "Discovery — what can I start",
+			Summary: "The verbs that make dispatch usable.",
+			Model:   "opus",
+			Path:    "plan/2608161809_discovery-readiness-verbs.md",
 		},
 		{
 			Key: "forge:orrery:7", Repo: "orrery", ID: 7, Status: "🔲",
@@ -218,6 +216,26 @@ func goldenNextLane() *NextDoc {
 	doc.SetSource(SourceLane)
 
 	return doc
+}
+
+// goldenPhase pins the bundle shape frit phase hands a working
+// session: its open phase's spec, the previous phase's handoff, its
+// own in-progress notes, tier, gate, and the result file to write.
+func goldenPhase() *PhaseDoc {
+	return NewPhase("/fleet", discovery.Plan{
+		Key: "forge:atlas:2608161809", Repo: "atlas",
+		ID: 2608161809, Status: "🔳",
+		Title: "Discovery — what can I start", Model: "opus",
+		Path: "plan/2608161809_discovery-readiness-verbs/plan.md",
+	}, planmeta.Bundle{
+		N: "2", Spec: "Wire ready to the readiness rule.",
+		HandoffIn:  "Phase one landed cleanly.",
+		Notes:      "Parked: the sort key needs its own test.",
+		Tier:       "sonnet",
+		Gate:       "test ready lists a startable plan",
+		ResultPath: "phase-2.result.md",
+		HasPhase:   true,
+	})
 }
 
 // goldenShow pins the dependency-walk shape, including an edge frit
