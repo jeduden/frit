@@ -277,10 +277,11 @@ under the new `phase-record` kind. `go test ./...`, `go vet ./...`,
 Phase 1 is the proving slice: it fixes the folder fixture and the bundle
 report shape the later phases reuse.
 
-| Phase                          | Design | Implement | Gate that catches a wrong answer                                         |
-| ------------------------------ | ------ | --------- | ------------------------------------------------------------------------ |
-| 1 frit phase finds and bundles | opus   | sonnet    | in the lane, phase names phase 2, prints its spec, phase 1 handoff, path |
-| 2 mdsmith bump and phase kinds | opus   | sonnet    | mdsmith check . passes; RED fixture's token-budget fires for both kinds  |
+| Phase                            | Design | Implement | Gate that catches a wrong answer                                         |
+| -------------------------------- | ------ | --------- | ------------------------------------------------------------------------ |
+| 1 frit phase finds and bundles   | opus   | sonnet    | in the lane, phase names phase 2, prints its spec, phase 1 handoff, path |
+| 2 mdsmith bump and phase kinds   | opus   | sonnet    | mdsmith check . passes; RED fixture's token-budget fires for both kinds  |
+| 3 plan-new default, headroom out | opus   | sonnet    | RED cases pass; doctor/ready/pick carry no headroom text; dogfood match  |
 
 ## Acceptance Criteria
 
