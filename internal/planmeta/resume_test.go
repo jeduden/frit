@@ -91,6 +91,42 @@ func TestResumeOrdersPhasesNumerically(t *testing.T) {
 	assert.Equal(t, PhaseNumber("10"), got.N)
 }
 
+// TestResumeRecognisesASplitPhaseFile: PhaseNumber is alphanumeric
+// elsewhere in this package (a sitting that grows into two splits as
+// "3a"/"3b", per TestParseReadsAnAlphanumericPhaseNumber) — a
+// phase-file plan gets the same split, not a numeric-only one.
+func TestResumeRecognisesASplitPhaseFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md", "First.")
+	writePhaseFile(t, dir, "phase-1.result.md", "## Handoff\n\nDone.\n")
+	writePhaseFile(t, dir, "phase-3a.md", "Split, part a.")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("3a"), got.N)
+	assert.Equal(t, "Split, part a.", got.Spec)
+	assert.Equal(t, "phase-3a.result.md", got.ResultPath)
+}
+
+// TestResumeOrdersASplitPhaseByItsFullToken: phase-3a precedes
+// phase-3b, and both precede phase-10 — numeric first, then the
+// letter suffix breaks the tie within the same leading number.
+func TestResumeOrdersASplitPhaseByItsFullToken(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-3b.md", "Split, part b.")
+	writePhaseFile(t, dir, "phase-3b.result.md", "## Handoff\n\nDone.\n")
+	writePhaseFile(t, dir, "phase-3a.md", "Split, part a.")
+	writePhaseFile(t, dir, "phase-3a.result.md", "## Handoff\n\nDone.\n")
+	writePhaseFile(t, dir, "phase-10.md", "Tenth.")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Equal(t, PhaseNumber("10"), got.N)
+}
+
 // TestResumeFallsBackToTheLedgerWhenNoPhaseFiles: a plan with no
 // phase-N.md files at all reports its open phase from the plan.md
 // ledger and sections, unchanged.

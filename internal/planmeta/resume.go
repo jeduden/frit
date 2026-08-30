@@ -30,8 +30,12 @@ type Bundle struct {
 
 // specFileRE matches a phase's own spec file, phase-N.md — not its
 // companion phase-N.result.md, which shares the "phase-" prefix and
-// ".md" suffix and would otherwise also match a naive glob.
-var specFileRE = regexp.MustCompile(`^phase-([0-9]+)\.md$`)
+// ".md" suffix and would otherwise also match a naive glob. N may
+// carry a trailing letter, the same split-phase convention the
+// ledger's own PhaseNumber allows — a sitting that grows into two
+// becomes "3a" and "3b" beside "1" and "2" — captured apart from its
+// leading digits so phaseSpecNumbers can sort on the digits alone.
+var specFileRE = regexp.MustCompile(`^phase-([0-9]+)([A-Za-z]*)\.md$`)
 
 // Resume finds a plan's open phase and assembles its working bundle.
 //
@@ -127,8 +131,10 @@ func resumeFromLedger(planBody []byte) (Bundle, error) {
 }
 
 // phaseSpecNumbers lists a plan directory's own phase-N.md files, as
-// their bare N tokens, ordered numerically so phase-2 precedes
-// phase-10 — a lexical sort would not.
+// their bare N tokens, ordered by leading digits so phase-2 precedes
+// phase-10 — a lexical sort would not — and, within a split phase
+// sharing those digits, by the full token, so phase-3a precedes
+// phase-3b.
 func phaseSpecNumbers(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -148,13 +154,18 @@ func phaseSpecNumbers(dir string) ([]string, error) {
 		if m == nil {
 			continue
 		}
-		n, err := strconv.Atoi(m[1])
-		if err != nil {
-			continue
-		}
-		found = append(found, numbered{n, m[1]})
+		// specFileRE's first group is `[0-9]+`, so it always parses;
+		// nothing here can make Atoi fail.
+		n, _ := strconv.Atoi(m[1])
+		found = append(found, numbered{n, m[1] + m[2]})
 	}
-	sort.Slice(found, func(i, j int) bool { return found[i].n < found[j].n })
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].n != found[j].n {
+			return found[i].n < found[j].n
+		}
+
+		return found[i].text < found[j].text
+	})
 
 	out := make([]string, len(found))
 	for i, f := range found {
