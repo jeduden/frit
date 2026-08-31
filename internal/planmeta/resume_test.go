@@ -374,6 +374,41 @@ func TestPhasesFromDirReturnsNilWhenNoPhaseFiles(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+// TestPhaseFilenameMismatchesFlagsOnlyADivergentN is Phase 3's RED:
+// frit derives a phase's number from its phase-N.md filename, while
+// the generated `## Phases` catalog renders from front-matter `n`. A
+// synced phase-1.md (n: 1) reports no mismatch; a skewed phase-2.md
+// (n: 5, filename still says 2) does. PhaseFilenameMismatches does not
+// exist yet.
+func TestPhaseFilenameMismatchesFlagsOnlyADivergentN(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 5\ntitle: Second\nstatus: \"🔲\"\n---\nBody two.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "2", got[0].FileToken)
+	assert.Equal(t, "5", got[0].FrontMatterN)
+}
+
+// TestPhaseFilenameMismatchesSkipsAPreConventionFile mirrors the
+// leniency PhasesFromDir applies: a phase file written before the
+// {n, title, status} convention carries no front matter to compare, so
+// it is skipped rather than erroring the whole scan.
+func TestPhaseFilenameMismatchesSkipsAPreConventionFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md", "No front matter here.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 // TestParsePhaseFileDecodesFrontMatter: a phase-N.md's own
 // {n, title, status} front matter decodes into a Phase, and its prose
 // comes back as the body so a caller need not parse the source again.

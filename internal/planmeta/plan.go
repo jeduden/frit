@@ -257,6 +257,54 @@ func PhasesFromDir(dir string, planBody []byte) ([]Phase, error) {
 	return p.Phases, nil
 }
 
+// PhaseNumberMismatch names a folder plan's phase-N.md whose
+// front-matter `n` disagrees with the number its own filename carries.
+type PhaseNumberMismatch struct {
+	// FileToken is the number, or split-phase token, the filename
+	// itself carries.
+	FileToken string
+	// FrontMatterN is what the file's own front-matter `n` reads
+	// instead.
+	FrontMatterN string
+}
+
+// PhaseFilenameMismatches walks dir's phase-N.md files — never their
+// phase-N.result.md counterpart, since specFileRE already excludes it
+// — and reports every one whose front-matter `n` disagrees with the
+// number its own filename carries. frit derives a folder plan's phase
+// number from the filename (specFileRE), while a generated `## Phases`
+// catalog renders from front-matter `n`; nothing else ties the two
+// together, so they can drift silently. A phase file written before
+// the {n, title, status} convention carries no front matter to compare
+// against, so it is skipped rather than erroring the whole walk — the
+// same leniency PhasesFromDir applies.
+func PhaseFilenameMismatches(dir string) ([]PhaseNumberMismatch, error) {
+	specs, err := phaseSpecNumbers(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []PhaseNumberMismatch
+	for _, n := range specs {
+		// #nosec G304 -- name comes from phaseSpecNumbers' glob under dir
+		source, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
+		if err != nil {
+			return nil, err
+		}
+		phase, _, err := parsePhaseFile(source)
+		if err != nil {
+			continue
+		}
+		if string(phase.N) != n {
+			out = append(out, PhaseNumberMismatch{
+				FileToken: n, FrontMatterN: string(phase.N),
+			})
+		}
+	}
+
+	return out, nil
+}
+
 // parsePhaseFile decodes a phase-N.md's own `{n, title, status}` front
 // matter into a Phase — the phase-file counterpart of Parse, which
 // decodes a plan.md's front matter into a Plan. It reuses the same

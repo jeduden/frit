@@ -462,6 +462,64 @@ func TestScanSeesFolderPlansAndProvesIDSync(t *testing.T) {
 	assert.Equal(t, "id-sync", flatSkew[0].Check)
 }
 
+// ledgerFreeFolderPlanSkewedPhaseMD mirrors ledgerFreeFolderPlanMD
+// with a second `## Execution` row keyed to 5, not 2 — the
+// front-matter `n` a skewed phase-2.md carries in
+// TestScanFlagsAPhaseNumberMismatch — so that fixture isolates the
+// phase-n-sync finding from the unrelated execution-row one:
+// attachExecutionRows matches a phase's row by its own `n`, the same
+// skewed value the mismatch check flags.
+func ledgerFreeFolderPlanSkewedPhaseMD(id int64) string {
+	return fmt.Sprintf(`---
+id: %d
+title: A ledger-free folder plan
+status: "🔲"
+model: sonnet
+---
+# A ledger-free folder plan
+
+## Goal
+
+Ship the thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | sonnet | sonnet    | test one |
+| 5 two | sonnet | sonnet    | test two |
+
+## Tasks
+
+1. Do it.
+
+## Acceptance Criteria
+
+- [ ] It is done.
+`, id)
+}
+
+// TestScanFlagsAPhaseNumberMismatch is Phase 3's RED: a folder plan's
+// phase-N.md filename is frit's own source of truth for the phase
+// number, while the generated `## Phases` catalog renders from
+// front-matter `n`. A phase-2.md whose front matter reads `n: 5` must
+// be reported, on its own path, never silently accepted.
+func TestScanFlagsAPhaseNumberMismatch(t *testing.T) {
+	root := newFixtureRoot(t)
+	const folder = "2601030000_ledger-free"
+	writeFolderPlan(t, root, folder, ledgerFreeFolderPlanSkewedPhaseMD(2601030000))
+	writeFolderPhaseFile(t, root, folder, "phase-1.md", phaseFileMD(1, "one", "🔲"))
+	writeFolderPhaseFile(t, root, folder, "phase-2.md", phaseFileMD(5, "two", "🔲"))
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(2601030000), got[0].ID)
+	assert.Equal(t, "phase-n-sync", got[0].Check)
+	assert.Equal(t, filepath.Join("plan", folder, "phase-2.md"), got[0].Path)
+}
+
 // TestScanSkipsADirectoryThatMatchesAPlanGlob: filepath.Glob matches
 // directories as well as files, and a folder plan makes "plan.md" a
 // name a directory can plausibly collide with (a typo'd folder-plan
@@ -505,6 +563,29 @@ func TestCheckIDSyncFlagsOnlyAMismatch(t *testing.T) {
 	got := checkIDSync(2601010000, "plan/2601999999_x.md")
 	require.NotNil(t, got)
 	assert.Equal(t, "id-sync", got.Check)
+}
+
+// TestCheckPhaseNumberSyncFlagsOnlyADivergentPhase is
+// checkPhaseNumberSync's own dedicated test: a synced folder plan
+// reports nothing, and a skewed phase-N.md is reported at its own
+// path, not plan.md's.
+func TestCheckPhaseNumberSyncFlagsOnlyADivergentPhase(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "phase-1.md"),
+		[]byte(phaseFileMD(1, "one", "🔲")), 0o600))
+
+	synced, err := checkPhaseNumberSync(2601010000, "plan/2601010000_x/plan.md", dir)
+	require.NoError(t, err)
+	assert.Empty(t, synced)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "phase-2.md"),
+		[]byte(phaseFileMD(5, "two", "🔲")), 0o600))
+
+	got, err := checkPhaseNumberSync(2601010000, "plan/2601010000_x/plan.md", dir)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "phase-n-sync", got[0].Check)
+	assert.Equal(t, filepath.Join("plan", "2601010000_x", "phase-2.md"), got[0].Path)
 }
 
 func TestLeadingIDTokenReadsTheFolderNameForAFolderPlan(t *testing.T) {
