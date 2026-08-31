@@ -244,6 +244,18 @@ func phaseSpecNumbers(dir string) ([]string, error) {
 	return out, nil
 }
 
+// SpecFileName is the phase-N.md filename a phase's own token n
+// carries — the single home of the "phase-" prefix and ".md" suffix
+// convention, so a caller outside this package (doctor's
+// checkPhaseNumberSync, which points a finding at the file that
+// carries it) reads it here rather than re-deriving the string by
+// hand and risking drift if the convention ever changes.
+func SpecFileName(n string) string { return specFileName(n) }
+
+// ResultFileName is SpecFileName's counterpart for a phase's own
+// phase-N.result.md record.
+func ResultFileName(n string) string { return resultFileName(n) }
+
 func specFileName(n string) string   { return "phase-" + n + ".md" }
 func resultFileName(n string) string { return "phase-" + n + ".result.md" }
 

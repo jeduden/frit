@@ -314,16 +314,28 @@ func PhaseFilenameMismatches(dir string) ([]PhaseNumberMismatch, error) {
 // phaseFileMismatch reads one phase file — name, under dir — and
 // reports its own PhaseNumberMismatch when its front-matter `n`
 // disagrees with n, the token its filename carries. A file that does
-// not exist yet (a phase not yet closed has no result file) or that
-// carries no usable front matter reports no mismatch rather than an
-// error, the leniency PhaseFilenameMismatches documents.
+// not exist yet (a phase not yet closed has no result file), a
+// directory sitting where the file's name would be — the same stray
+// collision doctor's own scanFile guards a plan.md-shaped directory
+// against — or a file with no usable front matter reports no mismatch
+// rather than an error, the leniency PhaseFilenameMismatches
+// documents.
 func phaseFileMismatch(dir, name, n string, result bool) (*PhaseNumberMismatch, error) {
-	// #nosec G304 -- name comes from phaseSpecNumbers' glob under dir,
-	// or a filename this package derives from that same token
-	source, err := os.ReadFile(filepath.Join(dir, name))
+	path := filepath.Join(dir, name)
+	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, nil
+	}
+
+	// #nosec G304 -- name comes from phaseSpecNumbers' glob under dir,
+	// or a filename this package derives from that same token
+	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

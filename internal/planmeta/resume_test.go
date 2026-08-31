@@ -435,6 +435,26 @@ func TestPhaseFilenameMismatchesSkipsAnAbsentResultFile(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestPhaseFilenameMismatchesSkipsADirectoryNamedLikeAResultFile
+// mirrors the stray-directory leniency doctor's own scanFile applies
+// to a plan.md-shaped directory: phaseSpecNumbers already skips a
+// directory entry matching phase-N.md, but phaseFileMismatch reads a
+// phase-N.result.md name it derives itself, with no such check —
+// os.ReadFile on a directory fails with an error that is not
+// os.ErrNotExist, and that must not abort the whole scan and lose
+// every other plan's findings with it.
+func TestPhaseFilenameMismatchesSkipsADirectoryNamedLikeAResultFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nBody one.\n")
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "phase-1.result.md"), 0o750))
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 // TestPhaseFilenameMismatchesSkipsAPreConventionFile mirrors the
 // leniency PhasesFromDir applies: a phase file written before the
 // {n, title, status} convention carries no front matter to compare, so

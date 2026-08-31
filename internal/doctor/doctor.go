@@ -261,9 +261,9 @@ func checkPhaseNumberSync(id int64, planRel, dir string) ([]Finding, error) {
 
 	out := make([]Finding, 0, len(mismatches))
 	for _, m := range mismatches {
-		name := "phase-" + m.FileToken + ".md"
+		name := planmeta.SpecFileName(m.FileToken)
 		if m.Result {
-			name = "phase-" + m.FileToken + ".result.md"
+			name = planmeta.ResultFileName(m.FileToken)
 		}
 		out = append(out, Finding{
 			ID:    id,
