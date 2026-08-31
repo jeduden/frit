@@ -1,3 +1,8 @@
+---
+n: 3
+title: plan-new defaults to a folder plan and headroom retires
+status: "✅"
+---
 ## Handoff
 
 Phase 3 landed, closing plan 2608300937. `plan-new` now defaults to a

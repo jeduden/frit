@@ -167,6 +167,12 @@ kinds:
     rules:
       first-line-heading: false
       heading-increment: false
+      # A phase file is the single home of its own status. Requiring
+      # {n, title, status} makes that front matter load-bearing, so a
+      # folder plan's generated `## Phases` catalog renders from it and
+      # a phase closes by flipping its own file, not a hand-kept ledger.
+      required-frontmatter:
+        fields: [n, title, status]
       # 1800 heuristic tokens fits a genuinely detailed proving-slice
       # spec — Assumes, Value, RED, a file-by-file GREEN list and a
       # multi-break Gate run 900–1700+ tokens — with headroom above
@@ -189,6 +195,11 @@ kinds:
       heading-increment: false
       paragraph-readability: false
       paragraph-structure: false
+      # Same {n, title, status} the spec carries: the record is the
+      # artifact whose `## Handoff` closes a phase, so its status lives
+      # in the same generated home, load-bearing on the file itself.
+      required-frontmatter:
+        fields: [n, title, status]
       # 1800 to match phase-spec: a phase record is a living document
       # that accretes notes and a Handoff as the phase runs, growing
       # the same way a detailed proving-slice spec (900–1700+ tokens)

@@ -136,6 +136,24 @@ func TestPlanNewDefaultsToFolderPlanWithPhaseFiles(t *testing.T) {
 	}
 }
 
+// TestPlanNewWritesPhaseFrontMatterAndCatalog guards plan 2608310418
+// Phase 3: the phase-spec and phase-record kinds now require
+// {n, title, status} front matter, so plan-new must instruct writing
+// that front matter on each phase file and the generated ## Phases
+// catalog in plan.md, or a new folder plan fails the linter.
+func TestPlanNewWritesPhaseFrontMatterAndCatalog(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-new/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-new skill: %v", err)
+	}
+	body := string(data)
+	for _, want := range []string{"n, title, status", "## Phases"} {
+		if !contains(body, want) {
+			t.Fatalf("plan-new skill does not instruct %q", want)
+		}
+	}
+}
+
 // TestPlanSyncFrontsDrift guards the standing rule CLAUDE.md records:
 // a new agent-facing verb ships with the thin skill that fronts it.
 // plan-sync's own evidence gathering is exactly what drift now
