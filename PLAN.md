@@ -99,4 +99,5 @@ footer: |
 | 2608300937 | ✅     | sonnet | [Per-phase files give a plan a token-cheap resume bundle](plan/2608300937_per-phase-files-token-cheap-resume/plan.md)                  |
 | 2608302230 | ✅     | sonnet | [Scaffold PLAN.md index includes folder plans](plan/2608302230_scaffold-index-includes-folder-plans.md)                                |
 | 2608310355 | ✅     | sonnet | [Raise phase-spec token budget for detailed proving slices](plan/2608310355_raise-phase-spec-token-budget.md)                          |
+| 2608310418 | 🔲     | sonnet | [Phase front matter gives per-phase status one generated home](plan/2608310418_phase-front-matter-generated-status/plan.md)            |
 <?/catalog?>
