@@ -3,6 +3,7 @@ package planmeta
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,6 +53,30 @@ func TestResumeFindsTheOpenPhaseFile(t *testing.T) {
 	assert.Equal(t, "opus", got.Tier)
 	assert.Equal(t, "test two", got.Gate)
 	assert.Empty(t, got.Notes)
+}
+
+// TestResumeCarriesNoHandoffWhenThePrecedingPhaseLeftNone: the open
+// phase's incoming handoff is the phase immediately before it, and only
+// that phase. When the preceding phase is done by its own status with no
+// result file — and so no ## Handoff — the bundle carries no handoff,
+// not the stale one an earlier phase left behind.
+func TestResumeCarriesNoHandoffWhenThePrecedingPhaseLeftNone(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nDo the first thing.\n")
+	writePhaseFile(t, dir, "phase-1.result.md",
+		"## Handoff\n\nPhase one landed cleanly.\n")
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"✅\"\n---\nDo the second thing.\n")
+	writePhaseFile(t, dir, "phase-3.md",
+		"---\nn: 3\ntitle: Third\nstatus: \"🔲\"\n---\nDo the third thing.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("3"), got.N)
+	assert.Empty(t, got.HandoffIn)
 }
 
 // TestResumeDoneTestParsesHeadingsNotSubstrings: a result file whose
@@ -350,21 +375,23 @@ func TestPhasesFromDirReturnsNilWhenNoPhaseFiles(t *testing.T) {
 }
 
 // TestParsePhaseFileDecodesFrontMatter: a phase-N.md's own
-// {n, title, status} front matter decodes into a Phase.
+// {n, title, status} front matter decodes into a Phase, and its prose
+// comes back as the body so a caller need not parse the source again.
 func TestParsePhaseFileDecodesFrontMatter(t *testing.T) {
-	got, err := parsePhaseFile(
+	got, body, err := parsePhaseFile(
 		[]byte("---\nn: 3b\ntitle: Split\nstatus: \"🔳\"\n---\nBody.\n"))
 
 	require.NoError(t, err)
 	assert.Equal(t, PhaseNumber("3b"), got.N)
 	assert.Equal(t, "Split", got.Title)
 	assert.Equal(t, "🔳", got.Status)
+	assert.Equal(t, "Body.", strings.TrimSpace(string(body)))
 }
 
 // TestParsePhaseFileReportsErrNoFrontMatter: a file with no front-matter
 // block is not a phase file, the way Parse reports a non-plan.
 func TestParsePhaseFileReportsErrNoFrontMatter(t *testing.T) {
-	_, err := parsePhaseFile([]byte("Just a body, no front matter.\n"))
+	_, _, err := parsePhaseFile([]byte("Just a body, no front matter.\n"))
 
 	require.ErrorIs(t, err, ErrNoFrontMatter)
 }

@@ -76,9 +76,11 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 			return Bundle{}, err
 		}
 		if st.done {
-			if st.hasHandoff {
-				handoffIn = st.handoff
-			}
+			// HandoffIn is the phase immediately before the open one,
+			// and only that phase. Overwrite on every done phase — with
+			// "" when it left no handoff — so a later phase never
+			// surfaces an earlier phase's handoff as its own context.
+			handoffIn = st.handoff
 
 			continue
 		}
@@ -140,10 +142,10 @@ func readPhaseState(dir, n string) (phaseState, error) {
 	// matter — has no usable front matter: its status is "" and its whole
 	// content is the brief, verbatim, so the front-matter strip never eats
 	// its opening prose.
-	phase, ferr := parsePhaseFile(spec)
+	phase, phaseBody, ferr := parsePhaseFile(spec)
 	specBody := spec
 	if ferr == nil {
-		specBody = markdown.Parse(spec).Body
+		specBody = phaseBody
 	}
 
 	result, rerr := os.ReadFile(filepath.Join(dir, resultFileName(n)))

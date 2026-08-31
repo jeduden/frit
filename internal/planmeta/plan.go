@@ -238,7 +238,7 @@ func PhasesFromDir(dir string, planBody []byte) ([]Phase, error) {
 		if err != nil {
 			return nil, err
 		}
-		phase, err := parsePhaseFile(source)
+		phase, _, err := parsePhaseFile(source)
 		if err != nil {
 			// A phase file written before the {n, title, status} convention
 			// carries no usable front matter. Key it by its file-name number
@@ -261,20 +261,23 @@ func PhasesFromDir(dir string, planBody []byte) ([]Phase, error) {
 // matter into a Phase — the phase-file counterpart of Parse, which
 // decodes a plan.md's front matter into a Plan. It reuses the same
 // delimiter strip and YAML decode; a file with no front-matter block
-// reports ErrNoFrontMatter, the way Parse does for a non-plan.
-func parsePhaseFile(source []byte) (Phase, error) {
+// reports ErrNoFrontMatter, the way Parse does for a non-plan. It also
+// returns the parsed body — the phase's prose below the front matter —
+// so a caller that needs the working brief does not parse the source a
+// second time.
+func parsePhaseFile(source []byte) (Phase, []byte, error) {
 	doc := markdown.Parse(source)
-	body := insideDelimiters(doc.FrontMatter)
-	if len(bytes.TrimSpace(body)) == 0 {
-		return Phase{}, ErrNoFrontMatter
+	frontMatter := insideDelimiters(doc.FrontMatter)
+	if len(bytes.TrimSpace(frontMatter)) == 0 {
+		return Phase{}, doc.Body, ErrNoFrontMatter
 	}
 
 	var phase Phase
-	if err := yaml.Unmarshal(body, &phase); err != nil {
-		return Phase{}, fmt.Errorf("front matter: %w", err)
+	if err := yaml.Unmarshal(frontMatter, &phase); err != nil {
+		return Phase{}, doc.Body, fmt.Errorf("front matter: %w", err)
 	}
 
-	return phase, nil
+	return phase, doc.Body, nil
 }
 
 // attachPhaseBodies enriches the phase ledger — front-matter or
