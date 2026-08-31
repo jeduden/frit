@@ -1,3 +1,8 @@
+---
+n: 1
+title: frit phase finds the open phase and emits the working bundle
+status: "✅"
+---
 ## Handoff
 
 Phase 1 landed. `frit phase <id>`, run inside a plan's own lane, now
