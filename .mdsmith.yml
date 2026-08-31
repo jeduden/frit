@@ -164,6 +164,17 @@ kinds:
     path-pattern: "plan/*/phase-*.md"
     schema:
       filename: "phase-*.md"
+      # The `## Phases` catalog sorts on `n` (sort: numeric:n) and
+      # links each row to phase-{n}.md. `n` is an integer, or the
+      # digits-then-letter token a split phase carries (3a, 3b) — the
+      # grammar specFileRE reads from the filename and PhaseNumber
+      # keeps as a string. The frontmatter map is closed, so title and
+      # status are declared alongside it; a phase file carries these
+      # three.
+      frontmatter:
+        n: 'int | =~"^[0-9]+[A-Za-z]+$"'
+        title: 'string & != ""'
+        status: 'string & != ""'
     rules:
       first-line-heading: false
       heading-increment: false
@@ -190,6 +201,14 @@ kinds:
     path-pattern: "plan/*/phase-*.result.md"
     schema:
       filename: "phase-*.result.md"
+      # The record carries the same `n` as its spec; the catalog
+      # excludes result files, so `n` here feeds no row, but it is
+      # typed the same way (int or a split-phase token). Closed the
+      # same way, so title and status are declared too.
+      frontmatter:
+        n: 'int | =~"^[0-9]+[A-Za-z]+$"'
+        title: 'string & != ""'
+        status: 'string & != ""'
     rules:
       first-line-heading: false
       heading-increment: false

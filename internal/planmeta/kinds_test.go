@@ -106,3 +106,99 @@ func TestPhaseRecordKindAllowsAHandoffHeading(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, diags)
 }
+
+// TestPhaseSpecKindAcceptsIntPhaseNumber proves the typed schema does
+// not flag the shape every phase file in this repo already carries: an
+// otherwise-clean phase-N.md with an integer `n` trips no
+// required-structure diagnostic.
+func TestPhaseSpecKindAcceptsIntPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	intN := []byte("---\nn: 1\n" +
+		"title: A phase whose number is an integer\n" +
+		"status: \"\U0001F532\"\n---\nBody.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.md", intN)
+
+	require.NoError(t, err)
+	assert.False(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.md with int n: want no required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseSpecKindAcceptsSplitPhaseNumber guards the split-phase case:
+// a sitting that grows into two carries phase-3a.md and phase-3b.md with
+// a `n` like `3b` — digits then a letter suffix, which PhaseNumber keeps
+// as a string. The schema types `n` as int OR that token, so a split
+// phase still lints; a bare `int` would reject it.
+func TestPhaseSpecKindAcceptsSplitPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	splitN := []byte("---\nn: 3b\n" +
+		"title: The second half of a split phase\n" +
+		"status: \"\U0001F532\"\n---\nBody.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-3b.md", splitN)
+
+	require.NoError(t, err)
+	assert.False(t, hasDiagnostic(diags, "required-structure"),
+		"phase-3b.md with split n: want no required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseSpecKindRejectsMalformedPhaseNumber proves the type still
+// bites: a `n` that is neither an integer nor a digits-then-letters
+// token — here a word — trips required-structure.
+func TestPhaseSpecKindRejectsMalformedPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	badN := []byte("---\nn: \"foo\"\n" +
+		"title: A phase whose number is a word\n" +
+		"status: \"\U0001F532\"\n---\nBody.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.md", badN)
+
+	require.NoError(t, err)
+	assert.True(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.md with word n: want a required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseRecordKindAcceptsIntPhaseNumber mirrors the spec case for
+// phase-N.result.md: the record carries the same `n`, typed the same way.
+func TestPhaseRecordKindAcceptsIntPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	intN := []byte("---\nn: 1\n" +
+		"title: A phase whose number is an integer\n" +
+		"status: \"\U0001F532\"\n---\n## Handoff\n\nDone.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.result.md", intN)
+
+	require.NoError(t, err)
+	assert.False(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.result.md with int n: want no required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseRecordKindAcceptsSplitPhaseNumber mirrors the split-phase
+// guard for the record file, which shares its phase's `n`.
+func TestPhaseRecordKindAcceptsSplitPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	splitN := []byte("---\nn: 3b\n" +
+		"title: The second half of a split phase\n" +
+		"status: \"\U0001F532\"\n---\n## Handoff\n\nDone.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-3b.result.md", splitN)
+
+	require.NoError(t, err)
+	assert.False(t, hasDiagnostic(diags, "required-structure"),
+		"phase-3b.result.md with split n: want no required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseRecordKindRejectsMalformedPhaseNumber mirrors the reject case
+// for the record file.
+func TestPhaseRecordKindRejectsMalformedPhaseNumber(t *testing.T) {
+	sess := phaseKindsSession(t)
+	badN := []byte("---\nn: \"foo\"\n" +
+		"title: A phase whose number is a word\n" +
+		"status: \"\U0001F532\"\n---\n## Handoff\n\nDone.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.result.md", badN)
+
+	require.NoError(t, err)
+	assert.True(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.result.md with word n: want a required-structure diagnostic, got %+v", diags)
+}
