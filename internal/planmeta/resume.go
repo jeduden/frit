@@ -18,9 +18,10 @@ import (
 // names, and the result file to write. HasPhase is false when every
 // phase is done, the way Plan.FirstOpenPhase reports none left.
 //
-// Title is carried only for a ledger phase, whose `phases:` entry
-// already names one; a phase-file plan has no title convention yet
-// for its own phase-N.md, so Title is empty there.
+// Title is the phase's title: a ledger phase's `phases:` entry names
+// one, and a folder plan's phase-N.md now carries one in its own front
+// matter, read into the bundle either way. It is empty only for a phase
+// file written before the {n, title, status} convention.
 type Bundle struct {
 	N          PhaseNumber
 	Title      string
@@ -82,19 +83,19 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 			continue
 		}
 
+		// A result file's ## Handoff never travels as the open phase's
+		// notes — only genuinely parked in-progress notes do, the way it
+		// was before the phase-file status became the done-signal.
 		notes := ""
-		if st.hasResult {
+		if st.hasResult && !st.hasHandoff {
 			notes = strings.TrimSpace(string(st.result))
 		}
 		tier, gate, _ := executionRowFor(body, PhaseNumber(n))
 
 		return Bundle{
-			N: PhaseNumber(n),
-			// A phase file that carries {n, title, status} front matter
-			// keeps only its prose in the bundle: the front matter is the
-			// ledger, not the working brief an executor reads. A phase file
-			// with none yields its whole content, unchanged.
-			Spec:       strings.TrimSpace(string(markdown.Parse(st.spec).Body)),
+			N:          PhaseNumber(n),
+			Title:      st.title,
+			Spec:       strings.TrimSpace(string(st.specBody)),
 			HandoffIn:  handoffIn,
 			Notes:      notes,
 			Tier:       tier,
@@ -108,13 +109,14 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 }
 
 // phaseState is what one phase-N.md and its result file say about that
-// phase: whether it is done and the handoff it hands its successor, plus
-// the raw material Resume bundles when it is the open phase.
+// phase: whether it is done, the title and handoff it carries, and the
+// working brief Resume bundles when it is the open phase.
 type phaseState struct {
 	done       bool
 	handoff    string
 	hasHandoff bool
-	spec       []byte
+	title      string
+	specBody   []byte
 	result     []byte
 	hasResult  bool
 }
@@ -130,7 +132,19 @@ func readPhaseState(dir, n string) (phaseState, error) {
 	if err != nil {
 		return phaseState{}, err
 	}
-	status := phaseFileStatus(spec)
+
+	// A phase file that carries {n, title, status} front matter yields its
+	// status as the done-signal and its title for the bundle, and only its
+	// prose is the working brief. A file written before the convention —
+	// including one whose leading --- block is not valid phase front
+	// matter — has no usable front matter: its status is "" and its whole
+	// content is the brief, verbatim, so the front-matter strip never eats
+	// its opening prose.
+	phase, ferr := parsePhaseFile(spec)
+	specBody := spec
+	if ferr == nil {
+		specBody = markdown.Parse(spec).Body
+	}
 
 	result, rerr := os.ReadFile(filepath.Join(dir, resultFileName(n)))
 	handoff, hasHandoff := "", false
@@ -141,8 +155,8 @@ func readPhaseState(dir, n string) (phaseState, error) {
 		return phaseState{}, rerr
 	}
 
-	done := status == StatusDone || status == StatusSuperseded
-	if status == "" {
+	done := phase.Status == StatusDone || phase.Status == StatusSuperseded
+	if phase.Status == "" {
 		done = hasHandoff
 	}
 
@@ -150,7 +164,8 @@ func readPhaseState(dir, n string) (phaseState, error) {
 		done:       done,
 		handoff:    handoff,
 		hasHandoff: hasHandoff,
-		spec:       spec,
+		title:      phase.Title,
+		specBody:   specBody,
 		result:     result,
 		hasResult:  rerr == nil,
 	}, nil
@@ -249,20 +264,6 @@ func handoffOf(source []byte) (text string, ok bool) {
 	}
 
 	return "", false
-}
-
-// phaseFileStatus reports a phase-N.md's own front-matter status, or ""
-// when the file carries no front matter — the shape a phase file written
-// before the status convention takes, which Resume then reads through the
-// result file's ## Handoff marker instead. It reuses parsePhaseFile, the
-// same decode PhasesFromDir uses to build a folder plan's ledger.
-func phaseFileStatus(spec []byte) string {
-	phase, err := parsePhaseFile(spec)
-	if err != nil {
-		return ""
-	}
-
-	return phase.Status
 }
 
 // executionRowFor reads a plan body's `## Execution` table for the

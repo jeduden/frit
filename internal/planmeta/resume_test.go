@@ -98,6 +98,58 @@ func TestResumeFindsTheOpenPhaseFromPhaseFileStatus(t *testing.T) {
 	assert.Equal(t, "opus", got.Tier)
 }
 
+// TestResumeCarriesThePhaseFileTitle: a folder-plan phase file now
+// carries its own title in front matter, so the bundle surfaces it — the
+// way a ledger phase's title already travels — and the spec keeps only
+// the phase's prose, not its front matter.
+func TestResumeCarriesThePhaseFileTitle(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nDo the first thing.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Equal(t, "First", got.Title)
+	assert.Equal(t, "Do the first thing.", got.Spec)
+}
+
+// TestResumeOpenPhaseDoesNotBundleAHandoffAsNotes: a phase whose own
+// status says it is still open, but whose result file already carries a
+// ## Handoff draft, does not bundle that handoff as in-progress notes —
+// a handoff never travels as the open phase's notes, as it never did.
+func TestResumeOpenPhaseDoesNotBundleAHandoffAsNotes(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔳\"\n---\nDo the first thing.\n")
+	writePhaseFile(t, dir, "phase-1.result.md",
+		"## Handoff\n\nA draft, but the phase is still open.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("1"), got.N)
+	assert.Empty(t, got.Notes,
+		"a result's ## Handoff is not bundled as in-progress notes")
+}
+
+// TestResumeKeepsAPreConventionSpecVerbatim: a phase file written before
+// the front-matter convention, whose prose opens with a --- delimited
+// block that is not valid phase front matter, keeps its whole content as
+// the spec — the front-matter strip applies only when the file really
+// carries front matter.
+func TestResumeKeepsAPreConventionSpecVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nnot a phase mapping, just prose\n---\nmore prose.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Contains(t, got.Spec, "not a phase mapping, just prose")
+}
+
 // TestResumeReportsNoOpenPhaseWhenEveryPhaseFileStatusIsDone: a folder
 // plan whose every phase-*.md carries a done status, with no result
 // files at all, reports no open phase — the phase-file status is the

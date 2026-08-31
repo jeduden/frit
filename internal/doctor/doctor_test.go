@@ -351,6 +351,28 @@ func TestScanFlagsAMissingExecutionRowForALedgerFreeFolderPlan(t *testing.T) {
 	assert.Contains(t, got[0].Message, "phase 2")
 }
 
+// TestScanToleratesAPhaseFileWithoutFrontMatter: a ledger-free folder
+// plan whose phase file predates the {n, title, status} convention —
+// pure prose, no front matter — must not abort the whole scan and lose
+// every plan's findings. doctor keys it by its file-name number and
+// still validates its Execution row, the same leniency Resume applies.
+func TestScanToleratesAPhaseFileWithoutFrontMatter(t *testing.T) {
+	root := newFixtureRoot(t)
+	const folder = "2601030000_ledger-free"
+	writeFolderPlan(t, root, folder, ledgerFreeFolderPlanMD(2601030000))
+	writeFolderPhaseFile(t, root, folder, "phase-1.md",
+		"Just prose, no front matter.\n")
+	writeFolderPhaseFile(t, root, folder, "phase-2.md", "Also prose.\n")
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err,
+		"a phase file with no front matter must not abort the scan")
+	require.Len(t, got, 1)
+	assert.Equal(t, "execution-row", got[0].Check)
+	assert.Contains(t, got[0].Message, "phase 2")
+}
+
 // TestScanSortsFindingsByPlanIDThenCheck: a fleet-wide report reads
 // the same way on every run, not in filesystem-glob order.
 func TestScanSortsFindingsByPlanIDThenCheck(t *testing.T) {

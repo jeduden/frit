@@ -240,7 +240,13 @@ func PhasesFromDir(dir string, planBody []byte) ([]Phase, error) {
 		}
 		phase, err := parsePhaseFile(source)
 		if err != nil {
-			return nil, err
+			// A phase file written before the {n, title, status} convention
+			// carries no usable front matter. Key it by its file-name number
+			// so doctor still validates its Execution row, and one such file
+			// never aborts the whole scan — the same leniency Resume applies
+			// to a pre-convention phase file. Its status stays empty: there
+			// is no done-signal to read here.
+			phase = Phase{N: PhaseNumber(n)}
 		}
 		phases = append(phases, phase)
 	}
