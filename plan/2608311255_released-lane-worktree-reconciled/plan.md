@@ -119,6 +119,7 @@ footer: |
 | #   | Status | Phase                                                                            |
 | --- | ------ | -------------------------------------------------------------------------------- |
 | 1   | ✅     | [The live-hold verdict is one Build input, shared by every consumer](phase-1.md) |
+| 2   | 🔲     | [pick and start reconcile a pre-existing worktree for a free plan](phase-2.md)   |
 <?/catalog?>
 
 ## Acceptance Criteria
