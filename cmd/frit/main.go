@@ -197,39 +197,13 @@ func repoLanes(
 	}
 	entries, _ := index.Build("", repo.Name, preferred, files)
 	landed := index.LandedIDs(entries, preferred)
-	released := releasedRefs(repo.Path, refs, holds, rt.git)
+	released := fleet.ReleasedRefs(repo.Path, refs, holds, merged, landed, rt.git)
 	evidence := landedEvidence{Merged: merged, ByPlanID: landed, Released: released}
 
 	built := lanes.Build(repo.Worktrees, refs, merged, landed, released, holds)
 	built = lanes.WithLanePaths(built, laneOf(repo.Path, cfg.Remote, refs, built, rt.git))
 
 	return built, evidence, nil
-}
-
-// releasedRefs decides the live-hold verdict for every ref that names
-// a plan, once, here where git already lives — the input lanes.Build
-// requires alongside merged and landed. A ref whose branch matches no
-// hold pattern names no plan, so it never reaches claim.LiveHold at
-// all: judging it would answer a question the ref never asked.
-func releasedRefs(
-	repoPath string, refs []gitobj.Ref, holds repocfg.Holds, run gitwt.Runner,
-) map[string]bool {
-	out := map[string]bool{}
-	for _, r := range refs {
-		branch, ok := r.Branch()
-		if !ok {
-			continue
-		}
-		id, ok := holds.Match(branch)
-		if !ok {
-			continue
-		}
-		if !claim.LiveHold(repoPath, r.OID, id, run) {
-			out[r.Name] = true
-		}
-	}
-
-	return out
 }
 
 // laneOf reads the lane: trailer each live hold's own claim marker

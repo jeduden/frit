@@ -189,6 +189,38 @@ func TestStartGoRefusesALiveHerdrPaneOnTheLeftover(t *testing.T) {
 		"nothing was claimed, so the branch is exactly where release left it")
 }
 
+// TestStartGoRefusesALeftoverWhenHerdrCannotConfirmNoLivePaneIsOnIt:
+// the same leftover, but herdr's own agent.list answers with an error
+// rather than a pane list. reconcileLeftoverWorktree cannot tell a
+// live pane from a dead one when it cannot ask at all, so it refuses
+// on that uncertainty instead of reading the silence as "no pane" and
+// parking and deleting a worktree that might genuinely be live.
+func TestStartGoRefusesALeftoverWhenHerdrCannotConfirmNoLivePaneIsOnIt(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, releasedTip := leftoverWorktree(t, root, repo, 7)
+	runner := func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return nil, errors.New("herdr: socket unreachable")
+		}
+		return nil, nil
+	}
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), leftover)
+	_, statErr := os.Stat(leftover)
+	assert.NoError(t, statErr, "the leftover is left standing when herdr cannot be asked")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, releasedTip, tip,
+		"nothing was parked or claimed while the live-pane question is unresolved")
+}
+
 // TestStartRefusesAnAllDonePhasedPlan: a phased ledger whose every
 // phase is done has genuinely nothing left to send, unlike a plan
 // with no ledger at all — it still refuses, and never mints a claim.

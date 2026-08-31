@@ -572,13 +572,16 @@ func paneNotReady(err error) bool {
 // before it deletes it, and its worktree registration is removed —
 // never its branch, which by now is nothing this reconcile minted.
 // nil when no worktree sits on the branch at all: the ordinary path,
-// unaffected.
+// unaffected. An unreadable worktree list is a genuine fault, returned
+// rather than swallowed as "no leftover": reading it as clear here
+// would let startAcquire mint a claim ahead of a worktree.create that
+// may still collide with a leftover this read simply failed to see.
 func reconcileLeftoverWorktree(
 	rt *runtime, sc startContext, sp report.StartPlan, planID int64,
 ) error {
 	worktrees, err := gitwt.List(sc.repoPath, rt.git)
 	if err != nil {
-		return nil
+		return fmt.Errorf("list worktrees: %w", err)
 	}
 	var leftover *gitwt.Worktree
 	for i := range worktrees {
@@ -591,7 +594,13 @@ func reconcileLeftoverWorktree(
 		return nil
 	}
 
-	if pane, ok := livePaneOn(rt, leftover.Path); ok {
+	pane, ok, err := livePaneOn(rt, leftover.Path)
+	if err != nil {
+		return fmt.Errorf(
+			"plan %d: could not confirm no live herdr pane sits on %s: %w",
+			planID, leftover.Path, err)
+	}
+	if ok {
 		return fmt.Errorf(
 			"plan %d: a live herdr pane (%s) already sits on %s; "+
 				"free it before restarting this plan",
@@ -616,22 +625,26 @@ func reconcileLeftoverWorktree(
 // livePaneOn reports whether a herdr pane is currently sitting in the
 // worktree rooted at root — a local pane only, the same guard
 // herdr.LiveRoots uses, since a remote pane's cwd is a path on another
-// host that could collide with a local one by coincidence.
-func livePaneOn(rt *runtime, root string) (string, bool) {
+// host that could collide with a local one by coincidence. An
+// unreadable herdr answers with an error rather than "no pane": the
+// caller is about to park and delete a worktree on this verdict, and
+// reading a socket failure as "clear" would risk exactly the live lane
+// this check exists to protect.
+func livePaneOn(rt *runtime, root string) (string, bool, error) {
 	panes, err := herdr.List(rt.herdr)
 	if err != nil {
-		return "", false
+		return "", false, err
 	}
 	for _, p := range panes {
 		if p.Host != "" {
 			continue
 		}
 		if site := herdr.Resolve(p.CWD, rt.git); site.Root == root {
-			return p.PaneID, true
+			return p.PaneID, true, nil
 		}
 	}
 
-	return "", false
+	return "", false, nil
 }
 
 // laneStandUpPane is the pane standUpLane drives from: a resume's own
