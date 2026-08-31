@@ -19,6 +19,9 @@ phases:
   - n: 1
     title: A phase file carries its status and a generated table shows it
     status: "✅"
+  - n: 2
+    title: A phase record requires the front matter and the existing records migrate
+    status: "🔲"
 ---
 # Phase front matter gives per-phase status one generated home
 
@@ -108,9 +111,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                        |
-| --- | ------ | ---------------------------------------------------------------------------- |
-| 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md) |
+| #   | Status | Phase                                                                                   |
+| --- | ------ | --------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md)            |
+| 2   | 🔲     | [A phase record requires the front matter and the existing records migrate](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
