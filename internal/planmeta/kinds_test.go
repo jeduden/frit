@@ -1,6 +1,7 @@
 package planmeta
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,164 @@ func phaseKindsSession(t *testing.T) *mdsmith.Session {
 	require.NoError(t, err)
 
 	return sess
+}
+
+// catalogFixtureSession mirrors phaseKindsSession but adds a synthetic
+// folder plan's companion files to the workspace, so a `## Phases`
+// catalog directive in the fixture plan.md can glob its own phase-1.md
+// and phase-1.result.md. Keyed by workspace-relative path.
+func catalogFixtureSession(t *testing.T, files map[string][]byte) *mdsmith.Session {
+	t.Helper()
+	cfg := repoFile(t, ".mdsmith.yml")
+	proto := repoFile(t, "plan", "proto.md")
+
+	ws := map[string][]byte{"plan/proto.md": proto}
+	maps.Copy(ws, files)
+
+	sess, err := mdsmith.NewSession(mdsmith.SessionOptions{
+		Workspace: mdsmith.NewMemWorkspace(ws),
+		Config:    mdsmith.ConfigYAML(string(cfg)),
+	})
+	require.NoError(t, err)
+
+	return sess
+}
+
+const catalogFixturePhaseSpec = "---\n" +
+	"n: 1\n" +
+	"title: A proving-slice phase\n" +
+	"status: \"\U0001F532\"\n" +
+	"result: false\n" +
+	"---\n" +
+	"Prove the thing works end to end.\n"
+
+const catalogFixturePhaseRecord = "---\n" +
+	"n: 1\n" +
+	"title: A proving-slice phase\n" +
+	"status: \"✅\"\n" +
+	"result: true\n" +
+	"summary: Proved the thing works end to end.\n" +
+	"---\n" +
+	"## Handoff\n\nDone.\n"
+
+// catalogFixturePlan carries a `## Phases` catalog whose row-expr
+// branches on the `result` discriminator: a spec row for phase-1.md,
+// an indented `↳` summary row for phase-1.result.md, in that order —
+// the interleaved table Phase 1 proves.
+const catalogFixturePlanHeader = "---\n" +
+	"id: 2601010000\n" +
+	"title: X\n" +
+	"status: \"\U0001F532\"\n" +
+	"summary: fixture\n" +
+	"model: sonnet\n" +
+	"depends-on: []\n" +
+	"---\n" +
+	"# X\n\n" +
+	"## Goal\n\nFixture goal.\n\n" +
+	"## Tasks\n\n1. Do the thing.\n\n" +
+	"## Phases\n\n" +
+	"<?catalog\n" +
+	"glob:\n" +
+	// A MemWorkspace-backed Session lints via RunSource, which wires
+	// lint.File.FS to the whole workspace's root FS rather than the
+	// on-disk CLI's per-directory os.Root scoping — see catalogFixtureSession.
+	// A bare "phase-*.md" pattern (workspace root) would match zero
+	// files, so the fixture globs workspace-relative from plan/.
+	"  - \"plan/2601010000_x/phase-*.md\"\n" +
+	"  - \"plan/2601010000_x/phase-*.result.md\"\n" +
+	"sort: numeric:n\n" +
+	"header: |\n\n" +
+	"  | # | Status | Phase |\n" +
+	"  |---|--------|-------|\n" +
+	"row-expr: |\n" +
+	"  [if result {\n" +
+	"    \"|  | ↳ | \\(summary) |\"\n" +
+	"  }, if !result {\n" +
+	"    \"| \\(n) | \\(status) | [\\(title)](phase-\\(n).md) |\"\n" +
+	"  }][0]\n" +
+	"footer: |\n\n" +
+	"?>\n\n"
+
+const catalogFixturePlanBodyClose = "<?/catalog?>\n\n" +
+	"## Acceptance Criteria\n\n" +
+	"- [ ] Fixture criterion\n"
+
+// catalogFixtureInterleavedRows is the regenerated body Phase 1's
+// gate requires: the spec row immediately followed by its
+// result-summary row.
+const catalogFixtureInterleavedRows = "" +
+	"| #   | Status | Phase                               |\n" +
+	"| --- | ------ | ----------------------------------- |\n" +
+	"| 1   | \U0001F532     | [A proving-slice phase](phase-1.md) |\n" +
+	"|     | ↳      | Proved the thing works end to end.  |\n"
+
+// TestPhaseCatalogInterleavesSpecAndResultRow is Phase 1's RED: at
+// HEAD the fixture's `result` and `summary` keys are undeclared in the
+// closed phase-spec/phase-record frontmatter maps, so phase-1.md and
+// phase-1.result.md each trip required-structure (MDS020) on their own
+// Check — the catalog directive itself reads front matter directly and
+// keeps rendering regardless, so the fixture's schema violations, not
+// its rendered rows, are what gates RED here. Once GREEN, both phase
+// files lint clean and the interleaved table still renders: phase-1.md's
+// row directly followed by phase-1.result.md's summary row.
+func TestPhaseCatalogInterleavesSpecAndResultRow(t *testing.T) {
+	staleBody := catalogFixturePlanHeader +
+		"| #   | Status | Phase                               |\n" +
+		"| --- | ------ | ------------------------------------ |\n" +
+		"| 1   | \U0001F532     | [A proving-slice phase](phase-1.md) |\n" +
+		catalogFixturePlanBodyClose
+
+	sess := catalogFixtureSession(t, map[string][]byte{
+		"plan/2601010000_x/plan.md":           []byte(staleBody),
+		"plan/2601010000_x/phase-1.md":        []byte(catalogFixturePhaseSpec),
+		"plan/2601010000_x/phase-1.result.md": []byte(catalogFixturePhaseRecord),
+	})
+
+	specDiags, err := sess.Check("plan/2601010000_x/phase-1.md", []byte(catalogFixturePhaseSpec))
+	require.NoError(t, err)
+	assert.Empty(t, specDiags,
+		"phase-1.md with a result discriminator: want no diagnostics, got %+v", specDiags)
+
+	recordDiags, err := sess.Check("plan/2601010000_x/phase-1.result.md", []byte(catalogFixturePhaseRecord))
+	require.NoError(t, err)
+	assert.Empty(t, recordDiags,
+		"phase-1.result.md with a result discriminator and summary: want no diagnostics, got %+v",
+		recordDiags)
+
+	result, err := sess.Fix("plan/2601010000_x/plan.md", []byte(staleBody))
+
+	require.NoError(t, err)
+	assert.True(t, result.Changed, "want the stale spec-only body rewritten")
+	assert.Contains(t, result.Source, catalogFixtureInterleavedRows,
+		"want the spec row directly followed by its result-summary row, got:\n%s",
+		result.Source)
+	assert.Empty(t, result.Diagnostics,
+		"want the regenerated fixture clean, got %+v", result.Diagnostics)
+}
+
+// TestPhaseCatalogStaleBodyTripsMDS019 is Phase 1's other RED half: a
+// folder plan whose `## Phases` body carries only the spec row —
+// missing its result file's summary row — must trip MDS019 rather
+// than lint clean, so a reader can trust the catalog reflects the
+// result files on disk.
+func TestPhaseCatalogStaleBodyTripsMDS019(t *testing.T) {
+	staleBody := catalogFixturePlanHeader +
+		"| #   | Status | Phase                               |\n" +
+		"| --- | ------ | ------------------------------------ |\n" +
+		"| 1   | \U0001F532     | [A proving-slice phase](phase-1.md) |\n" +
+		catalogFixturePlanBodyClose
+
+	sess := catalogFixtureSession(t, map[string][]byte{
+		"plan/2601010000_x/plan.md":           []byte(staleBody),
+		"plan/2601010000_x/phase-1.md":        []byte(catalogFixturePhaseSpec),
+		"plan/2601010000_x/phase-1.result.md": []byte(catalogFixturePhaseRecord),
+	})
+
+	diags, err := sess.Check("plan/2601010000_x/plan.md", []byte(staleBody))
+
+	require.NoError(t, err)
+	assert.True(t, hasDiagnostic(diags, "catalog"),
+		"stale interleaved catalog: want a catalog (MDS019) diagnostic, got %+v", diags)
 }
 
 func hasDiagnostic(diags []mdsmith.Diagnostic, rule string) bool {

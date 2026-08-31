@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                  |
+| ---------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| 2608310704 | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -101,5 +103,5 @@ footer: |
 | 2608310355 | ✅     | sonnet | [Raise phase-spec token budget for detailed proving slices](plan/2608310355_raise-phase-spec-token-budget.md)                          |
 | 2608310418 | ✅     | sonnet | [Phase front matter gives per-phase status one generated home](plan/2608310418_phase-front-matter-generated-status/plan.md)            |
 | 2608310454 | ✅     | sonnet | [Doctor and next read phase state from phase front matter](plan/2608310454_doctor-next-read-phase-front-matter/plan.md)                |
-| 2608310704 | 🔲     | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md)                                 |
+| 2608310704 | 🔳     | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md)                                 |
 <?/catalog?>

@@ -175,6 +175,12 @@ kinds:
         n: 'int | =~"^[0-9]+[A-Za-z]+$"'
         title: 'string & != ""'
         status: 'string & != ""'
+        # The interleaved `## Phases` catalog's row-expr branches on
+        # this: false on a phase-N.md, true on its phase-N.result.md.
+        # `?` keeps it optional this phase — landed as a typed field
+        # before any file or live catalog is backfilled to carry it,
+        # so today's phase files still lint.
+        result?: 'bool'
     rules:
       first-line-heading: false
       heading-increment: false
@@ -209,6 +215,12 @@ kinds:
         n: 'int | =~"^[0-9]+[A-Za-z]+$"'
         title: 'string & != ""'
         status: 'string & != ""'
+        # See phase-spec's `result`: true on every phase-N.result.md.
+        result?: 'bool'
+        # The row-expr's `↳` summary row source. Optional this phase,
+        # same reason as `result`; required once Phase 2 backfills
+        # every result file.
+        summary?: 'string & != ""'
     rules:
       first-line-heading: false
       heading-increment: false

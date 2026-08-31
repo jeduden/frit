@@ -1,7 +1,7 @@
 ---
 id: 2608310704
 title: Interleaved phase overview with result summaries
-status: "🔲"
+status: "🔳"
 summary: >-
   A folder plan's `## Phases` catalog lists only its phase specs, so
   plan.md shows what each phase is but not how it turned out. Fold the
@@ -115,7 +115,7 @@ footer: |
 
 | #   | Status | Phase                                                                               |
 | --- | ------ | ----------------------------------------------------------------------------------- |
-| 1   | 🔲     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md) |
+| 1   | ✅     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
