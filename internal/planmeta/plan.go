@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -207,6 +209,72 @@ func derivePhasesFromHeadings(doc *markdown.Document) []Phase {
 	}
 
 	return out
+}
+
+// PhasesFromDir assembles a ledger-free folder plan's phase ledger from
+// its own phase-*.md front matter. Each file's `{n, title, status}`
+// front matter becomes a Phase, ordered the way phaseSpecNumbers orders
+// the spec files, and enriched with its `## Execution` row from planBody
+// so a caller sees HasExecutionRow, Tier and Gate exactly as it does for
+// a ledger phase. A directory carrying no phase-N.md files yields nil.
+//
+// This fills in only what the ledger cannot: a caller reaches for it
+// when Parse left Plan.Phases empty, so a ledgered plan keeps reading
+// exactly as before — the ledger wins where present, phase-file front
+// matter fills in a ledger-free folder plan alone.
+func PhasesFromDir(dir string, planBody []byte) ([]Phase, error) {
+	specs, err := phaseSpecNumbers(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(specs) == 0 {
+		return nil, nil
+	}
+
+	var phases []Phase
+	for _, n := range specs {
+		// #nosec G304 -- name comes from phaseSpecNumbers' glob under dir
+		source, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
+		if err != nil {
+			return nil, err
+		}
+		phase, err := parsePhaseFile(source)
+		if err != nil {
+			// A phase file written before the {n, title, status} convention
+			// carries no usable front matter. Key it by its file-name number
+			// so doctor still validates its Execution row, and one such file
+			// never aborts the whole scan — the same leniency Resume applies
+			// to a pre-convention phase file. Its status stays empty: there
+			// is no done-signal to read here.
+			phase = Phase{N: PhaseNumber(n)}
+		}
+		phases = append(phases, phase)
+	}
+
+	p := Plan{Phases: phases}
+	attachExecutionRows(&p, markdown.Parse(planBody).Body)
+
+	return p.Phases, nil
+}
+
+// parsePhaseFile decodes a phase-N.md's own `{n, title, status}` front
+// matter into a Phase — the phase-file counterpart of Parse, which
+// decodes a plan.md's front matter into a Plan. It reuses the same
+// delimiter strip and YAML decode; a file with no front-matter block
+// reports ErrNoFrontMatter, the way Parse does for a non-plan.
+func parsePhaseFile(source []byte) (Phase, error) {
+	doc := markdown.Parse(source)
+	body := insideDelimiters(doc.FrontMatter)
+	if len(bytes.TrimSpace(body)) == 0 {
+		return Phase{}, ErrNoFrontMatter
+	}
+
+	var phase Phase
+	if err := yaml.Unmarshal(body, &phase); err != nil {
+		return Phase{}, fmt.Errorf("front matter: %w", err)
+	}
+
+	return phase, nil
 }
 
 // attachPhaseBodies enriches the phase ledger — front-matter or

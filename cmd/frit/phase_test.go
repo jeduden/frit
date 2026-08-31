@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,84 @@ func TestPhaseNamesTheOpenPhaseFileAndBundlesItsHandoff(t *testing.T) {
 	assert.Contains(t, got, "phase-2.result.md")
 	assert.Contains(t, got, "opus")
 	assert.Contains(t, got, "test two")
+}
+
+// TestFolderPlanPhasesAssemblesFromDirWhenLedgerFree is
+// folderPlanPhases' own dedicated test: a folder plan whose plan.md
+// carries no ledger has its phases read from its directory's phase-*.md
+// front matter.
+func TestFolderPlanPhasesAssemblesFromDirWhenLedgerFree(t *testing.T) {
+	root := t.TempDir()
+	rel := filepath.Join("plan", "100_x", "plan.md")
+	dir := filepath.Join(root, "plan", "100_x")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	writePhaseCompanion(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody.\n")
+	writePhaseCompanion(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nBody.\n")
+
+	got := folderPlanPhases(root, rel,
+		[]byte("---\nid: 100\ntitle: X\nstatus: \"🔳\"\n---\n# X\n"),
+		planmeta.Plan{})
+
+	require.Len(t, got, 2)
+	assert.Equal(t, planmeta.PhaseNumber("2"), got[1].N)
+	assert.Equal(t, "🔲", got[1].Status)
+}
+
+// TestFolderPlanPhasesKeepsTheLedgerWherePresent: a plan whose plan.md
+// carries a ledger keeps it — the phase files never override it.
+func TestFolderPlanPhasesKeepsTheLedgerWherePresent(t *testing.T) {
+	ledger := []planmeta.Phase{{N: "1", Status: "🔲"}}
+
+	got := folderPlanPhases(t.TempDir(),
+		filepath.Join("plan", "100_x", "plan.md"), nil,
+		planmeta.Plan{Phases: ledger})
+
+	assert.Equal(t, ledger, got)
+}
+
+// TestFolderPlanPhasesLeavesAFlatPlanUnchanged: a flat plan has no
+// directory of its own to read phase files from, so it keeps whatever
+// planmeta.Parse gave it.
+func TestFolderPlanPhasesLeavesAFlatPlanUnchanged(t *testing.T) {
+	got := folderPlanPhases(t.TempDir(),
+		filepath.Join("plan", "100_x.md"), nil, planmeta.Plan{})
+
+	assert.Nil(t, got)
+}
+
+// TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus is Phase 2's
+// RED for the next path: a folder plan carrying no phases: ledger, whose
+// phase-1.md front matter says ✅ and phase-2.md says 🔲, reports phase 2
+// as its open phase. At HEAD next reads plan.Phases from planmeta.Parse
+// alone, which is empty for such a plan, so it finds no phase.
+func TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	dir := writeFolderPlan(t, repo, 100, "🔳", "Layered work",
+		"1 first | sonnet | sonnet | test one\n"+
+			"2 second | sonnet | opus | test two\n")
+	writePhaseCompanion(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nDo the first thing.\n")
+	writePhaseCompanion(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nDo the second thing.\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "phase 2",
+		"the open phase is read from phase-2.md's own status")
+	assert.Contains(t, got, "opus", "and carries its Execution tier")
 }
 
 // TestPhaseDoneTestParsesTheHandoffHeadingNotASubstring is Phase 1's

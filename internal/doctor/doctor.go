@@ -161,6 +161,19 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 		return nil, nil
 	}
 
+	// A ledger-free folder plan carries its phases as separate
+	// phase-*.md files, invisible to Parse, which sees only plan.md's
+	// bytes. Assemble them from that directory so its Execution rows are
+	// validated too. The ledger wins where present: this fills in only a
+	// folder plan whose plan.md left Plan.Phases empty.
+	if len(plan.Phases) == 0 && plans.IsFolderPlanFile(rel) {
+		phases, err := planmeta.PhasesFromDir(filepath.Dir(path), source)
+		if err != nil {
+			return nil, err
+		}
+		plan.Phases = phases
+	}
+
 	findings := checkPlan(plan, rel)
 	if f := checkIDSync(plan.ID, rel); f != nil {
 		findings = append(findings, *f)

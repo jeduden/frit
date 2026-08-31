@@ -18,9 +18,10 @@ import (
 // names, and the result file to write. HasPhase is false when every
 // phase is done, the way Plan.FirstOpenPhase reports none left.
 //
-// Title is carried only for a ledger phase, whose `phases:` entry
-// already names one; a phase-file plan has no title convention yet
-// for its own phase-N.md, so Title is empty there.
+// Title is the phase's title: a ledger phase's `phases:` entry names
+// one, and a folder plan's phase-N.md now carries one in its own front
+// matter, read into the bundle either way. It is empty only for a phase
+// file written before the {n, title, status} convention.
 type Bundle struct {
 	N          PhaseNumber
 	Title      string
@@ -70,34 +71,31 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 
 	var handoffIn string
 	for _, n := range specs {
-		result, err := os.ReadFile(filepath.Join(dir, resultFileName(n)))
-		notes := ""
-		handoff, done := "", false
-		switch {
-		case err == nil:
-			handoff, done = handoffOf(result)
-			if !done {
-				notes = strings.TrimSpace(string(result))
-			}
-		case !os.IsNotExist(err):
+		st, err := readPhaseState(dir, n)
+		if err != nil {
 			return Bundle{}, err
 		}
-
-		if done {
-			handoffIn = handoff
+		if st.done {
+			if st.hasHandoff {
+				handoffIn = st.handoff
+			}
 
 			continue
 		}
 
-		spec, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
-		if err != nil {
-			return Bundle{}, err
+		// A result file's ## Handoff never travels as the open phase's
+		// notes — only genuinely parked in-progress notes do, the way it
+		// was before the phase-file status became the done-signal.
+		notes := ""
+		if st.hasResult && !st.hasHandoff {
+			notes = strings.TrimSpace(string(st.result))
 		}
 		tier, gate, _ := executionRowFor(body, PhaseNumber(n))
 
 		return Bundle{
 			N:          PhaseNumber(n),
-			Spec:       strings.TrimSpace(string(spec)),
+			Title:      st.title,
+			Spec:       strings.TrimSpace(string(st.specBody)),
 			HandoffIn:  handoffIn,
 			Notes:      notes,
 			Tier:       tier,
@@ -108,6 +106,69 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 	}
 
 	return Bundle{}, nil
+}
+
+// phaseState is what one phase-N.md and its result file say about that
+// phase: whether it is done, the title and handoff it carries, and the
+// working brief Resume bundles when it is the open phase.
+type phaseState struct {
+	done       bool
+	handoff    string
+	hasHandoff bool
+	title      string
+	specBody   []byte
+	result     []byte
+	hasResult  bool
+}
+
+// readPhaseState reads one phase's spec and result files and decides
+// whether it is done. The phase file's own status is the done-signal
+// where it carries one — a phase closes by flipping its own phase-N.md.
+// A phase file written before the status convention carries none, and
+// falls back to the result file's ## Handoff marker so it still resumes
+// as before.
+func readPhaseState(dir, n string) (phaseState, error) {
+	spec, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
+	if err != nil {
+		return phaseState{}, err
+	}
+
+	// A phase file that carries {n, title, status} front matter yields its
+	// status as the done-signal and its title for the bundle, and only its
+	// prose is the working brief. A file written before the convention —
+	// including one whose leading --- block is not valid phase front
+	// matter — has no usable front matter: its status is "" and its whole
+	// content is the brief, verbatim, so the front-matter strip never eats
+	// its opening prose.
+	phase, ferr := parsePhaseFile(spec)
+	specBody := spec
+	if ferr == nil {
+		specBody = markdown.Parse(spec).Body
+	}
+
+	result, rerr := os.ReadFile(filepath.Join(dir, resultFileName(n)))
+	handoff, hasHandoff := "", false
+	switch {
+	case rerr == nil:
+		handoff, hasHandoff = handoffOf(result)
+	case !os.IsNotExist(rerr):
+		return phaseState{}, rerr
+	}
+
+	done := phase.Status == StatusDone || phase.Status == StatusSuperseded
+	if phase.Status == "" {
+		done = hasHandoff
+	}
+
+	return phaseState{
+		done:       done,
+		handoff:    handoff,
+		hasHandoff: hasHandoff,
+		title:      phase.Title,
+		specBody:   specBody,
+		result:     result,
+		hasResult:  rerr == nil,
+	}, nil
 }
 
 // resumeFromLedger builds a bundle from a plan's own `phases:` ledger

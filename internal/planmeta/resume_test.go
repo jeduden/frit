@@ -77,6 +77,96 @@ func TestResumeDoneTestParsesHeadingsNotSubstrings(t *testing.T) {
 	assert.Contains(t, got.Notes, "## Handoff")
 }
 
+// TestResumeFindsTheOpenPhaseFromPhaseFileStatus is Phase 2's RED: a
+// ledger-free folder plan whose phase-1.md front matter says its status
+// is done — with no phase-1.result.md and so no ## Handoff — resumes at
+// phase 2. At HEAD Resume decides done by the ## Handoff marker alone,
+// so phase 1 reads as open and the bundle returns it.
+func TestResumeFindsTheOpenPhaseFromPhaseFileStatus(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nDo the first thing.\n")
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nDo the second thing.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("2"), got.N)
+	assert.Equal(t, "Do the second thing.", got.Spec)
+	assert.Equal(t, "opus", got.Tier)
+}
+
+// TestResumeCarriesThePhaseFileTitle: a folder-plan phase file now
+// carries its own title in front matter, so the bundle surfaces it — the
+// way a ledger phase's title already travels — and the spec keeps only
+// the phase's prose, not its front matter.
+func TestResumeCarriesThePhaseFileTitle(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nDo the first thing.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Equal(t, "First", got.Title)
+	assert.Equal(t, "Do the first thing.", got.Spec)
+}
+
+// TestResumeOpenPhaseDoesNotBundleAHandoffAsNotes: a phase whose own
+// status says it is still open, but whose result file already carries a
+// ## Handoff draft, does not bundle that handoff as in-progress notes —
+// a handoff never travels as the open phase's notes, as it never did.
+func TestResumeOpenPhaseDoesNotBundleAHandoffAsNotes(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔳\"\n---\nDo the first thing.\n")
+	writePhaseFile(t, dir, "phase-1.result.md",
+		"## Handoff\n\nA draft, but the phase is still open.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.True(t, got.HasPhase)
+	assert.Equal(t, PhaseNumber("1"), got.N)
+	assert.Empty(t, got.Notes,
+		"a result's ## Handoff is not bundled as in-progress notes")
+}
+
+// TestResumeKeepsAPreConventionSpecVerbatim: a phase file written before
+// the front-matter convention, whose prose opens with a --- delimited
+// block that is not valid phase front matter, keeps its whole content as
+// the spec — the front-matter strip applies only when the file really
+// carries front matter.
+func TestResumeKeepsAPreConventionSpecVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nnot a phase mapping, just prose\n---\nmore prose.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Contains(t, got.Spec, "not a phase mapping, just prose")
+}
+
+// TestResumeReportsNoOpenPhaseWhenEveryPhaseFileStatusIsDone: a folder
+// plan whose every phase-*.md carries a done status, with no result
+// files at all, reports no open phase — the phase-file status is the
+// done-signal in its own right.
+func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileStatusIsDone(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nFirst.\n")
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"⛔\"\n---\nSecond.\n")
+
+	got, err := Resume(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.False(t, got.HasPhase)
+}
+
 // TestResumeOrdersPhasesNumerically: phase-2 precedes phase-10, which
 // a lexical sort would get backwards.
 func TestResumeOrdersPhasesNumerically(t *testing.T) {
@@ -218,6 +308,65 @@ func TestPhaseSpecNumbersOrdersNumericallyThenBySplitToken(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"2", "3a", "3b", "10"}, got)
+}
+
+// TestPhasesFromDirAssemblesFromFrontMatterAndExecutionRows: a
+// ledger-free folder plan's phases come from its phase-*.md front
+// matter, ordered numerically, each enriched with its Execution row —
+// so a phase whose number the table names carries HasExecutionRow, and
+// one it omits does not.
+func TestPhasesFromDirAssemblesFromFrontMatterAndExecutionRows(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nBody two.\n")
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-3.md",
+		"---\nn: 3\ntitle: Third\nstatus: \"🔲\"\n---\nBody three.\n")
+
+	got, err := PhasesFromDir(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, PhaseNumber("1"), got[0].N)
+	assert.Equal(t, "First", got[0].Title)
+	assert.Equal(t, "✅", got[0].Status)
+	assert.True(t, got[0].HasExecutionRow, "phase 1 has an Execution row")
+	assert.Equal(t, "sonnet", got[0].Tier)
+	assert.True(t, got[1].HasExecutionRow, "phase 2 has an Execution row")
+	assert.False(t, got[2].HasExecutionRow, "phase 3 has no Execution row")
+}
+
+// TestPhasesFromDirReturnsNilWhenNoPhaseFiles: a directory with no
+// phase-N.md files yields no phases, so a caller leaves a flat or
+// ledgered plan's own reading untouched.
+func TestPhasesFromDirReturnsNilWhenNoPhaseFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	got, err := PhasesFromDir(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+// TestParsePhaseFileDecodesFrontMatter: a phase-N.md's own
+// {n, title, status} front matter decodes into a Phase.
+func TestParsePhaseFileDecodesFrontMatter(t *testing.T) {
+	got, err := parsePhaseFile(
+		[]byte("---\nn: 3b\ntitle: Split\nstatus: \"🔳\"\n---\nBody.\n"))
+
+	require.NoError(t, err)
+	assert.Equal(t, PhaseNumber("3b"), got.N)
+	assert.Equal(t, "Split", got.Title)
+	assert.Equal(t, "🔳", got.Status)
+}
+
+// TestParsePhaseFileReportsErrNoFrontMatter: a file with no front-matter
+// block is not a phase file, the way Parse reports a non-plan.
+func TestParsePhaseFileReportsErrNoFrontMatter(t *testing.T) {
+	_, err := parsePhaseFile([]byte("Just a body, no front matter.\n"))
+
+	require.ErrorIs(t, err, ErrNoFrontMatter)
 }
 
 // TestExecutionRowForReadsTheNamedPhasesTierAndGate is

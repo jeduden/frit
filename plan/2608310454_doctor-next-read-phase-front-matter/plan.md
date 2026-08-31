@@ -1,7 +1,7 @@
 ---
 id: 2608310454
 title: Doctor and next read phase state from phase front matter
-status: "🔲"
+status: "✅"
 summary: >-
   A folder plan can now carry per-phase state as phase-file front
   matter, but frit still reads it only from the plan.md phases: ledger
@@ -86,27 +86,29 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                            |
-| --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | 🔲     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
+| #   | Status | Phase                                                                                |
+| --- | ------ | ------------------------------------------------------------------------------------ |
+| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md)     |
+| 2   | ✅     | [next and phase find a ledger-free folder plan's open phase from status](phase-2.md) |
 <?/catalog?>
 
 ## Execution
 
-| Phase | Title                                                              | Tier   | Gate                                                                                                                                         |
-| ----- | ------------------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Doctor validates a ledger-free folder plan from phase front matter | sonnet | A ledger-free folder-plan fixture whose phase lacks an Execution row is unflagged by doctor at HEAD and flagged after; `go test ./...` green |
+| Phase | Title                                                                  | Tier   | Gate                                                                                                                                                                      |
+| ----- | ---------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Doctor validates a ledger-free folder plan from phase front matter     | sonnet | A ledger-free folder-plan fixture whose phase lacks an Execution row is unflagged by doctor at HEAD and flagged after; `go test ./...` green                              |
+| 2     | next and phase find a ledger-free folder plan's open phase from status | sonnet | A ledger-free folder plan whose phase-1 status is ✅ resumes at phase 2 and its open phase is found from phase-file status, not the Handoff marker; `go test ./...` green |
 
 ## Acceptance Criteria
 
-- [ ] A ledger-free folder plan's phases are assembled from `phase-*.md`
+- [x] A ledger-free folder plan's phases are assembled from `phase-*.md`
       front matter, feeding `FirstOpenPhase` and doctor's Execution
       check
-- [ ] `frit doctor` flags a missing Execution row for a ledger-free
+- [x] `frit doctor` flags a missing Execution row for a ledger-free
       folder plan, the same as for a ledgered plan
-- [ ] `frit next`/`frit phase` find and report the open phase of a
+- [x] `frit next`/`frit phase` find and report the open phase of a
       ledger-free folder plan from phase-file `status`
-- [ ] A plan carrying a `phases:` ledger reads exactly as before; the
+- [x] A plan carrying a `phases:` ledger reads exactly as before; the
       ledger wins where present
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
