@@ -70,34 +70,31 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 
 	var handoffIn string
 	for _, n := range specs {
-		result, err := os.ReadFile(filepath.Join(dir, resultFileName(n)))
-		notes := ""
-		handoff, done := "", false
-		switch {
-		case err == nil:
-			handoff, done = handoffOf(result)
-			if !done {
-				notes = strings.TrimSpace(string(result))
-			}
-		case !os.IsNotExist(err):
+		st, err := readPhaseState(dir, n)
+		if err != nil {
 			return Bundle{}, err
 		}
-
-		if done {
-			handoffIn = handoff
+		if st.done {
+			if st.hasHandoff {
+				handoffIn = st.handoff
+			}
 
 			continue
 		}
 
-		spec, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
-		if err != nil {
-			return Bundle{}, err
+		notes := ""
+		if st.hasResult {
+			notes = strings.TrimSpace(string(st.result))
 		}
 		tier, gate, _ := executionRowFor(body, PhaseNumber(n))
 
 		return Bundle{
-			N:          PhaseNumber(n),
-			Spec:       strings.TrimSpace(string(spec)),
+			N: PhaseNumber(n),
+			// A phase file that carries {n, title, status} front matter
+			// keeps only its prose in the bundle: the front matter is the
+			// ledger, not the working brief an executor reads. A phase file
+			// with none yields its whole content, unchanged.
+			Spec:       strings.TrimSpace(string(markdown.Parse(st.spec).Body)),
 			HandoffIn:  handoffIn,
 			Notes:      notes,
 			Tier:       tier,
@@ -108,6 +105,55 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 	}
 
 	return Bundle{}, nil
+}
+
+// phaseState is what one phase-N.md and its result file say about that
+// phase: whether it is done and the handoff it hands its successor, plus
+// the raw material Resume bundles when it is the open phase.
+type phaseState struct {
+	done       bool
+	handoff    string
+	hasHandoff bool
+	spec       []byte
+	result     []byte
+	hasResult  bool
+}
+
+// readPhaseState reads one phase's spec and result files and decides
+// whether it is done. The phase file's own status is the done-signal
+// where it carries one — a phase closes by flipping its own phase-N.md.
+// A phase file written before the status convention carries none, and
+// falls back to the result file's ## Handoff marker so it still resumes
+// as before.
+func readPhaseState(dir, n string) (phaseState, error) {
+	spec, err := os.ReadFile(filepath.Join(dir, specFileName(n)))
+	if err != nil {
+		return phaseState{}, err
+	}
+	status := phaseFileStatus(spec)
+
+	result, rerr := os.ReadFile(filepath.Join(dir, resultFileName(n)))
+	handoff, hasHandoff := "", false
+	switch {
+	case rerr == nil:
+		handoff, hasHandoff = handoffOf(result)
+	case !os.IsNotExist(rerr):
+		return phaseState{}, rerr
+	}
+
+	done := status == StatusDone || status == StatusSuperseded
+	if status == "" {
+		done = hasHandoff
+	}
+
+	return phaseState{
+		done:       done,
+		handoff:    handoff,
+		hasHandoff: hasHandoff,
+		spec:       spec,
+		result:     result,
+		hasResult:  rerr == nil,
+	}, nil
 }
 
 // resumeFromLedger builds a bundle from a plan's own `phases:` ledger
@@ -203,6 +249,20 @@ func handoffOf(source []byte) (text string, ok bool) {
 	}
 
 	return "", false
+}
+
+// phaseFileStatus reports a phase-N.md's own front-matter status, or ""
+// when the file carries no front matter — the shape a phase file written
+// before the status convention takes, which Resume then reads through the
+// result file's ## Handoff marker instead. It reuses parsePhaseFile, the
+// same decode PhasesFromDir uses to build a folder plan's ledger.
+func phaseFileStatus(spec []byte) string {
+	phase, err := parsePhaseFile(spec)
+	if err != nil {
+		return ""
+	}
+
+	return phase.Status
 }
 
 // executionRowFor reads a plan body's `## Execution` table for the

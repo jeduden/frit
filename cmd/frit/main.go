@@ -1452,11 +1452,35 @@ func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string) {
 	}
 
 	plan.Status = local.Status
-	plan.Phases = local.Phases
+	plan.Phases = folderPlanPhases(root, plan.Path, data, local)
 	plan.Goal = local.Goal
 	plan.DependsOn = local.DependsOn
 
 	return plan, report.SourceLane
+}
+
+// folderPlanPhases returns the phases frit next and phase report for a
+// plan read from its own lane. A ledger-free folder plan carries its
+// phases as separate phase-*.md files, invisible to planmeta.Parse,
+// which sees only plan.md's bytes; when Parse left the ledger empty,
+// assemble them from the plan's directory so the open phase is found
+// from phase-file status — the same fill-in doctor does. The ledger wins
+// where present, and a flat plan (no directory of its own) or an
+// unreadable directory keeps local.Phases unchanged.
+func folderPlanPhases(
+	root, planPath string, planBody []byte, local planmeta.Plan,
+) []planmeta.Phase {
+	if len(local.Phases) > 0 || !plans.IsFolderPlanFile(planPath) {
+		return local.Phases
+	}
+
+	phases, err := planmeta.PhasesFromDir(
+		filepath.Dir(filepath.Join(root, planPath)), planBody)
+	if err != nil {
+		return local.Phases
+	}
+
+	return phases
 }
 
 // replacePlan returns a copy of plans with the entry matching updated's
@@ -1748,7 +1772,7 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 	// laneOverride exists to close for next and show.
 	if local, err := planmeta.Parse(body); err == nil {
 		plan.Status = local.Status
-		plan.Phases = local.Phases
+		plan.Phases = folderPlanPhases(root, plan.Path, body, local)
 		plan.Goal = local.Goal
 		plan.DependsOn = local.DependsOn
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,51 @@ func TestPhaseNamesTheOpenPhaseFileAndBundlesItsHandoff(t *testing.T) {
 	assert.Contains(t, got, "phase-2.result.md")
 	assert.Contains(t, got, "opus")
 	assert.Contains(t, got, "test two")
+}
+
+// TestFolderPlanPhasesAssemblesFromDirWhenLedgerFree is
+// folderPlanPhases' own dedicated test: a folder plan whose plan.md
+// carries no ledger has its phases read from its directory's phase-*.md
+// front matter.
+func TestFolderPlanPhasesAssemblesFromDirWhenLedgerFree(t *testing.T) {
+	root := t.TempDir()
+	rel := filepath.Join("plan", "100_x", "plan.md")
+	dir := filepath.Join(root, "plan", "100_x")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	writePhaseCompanion(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody.\n")
+	writePhaseCompanion(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nBody.\n")
+
+	got := folderPlanPhases(root, rel,
+		[]byte("---\nid: 100\ntitle: X\nstatus: \"🔳\"\n---\n# X\n"),
+		planmeta.Plan{})
+
+	require.Len(t, got, 2)
+	assert.Equal(t, planmeta.PhaseNumber("2"), got[1].N)
+	assert.Equal(t, "🔲", got[1].Status)
+}
+
+// TestFolderPlanPhasesKeepsTheLedgerWherePresent: a plan whose plan.md
+// carries a ledger keeps it — the phase files never override it.
+func TestFolderPlanPhasesKeepsTheLedgerWherePresent(t *testing.T) {
+	ledger := []planmeta.Phase{{N: "1", Status: "🔲"}}
+
+	got := folderPlanPhases(t.TempDir(),
+		filepath.Join("plan", "100_x", "plan.md"), nil,
+		planmeta.Plan{Phases: ledger})
+
+	assert.Equal(t, ledger, got)
+}
+
+// TestFolderPlanPhasesLeavesAFlatPlanUnchanged: a flat plan has no
+// directory of its own to read phase files from, so it keeps whatever
+// planmeta.Parse gave it.
+func TestFolderPlanPhasesLeavesAFlatPlanUnchanged(t *testing.T) {
+	got := folderPlanPhases(t.TempDir(),
+		filepath.Join("plan", "100_x.md"), nil, planmeta.Plan{})
+
+	assert.Nil(t, got)
 }
 
 // TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus is Phase 2's
