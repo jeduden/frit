@@ -619,8 +619,9 @@ func (d *doctorCmd) Help() string {
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
-  phase-n-sync    a folder plan's phase-N.md front-matter n disagrees
-                  with the number its own filename carries
+  phase-n-sync    a folder plan's phase-N.md, or its phase-N.result.md,
+                  front-matter n disagrees with the number its own
+                  filename carries
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each

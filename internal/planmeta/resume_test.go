@@ -393,6 +393,46 @@ func TestPhaseFilenameMismatchesFlagsOnlyADivergentN(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "2", got[0].FileToken)
 	assert.Equal(t, "5", got[0].FrontMatterN)
+	assert.False(t, got[0].Result, "want the mismatch attributed to phase-2.md, not a result file")
+}
+
+// TestPhaseFilenameMismatchesFlagsADivergentResultN is the result-file
+// half of the RED above: the `## Phases` catalog globs both
+// phase-*.md and phase-*.result.md and sorts on each file's own
+// front-matter `n`, so a phase-N.result.md whose `n` disagrees with
+// its filename is just as load-bearing as its spec — a split-phase
+// renumbering that touches the spec but not its already-closed record
+// is exactly this drift. A synced result file (n matches) reports
+// nothing; a skewed one is flagged with Result: true so a caller can
+// tell it apart from a spec mismatch.
+func TestPhaseFilenameMismatchesFlagsADivergentResultN(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-1.result.md",
+		"---\nn: 5\ntitle: First\nstatus: \"✅\"\nresult: true\nsummary: Done.\n---\n## Handoff\n\nDone.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "1", got[0].FileToken)
+	assert.Equal(t, "5", got[0].FrontMatterN)
+	assert.True(t, got[0].Result, "want the mismatch attributed to phase-1.result.md")
+}
+
+// TestPhaseFilenameMismatchesSkipsAnAbsentResultFile: an open phase's
+// phase-N.md has no phase-N.result.md yet, and that must not be
+// reported as a mismatch or error the scan.
+func TestPhaseFilenameMismatchesSkipsAnAbsentResultFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nBody one.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 // TestPhaseFilenameMismatchesSkipsAPreConventionFile mirrors the

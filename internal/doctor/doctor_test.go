@@ -588,6 +588,29 @@ func TestCheckPhaseNumberSyncFlagsOnlyADivergentPhase(t *testing.T) {
 	assert.Equal(t, filepath.Join("plan", "2601010000_x", "phase-2.md"), got[0].Path)
 }
 
+// TestCheckPhaseNumberSyncFlagsADivergentResultFile mirrors
+// TestCheckPhaseNumberSyncFlagsOnlyADivergentPhase for a
+// phase-N.result.md whose own front-matter n disagrees with its
+// filename: the interleaved `## Phases` catalog sorts on a result
+// file's own n too, so a skewed record is just as reportable as a
+// skewed spec, and lands on its own path.
+func TestCheckPhaseNumberSyncFlagsADivergentResultFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "phase-1.md"),
+		[]byte(phaseFileMD(1, "one", "✅")), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "phase-1.result.md"),
+		[]byte("---\nn: 5\ntitle: one\nstatus: \"✅\"\nresult: true\nsummary: Done.\n---\n## Handoff\n\nDone.\n"),
+		0o600))
+
+	got, err := checkPhaseNumberSync(2601010000, "plan/2601010000_x/plan.md", dir)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "phase-n-sync", got[0].Check)
+	assert.Equal(t, filepath.Join("plan", "2601010000_x", "phase-1.result.md"), got[0].Path)
+	assert.Contains(t, got[0].Message, "phase-1.result.md")
+}
+
 func TestLeadingIDTokenReadsTheFolderNameForAFolderPlan(t *testing.T) {
 	assert.Equal(t, "2601010000",
 		leadingIDToken("plan/2601010000_x/plan.md"))

@@ -34,7 +34,8 @@ commit, so the ledger can never go stale.
 
   - First commit of the plan → plan `status:` 🔲 → 🔳.
   - A phase-file plan (`phase` named a result path) → write that
-     file's `## Handoff`: the outcome, what the next phase inherits.
+     file's `{n, title, status, result: true, summary}` front matter
+     and its `## Handoff`: the outcome, what the next phase inherits.
   - A ledgered plan (no result path) → flip its `phases:` entry → ✅.
   - The last phase's closing commit → tick met Acceptance Criteria,
      plan `status:` → ✅, `mdsmith fix PLAN.md`. Then `mdsmith check .`

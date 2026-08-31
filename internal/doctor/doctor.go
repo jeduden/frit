@@ -248,11 +248,11 @@ func checkIDSync(id int64, rel string) *Finding {
 }
 
 // checkPhaseNumberSync mirrors checkIDSync for a folder plan's own
-// phase files: frit derives a phase's number from its phase-N.md
-// filename, while a generated `## Phases` catalog renders from
-// front-matter `n`. One finding per divergent phase, each pointing at
-// the skewed phase-N.md itself rather than plan.md, so a reader lands
-// on the file to fix.
+// phase files: frit derives a phase's number from its phase-N.md (or
+// phase-N.result.md) filename, while a generated `## Phases` catalog
+// renders from front-matter `n` on both. One finding per divergent
+// file, each pointing at the skewed file itself rather than plan.md,
+// so a reader lands on the file to fix.
 func checkPhaseNumberSync(id int64, planRel, dir string) ([]Finding, error) {
 	mismatches, err := planmeta.PhaseFilenameMismatches(dir)
 	if err != nil {
@@ -261,13 +261,17 @@ func checkPhaseNumberSync(id int64, planRel, dir string) ([]Finding, error) {
 
 	out := make([]Finding, 0, len(mismatches))
 	for _, m := range mismatches {
+		name := "phase-" + m.FileToken + ".md"
+		if m.Result {
+			name = "phase-" + m.FileToken + ".result.md"
+		}
 		out = append(out, Finding{
 			ID:    id,
-			Path:  filepath.Join(filepath.Dir(planRel), "phase-"+m.FileToken+".md"),
+			Path:  filepath.Join(filepath.Dir(planRel), name),
 			Check: "phase-n-sync",
 			Message: fmt.Sprintf(
-				"phase-%s.md front-matter n %q does not match its filename",
-				m.FileToken, m.FrontMatterN),
+				"%s front-matter n %q does not match its filename",
+				name, m.FrontMatterN),
 		})
 	}
 
