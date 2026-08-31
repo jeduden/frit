@@ -195,6 +195,11 @@ kinds:
       heading-increment: false
       paragraph-readability: false
       paragraph-structure: false
+      # Same {n, title, status} the spec carries: the record is the
+      # artifact whose `## Handoff` closes a phase, so its status lives
+      # in the same generated home, load-bearing on the file itself.
+      required-frontmatter:
+        fields: [n, title, status]
       # 1800 to match phase-spec: a phase record is a living document
       # that accretes notes and a Handoff as the phase runs, growing
       # the same way a detailed proving-slice spec (900–1700+ tokens)
