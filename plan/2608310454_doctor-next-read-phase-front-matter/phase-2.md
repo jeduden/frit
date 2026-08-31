@@ -2,6 +2,7 @@
 n: 2
 title: next and phase find a ledger-free folder plan's open phase from status
 status: "✅"
+result: false
 ---
 Move the open-phase reading onto the phase files. `frit next` and
 `frit phase` must find and report the open phase of a ledger-free folder

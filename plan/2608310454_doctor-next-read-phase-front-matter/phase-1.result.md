@@ -2,6 +2,8 @@
 n: 1
 title: Doctor validates a ledger-free folder plan from phase front matter
 status: "✅"
+result: true
+summary: doctor validates a ledger-free folder plan's Execution rows from phase-*.md front matter.
 ---
 ## Handoff
 

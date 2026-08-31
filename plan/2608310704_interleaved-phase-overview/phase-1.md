@@ -1,7 +1,8 @@
 ---
 n: 1
 title: Kinds carry summary and discriminator; the Phases catalog interleaves
-status: "🔲"
+status: "✅"
+result: false
 ---
 Prove the interleaved overview end-to-end on the smallest slice. Teach
 the phase kinds the two new fields. Prove a folder plan's `## Phases`

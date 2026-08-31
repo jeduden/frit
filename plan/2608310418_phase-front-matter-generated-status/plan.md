@@ -108,22 +108,30 @@ flat and ledgered plans without it still pass `mdsmith check .`.
 <?catalog
 glob:
   - "phase-*.md"
-  - "!phase-*.result.md"
+  - "phase-*.result.md"
 sort: numeric:n
 header: |
 
   | # | Status | Phase |
   |---|--------|-------|
-row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
 footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                   |
-| --- | ------ | --------------------------------------------------------------------------------------- |
-| 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md)            |
-| 2   | ✅     | [A phase record requires the front matter and the existing records migrate](phase-2.md) |
-| 3   | ✅     | [plan-new writes the phase front matter and the generated catalog](phase-3.md)          |
+| #   | Status | Phase                                                                                                   |
+| --- | ------ | ------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md)                            |
+|     | ↳      | The phase-spec kind requires {n, title, status} front matter; two existing phase specs backfilled it.   |
+| 2   | ✅     | [A phase record requires the front matter and the existing records migrate](phase-2.md)                 |
+|     | ↳      | The phase-record kind requires {n, title, status}, matching phase-spec; existing records backfilled it. |
+| 3   | ✅     | [plan-new writes the phase front matter and the generated catalog](phase-3.md)                          |
+|     | ↳      | plan-new writes {n, title, status} on each phase file and a Phases catalog in plan.md.                  |
 <?/catalog?>
 
 ## Acceptance Criteria

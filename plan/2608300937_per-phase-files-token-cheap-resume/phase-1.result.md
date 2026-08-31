@@ -2,6 +2,8 @@
 n: 1
 title: frit phase finds the open phase and emits the working bundle
 status: "✅"
+result: true
+summary: frit phase now bundles the open phase — spec, prior handoff, notes, tier, gate and the result path — in one call.
 ---
 ## Handoff
 

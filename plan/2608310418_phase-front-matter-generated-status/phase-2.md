@@ -2,6 +2,7 @@
 n: 2
 title: A phase record requires the front matter and the existing records migrate
 status: "✅"
+result: false
 ---
 Phase 1 made the `phase-spec` kind require `{n, title, status}`. Do the
 same for the `phase-record` kind — the `phase-N.result.md` living

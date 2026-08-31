@@ -2,6 +2,8 @@
 n: 3
 title: plan-new writes the phase front matter and the generated catalog
 status: "✅"
+result: true
+summary: plan-new writes {n, title, status} on each phase file and a Phases catalog in plan.md.
 ---
 ## Handoff
 

@@ -374,6 +374,101 @@ func TestPhasesFromDirReturnsNilWhenNoPhaseFiles(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+// TestPhaseFilenameMismatchesFlagsOnlyADivergentN is Phase 3's RED:
+// frit derives a phase's number from its phase-N.md filename, while
+// the generated `## Phases` catalog renders from front-matter `n`. A
+// synced phase-1.md (n: 1) reports no mismatch; a skewed phase-2.md
+// (n: 5, filename still says 2) does. PhaseFilenameMismatches does not
+// exist yet.
+func TestPhaseFilenameMismatchesFlagsOnlyADivergentN(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 5\ntitle: Second\nstatus: \"🔲\"\n---\nBody two.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "2", got[0].FileToken)
+	assert.Equal(t, "5", got[0].FrontMatterN)
+	assert.False(t, got[0].Result, "want the mismatch attributed to phase-2.md, not a result file")
+}
+
+// TestPhaseFilenameMismatchesFlagsADivergentResultN is the result-file
+// half of the RED above: the `## Phases` catalog globs both
+// phase-*.md and phase-*.result.md and sorts on each file's own
+// front-matter `n`, so a phase-N.result.md whose `n` disagrees with
+// its filename is just as load-bearing as its spec — a split-phase
+// renumbering that touches the spec but not its already-closed record
+// is exactly this drift. A synced result file (n matches) reports
+// nothing; a skewed one is flagged with Result: true so a caller can
+// tell it apart from a spec mismatch.
+func TestPhaseFilenameMismatchesFlagsADivergentResultN(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-1.result.md",
+		"---\nn: 5\ntitle: First\nstatus: \"✅\"\nresult: true\nsummary: Done.\n---\n## Handoff\n\nDone.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "1", got[0].FileToken)
+	assert.Equal(t, "5", got[0].FrontMatterN)
+	assert.True(t, got[0].Result, "want the mismatch attributed to phase-1.result.md")
+}
+
+// TestPhaseFilenameMismatchesSkipsAnAbsentResultFile: an open phase's
+// phase-N.md has no phase-N.result.md yet, and that must not be
+// reported as a mismatch or error the scan.
+func TestPhaseFilenameMismatchesSkipsAnAbsentResultFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nBody one.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestPhaseFilenameMismatchesSkipsADirectoryNamedLikeAResultFile
+// mirrors the stray-directory leniency doctor's own scanFile applies
+// to a plan.md-shaped directory: phaseSpecNumbers already skips a
+// directory entry matching phase-N.md, but phaseFileMismatch reads a
+// phase-N.result.md name it derives itself, with no such check —
+// os.ReadFile on a directory fails with an error that is not
+// os.ErrNotExist, and that must not abort the whole scan and lose
+// every other plan's findings with it.
+func TestPhaseFilenameMismatchesSkipsADirectoryNamedLikeAResultFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nBody one.\n")
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "phase-1.result.md"), 0o750))
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestPhaseFilenameMismatchesSkipsAPreConventionFile mirrors the
+// leniency PhasesFromDir applies: a phase file written before the
+// {n, title, status} convention carries no front matter to compare, so
+// it is skipped rather than erroring the whole scan.
+func TestPhaseFilenameMismatchesSkipsAPreConventionFile(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md", "No front matter here.\n")
+
+	got, err := PhaseFilenameMismatches(dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 // TestParsePhaseFileDecodesFrontMatter: a phase-N.md's own
 // {n, title, status} front matter decodes into a Phase, and its prose
 // comes back as the body so a caller need not parse the source again.

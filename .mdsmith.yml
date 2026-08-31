@@ -175,15 +175,19 @@ kinds:
         n: 'int | =~"^[0-9]+[A-Za-z]+$"'
         title: 'string & != ""'
         status: 'string & != ""'
+        # The interleaved `## Phases` catalog's row-expr branches on
+        # this: false on a phase-N.md, true on its phase-N.result.md.
+        result: 'bool'
     rules:
       first-line-heading: false
       heading-increment: false
       # A phase file is the single home of its own status. Requiring
-      # {n, title, status} makes that front matter load-bearing, so a
-      # folder plan's generated `## Phases` catalog renders from it and
-      # a phase closes by flipping its own file, not a hand-kept ledger.
+      # {n, title, status, result} makes that front matter load-bearing,
+      # so a folder plan's generated `## Phases` catalog renders from it
+      # and a phase closes by flipping its own file, not a hand-kept
+      # ledger.
       required-frontmatter:
-        fields: [n, title, status]
+        fields: [n, title, status, result]
       # 1800 heuristic tokens fits a genuinely detailed proving-slice
       # spec — Assumes, Value, RED, a file-by-file GREEN list and a
       # multi-break Gate run 900–1700+ tokens — with headroom above
@@ -201,24 +205,28 @@ kinds:
     path-pattern: "plan/*/phase-*.result.md"
     schema:
       filename: "phase-*.result.md"
-      # The record carries the same `n` as its spec; the catalog
-      # excludes result files, so `n` here feeds no row, but it is
-      # typed the same way (int or a split-phase token). Closed the
-      # same way, so title and status are declared too.
+      # The record carries the same `n` as its spec, typed the same way
+      # (int or a split-phase token). Closed the same way, so title and
+      # status are declared too.
       frontmatter:
         n: 'int | =~"^[0-9]+[A-Za-z]+$"'
         title: 'string & != ""'
         status: 'string & != ""'
+        # See phase-spec's `result`: true on every phase-N.result.md.
+        result: 'bool'
+        # The row-expr's `↳` summary row source.
+        summary: 'string & != ""'
     rules:
       first-line-heading: false
       heading-increment: false
       paragraph-readability: false
       paragraph-structure: false
-      # Same {n, title, status} the spec carries: the record is the
-      # artifact whose `## Handoff` closes a phase, so its status lives
-      # in the same generated home, load-bearing on the file itself.
+      # Same {n, title, status, result} the spec carries, plus
+      # `summary`: the record is the artifact whose `## Handoff` closes
+      # a phase, so its status and its catalog summary row both live in
+      # this generated home, load-bearing on the file itself.
       required-frontmatter:
-        fields: [n, title, status]
+        fields: [n, title, status, result, summary]
       # 1800 to match phase-spec: a phase record is a living document
       # that accretes notes and a Handoff as the phase runs, growing
       # the same way a detailed proving-slice spec (900–1700+ tokens)

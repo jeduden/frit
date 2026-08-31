@@ -1,7 +1,7 @@
 ---
 id: 2608310704
 title: Interleaved phase overview with result summaries
-status: "🔲"
+status: "✅"
 summary: >-
   A folder plan's `## Phases` catalog lists only its phase specs, so
   plan.md shows what each phase is but not how it turned out. Fold the
@@ -102,32 +102,42 @@ and schema phases test the same way.
 <?catalog
 glob:
   - "phase-*.md"
-  - "!phase-*.result.md"
+  - "phase-*.result.md"
 sort: numeric:n
 header: |
 
   | # | Status | Phase |
   |---|--------|-------|
-row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
 footer: |
 
 ?>
 
-| #   | Status | Phase                                                                               |
-| --- | ------ | ----------------------------------------------------------------------------------- |
-| 1   | 🔲     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md) |
+| #   | Status | Phase                                                                                                                                         |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md)                                                           |
+|     | ↳      | The interleaved Phases catalog renders a spec row directly followed by its result's summary row against a fixture; a stale body trips MDS019. |
+| 2   | ✅     | [Every phase file and live plan.md adopts the front matter and catalog](phase-2.md)                                                           |
+|     | ↳      | Every real phase file carries result/summary, both are now required, and every live Phases catalog renders interleaved.                       |
+| 3   | ✅     | [doctor flags a phase whose front-matter n differs from its filename](phase-3.md)                                                             |
+|     | ↳      | frit doctor now flags a folder-plan phase whose front-matter n disagrees with its filename, on the skewed phase file's own path.              |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A folder plan's `## Phases` catalog renders each phase's spec row
+- [x] A folder plan's `## Phases` catalog renders each phase's spec row
       followed by its result-summary row, and an open phase with no
       result file shows a spec row alone
-- [ ] Every result file carries a non-empty `summary`; every phase file
+- [x] Every result file carries a non-empty `summary`; every phase file
       carries the discriminator; `mdsmith check .` is clean
-- [ ] `frit doctor` flags a phase whose front-matter `n` differs from its
+- [x] `frit doctor` flags a phase whose front-matter `n` differs from its
       filename number, and reports nothing when they agree
-- [ ] `plan-new` and `plan/proto.md` document the new front matter and
+- [x] `plan-new` and `plan/proto.md` document the new front matter and
       the interleaved catalog; the dogfood-match and scaffold tests pass
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

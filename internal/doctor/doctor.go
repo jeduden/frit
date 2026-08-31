@@ -41,8 +41,9 @@ type Finding struct {
 	// Path is the plan file's path, relative to root.
 	Path string
 	// Check names which of doctor's checks produced this finding —
-	// "goal", "execution-row", "tier", "schema" or "id-sync" —
-	// matching the vocabulary the doctor --help text documents.
+	// "goal", "execution-row", "tier", "schema", "id-sync" or
+	// "phase-n-sync" — matching the vocabulary the doctor --help text
+	// documents.
 	Check string
 	// Message is what is wrong, in prose. For "goal" and "schema" this
 	// is mdsmith's own diagnostic message, carried through rather than
@@ -178,6 +179,13 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 	if f := checkIDSync(plan.ID, rel); f != nil {
 		findings = append(findings, *f)
 	}
+	if plans.IsFolderPlanFile(rel) {
+		nSync, err := checkPhaseNumberSync(plan.ID, rel, filepath.Dir(path))
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, nSync...)
+	}
 
 	diags, _ := sess.Check(rel, source)
 	findings = append(findings, checkDiagnostics(plan.ID, rel, diags)...)
@@ -237,6 +245,37 @@ func checkIDSync(id int64, rel string) *Finding {
 		Message: fmt.Sprintf(
 			"name %q does not match front-matter id %d", token, id),
 	}
+}
+
+// checkPhaseNumberSync mirrors checkIDSync for a folder plan's own
+// phase files: frit derives a phase's number from its phase-N.md (or
+// phase-N.result.md) filename, while a generated `## Phases` catalog
+// renders from front-matter `n` on both. One finding per divergent
+// file, each pointing at the skewed file itself rather than plan.md,
+// so a reader lands on the file to fix.
+func checkPhaseNumberSync(id int64, planRel, dir string) ([]Finding, error) {
+	mismatches, err := planmeta.PhaseFilenameMismatches(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Finding, 0, len(mismatches))
+	for _, m := range mismatches {
+		name := planmeta.SpecFileName(m.FileToken)
+		if m.Result {
+			name = planmeta.ResultFileName(m.FileToken)
+		}
+		out = append(out, Finding{
+			ID:    id,
+			Path:  filepath.Join(filepath.Dir(planRel), name),
+			Check: "phase-n-sync",
+			Message: fmt.Sprintf(
+				"%s front-matter n %q does not match its filename",
+				name, m.FrontMatterN),
+		})
+	}
+
+	return out, nil
 }
 
 // leadingIDToken takes the id token a plan's on-disk name carries: a

@@ -2,6 +2,7 @@
 n: 1
 title: A phase file carries its status and a generated table shows it
 status: "✅"
+result: false
 ---
 Prove the whole idea on the smallest slice. A phase file holds its own
 `{n, title, status}`. The linter requires it. A folder plan's

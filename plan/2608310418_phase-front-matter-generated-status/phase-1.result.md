@@ -2,6 +2,8 @@
 n: 1
 title: A phase file carries its status and a generated table shows it
 status: "✅"
+result: true
+summary: The phase-spec kind requires {n, title, status} front matter; two existing phase specs backfilled it.
 ---
 ## Handoff
 

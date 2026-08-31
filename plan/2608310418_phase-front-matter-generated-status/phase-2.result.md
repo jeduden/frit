@@ -2,6 +2,8 @@
 n: 2
 title: A phase record requires the front matter and the existing records migrate
 status: "✅"
+result: true
+summary: The phase-record kind requires {n, title, status}, matching phase-spec; existing records backfilled it.
 ---
 ## Handoff
 
