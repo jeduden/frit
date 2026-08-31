@@ -1,7 +1,7 @@
 ---
 id: 2608310355
 title: Raise phase-spec token budget for detailed proving slices
-status: "🔲"
+status: "✅"
 summary: >-
   The `phase-spec` kind's `token-budget` is 800 heuristic tokens,
   calibrated to the largest phase body written so far (~660). A
@@ -63,12 +63,12 @@ value. The fixture must sit at a `plan/*/phase-*.md` path so the
 
 ## Acceptance Criteria
 
-- [ ] `phase-spec` `token-budget.max` raised to fit a detailed
+- [x] `phase-spec` `token-budget.max` raised to fit a detailed
       proving-slice spec (>=1700), `phase-record` raised to match
-- [ ] A representative detailed phase-spec (~1500 heuristic tokens)
+- [x] A representative detailed phase-spec (~1500 heuristic tokens)
       fails `mdsmith check` at the old budget and passes at the new one
-- [ ] No other lint rule is relaxed; only the two budgets and their
+- [x] No other lint rule is relaxed; only the two budgets and their
       comments change
-- [ ] `mdsmith check .` is clean
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `mdsmith check .` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
