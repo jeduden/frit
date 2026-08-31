@@ -84,6 +84,39 @@ func TestPhaseNamesTheOpenPhaseFileAndBundlesItsHandoff(t *testing.T) {
 	assert.Contains(t, got, "test two")
 }
 
+// TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus is Phase 2's
+// RED for the next path: a folder plan carrying no phases: ledger, whose
+// phase-1.md front matter says ✅ and phase-2.md says 🔲, reports phase 2
+// as its open phase. At HEAD next reads plan.Phases from planmeta.Parse
+// alone, which is empty for such a plan, so it finds no phase.
+func TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	dir := writeFolderPlan(t, repo, 100, "🔳", "Layered work",
+		"1 first | sonnet | sonnet | test one\n"+
+			"2 second | sonnet | opus | test two\n")
+	writePhaseCompanion(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nDo the first thing.\n")
+	writePhaseCompanion(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nDo the second thing.\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "phase 2",
+		"the open phase is read from phase-2.md's own status")
+	assert.Contains(t, got, "opus", "and carries its Execution tier")
+}
+
 // TestPhaseDoneTestParsesTheHandoffHeadingNotASubstring is Phase 1's
 // RED, case two: phase-2's own result file parks Follow-ups that
 // quote a "## Handoff" line inside a fenced code block, but carries

@@ -86,16 +86,18 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                            |
-| --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
+| #   | Status | Phase                                                                                |
+| --- | ------ | ------------------------------------------------------------------------------------ |
+| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md)     |
+| 2   | 🔲     | [next and phase find a ledger-free folder plan's open phase from status](phase-2.md) |
 <?/catalog?>
 
 ## Execution
 
-| Phase | Title                                                              | Tier   | Gate                                                                                                                                         |
-| ----- | ------------------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Doctor validates a ledger-free folder plan from phase front matter | sonnet | A ledger-free folder-plan fixture whose phase lacks an Execution row is unflagged by doctor at HEAD and flagged after; `go test ./...` green |
+| Phase | Title                                                                  | Tier   | Gate                                                                                                                                                                      |
+| ----- | ---------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Doctor validates a ledger-free folder plan from phase front matter     | sonnet | A ledger-free folder-plan fixture whose phase lacks an Execution row is unflagged by doctor at HEAD and flagged after; `go test ./...` green                              |
+| 2     | next and phase find a ledger-free folder plan's open phase from status | sonnet | A ledger-free folder plan whose phase-1 status is ✅ resumes at phase 2 and its open phase is found from phase-file status, not the Handoff marker; `go test ./...` green |
 
 ## Acceptance Criteria
 
