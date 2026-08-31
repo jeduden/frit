@@ -59,12 +59,15 @@ canonical [SKILL.md](../../internal/skills/assets/plan-new/SKILL.md) and
 the dogfood [copy](../../.claude/skills/plan-new/SKILL.md) `frit skills`
 writes.
 
-**The migration constraint.** Making front matter *required* on the
-phase kinds breaks any phase file that lacks it. So `mdsmith check .`
-stays honest only if two sets of files gain front matter in the same
-change: the one existing folder plan
-([2608300937](../2608300937_per-phase-files-token-cheap-resume/plan.md),
-its `phase-3.md`), and this plan's own phase files.
+**The migration constraint.** Making front matter *required* on a phase
+kind breaks any file of that kind that lacks it. So `mdsmith check .`
+stays honest only if the existing files gain front matter in step with
+each requirement. The one existing folder plan
+([2608300937](../2608300937_per-phase-files-token-cheap-resume/plan.md))
+carries three: its `phase-3.md` spec, migrated with the `phase-spec`
+rule in Phase 1, and its `phase-1.result.md` and `phase-3.result.md`
+records, migrated with the `phase-record` rule in Phase 2. This plan's
+own phase files carry theirs from the start.
 
 **The ordering constraint — why the ledger stays for now.** `frit
 doctor` and `frit next` read per-phase state from the `phases:` ledger,
@@ -94,9 +97,11 @@ flat and ledgered plans without it still pass `mdsmith check .`.
 
 ## Execution
 
-| Phase | Title                                                          | Tier   | Gate                                                                                                                                                               |
-| ----- | -------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | A phase file carries its status and a generated table shows it | sonnet | `mdsmith` renders the `## Phases` table from phase front matter; a phase-spec missing front matter fails `mdsmith check`; `mdsmith check .` clean across all plans |
+| Phase | Title                                                            | Tier   | Gate                                                                                                                                                               |
+| ----- | ---------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | A phase file carries its status and a generated table shows it   | sonnet | `mdsmith` renders the `## Phases` table from phase front matter; a phase-spec missing front matter fails `mdsmith check`; `mdsmith check .` clean across all plans |
+| 2     | A phase record requires the front matter and the records migrate | sonnet | a phase-record missing front matter fails `mdsmith check`; the migrated 2608300937 records pass; `mdsmith check .` clean across all plans                          |
+| 3     | plan-new writes the phase front matter and the generated catalog | sonnet | a Go test asserts the skill instructs the front matter and catalog; the built `frit skills` writes a matching dogfood copy; dogfood-match test green               |
 
 ## Phases
 
