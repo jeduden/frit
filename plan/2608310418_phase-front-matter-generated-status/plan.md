@@ -1,7 +1,7 @@
 ---
 id: 2608310418
 title: Phase front matter gives per-phase status one generated home
-status: "🔲"
+status: "🔳"
 summary: >-
   A folder plan carries each phase as a freeform phase-N.md with no
   front matter, so per-phase status has to live in the plan.md phases:

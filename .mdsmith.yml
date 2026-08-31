@@ -167,6 +167,12 @@ kinds:
     rules:
       first-line-heading: false
       heading-increment: false
+      # A phase file is the single home of its own status. Requiring
+      # {n, title, status} makes that front matter load-bearing, so a
+      # folder plan's generated `## Phases` catalog renders from it and
+      # a phase closes by flipping its own file, not a hand-kept ledger.
+      required-frontmatter:
+        fields: [n, title, status]
       # 1800 heuristic tokens fits a genuinely detailed proving-slice
       # spec — Assumes, Value, RED, a file-by-file GREEN list and a
       # multi-break Gate run 900–1700+ tokens — with headroom above
