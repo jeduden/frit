@@ -1,7 +1,7 @@
 ---
 id: 2608310454
 title: Doctor and next read phase state from phase front matter
-status: "🔲"
+status: "🔳"
 summary: >-
   A folder plan can now carry per-phase state as phase-file front
   matter, but frit still reads it only from the plan.md phases: ledger
@@ -88,7 +88,7 @@ footer: |
 
 | #   | Status | Phase                                                                            |
 | --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | 🔲     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
+| 1   | 🔳     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
 <?/catalog?>
 
 ## Execution

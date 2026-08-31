@@ -61,6 +61,60 @@ func writeFolderPlan(t *testing.T, root, folder, content string) {
 		os.WriteFile(filepath.Join(dir, "plan.md"), []byte(content), 0o600))
 }
 
+// writeFolderPhaseFile lays a folder plan's phase-N.md spec file, with
+// its own {n, title, status} front matter, into root/plan/<folder>.
+func writeFolderPhaseFile(t *testing.T, root, folder, name, content string) {
+	t.Helper()
+	dir := filepath.Join(root, "plan", folder)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t,
+		os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+}
+
+// ledgerFreeFolderPlanMD renders a folder plan's plan.md carrying no
+// `phases:` ledger — the shape plan-new now writes — with an
+// `## Execution` table that names a row for phase 1 only.
+func ledgerFreeFolderPlanMD(id int64) string {
+	return fmt.Sprintf(`---
+id: %d
+title: A ledger-free folder plan
+status: "🔲"
+model: sonnet
+---
+# A ledger-free folder plan
+
+## Goal
+
+Ship the thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | sonnet | sonnet    | test one |
+
+## Tasks
+
+1. Do it.
+
+## Acceptance Criteria
+
+- [ ] It is done.
+`, id)
+}
+
+// phaseFileMD renders a phase-N.md spec file's own {n, title, status}
+// front matter and a line of body.
+func phaseFileMD(n int, title, status string) string {
+	return fmt.Sprintf(`---
+n: %d
+title: %s
+status: "%s"
+---
+Do the %s thing.
+`, n, title, status, title)
+}
+
 // cleanPlanWithID renders a plan with no semantic gaps, so a fixture
 // built from it isolates whatever check the test adds beyond it.
 func cleanPlanWithID(id int64) string {
@@ -273,6 +327,28 @@ Do the one thing.
 	require.Len(t, got, 1)
 	assert.Equal(t, "tier", got[0].Check)
 	assert.Contains(t, got[0].Message, "sparkle")
+}
+
+// TestScanFlagsAMissingExecutionRowForALedgerFreeFolderPlan is Phase
+// 1's RED: a folder plan carrying no `phases:` ledger has its phases
+// assembled from phase-*.md front matter, so doctor validates its
+// Execution rows. A phase whose number has no Execution row is flagged,
+// the same as for a ledgered plan. At HEAD Plan.Phases is empty for such
+// a plan, so doctor walks nothing and the finding is absent.
+func TestScanFlagsAMissingExecutionRowForALedgerFreeFolderPlan(t *testing.T) {
+	root := newFixtureRoot(t)
+	const folder = "2601030000_ledger-free"
+	writeFolderPlan(t, root, folder, ledgerFreeFolderPlanMD(2601030000))
+	writeFolderPhaseFile(t, root, folder, "phase-1.md", phaseFileMD(1, "one", "🔲"))
+	writeFolderPhaseFile(t, root, folder, "phase-2.md", phaseFileMD(2, "two", "🔲"))
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(2601030000), got[0].ID)
+	assert.Equal(t, "execution-row", got[0].Check)
+	assert.Contains(t, got[0].Message, "phase 2")
 }
 
 // TestScanSortsFindingsByPlanIDThenCheck: a fleet-wide report reads
