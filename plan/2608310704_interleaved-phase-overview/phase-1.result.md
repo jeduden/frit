@@ -2,6 +2,8 @@
 n: 1
 title: Kinds carry summary and discriminator; the Phases catalog interleaves
 status: "✅"
+result: true
+summary: The interleaved Phases catalog renders a spec row directly followed by its result's summary row against a fixture; a stale body trips MDS019.
 ---
 ## Handoff
 

@@ -2,6 +2,8 @@
 n: 3
 title: plan-new defaults to a folder plan and headroom retires
 status: "✅"
+result: true
+summary: plan-new defaults to a folder plan with per-phase files, and internal/headroom has retired.
 ---
 ## Handoff
 

@@ -274,7 +274,7 @@ func TestPhaseSpecKindAcceptsIntPhaseNumber(t *testing.T) {
 	sess := phaseKindsSession(t)
 	intN := []byte("---\nn: 1\n" +
 		"title: A phase whose number is an integer\n" +
-		"status: \"\U0001F532\"\n---\nBody.\n")
+		"status: \"\U0001F532\"\nresult: false\n---\nBody.\n")
 
 	diags, err := sess.Check("plan/2601010000_x/phase-1.md", intN)
 
@@ -292,7 +292,7 @@ func TestPhaseSpecKindAcceptsSplitPhaseNumber(t *testing.T) {
 	sess := phaseKindsSession(t)
 	splitN := []byte("---\nn: 3b\n" +
 		"title: The second half of a split phase\n" +
-		"status: \"\U0001F532\"\n---\nBody.\n")
+		"status: \"\U0001F532\"\nresult: false\n---\nBody.\n")
 
 	diags, err := sess.Check("plan/2601010000_x/phase-3b.md", splitN)
 
@@ -323,7 +323,8 @@ func TestPhaseRecordKindAcceptsIntPhaseNumber(t *testing.T) {
 	sess := phaseKindsSession(t)
 	intN := []byte("---\nn: 1\n" +
 		"title: A phase whose number is an integer\n" +
-		"status: \"\U0001F532\"\n---\n## Handoff\n\nDone.\n")
+		"status: \"\U0001F532\"\nresult: true\n" +
+		"summary: Landed the integer case.\n---\n## Handoff\n\nDone.\n")
 
 	diags, err := sess.Check("plan/2601010000_x/phase-1.result.md", intN)
 
@@ -338,7 +339,8 @@ func TestPhaseRecordKindAcceptsSplitPhaseNumber(t *testing.T) {
 	sess := phaseKindsSession(t)
 	splitN := []byte("---\nn: 3b\n" +
 		"title: The second half of a split phase\n" +
-		"status: \"\U0001F532\"\n---\n## Handoff\n\nDone.\n")
+		"status: \"\U0001F532\"\nresult: true\n" +
+		"summary: Landed the split-phase case.\n---\n## Handoff\n\nDone.\n")
 
 	diags, err := sess.Check("plan/2601010000_x/phase-3b.result.md", splitN)
 
@@ -360,4 +362,38 @@ func TestPhaseRecordKindRejectsMalformedPhaseNumber(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, hasDiagnostic(diags, "required-structure"),
 		"phase-1.result.md with word n: want a required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseSpecKindRequiresResultField is Phase 2's RED: `result` lands
+// optional in Phase 1 so every existing phase-N.md still lints without
+// it, but a folder plan's catalog needs it on every file to render the
+// interleaved table. A `phase-1.md` missing `result` must trip
+// required-structure once the field is tightened to required.
+func TestPhaseSpecKindRequiresResultField(t *testing.T) {
+	sess := phaseKindsSession(t)
+	noResult := []byte("---\nn: 1\n" +
+		"title: A phase missing its discriminator\n" +
+		"status: \"\U0001F532\"\n---\nBody.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.md", noResult)
+
+	require.NoError(t, err)
+	assert.True(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.md with no result: want a required-structure diagnostic, got %+v", diags)
+}
+
+// TestPhaseRecordKindRequiresResultAndSummary mirrors the spec case for
+// phase-N.result.md, which also needs `summary` for its catalog row.
+func TestPhaseRecordKindRequiresResultAndSummary(t *testing.T) {
+	sess := phaseKindsSession(t)
+	noResultOrSummary := []byte("---\nn: 1\n" +
+		"title: A record missing its discriminator and summary\n" +
+		"status: \"✅\"\n---\n## Handoff\n\nDone.\n")
+
+	diags, err := sess.Check("plan/2601010000_x/phase-1.result.md", noResultOrSummary)
+
+	require.NoError(t, err)
+	assert.True(t, hasDiagnostic(diags, "required-structure"),
+		"phase-1.result.md with no result or summary: want a required-structure diagnostic, got %+v",
+		diags)
 }

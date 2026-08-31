@@ -2,6 +2,8 @@
 n: 2
 title: next and phase find a ledger-free folder plan's open phase from status
 status: "✅"
+result: true
+summary: frit next and frit phase find a ledger-free folder plan's open phase from phase-*.md status.
 ---
 ## Handoff
 

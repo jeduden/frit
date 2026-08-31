@@ -102,20 +102,28 @@ and schema phases test the same way.
 <?catalog
 glob:
   - "phase-*.md"
-  - "!phase-*.result.md"
+  - "phase-*.result.md"
 sort: numeric:n
 header: |
 
   | # | Status | Phase |
   |---|--------|-------|
-row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
 footer: |
 
 ?>
 
-| #   | Status | Phase                                                                               |
-| --- | ------ | ----------------------------------------------------------------------------------- |
-| 1   | ✅     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md) |
+| #   | Status | Phase                                                                                                                                         |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Kinds carry summary and discriminator; the Phases catalog interleaves](phase-1.md)                                                           |
+|     | ↳      | The interleaved Phases catalog renders a spec row directly followed by its result's summary row against a fixture; a stale body trips MDS019. |
+| 2   | ✅     | [Every phase file and live plan.md adopts the front matter and catalog](phase-2.md)                                                           |
+|     | ↳      | Every real phase file carries result/summary, both are now required, and every live Phases catalog renders interleaved.                       |
 <?/catalog?>
 
 ## Acceptance Criteria

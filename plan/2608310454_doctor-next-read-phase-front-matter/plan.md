@@ -75,21 +75,28 @@ living record, no longer the sole done-signal.
 <?catalog
 glob:
   - "phase-*.md"
-  - "!phase-*.result.md"
+  - "phase-*.result.md"
 sort: numeric:n
 header: |
 
   | # | Status | Phase |
   |---|--------|-------|
-row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
 footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                |
-| --- | ------ | ------------------------------------------------------------------------------------ |
-| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md)     |
-| 2   | ✅     | [next and phase find a ledger-free folder plan's open phase from status](phase-2.md) |
+| #   | Status | Phase                                                                                        |
+| --- | ------ | -------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md)             |
+|     | ↳      | doctor validates a ledger-free folder plan's Execution rows from phase-*.md front matter.    |
+| 2   | ✅     | [next and phase find a ledger-free folder plan's open phase from status](phase-2.md)         |
+|     | ↳      | frit next and frit phase find a ledger-free folder plan's open phase from phase-*.md status. |
 <?/catalog?>
 
 ## Execution
