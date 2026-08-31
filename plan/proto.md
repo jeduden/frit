@@ -68,6 +68,23 @@ filename: "*.md"
   - Both sections are optional for a plan small
     enough to land in one go.
 
+  Phases as their own files (folder plans):
+  - A folder plan keeps each phase in its own
+    `phase-N.md` beside `plan.md`, carrying `n`,
+    `title` and `status` front matter — the single
+    home of that phase's status.
+  - Such a plan may add an optional `## Phases`
+    catalog that regenerates from those files with a
+    `<?catalog?>` over the relative glob `phase-*.md`
+    (excluding the result files), sorted numerically
+    by `n`, rendering a table of number, status and a
+    link to each phase. A phase then closes by
+    flipping its own file's `status`; the table
+    follows.
+  - The section is optional: the `## ...` slot above
+    admits it, so a plan without it still validates.
+    See this repo's plan 2608310418 for a live one.
+
 -->
 
 ## ...

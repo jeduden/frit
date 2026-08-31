@@ -18,7 +18,7 @@ depends-on: []
 phases:
   - n: 1
     title: A phase file carries its status and a generated table shows it
-    status: "🔲"
+    status: "✅"
 ---
 # Phase front matter gives per-phase status one generated home
 
@@ -91,6 +91,27 @@ flat and ledgered plans without it still pass `mdsmith check .`.
 | Phase | Title                                                          | Tier   | Gate                                                                                                                                                               |
 | ----- | -------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1     | A phase file carries its status and a generated table shows it | sonnet | `mdsmith` renders the `## Phases` table from phase front matter; a phase-spec missing front matter fails `mdsmith check`; `mdsmith check .` clean across all plans |
+
+## Phases
+
+<?catalog
+glob:
+  - "phase-*.md"
+  - "!phase-*.result.md"
+sort: numeric:n
+header: |
+
+  | # | Status | Phase |
+  |---|--------|-------|
+row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+footer: |
+
+?>
+
+| #   | Status | Phase                                                                        |
+| --- | ------ | ---------------------------------------------------------------------------- |
+| 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md) |
+<?/catalog?>
 
 ## Acceptance Criteria
 

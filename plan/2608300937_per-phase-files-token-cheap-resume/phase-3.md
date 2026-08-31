@@ -1,3 +1,8 @@
+---
+n: 3
+title: plan-new defaults to a folder plan and headroom retires
+status: "✅"
+---
 `plan-new` now writes every plan as a folder,
 `plan/<id>_<slug>/plan.md`. Each phase gets its own `phase-N.md` spec.
 No more appending `## Phase N` sections to `plan.md`. `plan.md` no
