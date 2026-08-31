@@ -60,7 +60,10 @@ func hasDiagnostic(diags []mdsmith.Diagnostic, rule string) bool {
 // token-budget diagnostic. Once the phase-spec kind lands, it does.
 func TestPhaseSpecKindEnforcesTokenBudget(t *testing.T) {
 	sess := phaseKindsSession(t)
-	oversized := []byte(strings.Repeat("word ", 1000))
+	// 1500 words is ~2000 heuristic tokens, above the phase-spec
+	// budget of 1800; the fixture must exceed the raised ceiling to
+	// keep proving the kind enforces the budget at all.
+	oversized := []byte(strings.Repeat("word ", 1500))
 
 	diags, err := sess.Check("plan/2601010000_x/phase-1.md", oversized)
 
@@ -73,7 +76,10 @@ func TestPhaseSpecKindEnforcesTokenBudget(t *testing.T) {
 // phase-N.result.md.
 func TestPhaseRecordKindEnforcesTokenBudget(t *testing.T) {
 	sess := phaseKindsSession(t)
-	oversized := []byte(strings.Repeat("word ", 1000))
+	// 1500 words is ~2000 heuristic tokens, above the phase-record
+	// budget of 1800; the fixture must exceed the raised ceiling to
+	// keep proving the kind enforces the budget at all.
+	oversized := []byte(strings.Repeat("word ", 1500))
 
 	diags, err := sess.Check("plan/2601010000_x/phase-1.result.md", oversized)
 

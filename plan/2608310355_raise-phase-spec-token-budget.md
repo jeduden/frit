@@ -1,7 +1,7 @@
 ---
 id: 2608310355
 title: Raise phase-spec token budget for detailed proving slices
-status: "🔲"
+status: "✅"
 summary: >-
   The `phase-spec` kind's `token-budget` is 800 heuristic tokens,
   calibrated to the largest phase body written so far (~660). A
@@ -43,7 +43,10 @@ consented to this `.mdsmith.yml` edit for this issue.
 itself enforces it, so the gate is `mdsmith check` on a representative
 detailed phase-spec fixture — failing at 800, passing at the raised
 value. The fixture must sit at a `plan/*/phase-*.md` path so the
-`phase-spec` kind is assigned to it.
+`phase-spec` kind is assigned to it, and it is a scratch file, not
+committed: a committed fixture failing at 800 would break the
+`mdsmith check .`-before-commit rule and, once passing, linger as a
+non-plan file under `plan/`.
 
 ## Tasks
 
@@ -57,18 +60,19 @@ value. The fixture must sit at a `plan/*/phase-*.md` path so the
 
 ## Execution
 
-| Phase | Title                                        | Tier   | Gate                                                                                                                                                       |
-| ----- | -------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Raise the phase-spec and phase-record budget | sonnet | A ~1500-token phase-spec fixture at `plan/*/phase-*.md` fails `mdsmith check` before the edit (MDS token-budget) and passes after; `mdsmith check .` clean |
+| Phase | Title                                        | Tier   | Gate                                                                                                                                                                             |
+| ----- | -------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Raise the phase-spec and phase-record budget | sonnet | A ~1500-token scratch (uncommitted) phase-spec fixture at `plan/*/phase-*.md` fails `mdsmith check` before the edit (MDS token-budget) and passes after; `mdsmith check .` clean |
 
 ## Acceptance Criteria
 
-- [ ] `phase-spec` `token-budget.max` raised to fit a detailed
-      proving-slice spec (>=1700), `phase-record` raised to match
-- [ ] A representative detailed phase-spec (~1500 heuristic tokens)
+- [x] `phase-spec` `token-budget.max` raised to fit a detailed
+      proving-slice spec with headroom above the observed ~1700
+      ceiling (>=1800), `phase-record` raised to match
+- [x] A representative detailed phase-spec (~1500 heuristic tokens)
       fails `mdsmith check` at the old budget and passes at the new one
-- [ ] No other lint rule is relaxed; only the two budgets and their
+- [x] No other lint rule is relaxed; only the two budgets and their
       comments change
-- [ ] `mdsmith check .` is clean
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `mdsmith check .` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

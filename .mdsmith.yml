@@ -167,12 +167,14 @@ kinds:
     rules:
       first-line-heading: false
       heading-increment: false
-      # 800 heuristic tokens sits above the largest phase body this
-      # repo has written so far (Phase 1's, about 660) with headroom
-      # to grow, the same margin the skill kind keeps.
+      # 1800 heuristic tokens fits a genuinely detailed proving-slice
+      # spec — Assumes, Value, RED, a file-by-file GREEN list and a
+      # multi-break Gate run 900–1700+ tokens — with headroom above
+      # the observed ~1700 ceiling, so such a spec passes rather than
+      # being forced back inline into plan.md.
       token-budget:
         mode: heuristic
-        max: 800
+        max: 1800
   phase-record:
     # A phase's living record: parked notes while the phase stays
     # open, a `## Handoff` heading once it closes — level 2 by
@@ -187,9 +189,13 @@ kinds:
       heading-increment: false
       paragraph-readability: false
       paragraph-structure: false
+      # 1800 to match phase-spec: a phase record is a living document
+      # that accretes notes and a Handoff as the phase runs, growing
+      # the same way a detailed proving-slice spec (900–1700+ tokens)
+      # does, so it earns the same headroom above the ~1700 ceiling.
       token-budget:
         mode: heuristic
-        max: 900
+        max: 1800
 
 # Order matters: proto applies first so plan/proto.md also picks up
 # the plan kind, whose required-structure.schema points back at the
