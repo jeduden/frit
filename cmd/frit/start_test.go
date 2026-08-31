@@ -91,6 +91,104 @@ func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
 		"a fresh acquire, with no persisted token, still creates the worktree")
 }
 
+// leftoverWorktree reproduces the exact shape Release leaves behind:
+// a plan claimed, worked and released. Release deletes nothing, so
+// the branch and its worktree persist after the lease that authorized
+// them ends. It returns the worktree's path and the branch's own tip
+// right after release — a bare commit `Release` mints and CASes onto
+// `refs/heads/<branch>` without ever touching the worktree's own
+// checked-out files, so a worktree checked out *on* that branch
+// reports it live rather than the leftover's last real commit.
+func leftoverWorktree(t *testing.T, root, repo string, id int64) (path, tip string) {
+	t.Helper()
+	branch := claim.Branch(id)
+	opts := claim.LeaseOptions{
+		PlanID: id, Remote: "origin", Base: "origin/main", Holder: "elsewhere",
+	}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	path = filepath.Join(root, "atlas-leftover")
+	git(t, repo, "worktree", "add", "-q", path, branch)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(path, "wip.txt"), []byte("wip\n"), 0o600))
+	git(t, path, "add", "-A")
+	git(t, path, "commit", "-q", "-m", "unlanded work")
+	workTip, err := gitCapture(t, path, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	git(t, repo, "push", "-q", "origin", branch)
+
+	_, err = claim.Release(repo, opts, workTip, gitwt.Exec)
+	require.NoError(t, err)
+	tip, err = gitCapture(t, repo, "rev-parse", "refs/heads/"+branch)
+	require.NoError(t, err)
+
+	return path, tip
+}
+
+// TestStartGoReapsADeadLeftoverWorktreeBeforeRecreating is issue 118's
+// own shape reaching start: Release deletes nothing, so a worktree
+// already sits on the plan's own branch with no herdr pane on it.
+// start --go parks the branch's unlanded chain, clears the worktree
+// registration, and stands a fresh checkout up in its place instead
+// of dying on herdr's raw worktree_create_failed.
+func TestStartGoReapsADeadLeftoverWorktreeBeforeRecreating(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7")
+	_, statErr := os.Stat(leftover)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"the leftover checkout is removed from disk")
+	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/frit/rescue/7/*")
+	require.NoError(t, err)
+	assert.NotEmpty(t, rescue, "the unlanded work is parked, not dropped")
+	assert.True(t, rec.verb("worktree", "create"),
+		"the reconcile clears the way, it does not skip the create")
+}
+
+// TestStartGoRefusesALiveHerdrPaneOnTheLeftover: the same leftover,
+// but a herdr pane is still sitting on it — a lane a person or agent
+// may genuinely be working in. start --go leaves it standing and
+// refuses with a frit-authored message instead of reaping it out from
+// under whoever is there, and never claims anything at all: the
+// refusal runs ahead of startAcquire, so there is no lease to unwind.
+func TestStartGoRefusesALiveHerdrPaneOnTheLeftover(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, releasedTip := leftoverWorktree(t, root, repo, 7)
+	runner, rec := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p9", "cwd": leftover,
+	})
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "wLive:p9")
+	assert.Contains(t, errb.String(), leftover)
+	assert.False(t, rec.verb("worktree", "create"),
+		"a refused reconcile never reaches herdr's own create")
+	_, statErr := os.Stat(leftover)
+	assert.NoError(t, statErr, "the live leftover is left standing")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, releasedTip, tip,
+		"nothing was claimed, so the branch is exactly where release left it")
+}
+
 // TestStartRefusesAnAllDonePhasedPlan: a phased ledger whose every
 // phase is done has genuinely nothing left to send, unlike a plan
 // with no ledger at all — it still refuses, and never mints a claim.

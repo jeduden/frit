@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 )
@@ -337,6 +339,8 @@ func startExecute(
 	lane := sp.Lane
 	if resume {
 		lane = resumeLane
+	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID); err != nil {
+		return err
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, resumeTip)
 	if err != nil {
@@ -556,6 +560,78 @@ func paneNotReady(err error) bool {
 
 	return strings.Contains(msg, "agent_pane_busy") &&
 		strings.Contains(msg, "not an available shell")
+}
+
+// reconcileLeftoverWorktree finds a worktree already sitting on the
+// plan's own branch — a leftover Release left behind, since it
+// deletes nothing — and clears it ahead of a fresh acquire so herdr's
+// own worktree.create never collides with it. A live herdr pane still
+// on that worktree is left standing and refused rather than reaped
+// out from under whoever is there. A dead leftover is parked, the
+// same way reap.go's own reapStranded parks a stranded lane's branch
+// before it deletes it, and its worktree registration is removed —
+// never its branch, which by now is nothing this reconcile minted.
+// nil when no worktree sits on the branch at all: the ordinary path,
+// unaffected.
+func reconcileLeftoverWorktree(
+	rt *runtime, sc startContext, sp report.StartPlan, planID int64,
+) error {
+	worktrees, err := gitwt.List(sc.repoPath, rt.git)
+	if err != nil {
+		return nil
+	}
+	var leftover *gitwt.Worktree
+	for i := range worktrees {
+		if worktrees[i].Branch == sp.Branch {
+			leftover = &worktrees[i]
+			break
+		}
+	}
+	if leftover == nil {
+		return nil
+	}
+
+	if pane, ok := livePaneOn(rt, leftover.Path); ok {
+		return fmt.Errorf(
+			"plan %d: a live herdr pane (%s) already sits on %s; "+
+				"free it before restarting this plan",
+			planID, pane, leftover.Path)
+	}
+
+	opts := claim.LeaseOptions{
+		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
+	}
+	if _, err := parkBranch(
+		rt, discover.Repo{Path: sc.repoPath}, opts, sp.Branch, true,
+	); err != nil {
+		return fmt.Errorf("park: %w", err)
+	}
+	if _, err := rt.git(sc.repoPath, "worktree", "remove", leftover.Path); err != nil {
+		return fmt.Errorf("remove leftover worktree at %s: %w", leftover.Path, err)
+	}
+
+	return nil
+}
+
+// livePaneOn reports whether a herdr pane is currently sitting in the
+// worktree rooted at root — a local pane only, the same guard
+// herdr.LiveRoots uses, since a remote pane's cwd is a path on another
+// host that could collide with a local one by coincidence.
+func livePaneOn(rt *runtime, root string) (string, bool) {
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return "", false
+	}
+	for _, p := range panes {
+		if p.Host != "" {
+			continue
+		}
+		if site := herdr.Resolve(p.CWD, rt.git); site.Root == root {
+			return p.PaneID, true
+		}
+	}
+
+	return "", false
 }
 
 // laneStandUpPane is the pane standUpLane drives from: a resume's own

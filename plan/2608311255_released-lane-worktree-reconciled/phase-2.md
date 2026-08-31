@@ -1,7 +1,7 @@
 ---
 n: 2
 title: pick and start reconcile a pre-existing worktree for a free plan
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give `start`'s escalation the reconcile Phase 1 made possible. Before
