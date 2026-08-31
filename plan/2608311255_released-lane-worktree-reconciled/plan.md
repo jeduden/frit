@@ -1,7 +1,7 @@
 ---
 id: 2608311255
 title: A released lane's leftover worktree is seen and reconciled
-status: "🔲"
+status: "✅"
 summary: >-
   When a lane is released or taken over, its branch stays and its local
   worktree is left on disk. frit orphans and frit reap miss it because
@@ -118,17 +118,18 @@ footer: |
 
 | #   | Status | Phase                                                                            |
 | --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | 🔲     | [The live-hold verdict is one Build input, shared by every consumer](phase-1.md) |
+| 1   | ✅     | [The live-hold verdict is one Build input, shared by every consumer](phase-1.md) |
+| 2   | ✅     | [pick and start reconcile a pre-existing worktree for a free plan](phase-2.md)   |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit orphans` names a released or taken-over lane's leftover
+- [x] `frit orphans` names a released or taken-over lane's leftover
       worktree, and `frit reap --go` tears it down
-- [ ] `frit pick --go` / `frit start --go` re-selecting a freed plan
+- [x] `frit pick --go` / `frit start --go` re-selecting a freed plan
       reconcile the pre-existing worktree instead of failing on herdr's
       `worktree_create_failed`
-- [ ] A plan that was never released, and a released tip with no
+- [x] A plan that was never released, and a released tip with no
       worktree, are unaffected — no new false orphans
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

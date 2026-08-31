@@ -913,12 +913,18 @@ func TestOrphansIgnoresASquashMergedClaim(t *testing.T) {
 // squash-merge fix overreaching: the plan-phase workflow flips status to
 // ✅ on the feature branch before the work merges, so a plan done only
 // there — absent from the default branch — has a live claim, and orphans
-// must still report it unstaffed rather than read it as landed.
+// must still report it unstaffed rather than read it as landed. The
+// branch carries a real claim marker, the same live-hold verdict every
+// other consumer of a plan's holds now reads — a bare name match is
+// not itself a claim (2608212203).
 func TestOrphansReportsAClaimDoneOnlyOnItsBranch(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
-	git(t, repo, "checkout", "-q", "-b", "plan/2608142306-fleet-index")
+	branch := "plan/2608142306-fleet-index"
+	git(t, repo, "checkout", "-q", "-b", branch)
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 2608142306: claim")
 	landPlan(t, repo, 2608142306, "fleet-index", "✅")
 	git(t, repo, "checkout", "-q", "main")
 	var out, errb bytes.Buffer
@@ -954,6 +960,38 @@ func TestOrphansReportsACheckoutStrandedOnALandedBranch(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "landed, still checked out")
 	assert.Contains(t, out.String(), "atlas-landed")
+	assert.NotContains(t, out.String(), "claimed, no checkout")
+}
+
+// TestOrphansNamesAReleasedLanesLeftoverWorktree is issue 118's own
+// shape: Release deletes nothing, so a freed lane keeps its branch and
+// worktree. Before the live-hold verdict became a required Build
+// input, this leftover was neither Unstaffed nor Stranded and fell
+// through every rule; now the released ref drops out of Holds and the
+// worktree strands, the same way a landed branch's leftover already
+// does.
+func TestOrphansNamesAReleasedLanesLeftoverWorktree(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	lane := filepath.Join(root, "atlas-released")
+	git(t, repo, "worktree", "add", "-q", "-b", branch, lane)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m",
+		"plan 2608142306: claim")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lane, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, lane, "add", "-A")
+	git(t, lane, "commit", "-q", "-m", "work on "+branch)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m",
+		"plan 2608142306: release")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"orphans", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "landed, still checked out")
+	assert.Contains(t, out.String(), "atlas-released")
 	assert.NotContains(t, out.String(), "claimed, no checkout")
 }
 

@@ -108,9 +108,12 @@ func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
 // reapStranded classifies and, under doGo, tears down every worktree
 // of a repository's stranded lanes that actually carries a commit. The
 // landed check reap deletes on is the same evidence lanes.Build
-// already joined the claims against — re-checked here per worktree's
-// own branch rather than trusted from the lane's stranded
-// classification alone.
+// already joined the claims against — Merged, ByPlanID and Released
+// alike — re-checked here per worktree's own branch rather than
+// trusted from the lane's stranded classification alone. Released
+// clears exactly the leftover this plan makes visible: a lease that
+// ended is not proof the work landed, but the delete honors the
+// park-before-delete rule regardless, so nothing unlanded is lost.
 //
 // A zero-commit worktree is deliberately left out: it holds nothing a
 // landed check exists to protect, lanes.Find's independent empty/
@@ -141,7 +144,8 @@ func reapStranded(
 	for _, lane := range stranded {
 		landed := func(branch string) bool {
 			return evidence.Merged["refs/heads/"+branch] ||
-				evidence.ByPlanID[lane.PlanID]
+				evidence.ByPlanID[lane.PlanID] ||
+				evidence.Released["refs/heads/"+branch]
 		}
 		opts := claim.LeaseOptions{
 			PlanID: lane.PlanID, Remote: remote, Base: base,

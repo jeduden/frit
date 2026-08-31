@@ -389,6 +389,41 @@ func commitsBehind(dir, sha, base string, run gitwt.Runner) int {
 	return n
 }
 
+// ReleasedRefs decides the live-hold verdict for every ref that names a
+// plan — the one authority lanes.Build's released input, and every
+// other consumer of a plan's holds, reads rather than each walking a
+// ref's marker history its own way. A ref already excluded by merged
+// or landed is skipped before claim.LiveHold's own history walk: Build
+// drops that ref on merged or landed alone regardless of what this
+// verdict says, so spending a walk on it decides nothing.
+func ReleasedRefs(
+	repoPath string, refs []gitobj.Ref, holds repocfg.Holds,
+	merged map[string]bool, landed map[int64]bool, run gitwt.Runner,
+) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range refs {
+		if merged[r.Name] {
+			continue
+		}
+		branch, ok := r.Branch()
+		if !ok {
+			continue
+		}
+		id, ok := holds.Match(branch)
+		if !ok {
+			continue
+		}
+		if landed[id] {
+			continue
+		}
+		if !claim.LiveHold(repoPath, r.OID, id, run) {
+			out[r.Name] = true
+		}
+	}
+
+	return out
+}
+
 // heldBranches maps each claimed plan id to the branches that claim it:
 // the same holds the orphan report is built on, merged refs already
 // filtered out so landed work does not read as a live claim. The branch
@@ -410,28 +445,20 @@ func heldBranches(
 		return nil, nil, err
 	}
 
-	tips := map[string]string{}
-	for _, r := range refs {
-		tips[r.Name] = r.OID
-	}
+	released := ReleasedRefs(repo.Path, refs, holds, merged, landed, run)
 
 	held := map[int64][]string{}
 	for _, lane := range lanes.Build(
-		repo.Worktrees, refs, merged, landed, holds) {
+		repo.Worktrees, refs, merged, landed, released, holds) {
 		seen := map[string]bool{}
 		for _, h := range lane.Holds {
 			if seen[h.Branch] {
 				continue
 			}
 			seen[h.Branch] = true
-			// Held alone already tells a live lease apart from one that
-			// ended (its nearest terminal marker is a release, so it
-			// answers false) or was never minted (a name match with no
-			// marker reachable at all) — one read instead of Released
-			// and Held each walking the same ref's history.
-			if !claim.Held(repo.Path, tips[h.Ref], lane.PlanID, run) {
-				continue
-			}
+			// Build already dropped every non-live hold via released
+			// above, so every hold reaching this loop is live by
+			// construction — no second claim.Held filter needed here.
 			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}

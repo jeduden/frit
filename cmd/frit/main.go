@@ -144,13 +144,19 @@ type cli struct {
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
 
-// landedEvidence is the two facts a landed check for a ref or a plan
-// rides on: Merged is an ordinary merge's ancestry, keyed by full ref
-// name; ByPlanID is the default branch's own plan status, the signal
-// that closes the squash-merge gap ancestry cannot see.
+// landedEvidence is the facts a landed check for a ref or a plan rides
+// on: Merged is an ordinary merge's ancestry, keyed by full ref name;
+// ByPlanID is the default branch's own plan status, the signal that
+// closes the squash-merge gap ancestry cannot see; Released is the
+// live-hold verdict, keyed by full ref name, true when the ref's tip
+// is no longer a live hold. reap's own delete gate reads all three: a
+// released lane's leftover carries neither an ordinary merge nor a
+// landed plan, so without Released here reap would refuse exactly the
+// worktree lanes.Build now strands.
 type landedEvidence struct {
 	Merged   map[string]bool
 	ByPlanID map[int64]bool
+	Released map[string]bool
 }
 
 // repoLanes joins one repository's claims to its checkouts, reading
@@ -191,9 +197,10 @@ func repoLanes(
 	}
 	entries, _ := index.Build("", repo.Name, preferred, files)
 	landed := index.LandedIDs(entries, preferred)
-	evidence := landedEvidence{Merged: merged, ByPlanID: landed}
+	released := fleet.ReleasedRefs(repo.Path, refs, holds, merged, landed, rt.git)
+	evidence := landedEvidence{Merged: merged, ByPlanID: landed, Released: released}
 
-	built := lanes.Build(repo.Worktrees, refs, merged, landed, holds)
+	built := lanes.Build(repo.Worktrees, refs, merged, landed, released, holds)
 	built = lanes.WithLanePaths(built, laneOf(repo.Path, cfg.Remote, refs, built, rt.git))
 
 	return built, evidence, nil

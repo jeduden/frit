@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -585,4 +588,60 @@ func TestGatherReportsAMislaidPlanAsAProblem(t *testing.T) {
 	require.NotNil(t, found, "a mislaid plan is reported, not lost")
 	assert.False(t, found.NotPlan,
 		"a mislaid plan is a real problem, not the benign not-a-plan kind")
+}
+
+// TestReleasedRefsSkipsRefsMergedOrLandedElsewhere pins the efficiency
+// fix: lanes.Build drops a merged or already-landed ref on that alone,
+// regardless of what claim.LiveHold's own git log walk would say, so
+// spending that walk on one decides nothing — ReleasedRefs must never
+// even ask. A run that panics if called at all proves it never does.
+func TestReleasedRefsSkipsRefsMergedOrLandedElsewhere(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{
+		{Name: "refs/heads/plan/7", OID: "merged-tip"},
+		{Name: "refs/heads/plan/8", OID: "landed-tip"},
+	}
+	merged := map[string]bool{"refs/heads/plan/7": true}
+	landed := map[int64]bool{8: true}
+	run := func(string, ...string) ([]byte, error) {
+		return nil, errors.New("run must not be called for a ref Build already drops")
+	}
+
+	got := ReleasedRefs("/repo", refs, holds, merged, landed, run)
+
+	assert.Empty(t, got)
+}
+
+// TestReleasedRefsMarksAReleasedRefsOwnRefName pins the open side: a
+// ref Build does not already exclude still gets its live-hold verdict
+// read, keyed by its own full ref name, so a released tip's ref
+// reaches the map.
+func TestReleasedRefsMarksAReleasedRefsOwnRefName(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{{Name: "refs/heads/plan/7", OID: "tip"}}
+	run := func(string, ...string) ([]byte, error) {
+		return []byte("plan 7: release"), nil
+	}
+
+	got := ReleasedRefs("/repo", refs, holds, nil, nil, run)
+
+	assert.Equal(t, map[string]bool{"refs/heads/plan/7": true}, got)
+}
+
+// TestReleasedRefsLeavesALiveClaimOffTheMap is the closed side beside
+// it: a ref whose nearest terminal marker is still a claim is a live
+// hold, not a released one, and must not appear in the map at all.
+func TestReleasedRefsLeavesALiveClaimOffTheMap(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{{Name: "refs/heads/plan/7", OID: "tip"}}
+	run := func(string, ...string) ([]byte, error) {
+		return []byte("plan 7: claim"), nil
+	}
+
+	got := ReleasedRefs("/repo", refs, holds, nil, nil, run)
+
+	assert.Empty(t, got, "a live claim is not released")
 }
