@@ -22,6 +22,9 @@ phases:
   - n: 2
     title: A phase record requires the front matter and the existing records migrate
     status: "✅"
+  - n: 3
+    title: plan-new writes the phase front matter and the generated catalog
+    status: "🔲"
 ---
 # Phase front matter gives per-phase status one generated home
 
@@ -115,6 +118,7 @@ footer: |
 | --- | ------ | --------------------------------------------------------------------------------------- |
 | 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md)            |
 | 2   | ✅     | [A phase record requires the front matter and the existing records migrate](phase-2.md) |
+| 3   | 🔲     | [plan-new writes the phase front matter and the generated catalog](phase-3.md)          |
 <?/catalog?>
 
 ## Acceptance Criteria
