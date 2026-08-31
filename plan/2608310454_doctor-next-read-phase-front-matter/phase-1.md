@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Doctor validates a ledger-free folder plan from phase front matter
-status: "🔳"
+status: "✅"
 ---
 Prove the reading moves to the phase files on the smallest slice.
 Assemble a ledger-free folder plan's phases from `phase-*.md` front

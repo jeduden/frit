@@ -88,7 +88,7 @@ footer: |
 
 | #   | Status | Phase                                                                            |
 | --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | 🔳     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
+| 1   | ✅     | [Doctor validates a ledger-free folder plan from phase front matter](phase-1.md) |
 <?/catalog?>
 
 ## Execution

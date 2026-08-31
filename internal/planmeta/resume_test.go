@@ -220,6 +220,65 @@ func TestPhaseSpecNumbersOrdersNumericallyThenBySplitToken(t *testing.T) {
 	assert.Equal(t, []string{"2", "3a", "3b", "10"}, got)
 }
 
+// TestPhasesFromDirAssemblesFromFrontMatterAndExecutionRows: a
+// ledger-free folder plan's phases come from its phase-*.md front
+// matter, ordered numerically, each enriched with its Execution row —
+// so a phase whose number the table names carries HasExecutionRow, and
+// one it omits does not.
+func TestPhasesFromDirAssemblesFromFrontMatterAndExecutionRows(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-2.md",
+		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nBody two.\n")
+	writePhaseFile(t, dir, "phase-1.md",
+		"---\nn: 1\ntitle: First\nstatus: \"✅\"\n---\nBody one.\n")
+	writePhaseFile(t, dir, "phase-3.md",
+		"---\nn: 3\ntitle: Third\nstatus: \"🔲\"\n---\nBody three.\n")
+
+	got, err := PhasesFromDir(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, PhaseNumber("1"), got[0].N)
+	assert.Equal(t, "First", got[0].Title)
+	assert.Equal(t, "✅", got[0].Status)
+	assert.True(t, got[0].HasExecutionRow, "phase 1 has an Execution row")
+	assert.Equal(t, "sonnet", got[0].Tier)
+	assert.True(t, got[1].HasExecutionRow, "phase 2 has an Execution row")
+	assert.False(t, got[2].HasExecutionRow, "phase 3 has no Execution row")
+}
+
+// TestPhasesFromDirReturnsNilWhenNoPhaseFiles: a directory with no
+// phase-N.md files yields no phases, so a caller leaves a flat or
+// ledgered plan's own reading untouched.
+func TestPhasesFromDirReturnsNilWhenNoPhaseFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	got, err := PhasesFromDir(dir, []byte(folderPlanNoLedger))
+
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+// TestParsePhaseFileDecodesFrontMatter: a phase-N.md's own
+// {n, title, status} front matter decodes into a Phase.
+func TestParsePhaseFileDecodesFrontMatter(t *testing.T) {
+	got, err := parsePhaseFile(
+		[]byte("---\nn: 3b\ntitle: Split\nstatus: \"🔳\"\n---\nBody.\n"))
+
+	require.NoError(t, err)
+	assert.Equal(t, PhaseNumber("3b"), got.N)
+	assert.Equal(t, "Split", got.Title)
+	assert.Equal(t, "🔳", got.Status)
+}
+
+// TestParsePhaseFileReportsErrNoFrontMatter: a file with no front-matter
+// block is not a phase file, the way Parse reports a non-plan.
+func TestParsePhaseFileReportsErrNoFrontMatter(t *testing.T) {
+	_, err := parsePhaseFile([]byte("Just a body, no front matter.\n"))
+
+	require.ErrorIs(t, err, ErrNoFrontMatter)
+}
+
 // TestExecutionRowForReadsTheNamedPhasesTierAndGate is
 // executionRowFor's own dedicated test.
 func TestExecutionRowForReadsTheNamedPhasesTierAndGate(t *testing.T) {
