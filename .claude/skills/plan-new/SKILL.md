@@ -25,15 +25,17 @@ an editor, not a frit verb.
    candidate was or was not reused.
 3. **Phase 1 is a proving slice** — a minimal end-to-end slice that
    demonstrates the Goal and fixes the test approach later phases copy.
-   Write it as `phase-1.md`: freeform prose under the `phase-spec`
-   kind, its RED spec, GREEN sites and gate. Declare Phase 1 alone; a
-   later phase's `phase-N.md` is added once the prior phase's Handoff
-   shows the real shape.
+   Write it as `phase-1.md`: `{n, title, status}` front matter (the
+   `phase-spec` kind requires it), then freeform prose — RED spec,
+   GREEN sites, gate. Declare Phase 1 alone; a later phase's
+   `phase-N.md` is added once the prior phase's Handoff shows the real
+   shape.
 4. **Write `plan.md`** to the `plan/proto.md` shape: frontmatter
    (`id`, `title`, `status: "🔲"`, `summary`, `model`, `depends-on` —
-   no `phases:` ledger, since each phase's own result file carries its
-   state), then `## Goal`, `## Context`, `## Tasks`, `## Execution`,
-   `## Acceptance Criteria`.
+   no `phases:` ledger, since each phase file's front matter is its
+   status), then `## Goal`, `## Context`, `## Tasks`, `## Execution`, a
+   `## Phases` `<?catalog?>` over `phase-*.md` that mdsmith regenerates
+   into the status table, and `## Acceptance Criteria`.
 5. **Tier per phase** in the Execution table: the cheapest tier a loud
    gate makes safe. Design stays opus; implementing from a written
    assertion is cheap. Set frontmatter `model:` to the dominant

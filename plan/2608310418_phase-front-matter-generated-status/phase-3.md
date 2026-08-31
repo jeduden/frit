@@ -1,7 +1,7 @@
 ---
 n: 3
 title: plan-new writes the phase front matter and the generated catalog
-status: "🔲"
+status: "✅"
 ---
 Close the loop. Phases 1 and 2 made the `phase-spec` and `phase-record`
 kinds require `{n, title, status}`, so any plan `plan-new` authors

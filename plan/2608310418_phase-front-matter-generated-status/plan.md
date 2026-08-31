@@ -1,7 +1,7 @@
 ---
 id: 2608310418
 title: Phase front matter gives per-phase status one generated home
-status: "🔳"
+status: "✅"
 summary: >-
   A folder plan carries each phase as a freeform phase-N.md with no
   front matter, so per-phase status has to live in the plan.md phases:
@@ -24,7 +24,7 @@ phases:
     status: "✅"
   - n: 3
     title: plan-new writes the phase front matter and the generated catalog
-    status: "🔲"
+    status: "✅"
 ---
 # Phase front matter gives per-phase status one generated home
 
@@ -118,20 +118,20 @@ footer: |
 | --- | ------ | --------------------------------------------------------------------------------------- |
 | 1   | ✅     | [A phase file carries its status and a generated table shows it](phase-1.md)            |
 | 2   | ✅     | [A phase record requires the front matter and the existing records migrate](phase-2.md) |
-| 3   | 🔲     | [plan-new writes the phase front matter and the generated catalog](phase-3.md)          |
+| 3   | ✅     | [plan-new writes the phase front matter and the generated catalog](phase-3.md)          |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `phase-spec` and `phase-record` kinds require `{n, title, status}`
+- [x] `phase-spec` and `phase-record` kinds require `{n, title, status}`
       front matter
-- [ ] A folder plan renders a generated `## Phases` table over a
+- [x] A folder plan renders a generated `## Phases` table over a
       relative `phase-*.md` glob; a phase closes by flipping its own
       file's `status` and the table regenerates
-- [ ] `plan-new` writes phase front matter and the catalog and drops
+- [x] `plan-new` writes phase front matter and the catalog and drops
       the `phases:` ledger for new plans; both skill copies agree and
       the `frit skills` claim gate passes
-- [ ] Every existing ledgered plan still passes `mdsmith check .`; no
+- [x] Every existing ledgered plan still passes `mdsmith check .`; no
       ledger that `frit doctor`/`next` reads is removed by this plan
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
