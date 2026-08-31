@@ -68,6 +68,42 @@ func TestReapRemovesALandedCheckoutAndDeletesItsBranchWithGo(t *testing.T) {
 		"the landed branch no longer resolves")
 }
 
+// TestReapRemovesAReleasedLanesLeftoverWorktreeWithGo is issue 118's
+// own shape reaching reap: Release deletes nothing, so the branch and
+// its worktree outlive the lease. The released ref clears reap's own
+// landed gate the same way an ordinary merge does, and the delete
+// still parks the branch's unlanded work first.
+func TestReapRemovesAReleasedLanesLeftoverWorktreeWithGo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	lane := filepath.Join(root, "atlas-released")
+	git(t, repo, "worktree", "add", "-q", "-b", branch, lane)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m",
+		"plan 2608142306: claim")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lane, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, lane, "add", "-A")
+	git(t, lane, "commit", "-q", "-m", "work on "+branch)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m",
+		"plan 2608142306: release")
+	addOrigin(t, repo)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "reaped")
+	assert.Contains(t, out.String(), "atlas-released")
+	assert.Contains(t, out.String(), branch)
+	_, statErr := os.Stat(lane)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"the released checkout is removed from disk")
+	assert.False(t, branchExists(t, repo, branch),
+		"the released branch no longer resolves")
+}
+
 // TestReapStreamsProgressAsStrandedLanesAreReaped: a --go reap of two
 // stranded, landed checkouts announces each one to stderr as it is
 // torn down, not only in the final stdout table — the cost here is a

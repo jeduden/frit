@@ -102,4 +102,5 @@ footer: |
 | 2608310418 | ✅     | sonnet | [Phase front matter gives per-phase status one generated home](plan/2608310418_phase-front-matter-generated-status/plan.md)            |
 | 2608310454 | ✅     | sonnet | [Doctor and next read phase state from phase front matter](plan/2608310454_doctor-next-read-phase-front-matter/plan.md)                |
 | 2608310704 | ✅     | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md)                                 |
+| 2608311255 | 🔲     | sonnet | [A released lane's leftover worktree is seen and reconciled](plan/2608311255_released-lane-worktree-reconciled/plan.md)                |
 <?/catalog?>

@@ -809,6 +809,18 @@ func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 	}
 }
 
+// LiveHold reports whether a ref's tip is a live hold for a plan — the
+// verdict lanes.Build takes as a required input, and the one authority
+// every consumer of a plan's holds must pass through rather than
+// overlay its own filter on top of Build's output. It is Held under
+// the name its callers actually reason in: a claim or takeover with no
+// release since is live; a release, or no marker reachable at all, is
+// not — the same nearest-terminal-marker read Released shares through
+// terminalMarkerKind.
+func LiveHold(repoDir, tip string, planID int64, run gitwt.Runner) bool {
+	return Held(repoDir, tip, planID, run)
+}
+
 // terminalMarkerKind reports which terminal marker a candidate
 // commit's subject actually is — markerClaim, markerTakeover or
 // markerRelease — or "" when the subject is none of them. It exists so

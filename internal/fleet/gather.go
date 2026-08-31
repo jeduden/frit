@@ -410,28 +410,37 @@ func heldBranches(
 		return nil, nil, err
 	}
 
-	tips := map[string]string{}
+	// The live-hold verdict is decided once, here, and handed to Build
+	// as a required input rather than applied as a filter after the
+	// fact — the overlay that let this walk and the lanes walk disagree
+	// about a released lane's leftover worktree.
+	released := map[string]bool{}
 	for _, r := range refs {
-		tips[r.Name] = r.OID
+		branch, ok := r.Branch()
+		if !ok {
+			continue
+		}
+		id, ok := holds.Match(branch)
+		if !ok {
+			continue
+		}
+		if !claim.LiveHold(repo.Path, r.OID, id, run) {
+			released[r.Name] = true
+		}
 	}
 
 	held := map[int64][]string{}
 	for _, lane := range lanes.Build(
-		repo.Worktrees, refs, merged, landed, holds) {
+		repo.Worktrees, refs, merged, landed, released, holds) {
 		seen := map[string]bool{}
 		for _, h := range lane.Holds {
 			if seen[h.Branch] {
 				continue
 			}
 			seen[h.Branch] = true
-			// Held alone already tells a live lease apart from one that
-			// ended (its nearest terminal marker is a release, so it
-			// answers false) or was never minted (a name match with no
-			// marker reachable at all) — one read instead of Released
-			// and Held each walking the same ref's history.
-			if !claim.Held(repo.Path, tips[h.Ref], lane.PlanID, run) {
-				continue
-			}
+			// Build already dropped every non-live hold via released
+			// above, so every hold reaching this loop is live by
+			// construction — no second claim.Held filter needed here.
 			held[lane.PlanID] = append(held[lane.PlanID], h.Branch)
 		}
 	}

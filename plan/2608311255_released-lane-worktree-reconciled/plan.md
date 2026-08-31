@@ -118,7 +118,7 @@ footer: |
 
 | #   | Status | Phase                                                                            |
 | --- | ------ | -------------------------------------------------------------------------------- |
-| 1   | 🔲     | [The live-hold verdict is one Build input, shared by every consumer](phase-1.md) |
+| 1   | ✅     | [The live-hold verdict is one Build input, shared by every consumer](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria

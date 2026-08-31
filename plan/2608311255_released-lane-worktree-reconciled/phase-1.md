@@ -1,7 +1,8 @@
 ---
 n: 1
 title: The live-hold verdict is one Build input, shared by every consumer
-status: "🔲"
+status: "✅"
+result: false
 ---
 Prove the structural fix on the smallest slice. Make the live-hold
 verdict a required `Build` input, decided once, so the fleet and the

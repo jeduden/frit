@@ -87,11 +87,21 @@ func (l Lane) standing() Lane {
 // reached the branch. Like merged, it filters only the claim ref; a
 // checkout still standing on a landed branch is left for the stranded
 // report to name.
+//
+// released is the live-hold verdict every consumer of a plan's holds
+// must agree on — claim.LiveHold decided once per ref, keyed by ref
+// name, true when that ref's tip is no longer a live hold (released,
+// or never truly claimed). A required input rather than a pass a
+// caller could forget: Release deletes nothing, so a freed lane keeps
+// its branch and worktree, and without this exclusion the two would
+// never disagree enough to strand — the leftover would stay invisible
+// to orphans and reap alike.
 func Build(
 	worktrees []gitwt.Worktree,
 	refs []gitobj.Ref,
 	merged map[string]bool,
 	landed map[int64]bool,
+	released map[string]bool,
 	holds repocfg.Holds,
 ) []Lane {
 	byID := map[int64]*Lane{}
@@ -109,6 +119,9 @@ func Build(
 			continue
 		}
 		if landed[id] {
+			continue
+		}
+		if released[ref.Name] {
 			continue
 		}
 		lane := laneFor(byID, id)

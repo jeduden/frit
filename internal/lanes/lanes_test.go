@@ -34,7 +34,7 @@ func TestBuildPairsAClaimWithItsCheckout(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	require.Len(t, got, 1)
 	assert.Equal(t, int64(42), got[0].PlanID)
@@ -50,7 +50,7 @@ func TestBuildDropsMergedRefs(t *testing.T) {
 
 	got := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		merged, nil, canonical(t))
+		merged, nil, nil, canonical(t))
 
 	assert.Empty(t, got, "a landed plan is not an active claim")
 }
@@ -64,9 +64,60 @@ func TestBuildDropsLandedClaims(t *testing.T) {
 
 	got := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, landed, canonical(t))
+		nil, landed, nil, canonical(t))
 
 	assert.Empty(t, got, "a plan done on the default branch is not a hold")
+}
+
+// TestBuildDropsAReleasedHold is the structural fix this plan turns on:
+// Release deletes nothing, so a released ref keeps its worktree. The
+// live-hold verdict is a required Build input, decided once rather
+// than overlaid by a consumer after the fact, so the leftover strands
+// here — where orphans and reap can both see it — instead of staying
+// invisible.
+func TestBuildDropsAReleasedHold(t *testing.T) {
+	released := map[string]bool{"refs/heads/plan/42-fleet": true}
+
+	got := Build(
+		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		nil, nil, released, canonical(t))
+
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].Holds, "the released ref was dropped")
+	assert.Len(t, got[0].Worktrees, 1)
+	assert.True(t, got[0].Stranded())
+	assert.False(t, got[0].Unstaffed())
+}
+
+// TestBuildDropsAReleasedHoldToNothingWithNoWorktree guards the edge
+// the drop must not over-fire on: a released tip with no worktree
+// strands nothing, it simply disappears — the same shape an ordinary
+// merged or landed ref already takes.
+func TestBuildDropsAReleasedHoldToNothingWithNoWorktree(t *testing.T) {
+	released := map[string]bool{"refs/heads/plan/42-fleet": true}
+
+	got := Build(nil,
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		nil, nil, released, canonical(t))
+
+	assert.Empty(t, got, "a released ref with no worktree strands nothing")
+}
+
+// TestBuildKeepsALiveHoldWhenTheReleasedSetNamesAnotherRef guards the
+// drop's other edge: the released verdict is read per ref, so a plan
+// with a live hold is unaffected by an unrelated released entry.
+func TestBuildKeepsALiveHoldWhenTheReleasedSetNamesAnotherRef(t *testing.T) {
+	released := map[string]bool{"refs/heads/plan/7-other": true}
+
+	got := Build(
+		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
+		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
+		nil, nil, released, canonical(t))
+
+	require.Len(t, got, 1)
+	assert.Len(t, got[0].Holds, 1, "a live hold is unaffected")
+	assert.False(t, got[0].Stranded())
 }
 
 func TestBuildTreatsALocalAndRemoteClaimAsOneLane(t *testing.T) {
@@ -74,7 +125,7 @@ func TestBuildTreatsALocalAndRemoteClaimAsOneLane(t *testing.T) {
 		ref("refs/heads/plan/42-fleet"),
 		ref("refs/remotes/origin/plan/42-fleet"),
 		ref("refs/remotes/peer/plan/42-fleet"),
-	}, nil, nil, canonical(t))
+	}, nil, nil, nil, canonical(t))
 
 	require.Len(t, got, 1, "one plan, three refs")
 	assert.Len(t, got[0].Holds, 3)
@@ -86,7 +137,7 @@ func TestBuildIgnoresRefsNoPatternClaims(t *testing.T) {
 		ref("refs/heads/backup/plan/42-fleet"),
 		ref("refs/tags/plan/42-fleet"),
 		ref("refs/heads/v0.42"),
-	}, nil, nil, canonical(t))
+	}, nil, nil, nil, canonical(t))
 
 	assert.Empty(t, got)
 }
@@ -94,7 +145,7 @@ func TestBuildIgnoresRefsNoPatternClaims(t *testing.T) {
 func TestBuildIgnoresAWorktreeOnNoClaimedBranch(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj", "main")},
-		nil, nil, nil, canonical(t))
+		nil, nil, nil, nil, canonical(t))
 
 	assert.Empty(t, got)
 }
@@ -106,7 +157,7 @@ func TestBuildWithNoPatternsFindsNothing(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, nil, none)
+		nil, nil, nil, none)
 
 	assert.Empty(t, got, "a repo declaring no pattern has no lanes")
 }
@@ -115,7 +166,7 @@ func TestBuildIsSortedByPlanID(t *testing.T) {
 	got := Build(nil, []gitobj.Ref{
 		ref("refs/heads/plan/90-b"),
 		ref("refs/heads/plan/10-a"),
-	}, nil, nil, canonical(t))
+	}, nil, nil, nil, canonical(t))
 
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(10), got[0].PlanID)
@@ -125,7 +176,7 @@ func TestBuildIsSortedByPlanID(t *testing.T) {
 func TestFindReportsAClaimWithNoCheckout(t *testing.T) {
 	built := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -142,7 +193,7 @@ func TestFindReportsAClaimWithNoCheckout(t *testing.T) {
 func TestFindFlagsADecoratedHoldAsMigratable(t *testing.T) {
 	built := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -159,7 +210,7 @@ func TestFindFlagsADecoratedHoldAsMigratable(t *testing.T) {
 func TestFindLeavesAnIDOnlyHoldOffTheMigrationList(t *testing.T) {
 	built := Build(nil,
 		[]gitobj.Ref{ref("refs/heads/plan/42")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -175,7 +226,7 @@ func TestBuildLeavesAMergedBranchsCheckoutStranded(t *testing.T) {
 	got := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		merged, nil, canonical(t))
+		merged, nil, nil, canonical(t))
 
 	require.Len(t, got, 1)
 	assert.Empty(t, got[0].Holds, "the merged ref was dropped")
@@ -202,7 +253,7 @@ func TestFindReportsACheckoutStrandedOnALandedBranch(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, canonical(t))
+		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, nil, canonical(t))
 
 	got := Find(built, nil)
 
@@ -226,7 +277,7 @@ func TestFindReportsAPrunableStrandedCheckoutOnceAsPrunable(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{gone},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, canonical(t))
+		map[string]bool{"refs/heads/plan/42-fleet": true}, nil, nil, canonical(t))
 
 	got := Find(built, []gitwt.Worktree{gone})
 
@@ -290,7 +341,7 @@ func TestFindOnAHealthyRepositoryIsSilent(t *testing.T) {
 	built := Build(
 		[]gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")},
 		[]gitobj.Ref{ref("refs/heads/plan/42-fleet")},
-		nil, nil, canonical(t))
+		nil, nil, nil, canonical(t))
 
 	got := Find(built, []gitwt.Worktree{wt("/w/proj-fleet", "plan/42-fleet")})
 
