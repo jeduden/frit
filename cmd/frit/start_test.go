@@ -799,6 +799,115 @@ func TestStartRefusesATakeoverVetoedByALiveSession(t *testing.T) {
 	assert.Contains(t, body, "holder:  elsewhere")
 }
 
+// liveLeaseLane checks a plan's hold branch out into its own clone, so
+// herdr can be scripted with a pane sitting in it without registering
+// a worktree of repo itself — the live-but-unbound lane
+// reconcileLeftoverWorktree cannot see because no worktree sits on the
+// branch in this repository at all, only a live agent elsewhere on it
+// (issue #126). The clone is named for repo's own directory so
+// fleet.RepoName resolves the pane back to the same repository, and it
+// lives outside root so the fleet walk never indexes it as a plan
+// repository of its own.
+func liveLeaseLane(t *testing.T, repo, branch string) string {
+	t.Helper()
+	originURL, err := gitCapture(t, repo, "remote", "get-url", "origin")
+	require.NoError(t, err)
+	lane := filepath.Join(t.TempDir(), filepath.Base(repo))
+	git(t, t.TempDir(), "clone", "-q", "--branch", branch, originURL, lane)
+
+	return lane
+}
+
+// TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane: a matured stale
+// hold whose lease never bound a session is ordinarily fair game for a
+// takeover, but a herdr pane already sits live on that exact branch —
+// the live-but-unbound lane the session veto misses because no session
+// was ever stamped on the lease, and reconcileLeftoverWorktree misses
+// because a worktree is not what it is guarding here. start --go
+// refuses instead of dispatching a second runner into that lane.
+func TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	runner, rec := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	})
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "plan/7", "the reason names the live lane")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a live lane is refused before a fresh acquire stands anything up")
+	assert.False(t, rec.verb("agent", "prompt"), "nothing is dispatched")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "nothing was claimed or taken over")
+}
+
+// TestStartGoStillStartsWhenNoLiveAgentOnTheLane: the same matured
+// stale hold, but herdr shows no live agent anywhere near the lane —
+// the ordinary takeover proceeds unchanged.
+func TestStartGoStillStartsWhenNoLiveAgentOnTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7")
+	assert.True(t, rec.verb("worktree", "create"))
+	assert.True(t, rec.verb("agent", "prompt"))
+}
+
+// TestStartGoRefusalOfALiveLaneCarriesInJSON: the live-lane refusal
+// meets the JSON contract every other pre-flight refusal does —
+// `refused` names it and `prompt_dispatched` stays false.
+func TestStartGoRefusalOfALiveLaneCarriesInJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	runner, _ := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	})
+	withHerdr(t, runner)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
+
+	assert.Contains(t, doc.Refused, "plan/7")
+	assert.False(t, doc.PromptDispatched)
+	assert.Empty(t, doc.Pane)
+}
+
 // TestStartResumesItsOwnLeaseFromThePersistedToken: run from the
 // lane's own worktree, a restarted fleet of one resumes its lease by
 // its persisted token and still stands a fresh agent up on it, with no

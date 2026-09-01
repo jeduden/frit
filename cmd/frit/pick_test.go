@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -154,6 +157,39 @@ func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, local, tip,
 		"the local draft branch is untouched, not clobbered")
+}
+
+// TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane: the same
+// live-but-unbound lane guard start --go meets, reached through pick's
+// own claim-and-stand-up path. The refusal is surfaced, not skipped —
+// pick --go only retries a lost race, and a live lane is not one.
+func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	runner, rec := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	})
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "plan/7", "the reason names the live lane")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a live lane is refused before a takeover ever runs")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
 }
 
 // TestPickGoDoesNotReattachAHeldLane: the from-outside resume is an

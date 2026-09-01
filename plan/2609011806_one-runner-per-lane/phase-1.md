@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Dispatch refuses a second runner on a live lane
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give `pick --go` and `start --go` the pre-flight that stops a second

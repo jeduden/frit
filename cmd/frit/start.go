@@ -112,6 +112,12 @@ func buildStart(
 			c, res, plan, phase, doGo, ambiguousRepo(plan.Repo)), false, nil
 	}
 
+	liveDoc, liveProbs, liveHerdrErr := startLiveLaneRefusal(
+		c, rt, res, plan, phase, doGo, rs)
+	if liveDoc != nil {
+		return liveDoc, false, nil
+	}
+
 	sc := startContextOf(coord)
 	sp := composeStart(plan, phase, note, sc)
 	if rs.active() {
@@ -123,6 +129,7 @@ func buildStart(
 	}
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
+	carryLiveLaneProblems(doc, liveProbs, liveHerdrErr)
 	if rs.active() {
 		doc.MarkResumed()
 	}
@@ -400,6 +407,58 @@ func isAncestor(rt *runtime, dir, sha, base string) bool {
 	_, err := rt.git(dir, "merge-base", "--is-ancestor", sha, base)
 
 	return err == nil
+}
+
+// startLiveLaneRefusal is buildStart's live-lane pre-flight, on the
+// fresh-acquire branch only: a resume (rs.active(), resumeTip != "")
+// skips it outright, since the live agent it would find is the lane
+// resuming its own token. It refuses when herdr already shows a live
+// agent on the plan's own hold branch, and otherwise returns a nil doc
+// carrying the presence read's own problems, so they can still ride
+// into the eventual success doc rather than being swallowed here.
+func startLiveLaneRefusal(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phase string, doGo bool, rs startResumption,
+) (*report.StartDoc, []hostProblem, error) {
+	if rs.active() {
+		return nil, nil, nil
+	}
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	if !found {
+		return nil, hostProbs, herdrErr
+	}
+	doc := refusedStart(c, res, plan, phase, doGo, liveLaneRefusal(lane))
+	carryLiveLaneProblems(doc, hostProbs, herdrErr)
+
+	return doc, nil, nil
+}
+
+// carryLiveLaneProblems adds the live-lane presence read's own
+// problems onto doc, whichever shape it ends up: a refusal when a live
+// agent was found, or the eventual success doc when it was not, so an
+// unreachable herdr or an unread host is never silently dropped either
+// way.
+func carryLiveLaneProblems(
+	doc *report.StartDoc, probs []hostProblem, herdrErr error,
+) {
+	for _, p := range probs {
+		doc.AddProblem(p.name, p.err)
+	}
+	if herdrErr != nil {
+		doc.AddProblem("herdr", herdrErr)
+	}
+}
+
+// liveLaneRefusal names the refusal a fresh acquire meets when herdr
+// already shows a live agent on the plan's own hold branch: the
+// live-but-unbound lane a session-less lease leaves the takeover veto
+// unable to see, and reconcileLeftoverWorktree misses when no worktree
+// is registered on the branch in this repository at all (issue #126).
+func liveLaneRefusal(lane herdr.Lane) string {
+	return fmt.Sprintf(
+		"a live herdr pane (%s) already sits on lane %s; "+
+			"free it before starting this plan again",
+		lane.Pane.PaneID, lane.Branch)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

@@ -25,7 +25,9 @@ commit, so the ledger can never go stale.
    plan carries per-phase files. `go run ./cmd/frit show <id>` gives the Goal
    and any blocker. Open nothing else.
 2. **Honor the answers.** "already done" means stop and report, not
-   redo. Honor the tier `phase` names.
+   redo. A plan already held live (`held: true`, `dead: false`) is
+   already running somewhere — report it, never start a second runner
+   there. Honor the tier `phase` names.
 3. **Red then green.** Commit the failing test first, then the code
    that passes it. Verify with the narrowest instrument, then the
    phase's gate. Park a follow-up or a side quest in the result file
