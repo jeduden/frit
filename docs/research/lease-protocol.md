@@ -204,6 +204,19 @@ while the client saw an error (S3): the lane's stored token matches
 the tip origin kept, so the next run resumes instead of being locked
 out of its own lease.
 
+Added 2026-09-01 by plan 2609011836: the token is now also resolved
+from *outside* the lane. `start` reads the hold marker's `lane:`
+trailer to locate the checkout, reads the token persisted in that
+checkout's git dir, and proves it against origin's tip exactly as the
+in-lane path does. The trailer only says where to look; the token is
+what passes the check, so A1 holds — a clone or a reused path without
+the lane's recorded tip gets nothing, and the marker's `holder:` string
+is never consulted for the decision. The liveness half is read from
+outside too: one pane list must show no live agent on the bound
+session and none sitting in the recorded checkout, and only a herdr
+that answered counts (S76). A lane that lost its token still falls
+back to the window like any other claimant.
+
 ### Scavenge
 
 The evidence must be fresh against the tip it deletes (A2). Three
@@ -428,8 +441,8 @@ dies with the host.
 | S72 | claim and start race on one host                                          | one winner; the loser's refusal names the winning lane                                                                                                                                               |
 | S73 | prompt fails after agent start                                            | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)                                                                                                                           |
 | S74 | same plan id in two repos                                                 | lanes key host:repo:id; pane names carry the repo                                                                                                                                                    |
-| S76 | pane gone before the window matures                                       | no live session, window not matured, token cannot self-resume: a silent dead end. `orphans` names the deserted hold from the veto, not the window (VETO, OBS)                                        |
-| S77 | deserted lane on its own host                                             | the dead host sees local commits ahead of origin; a verb rebuilds the pane in place, or yield parks the suffix when resume is declined (RESUME, YIELD)                                               |
+| S76 | pane gone before the window matures                                       | no live session, window not matured; resolved 2026-09-01 (plan 2609011836): `start` finds the lane by its marker's `lane:` trailer and resumes on its token; no token, no shortcut (VETO, RESUME)    |
+| S77 | deserted lane on its own host                                             | the dead host sees local commits ahead of origin; `start` rebuilds the pane on the lane's token (plan 2609011836), or yield parks the suffix when resume is declined (RESUME, YIELD)                 |
 | S86 | a live lane's own raw commits advance the branch past its persisted token | ownToken re-anchors: a tip descending from the token under the same epoch and holder is the lane's own advance, so release/renew/resume succeed unaided; a new-epoch takeover fences (RESUME, FENCE) |
 
 ### Liveness traps, from the blind liveness attack

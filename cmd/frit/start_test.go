@@ -1422,7 +1422,7 @@ func TestStartResumesAnUnboundHoldOnItsToken(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "")
-	withHerdr(t, herdrReturning())
+	withHerdr(t, emptyRosterHerdr())
 	var out, errb bytes.Buffer
 
 	code := run([]string{"start", "7", "--phase", "3", "--go",
@@ -1431,10 +1431,77 @@ func TestStartResumesAnUnboundHoldOnItsToken(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "resumed plan 7")
 	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
 	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
 	require.NoError(t, err)
 	assert.Equal(t, held, parent,
-		"the resume is CASed from the unbound hold's own tip")
+		"the resume is CASed from the unbound hold's own tip; "+
+			"with no agent listed there is no session to bind")
+}
+
+// emptyRosterHerdr fakes a herdr with no agent anywhere — the roster
+// that confirms an unbound lane unattended — that still reopens a
+// worktree into a pane, so a reattach can stand up.
+func emptyRosterHerdr() herdr.Runner {
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wL:p1"}}}`), nil
+		}
+
+		return []byte(`{"result":{"agents":[]}}`), nil
+	}
+}
+
+// TestTokenProvesTheLeaseOnlyByTheTip: an empty token, or an origin
+// that could not be read, proves nothing (A1); a token equal to the
+// tip proves it outright, with no ancestry walk.
+func TestTokenProvesTheLeaseOnlyByTheTip(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+	coord := fleet.Coord{Path: t.TempDir()}
+
+	assert.False(t, tokenProves(rt, coord, 7, "", "abc"), "no token")
+	assert.False(t, tokenProves(rt, coord, 7, "abc", ""), "no origin tip")
+	assert.True(t, tokenProves(rt, coord, 7, "abc", "abc"), "the tip itself")
+}
+
+// TestLaneUnattendedReadsOnePaneList: the three answers from outside a
+// lane — an unreachable herdr is unknown, never absence; an agent on
+// the bound session, or one sitting in the recorded checkout, occupies
+// the lane; a roster showing neither confirms it unattended.
+func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
+	lane := t.TempDir()
+	git(t, lane, "init", "-q")
+	m := claim.Marker{Lane: lane, Session: "wOld:p1"}
+	agent := func(cwd, session string) map[string]any {
+		return map[string]any{
+			"agent": "claude", "agent_status": "working", "cwd": cwd,
+			"pane_id": session, "agent_session": map[string]any{"value": session},
+		}
+	}
+
+	down := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	}}
+	assert.False(t, laneUnattended(down, m), "unknown is not absence")
+
+	bound := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(t.TempDir(), "wOld:p1"))}
+	assert.False(t, laneUnattended(bound, m), "a live bound session occupies the lane")
+
+	inLane := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(lane, "wHand:p1"))}
+	assert.False(t, laneUnattended(inLane, m), "an agent in the checkout occupies it")
+
+	unbound := claim.Marker{Lane: lane}
+	assert.False(t, laneUnattended(inLane, unbound),
+		"an unbound hold's checkout is still occupied by the agent in it")
+
+	elsewhere := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(t.TempDir(), "wOther:p1"))}
+	assert.True(t, laneUnattended(elsewhere, m), "an agent elsewhere is not on this lane")
+	assert.True(t, laneUnattended(elsewhere, unbound))
 }
 
 // TestStartDoesNotResumeALaneWhoseTokenIsGone: the marker's holder

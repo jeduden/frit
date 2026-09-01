@@ -33,8 +33,8 @@ bind record the agent it is about to start, which is the only session
 that was ever true of the lane.
 
 Three edges are pinned. An open that fails is a stand-up failure, not a
-lease problem: the renewal already stands, this host holds the lane
-legitimately, and releasing it because a pane would not come back would
+lease problem: the renewal already stands, the lane's token proved
+the lease, and releasing it because a pane would not come back would
 strand the checkout's own commits. The path reopened is the lane the
 marker records, never the naming convention's — reopening the
 convention's path would stand an agent up beside the commits rather than
@@ -47,18 +47,13 @@ you to `frit start <id>`, and that advice was only ever wrong because
 rung there would also misfire, since the same refusal covers unheld
 plans, where start is simply start. The plan text now records that.
 
-What is left, and it is the reason this plan does not yet claim #122
-outright: a hold this host owns whose marker names *no* session cannot
-be reattached. `SessionDead` is positive only about a bound session, so
-an unbound hold reads as unknown and keeps the window — and unknown must
-keep it, since that is the guard against resuming over a live agent. It
-is also exactly the `dead: false`, `agent: ""` state the issue reports.
-The proof that would close it without weakening anything is already in
-the tree: `livePaneOn` answers whether a local pane sits in a given
-checkout, so a host-owned hold recording a lane no pane occupies is
-unattended on the evidence of the lane itself rather than of a session
-id it never carried. That is a phase, not a tweak, and it wants its own
-spec.
+One thing this handoff first named as left open is not. It read the
+`dead: false`, `agent: ""` state #122 reports as an unbound hold no
+session check could ever confirm, and proposed widening the proof. The
+phase 1 rework, which replaced the holder-string gate with the token,
+did exactly that: the token needs no session, and the liveness read now
+asks the pane list whether any agent sits in the recorded checkout. The
+reported state resumes.
 
 `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are clean.

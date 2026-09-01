@@ -164,7 +164,7 @@ func startResume(
 	if lane, tip := startResumeTip(rt, plan, coord, coordOK, cwd); tip != "" {
 		return startResumption{Lane: lane, Tip: tip}
 	}
-	lane, tip := ownHoldResumeTip(rt, plan, coord, coordOK)
+	lane, tip := laneTokenResumeTip(rt, plan, coord, coordOK)
 
 	return startResumption{Lane: lane, Tip: tip, Reattach: tip != ""}
 }
@@ -210,28 +210,23 @@ func startResumeTip(
 	return lane, tip
 }
 
-// ownHoldResumeTip resolves the resume from the hold itself, for the
-// lane this host already owns and nobody is working: startResumeTip's
-// token proof only fires from inside the lane, and a closed pane leaves
-// you outside it, so a healthy hold of your own fell through to the
-// takeover refusal on a window that cannot mature (#122). Reattaching
-// to it takes nothing from anyone, so it is a resume, not a takeover.
-// Both return values are "" outside that exact case, leaving start's
-// ordinary claim path the arbiter.
+// laneTokenResumeTip resolves the resume from outside the lane, for a
+// lane whose pane was closed (#122). startResumeTip's proof is
+// cwd-derived, so it fires only from inside the lane; out here the
+// hold's own marker says where the lane is, and the token that lane
+// persisted is the proof it is this machine's lease — the same proof
+// ownToken passes, found by a different route. The marker's holder
+// and lane trailers are reporting, never identity: a cloned machine
+// or a reused path shares the strings with no race needed, so nothing
+// here gates on them (A1). The lane trailer only says where to look;
+// a checkout with no token gets no shortcut and waits the window like
+// any other claimant. Both return values are "" outside that exact
+// case, leaving start's ordinary claim path the arbiter.
 //
-// The lane comes off the hold's own marker rather than defaultLanePath,
-// for the reason startResumeTip records: the renewal must name where
-// the checkout genuinely is, since orphans and reap read that trailer.
-// A hold recording no lane is therefore not resumed at all: there is no
-// checkout to reattach to, and the ordinary claim path stands one up.
-//
-// Only a positive death resumes. herdr.SessionDead answers true solely
-// when herdr replied and showed no agent on the bound session; a live
-// session, an unbound one and an unreachable herdr all read the same
-// as unknown, and unknown keeps the refusal. Resuming over an agent
-// that is still working is the one harm here, so the guard fails safe
-// toward the window (F3, S61).
-func ownHoldResumeTip(
+// A hold recording no lane is not resumed at all: there is no checkout
+// to read a token from, and renewing on "-" would stamp it into the
+// very trailer orphans and reap read as a path.
+func laneTokenResumeTip(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
 ) (lane, tip string) {
 	if !coordOK || !plan.Held {
@@ -247,14 +242,48 @@ func ownHoldResumeTip(
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
 	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
-	if !ok || m.Holder != hostname() || !recordsLane(m) {
+	if !ok || !recordsLane(m) {
 		return "", ""
 	}
-	if !herdr.SessionDead(rt.herdr, m.Session) {
+	token := claim.ReadToken(m.Lane, plan.ID, rt.git)
+	if !tokenProves(rt, coord, plan.ID, token, tip) {
+		return "", ""
+	}
+	if !laneUnattended(rt, m) {
 		return "", ""
 	}
 
 	return m.Lane, tip
+}
+
+// laneUnattended reports whether herdr positively shows no agent on a
+// hold's lane, read from outside it: neither a live agent on the
+// session the marker binds, nor any local agent pane sitting in the
+// recorded checkout — a lane stood up by hand is occupied whether or
+// not the lease ever named its session. One pane list answers both.
+// Only a herdr that answered counts: from outside the lane nothing
+// else vouches for it, so an unreachable herdr reads as unknown and
+// keeps the window rather than resume over an agent that may still be
+// working (F3, S61).
+func laneUnattended(rt *runtime, m claim.Marker) bool {
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return false
+	}
+	bound := m.Session != "" && m.Session != "-"
+	for _, p := range panes {
+		if !p.HasAgent() {
+			continue
+		}
+		if bound && p.Session == m.Session {
+			return false
+		}
+		if p.Host == "" && herdr.Resolve(p.CWD, rt.git).Root == m.Lane {
+			return false
+		}
+	}
+
+	return true
 }
 
 // recordsLane reports whether a marker names a checkout to reattach

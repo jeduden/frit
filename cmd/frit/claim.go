@@ -200,17 +200,28 @@ func ownToken(
 	// this clone's possibly-stale local view of the ref: the protocol
 	// states the rule against origin's current tip.
 	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
-	if tip == "" {
+	if !tokenProves(rt, coord, plan.ID, token, tip) {
 		return "", "", false
 	}
-	if tip == token {
-		return lane, tip, true
-	}
-	if claim.OwnAdvance(coord.Path, plan.ID, token, tip, rt.git) {
-		return lane, tip, true
+
+	return lane, tip, true
+}
+
+// tokenProves reports whether a lane's persisted token still proves
+// the lease at origin's current tip: the token is that tip, or the tip
+// is the lane's own advance beyond it (S86). An empty token proves
+// nothing — that is the whole of A1 — and neither does an origin that
+// could not be read. Shared by ownToken, reading the token from the
+// lane start runs in, and laneTokenResumeTip, reading it from the lane
+// the hold's marker records.
+func tokenProves(
+	rt *runtime, coord fleet.Coord, planID int64, token, tip string,
+) bool {
+	if token == "" || tip == "" {
+		return false
 	}
 
-	return "", "", false
+	return token == tip || claim.OwnAdvance(coord.Path, planID, token, tip, rt.git)
 }
 
 // inOwnLane reports whether cwd is this exact plan's own worktree —

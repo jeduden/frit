@@ -1,7 +1,7 @@
 ---
 id: 2609011836
 title: Resume a held lane you own without waiting the takeover window
-status: "🔳"
+status: "✅"
 summary: >-
   A lane whose pane was closed but is otherwise healthy — worktree
   present, tree clean, branch pushed, held: true, no live agent — cannot
@@ -153,13 +153,13 @@ footer: |
 
 | #   | Status | Phase                                                                                 |
 | --- | ------ | ------------------------------------------------------------------------------------- |
-| 1   | 🔳     | [A lane whose token this machine holds resumes from outside, not refuses](phase-1.md) |
+| 1   | ✅     | [A lane whose token this machine holds resumes from outside, not refuses](phase-1.md) |
 | 2   | ✅     | [Reattach stands the agent up in the lane, not the caller's pane](phase-2.md)         |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A held plan whose marker-recorded lane carries a token matching
+- [x] A held plan whose marker-recorded lane carries a token matching
       the hold, with no agent on the lane, resumes through `frit start`
       from outside the lane rather than being refused as an un-matured
       takeover — the token is the proof, never the holder string
@@ -167,11 +167,11 @@ footer: |
       the worktree's commits — it does not park or reset
 - [x] The reattach stands the agent up in the checkout the hold records,
       never in the pane the caller happens to be standing in
-- [ ] A hold whose lane carries no token on this machine still waits
+- [x] A hold whose lane carries no token on this machine still waits
       the takeover window, whatever its holder string says
-- [ ] A plan with a live agent — on its bound session, or sitting in
+- [x] A plan with a live agent — on its bound session, or sitting in
       its lane unbound — is still vetoed, never resumed over
-- [ ] Liveness herdr cannot report does not resume from outside — the
+- [x] Liveness herdr cannot report does not resume from outside — the
       guard fails safe toward the window
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

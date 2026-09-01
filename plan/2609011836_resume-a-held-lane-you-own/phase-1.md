@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A lane whose token this machine holds resumes from outside, not refuses
-status: "🔳"
+status: "✅"
 result: false
 ---
 Pin the resume decision under test, the load-bearing change #122 turns
