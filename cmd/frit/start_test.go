@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -422,6 +425,152 @@ func TestStartBindsTheSessionOntoTheLease(t *testing.T) {
 	assert.Contains(t, body, "plan 7: beat")
 	assert.Contains(t, body, "epoch:   1", "binding never bumps the epoch")
 	assert.Contains(t, body, "session: sess-1")
+}
+
+// TestStartBindsTheSessionOntoARefTheLaneAlreadyAdvanced: the lease's
+// work ref and the lane's working branch are one ref, so the agent
+// commits on it the moment it starts — before start can read its
+// session back and bind it. The bind renews from where the ref
+// actually is, so the session is stamped and no fenced problem is
+// emitted; the stale mint tip no longer fences a healthy lane against
+// itself.
+func TestStartBindsTheSessionOntoARefTheLaneAlreadyAdvanced(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	base, _ := startHerdr()
+	var advanced string
+	var advanceErr error
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		// Reading the agent back is the last call before the bind, so
+		// the lane's own commit lands in exactly the real window.
+		if advanced == "" && len(args) >= 2 &&
+			args[0] == "agent" && args[1] == "list" {
+			advanced, advanceErr = laneCommitsOnItsWorkRef(repo)
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.NoError(t, advanceErr)
+	require.NotEmpty(t, advanced, "the lane advanced the work ref")
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, errb.String(), "fenced",
+		"a ref this lane advanced itself is not a foreign fence")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "session: sess-1", "the session is stamped")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, advanced, parent,
+		"the beat is a child of the ref's current tip, not the mint tip")
+}
+
+// TestStartWarnsWhenAForeignMoveFencesTheBind: the guard is to our own
+// hold only. Another machine takes the ref over in the stand-up
+// window, so the bind is a real fence — it warns and names the mover,
+// and the lane it just stood up is left running rather than aborted.
+func TestStartWarnsWhenAForeignMoveFencesTheBind(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	base, _ := startHerdr()
+	var seized string
+	var seizeErr error
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if seized == "" && len(args) >= 2 &&
+			args[0] == "agent" && args[1] == "list" {
+			seized, seizeErr = foreignTakesTheWorkRef(repo)
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.NoError(t, seizeErr)
+	require.Equal(t, 0, code,
+		"a failed bind warns, it never aborts a lane that is up")
+	assert.Contains(t, out.String(), "started plan 7",
+		"the lane it stood up is still reported as running")
+	assert.Contains(t, errb.String(), "box-b",
+		"the warning still names the machine that moved the ref")
+	assert.Equal(t, seized, remoteWorkTip(t, repo),
+		"nothing was stamped over the mover")
+}
+
+// laneCommitsOnItsWorkRef pushes one ordinary work commit onto the
+// plan's work ref, the way the agent does the moment it starts: no
+// lease marker of its own, just work on the branch the lease shares
+// with the lane.
+func laneCommitsOnItsWorkRef(repo string) (string, error) {
+	return pushOntoWorkRef(repo, "lane work, no marker")
+}
+
+// foreignTakesTheWorkRef is another machine seizing the ref in the
+// same window — a takeover marker under its own holder, the shape a
+// matured takeover lands.
+func foreignTakesTheWorkRef(repo string) (string, error) {
+	return pushOntoWorkRef(repo,
+		"plan 7: takeover\n\nepoch:   2\nnonce:   feed\nholder:  box-b\n"+
+			"lane:    /lanes/b\nsession: -")
+}
+
+// pushOntoWorkRef mints a child of origin's current work-ref tip with
+// the given message and force-pushes it, without touching the local
+// branch the lane's worktree may be standing on.
+func pushOntoWorkRef(repo, message string) (string, error) {
+	ref := "refs/heads/plan/7"
+	tip, err := plumb(repo, "ls-remote", "origin", ref)
+	if err != nil {
+		return "", err
+	}
+	tip, _, _ = strings.Cut(tip, "\t")
+	tree, err := plumb(repo, "rev-parse", tip+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	child, err := plumb(repo, "commit-tree", tree, "-p", tip, "-m", message)
+	if err != nil {
+		return "", err
+	}
+	if _, err := plumb(repo, "push", "-q", "-f", "origin",
+		child+":"+ref); err != nil {
+		return "", err
+	}
+
+	return child, nil
+}
+
+// plumb runs one git call outside the test goroutine's assertions, so
+// a fake herdr can drive the repository mid-run and report a fault
+// back through its own error rather than through t.
+func plumb(repo string, args ...string) (string, error) {
+	full := append([]string{"-C", repo, "-c", "commit.gpgsign=false"}, args...)
+	out, err := exec.Command("git", full...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %v: %s: %w", args, string(out), err)
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+// remoteWorkTip is the SHA origin holds for the plan's work ref.
+func remoteWorkTip(t *testing.T, repo string) string {
+	t.Helper()
+	line, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	sha, _, _ := strings.Cut(line, "\t")
+
+	return sha
 }
 
 // TestStartEditAmendsThePrompt: --edit hands the composed prompt to the

@@ -94,6 +94,14 @@ frit could not read is carried in the document. The reasoning and the
 deliberate table/document divergences are in
 [docs/ux-principles.md](docs/ux-principles.md).
 
+A table is for a person's eyes; `--json` is for a decision. A skill's
+example command shows `--json` whenever an agent branches on the
+result — a status checked, a held lane told apart from an unheld one —
+since a table's glyphs can misread in a way a field never does. A verb
+whose plain rendering already is the payload an agent reads directly
+(`phase`, `show`, a dry-run composition) stays plain: wrapping that
+same prose in a JSON string adds a field, not structure.
+
 ## Shipping Skills
 
 Every agent-facing verb ships with the thin skill that fronts it — new
@@ -101,7 +109,8 @@ or folded — in the same change that adds the verb. A verb an agent can
 only reach through hand-run git or a bare `frit --help` scan is the gap
 this rule exists to close. The skills bundle, its `--via` substitution
 and the lint that keeps each skill token-cheap are in
-[docs/development.md](docs/development.md).
+[docs/development.md](docs/development.md). A skill's example commands
+follow the JSON Contract's `--json` rule above.
 
 ## Code Style
 
