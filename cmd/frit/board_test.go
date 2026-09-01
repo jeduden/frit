@@ -184,6 +184,108 @@ func TestBoardRowShowsIdleForAHeldPlanWithNoAgent(t *testing.T) {
 		"the held lane's slug still shows — held work is not read as free")
 }
 
+// TestPrintBoardLegendsAStaleHold: a matured hold's `(stale …)` marker
+// is explained beneath the table, and `dead` is not mentioned since no
+// row carries it.
+func TestPrintBoardLegendsAStaleHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, "stale", "the marker is named")
+	assert.Contains(t, got, "matured", "and explained")
+	assert.NotContains(t, got, "dead", "no row carries the dead marker")
+}
+
+// TestPrintBoardLegendsADeadHold: a confirmed-dead session's `(dead)`
+// marker is explained beneath the table, and `stale` is not mentioned
+// since no row carries it.
+func TestPrintBoardLegendsADeadHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	legend := lines[len(lines)-1]
+	assert.Contains(t, legend, "dead", "the marker is named")
+	assert.Contains(t, legend, "confirmed gone", "and explained")
+	assert.NotContains(t, legend, "stale", "no row carries the stale marker")
+}
+
+// TestPrintBoardLegendsBothWhenBothAppear: a board with one stale and
+// one dead hold explains both, on a single legend line rather than one
+// per row.
+func TestPrintBoardLegendsBothWhenBothAppear(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:101", Repo: "atlas", ID: 101, Status: "🔳",
+		Title: "Also underway", Held: true, Holds: []string{"plan/101"},
+		Dead: true,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	legend := lines[len(lines)-1]
+	assert.Contains(t, legend, "stale")
+	assert.Contains(t, legend, "dead")
+
+	legendLines := 0
+	for _, l := range lines {
+		if strings.Contains(l, "matured") || strings.Contains(l, "confirmed gone") {
+			legendLines++
+		}
+	}
+	assert.Equal(t, 1, legendLines, "one legend line, not one per marker")
+}
+
+// TestPrintBoardOmitsTheLegendWhenClean: nothing stale or dead means no
+// legend line — the common case pays nothing extra.
+func TestPrintBoardOmitsTheLegendWhenClean(t *testing.T) {
+	var buf bytes.Buffer
+
+	printBoard(&buf, boardWith("Underway"), 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "header and one data row, no legend")
+}
+
+// TestPrintBoardOmitsTheLegendWhenHeldIsNotShown: --columns without
+// held drops the marker itself, so there is nothing left to explain.
+func TestPrintBoardOmitsTheLegendWhenHeldIsNotShown(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, []string{"id", "title"})
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "header and one data row, no legend")
+}
+
 // TestPrintBoardFitsTheWidthWhenGiven: with a width, no rendered line
 // spills past it, and the trimmed title is marked.
 func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
