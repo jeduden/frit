@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +86,69 @@ func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
 	assert.Contains(t, cell, "dead", "a confirmed-dead session is not a live hold")
 }
 
+// TestPrintBoardOpensWithAHeaderRow: the table names every column before
+// any data, so the hold column and the agent column are told apart at
+// a glance rather than read by position.
+func TestPrintBoardOpensWithAHeaderRow(t *testing.T) {
+	var buf bytes.Buffer
+
+	printBoard(&buf, boardWith("Underway"), 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "a header row, then one data row")
+	assert.Contains(t, lines[0], "hold", "the hold column is named")
+	assert.Contains(t, lines[0], "agent", "the agent column is named")
+	assert.Contains(t, lines[0], "title", "the title column is named")
+	assert.Contains(t, lines[1], "Underway", "the data row follows the header")
+}
+
+// TestAgentLabelSaysIdleForAHeldLaneWithNoLiveAgent: only a held lane
+// with no live agent — the dangerous, easily-misread case — reads as
+// idle. Every other combination is unchanged.
+func TestAgentLabelSaysIdleForAHeldLaneWithNoLiveAgent(t *testing.T) {
+	assert.Equal(t, "idle", agentLabel(true, true, "", ""),
+		"held with no live agent reads as idle, not a bare dash")
+	assert.Equal(t, "-", agentLabel(true, false, "", ""),
+		"unheld with no live agent is still a bare dash")
+	assert.Equal(t, "?", agentLabel(false, true, "", ""),
+		"herdr unreachable is unknown regardless of hold")
+	assert.Equal(t, "?", agentLabel(false, false, "", ""),
+		"herdr unreachable is unknown regardless of hold")
+	assert.Equal(t, "claude", agentLabel(true, true, "claude", ""),
+		"a live agent names itself regardless of hold")
+	assert.Equal(t, "claude (working)", agentLabel(true, false, "claude", "working"),
+		"a live agent's status rides beside it regardless of hold")
+}
+
+// TestBoardRowShowsIdleForAHeldPlanWithNoAgent: a held plan whose lane
+// has no live session reads as idle, and the held lane's slug still
+// shows — a held plan is never read as free.
+func TestBoardRowShowsIdleForAHeldPlanWithNoAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-underway", wt)
+	git(t, wt, "commit", "--allow-empty", "-q", "-m", "plan 100: claim")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(wt, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "wip")
+
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "idle", "a held lane with no live agent is idle")
+	assert.Contains(t, got, "underway",
+		"the held lane's slug still shows — held work is not read as free")
+}
+
 // TestPrintBoardFitsTheWidthWhenGiven: with a width, no rendered line
 // spills past it, and the trimmed title is marked.
 func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
@@ -92,10 +157,13 @@ func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
 
 	printBoard(&buf, boardWith(longTitle), 80, boardCols)
 
-	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 80, "the row fits the terminal")
-	assert.Contains(t, line, "…", "the trimmed title is marked")
-	assert.Contains(t, line, "underway",
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 80, "every line fits the terminal")
+	}
+	dataLine := lines[len(lines)-1]
+	assert.Contains(t, dataLine, "…", "the trimmed title is marked")
+	assert.Contains(t, dataLine, "underway",
 		"the lane shows without its plan/<id>- prefix")
 }
 
@@ -113,10 +181,12 @@ func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
 
 	printBoard(&buf, doc, 80, boardCols)
 
-	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 80,
-		"a long lane is trimmed rather than spilling the row")
-	assert.Contains(t, line, "…")
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 80,
+			"a long lane is trimmed rather than spilling the row")
+	}
+	assert.Contains(t, lines[len(lines)-1], "…")
 }
 
 // TestPrintBoardWidthZeroKeepsTheFullTitle: a pipe or a test gets the
@@ -145,10 +215,12 @@ func TestWidthFlagOverridesDetection(t *testing.T) {
 		&out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	line := strings.TrimRight(out.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 50,
-		"--width fits the table though stdout is not a terminal")
-	assert.Contains(t, line, "…")
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 50,
+			"--width fits the table though stdout is not a terminal")
+	}
+	assert.Contains(t, lines[len(lines)-1], "…")
 }
 
 func TestSelectBoardColumns(t *testing.T) {
