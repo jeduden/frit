@@ -10,14 +10,16 @@ summary: >-
   (#121) is fixed by #124 — the board reads the state correctly now — but
   every rung still names the same next step regardless of the hold's
   kind. open's next action is always frit start; start's refusal always
-  reads as an un-matured takeover; neither tells apart a lane this host
-  holds unattended, a lane another host holds, and a lane a live agent is
-  on. This plan makes the ladder honest: open, start and nudge each name
+  reads as an un-matured takeover; neither tells apart a lane whose token
+  this machine holds unattended, a lane it cannot prove, and a lane a
+  live agent is on. This plan makes the ladder honest: open, start and
+  nudge each name
   the true kind of a held lane and the real next step, so no rung
   recommends a rung that will refuse. It is the guidance half, distinct
   from the resume mechanism in plan 2609011836, and it depends on that
   mechanism — the honest "resume it with frit start" next step is only
-  true once start actually resumes a lane you own. Addresses #122.
+  true once start actually resumes a lane whose token it holds. Addresses
+  #122.
 model: sonnet
 depends-on: [2609011836]
 ---
@@ -26,16 +28,17 @@ depends-on: [2609011836]
 ## Goal
 
 `frit open`, `frit start`, and `frit nudge` each name the true kind of a
-held lane and the real next step. So a held-but-unattended lane you own
-is never sent around the [issue #122][issue] refusal loop. No rung points
-at a rung that refuses.
+held lane and the real next step. So a held lane whose token this
+machine holds is never sent around the [issue #122][issue] refusal loop.
+No rung points at a rung that refuses.
 
 [issue]: https://github.com/jeduden/frit/issues/122
 
 ## Context
 
-**The loop, retested on v0.11.0.** For a lane this host holds with no
-live agent — worktree present, tree clean, branch pushed, `held: true`,
+**The loop, retested on v0.11.0.** For a lane whose token this machine
+holds with no live agent — worktree present, tree clean, branch pushed,
+`held: true`,
 `dead: false`, `agent: ""` — the ladder round-trips. `open` prints
 "start it with frit start". `start` refuses "already held … not takeable
 until the window matures". `nudge` says "no live lane". No rung names a
@@ -54,23 +57,27 @@ regardless of the hold's kind, so the guidance itself is the loop.
 it recommends `start` even when `start` will refuse. `notMaturedReason`
 in [cmd/frit/main.go](../../cmd/frit/main.go) and `claimRefusal` in
 [cmd/frit/claim.go](../../cmd/frit/claim.go) phrase every held plan as an
-un-matured takeover, never telling apart a hold this host owns from a
-foreign one. `nudge` in [cmd/frit/dispatch.go](../../cmd/frit/dispatch.go)
+un-matured takeover, never telling apart a hold this machine can prove —
+its token on disk — from one it cannot. `nudge` in
+[cmd/frit/dispatch.go](../../cmd/frit/dispatch.go)
 refuses with a bare "no live lane", the same words whether nothing holds
 the plan or a healthy lane sits there with its agent gone.
 
 **Reuse first, and where the fix goes.** The facts that tell the kinds
-apart already exist. The hold marker's `Holder` is this host or another.
-`SessionLive` / `SessionDead` say whether a live agent is on it — the
-reads the takeover veto and plan 2609011836 both use. The fix threads
-that kind into each rung's message. `open` names a resume for a lane this
-host holds unattended, a wait-or-take-over for a foreign hold, and "a
-live agent is on it" otherwise, rather than a blanket `frit start`.
-`start`'s refusal says which kind it is. `nudge` tells "held, no agent
-attached" apart from "no lane at all".
+apart already exist, and plan 2609011836 already reads them: the token
+persisted in the lane the marker records proves whether this machine
+holds the lane (`laneTokenResumeTip` / `tokenProves`), and
+`laneUnattended` reads whether an agent is live on it. The holder string
+is for reporting, never the test. The fix threads that same kind into
+each rung's message. `open` names a resume for a lane whose token this
+machine holds unattended, a wait-or-take-over for a lane it cannot
+prove, and "a live agent is on it" otherwise, rather than a blanket
+`frit start`. `start`'s refusal says which kind it is. `nudge` tells
+"held, no agent attached" apart from "no lane at all".
 
 **Why it depends on 2609011836.** That plan makes `frit start` actually
-resume a lane this host holds with no live agent. Until it lands, `open`
+resume a lane whose token this machine holds, with no live agent. Until
+it lands, `open`
 naming `frit start` as the resume would still point at a refusal. So the
 guidance rides on the mechanism: this plan is `depends-on: [2609011836]`
 and names the resume only once the resume works.
@@ -94,10 +101,10 @@ ladder *says*, not what it does beyond naming.
 ## Tasks
 
 1. Phase 1 (proving slice): `open` names the honest next step per
-   held-lane kind. `openNextAction` learns the hold's kind — held by this
-   host with no live agent, held by another host, or a live agent
-   present — and stops recommending `frit start` for a lane `start` would
-   refuse, naming the resume, the wait, or the live holder instead.
+   held-lane kind. `openNextAction` learns the hold's kind — a lane whose
+   token this machine holds unattended, a lane it cannot prove, or a live
+   agent present — and stops recommending `frit start` for a lane `start`
+   would refuse, naming the resume, the wait, or the live agent instead.
    Driven red as the pure projection the report layer already unit-tests,
    then wired where `open` reads the hold.
 2. Later phases, shaped by Phase 1's handoff: `start`'s refusal names
@@ -133,10 +140,10 @@ footer: |
 
 ## Acceptance Criteria
 
-- [ ] `frit open` on a lane this host holds with no live agent names a
-      resume, not a blanket `frit start` that would refuse
-- [ ] `frit open` on a lane another host holds names the wait or the
-      take-over, not `frit start`
+- [ ] `frit open` on a lane whose token this machine holds, unattended,
+      names a resume, not a blanket `frit start` that would refuse
+- [ ] `frit open` on a lane this machine cannot prove (no token) names
+      the wait or the take-over, not `frit start`
 - [ ] `frit open` on a lane with a live agent names that a live agent is
       on it
 - [ ] A plan that nothing holds, with no live lane, still names
