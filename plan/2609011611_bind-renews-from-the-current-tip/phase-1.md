@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A session renewal reads the work ref's current tip, guarded to self
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give the lease atom the reconcile the bind needs. A renewal that stamps
@@ -25,8 +25,11 @@ actually is, so the beat is a child of the current tip and its CAS holds
 still a real fence, unchanged.
 
 **RED.** In [internal/claim/lease_test.go](../../internal/claim/lease_test.go),
-against the fake `gitwt.Runner` the lease tests already use to script a
-remote tip and its marker.
+against the real origin-and-clone fixtures the lease tests already use
+to script a remote tip and its marker. Not a fake `gitwt.Runner`, as
+first written. Every other renewal and fence test in the file drives
+real git. A scripted runner cannot reproduce a marker read by walking
+back past work commits, and that is the shape this phase turns on.
 
 - `TestBindRenewReconcilesARefTheOwnHolderAdvanced`: script the remote
   work ref ahead of the passed-in `from` — a later commit whose reachable
@@ -51,9 +54,14 @@ remote tip and its marker.
   `Holder` and this lane's `Lane` (read via the marker on the fence's
   `Tip`), renew again from that current tip and return it; on a foreign
   fence, return the `FenceError` unchanged.
-- Read the guard off the fence's own `Tip` and marker rather than a
-  fresh remote round-trip — `FenceError` already carries the tip it lost
-  to, and `commitMarker` reads that tip's `Holder`/`Lane`.
+- Read the guard off the fence's own `Tip` and `Marker` rather than a
+  fresh remote round-trip or a fresh read — `FenceError` already carries
+  both, so the reconcile costs no git call of its own. The marker it
+  carries is the *governing* one, found by walking back from the tip,
+  not the tip's own message: the advance that causes this bug is an
+  ordinary work commit, which carries no marker at all, so reading only
+  the tip's own commit would answer foreign for the very case being
+  fixed.
 - Keep `Renew` as it is: `RenewToBind` is the session-stamping variant,
   and the plain renewal the beat-for-holder and resume paths use is
   unchanged, so no existing caller shifts behavior.

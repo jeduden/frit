@@ -428,6 +428,13 @@ func startAcquire(
 // startAcquire just CASed in, so the bind's own beat does not clobber
 // a resume's accurate lane back to sp.Lane's naming convention.
 //
+// The renewal is RenewToBind, not Renew, because tip is routinely
+// stale by the time this runs: the work ref is also the branch the
+// lane's worktree checks out, and the bind cannot happen before the
+// agent exists to name a session, so the agent has already begun
+// committing on it. RenewToBind reconciles a CAS lost to our own hold
+// and fences only on a genuinely foreign move.
+//
 // A failed bind is a warning, never an abort: the lane is up and
 // working, the lease is valid on the remote, and an unbound lease only
 // forgoes the veto and falls back to the staleness window. Tearing a
@@ -439,7 +446,7 @@ func bindSession(
 	if session == "" {
 		return
 	}
-	if _, err := claim.Renew(sc.repoPath, claim.LeaseOptions{
+	if _, err := claim.RenewToBind(sc.repoPath, claim.LeaseOptions{
 		PlanID:  plan.ID,
 		Remote:  sc.remote,
 		Base:    sp.Base,

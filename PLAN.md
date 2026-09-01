@@ -104,5 +104,5 @@ footer: |
 | 2608310704 | ✅     | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md)                                 |
 | 2608311255 | ✅     | sonnet | [A released lane's leftover worktree is seen and reconciled](plan/2608311255_released-lane-worktree-reconciled/plan.md)                |
 | 2609010550 | 🔲     | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md)               |
-| 2609011611 | 🔲     | opus   | [Binding a lane's session renews from the work ref's current tip](plan/2609011611_bind-renews-from-the-current-tip/plan.md)            |
+| 2609011611 | ✅     | opus   | [Binding a lane's session renews from the work ref's current tip](plan/2609011611_bind-renews-from-the-current-tip/plan.md)            |
 <?/catalog?>

@@ -216,6 +216,96 @@ func TestRenewAfterAForeignMoveIsFenced(t *testing.T) {
 		"the local ref is rolled back to the recorded tip")
 }
 
+// TestBindRenewReconcilesARefTheOwnHolderAdvanced: the lane commits and
+// pushes on the shared work ref between the mint and the bind, so the
+// recorded tip is stale by the time the session is stamped. The
+// session renewal reads where the ref actually is, sees a hold that is
+// still ours — same machine, same lane — and renews from there, so the
+// beat lands and the session trailer with it, instead of fencing the
+// lane against itself.
+func TestBindRenewReconcilesARefTheOwnHolderAdvanced(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+	advanced := workOn(t, work) // the lane's own commit, pushed
+
+	bound := opts
+	bound.Session = "sess-1"
+	renewed, err := RenewToBind(work, bound, lease.Tip, gitwt.Exec)
+
+	var fenced *FenceError
+	require.False(t, errors.As(err, &fenced),
+		"a ref this lane advanced itself is not a foreign fence")
+	require.NoError(t, err)
+	assert.Equal(t, advanced,
+		gitCmd(t, work, "rev-parse", renewed.Tip+"^"),
+		"the beat is a child of the ref's current tip, not the stale one")
+	assert.Equal(t, lease.Epoch, renewed.Epoch, "a renewal never bumps the epoch")
+	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, renewed.Tip, "origin advanced to the beat")
+	body := gitCmd(t, work, "log", "-1", "--format=%B", renewed.Tip)
+	assert.Contains(t, body, "session: sess-1", "the session is stamped")
+}
+
+// TestBindRenewStillFencesAForeignTip: the reconcile is guarded to our
+// own hold. A ref moved by another machine is a real fence — the
+// warning still names the mover and nothing is stamped.
+func TestBindRenewStillFencesAForeignTip(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+	gitCmd(t, second, "fetch", "-q", "origin",
+		"refs/heads/plan/7:refs/heads/plan/7")
+	tree := gitCmd(t, second, "rev-parse", "plan/7^{tree}")
+	foreign := gitCmd(t, second, "commit-tree", tree, "-p", lease.Tip, "-m",
+		"plan 7: takeover\n\nepoch:   2\nnonce:   feed\nholder:  box-b\n"+
+			"lane:    /lanes/b\nsession: -")
+	gitCmd(t, second, "push", "-q", "-f", "origin",
+		foreign+":refs/heads/plan/7")
+
+	bound := opts
+	bound.Session = "sess-1"
+	_, err = RenewToBind(first, bound, lease.Tip, gitwt.Exec)
+
+	var fenced *FenceError
+	require.ErrorAs(t, err, &fenced)
+	assert.Equal(t, "box-b", fenced.Marker.Holder, "the fence names the mover")
+	assert.Contains(t, err.Error(), "box-b")
+	remote := gitCmd(t, first, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, foreign, "nothing was stamped over the mover")
+}
+
+// TestBindRenewFromAnUnmovedTipIsAPlainRenew: the common path costs
+// nothing new — a ref still standing where the mint left it mints one
+// marker and CASes once, with no read-and-retry behind it.
+func TestBindRenewFromAnUnmovedTipIsAPlainRenew(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	mints := 0
+	counting := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "commit-tree" {
+			mints++
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	bound := opts
+	bound.Session = "sess-1"
+	renewed, err := RenewToBind(work, bound, lease.Tip, counting)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, mints, "an unmoved ref renews once, with no retry")
+	assert.Equal(t, lease.Tip, gitCmd(t, work, "rev-parse", renewed.Tip+"^"),
+		"the beat is a child of the recorded tip")
+}
+
 // TestReleaseLeavesAMarkerAndReacquireBumpsTheEpoch: a release pushes a
 // marker and deletes nothing — the history stays for the next holder —
 // and a later acquire CASes exactly on that marker, reading epoch E+1

@@ -230,6 +230,46 @@ func Renew(
 	return lease, err
 }
 
+// RenewToBind is the session-stamping renewal: the beat that binds a
+// herdr session onto the lease. It differs from Renew in one way — a
+// CAS lost to our own hold is not a fence but a stale baseline, so it
+// renews again from where the ref actually is. The lease work ref is
+// also the lane's working branch, so the lane advances it the moment
+// the agent starts, and the bind cannot run before the agent exists to
+// name a session; the recorded tip is therefore routinely one or more
+// of this lane's own commits behind by the time the session is stamped.
+//
+// The guard is the identity orphans and reap already trust: the marker
+// governing the tip that won the CAS must carry this same holder and
+// this same lane. A foreign mover, or a tip whose marker could not be
+// read, is returned as the fence it is. One reconcile only — a second
+// loss is returned as-is, so a genuinely contended ref cannot spin.
+func RenewToBind(
+	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
+) (Lease, error) {
+	lease, err := advance(repoDir, opts, markerBeat, from, run)
+	var fenced *FenceError
+	if errors.As(err, &fenced) && ownHold(fenced, opts) {
+		lease, err = advance(repoDir, opts, markerBeat, fenced.Tip, run)
+	}
+	if err == nil {
+		persistToken(opts, lease.Tip, run)
+	}
+
+	return lease, err
+}
+
+// ownHold reports whether the tip that fenced a renewal is still this
+// lane's own hold: the fence carries the marker governing that tip, so
+// the same holder on the same lane means the baseline went stale under
+// us, not that someone else took the lease. An unread marker answers
+// false — the safe direction, since it is not provably ours.
+func ownHold(fenced *FenceError, opts LeaseOptions) bool {
+	return fenced.Known && fenced.Tip != "" &&
+		fenced.Marker.Holder != "" && fenced.Marker.Holder == opts.Holder &&
+		fenced.Marker.Lane == opts.Lane
+}
+
 // Resume is the self-resume transition (F9, F11, S3, S21): mechanically
 // a renewal — a beat CASed from the lane's own recorded tip, same
 // epoch — named for what the caller is doing with it. A lane resumes
