@@ -107,15 +107,19 @@ ladder *says*, not what it does beyond naming.
    would refuse, naming the resume, the wait, or the live agent instead.
    Driven red as the pure projection the report layer already unit-tests,
    then wired where `open` reads the hold.
-2. Later phases, shaped by Phase 1's handoff: `start`'s refusal names
-   which held kind it is rather than a blanket un-matured takeover, and
-   `nudge` tells "held, no agent attached" apart from "no lane at all".
+2. Phase 2, shaped by Phase 1's handoff: `start`'s refusal names a live
+   agent's presence rather than the blanket un-matured-takeover
+   wording; an unprovable hold's own wording is already honest and
+   stays unchanged.
+3. Later phase, shaped by Phase 2's handoff: `nudge` tells "held, no
+   agent attached" apart from "no lane at all".
 
 ## Execution
 
-| Phase | Title                                              | Tier   | Gate                                                                                                                                                 |
-| ----- | -------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | open names the honest next step per held-lane kind | sonnet | `open` names a resume, a wait, or a live holder by held-lane kind, never a refusing `start`; an unheld plan says `frit start`; `go test ./...` green |
+| Phase | Title                                                                 | Tier   | Gate                                                                                                                                                 |
+| ----- | --------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | open names the honest next step per held-lane kind                    | sonnet | `open` names a resume, a wait, or a live holder by held-lane kind, never a refusing `start`; an unheld plan says `frit start`; `go test ./...` green |
+| 2     | start's refusal names a live agent, not a blanket un-matured takeover | sonnet | a live-attended hold's refusal names the agent, never the takeover-window wording; an unprovable hold's wording is unchanged; `go test ./...` green  |
 
 ## Phases
 
@@ -133,9 +137,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                            |
-| --- | ------ | ---------------------------------------------------------------- |
-| 1   | ✅     | [open names the honest next step per held-lane kind](phase-1.md) |
+| #   | Status | Phase                                                                               |
+| --- | ------ | ----------------------------------------------------------------------------------- |
+| 1   | ✅     | [open names the honest next step per held-lane kind](phase-1.md)                    |
+| 2   | ✅     | [start's refusal names a live agent, not a blanket un-matured takeover](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria

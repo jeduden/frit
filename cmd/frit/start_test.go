@@ -1862,6 +1862,61 @@ func TestStartStillVetoesALaneWithALiveAgent(t *testing.T) {
 		"a live lane's hold is left exactly as it stood")
 }
 
+// TestStartRefusalNamesALiveAgentInsteadOfTheWindow: the same hold
+// TestStartStillVetoesALaneWithALiveAgent refuses, but the refusal
+// itself now names why — a live agent on the lane — rather than the
+// blanket un-matured-takeover wording, which would wrongly suggest
+// waiting frees it (plan 2609011941, phase 2).
+func TestStartRefusalNamesALiveAgentInsteadOfTheWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":         "claude",
+		"agent_status":  "working",
+		"cwd":           repo,
+		"pane_id":       "wOld:p1",
+		"agent_session": map[string]any{"value": "wOld:p1"},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "live agent")
+	assert.NotContains(t, got, "not takeable until the window matures",
+		"waiting will not free a lane a live agent is on")
+	assert.Equal(t, held, remoteWorkTip(t, repo))
+}
+
+// TestStartRefusalStillNamesTheWindowForAnUnprovableHold: the same
+// hold TestStartDoesNotResumeALaneWhoseTokenIsGone refuses keeps its
+// existing wording — waiting really is the honest next step for a
+// hold this machine cannot prove, so phase 2's new live-agent wording
+// must not fire here.
+func TestStartRefusalStillNamesTheWindowForAnUnprovableHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures")
+	assert.NotContains(t, got, "live agent")
+	assert.Equal(t, held, remoteWorkTip(t, repo))
+}
+
 // TestStartWithUnconfirmedLivenessDoesNotResume: the token is this
 // machine's, but herdr cannot be reached, so nothing confirms the lane
 // unattended. Unknown is not absence: from outside the lane the guard

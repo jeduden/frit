@@ -104,7 +104,9 @@ func buildStart(
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess.
-	if doc := startRefusal(c, rt, res, plan, phase, doGo, coord, cwd, rs); doc != nil {
+	if doc := startRefusal(
+		c, rt, res, plan, phase, doGo, coord, coordOK, cwd, rs,
+	); doc != nil {
 		return doc, false, nil
 	}
 
@@ -162,7 +164,8 @@ func buildStart(
 // orphaned the same way (S77).
 func startRefusal(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
-	phase string, doGo bool, coord fleet.Coord, cwd string, rs startResumption,
+	phase string, doGo bool, coord fleet.Coord, coordOK bool, cwd string,
+	rs startResumption,
 ) *report.StartDoc {
 	if rs.Reattach {
 		if reason := reattachParkFirstRefusal(rt, plan, coord, rs); reason != "" {
@@ -187,6 +190,9 @@ func startRefusal(
 	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
 		return refusedStart(c, res, plan, phase, doGo, reason)
 	}
+	if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
+		return refusedStart(c, res, plan, phase, doGo, reason)
+	}
 	window, _ := staleClock(&res, plan.Repo)
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 		doc := refusedStart(c, res, plan, phase, doGo, reason)
@@ -196,6 +202,29 @@ func startRefusal(
 	}
 
 	return nil
+}
+
+// liveHoldRefusal names a held lane a live agent already attends, ahead
+// of the generic un-matured-takeover wording claimRefusal would
+// otherwise give it: waiting for the window will not free a lane
+// somebody is actively working, so the honest next step reads
+// differently (#122, plan 2609011941 phase 2). Read off the same
+// marker, token and liveness reads holdKindFor already runs for `open`.
+// "" for every other kind, leaving claimRefusal the arbiter — an
+// unprovable hold's own "not takeable until the window matures" wording
+// is already honest and stays untouched, and an ambiguous repository
+// (coordOK false) never reads as HoldLive either, since holdKindFor
+// itself falls back to HoldUnproven there.
+func liveHoldRefusal(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+) string {
+	if !plan.Held || holdKindFor(rt, plan, coord, coordOK) != report.HoldLive {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"already held (%s); a live agent is on this lane; "+
+			"nudge or open it instead of starting", heldLabel(plan.Holds))
 }
 
 // startResume resolves the resume start is entitled to, the zero value
