@@ -818,6 +818,32 @@ func liveLeaseLane(t *testing.T, repo, branch string) string {
 	return lane
 }
 
+// liveLeaseFixture stands up the one scenario all three live-lane
+// tests below drive: a matured, session-less hold on plan 7 — fair
+// game for a takeover by every earlier guard — with a herdr pane
+// already sitting live on that exact branch in a clone outside root,
+// the live-but-unbound lane the takeover veto cannot see (issue #126).
+// Callers differ only in the verb they run and the assertions they
+// make on top.
+func liveLeaseFixture(
+	t *testing.T, root string,
+) (repo string, lease claim.Lease, runner herdr.Runner, rec *herdrCalls) {
+	t.Helper()
+	repo = claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	runner, rec = recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	})
+
+	return repo, lease, runner, rec
+}
+
 // TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane: a matured stale
 // hold whose lease never bound a session is ordinarily fair game for a
 // takeover, but a herdr pane already sits live on that exact branch —
@@ -828,17 +854,7 @@ func liveLeaseLane(t *testing.T, repo, branch string) string {
 func TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
-	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
-		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
-	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
-	require.NoError(t, err)
-	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
-	lane := liveLeaseLane(t, repo, "plan/7")
-	runner, rec := recordingHerdr(map[string]any{
-		"agent": "claude", "agent_status": "working",
-		"pane_id": "wLive:p1", "cwd": lane,
-	})
+	repo, lease, runner, rec := liveLeaseFixture(t, root)
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
 
@@ -887,17 +903,7 @@ func TestStartGoStillStartsWhenNoLiveAgentOnTheLane(t *testing.T) {
 func TestStartGoRefusalOfALiveLaneCarriesInJSON(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
-	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
-		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
-	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
-	require.NoError(t, err)
-	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
-	lane := liveLeaseLane(t, repo, "plan/7")
-	runner, _ := recordingHerdr(map[string]any{
-		"agent": "claude", "agent_status": "working",
-		"pane_id": "wLive:p1", "cwd": lane,
-	})
+	_, _, runner, _ := liveLeaseFixture(t, root)
 	withHerdr(t, runner)
 	var doc report.StartDoc
 
@@ -906,6 +912,85 @@ func TestStartGoRefusalOfALiveLaneCarriesInJSON(t *testing.T) {
 	assert.Contains(t, doc.Refused, "plan/7")
 	assert.False(t, doc.PromptDispatched)
 	assert.Empty(t, doc.Pane)
+}
+
+// startHerdrUnreachableList is startHerdr with agent.list erroring —
+// the one call the live-lane presence read depends on — layered so
+// every other exchange of a normal escalation still succeeds. It
+// drives the fail-open branch carryLiveLaneProblems documents: an
+// unreachable herdr never blocks a legitimate start, it only rides
+// along as a problem.
+func startHerdrUnreachableList() (herdr.Runner, *herdrCalls) {
+	base, rec := startHerdr()
+
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			rec.mu.Lock()
+			rec.calls = append(rec.calls, append([]string(nil), args...))
+			rec.mu.Unlock()
+
+			return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+		}
+
+		return base(args...)
+	}, rec
+}
+
+// TestStartGoStillDispatchesWhenHerdrIsUnreachableForTheLiveLaneCheck
+// drives the one branch startLiveLaneRefusal's design deliberately
+// leaves unguarded (mirroring TestOpenCarriesAnUnreachableHerdr's
+// socket-failure branch for open): the plan is unheld, so nothing
+// short-circuits ahead of the live-lane read, and the read itself
+// fails. The escalation still runs — an unreadable herdr can prove
+// nothing is live, so it must not veto a legitimate start — and the
+// failure travels as a problem instead of being swallowed.
+func TestStartGoStillDispatchesWhenHerdrIsUnreachableForTheLiveLaneCheck(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdrUnreachableList()
+	withHerdr(t, runner)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--go", "--root", root)
+
+	assert.Empty(t, doc.Refused,
+		"an unreachable herdr never blocks a legitimate start")
+	assert.True(t, doc.PromptDispatched)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	assert.True(t, rec.verb("agent", "prompt"), "the escalation still ran")
+}
+
+// TestLiveLaneRefusalNamesThePaneAndItsBranch pins the wording the
+// live-lane refusal renders: a caller reading the reason string, not
+// just the JSON contract, still finds the pane and branch to go free.
+func TestLiveLaneRefusalNamesThePaneAndItsBranch(t *testing.T) {
+	reason := liveLaneRefusal(herdr.Lane{
+		Pane:   herdr.Pane{PaneID: "wLive:p1"},
+		Branch: "plan/7",
+	})
+
+	assert.Contains(t, reason, "wLive:p1")
+	assert.Contains(t, reason, "plan/7")
+}
+
+// TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems pins
+// carryLiveLaneProblems's own contract in isolation from the
+// integration tests that only exercise it indirectly: a host problem
+// and a herdr error both land on the doc, in that order, neither
+// dropping the other.
+func TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems(t *testing.T) {
+	doc := report.NewStart(
+		"", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+
+	carryLiveLaneProblems(doc,
+		[]hostProblem{{name: "vault", err: errors.New("boom")}},
+		errors.New("dial refused"))
+
+	require.Len(t, doc.Problems, 2)
+	assert.Equal(t, "vault", doc.Problems[0].Repo)
+	assert.Equal(t, "herdr", doc.Problems[1].Repo)
 }
 
 // TestStartResumesItsOwnLeaseFromThePersistedToken: run from the
