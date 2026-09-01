@@ -51,5 +51,24 @@ Phase 2's reattach stand-up is unchanged by the rework: a resume
 resolved from the marker is still the from-outside one, and it reopens
 the recorded checkout and starts the agent in that pane.
 
+Post-review, same day, four things changed on top and are pinned by
+tests. The park-first rule (S77) now holds from outside too: a lane
+whose branch carries unpushed commits past origin's tip is refused and
+told to yield from that lane, since the resume's beat would move the
+shared work ref off that suffix and orphan it — the reattach preserves
+commits by refusing, never by clobbering. Only an explicit `start <id>`
+reattaches; `pick --go` keeps its documented takeover of a dead hold.
+The start report names the lane the resume actually renewed on, not
+the naming convention's. And a resume whose beat is fenced by a
+concurrent takeover is reported as a lost race, naming the mover,
+rather than as a fault advising a yield you cannot run from outside.
+
+Left open, as a design call: a reattach renews unbound, so a stand-up
+that then fails leaves the marker's dead-session evidence rewritten to
+`-` and other hosts wait the full window. Carrying the dead session
+forward is worse — a bind that failed on a *live* agent would then read
+the lane as dead and invite a takeover over it — so it wants a restore
+beat on stand-up failure, not a one-line change.
+
 `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are clean.

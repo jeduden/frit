@@ -1464,3 +1464,12 @@ func TestParkSurvivesALegacyRescueRefFromTheSameHolder(t *testing.T) {
 	legacy := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b")
 	assert.Contains(t, legacy, legacyTip, "the legacy rescue ref is untouched")
 }
+
+// TestMarkerHasLane: a lease minted without a lane writes "-" rather
+// than an empty trailer, so every key stays present, and that
+// placeholder reads as "nowhere", never as a path.
+func TestMarkerHasLane(t *testing.T) {
+	assert.True(t, Marker{Lane: "/lanes/a"}.HasLane())
+	assert.False(t, Marker{Lane: "-"}.HasLane(), "the placeholder is not a path")
+	assert.False(t, Marker{}.HasLane())
+}

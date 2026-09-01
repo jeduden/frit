@@ -1623,7 +1623,8 @@ func readyView(doc *report.PickDoc) *report.ReadyDoc {
 // its race, it prints the same empty answer a bare pick gives.
 func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
 	for _, plan := range discovery.Candidates(res.Plans) {
-		doc, lost, err := buildStart(c, rt, res, plan, pc.Phase, "", false, true)
+		doc, lost, err := buildStart(
+			c, rt, res, plan, pc.Phase, "", false, true, false)
 		if err != nil {
 			return err
 		}

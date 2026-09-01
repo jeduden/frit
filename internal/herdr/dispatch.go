@@ -45,22 +45,8 @@ type WorktreeSpec struct {
 // never steals focus: the escalation focuses the pane deliberately at the
 // end, not as a side effect of creating it.
 func WorktreeCreate(runner Runner, spec WorktreeSpec) (string, error) {
-	args := []string{
-		"worktree", "create", "--cwd", spec.CWD,
-		"--branch", spec.Branch, "--base", spec.Base,
-		"--path", spec.Path,
-	}
-	if spec.Label != "" {
-		args = append(args, "--label", spec.Label)
-	}
-	args = append(args, "--no-focus", "--json")
-
-	out, err := runner(args...)
-	if err != nil {
-		return "", err
-	}
-
-	return parseWorktreePane(out, "worktree create")
+	return worktreePane(runner, "create", spec,
+		"--branch", spec.Branch, "--base", spec.Base, "--path", spec.Path)
 }
 
 // WorktreeOpen asks herdr to put a checkout that already exists back on
@@ -70,9 +56,17 @@ func WorktreeCreate(runner Runner, spec WorktreeSpec) (string, error) {
 // resume. No base is sent — nothing is being dated against anything —
 // and, like create, it never steals focus.
 func WorktreeOpen(runner Runner, spec WorktreeSpec) (string, error) {
-	args := []string{
-		"worktree", "open", "--cwd", spec.CWD, "--path", spec.Path,
-	}
+	return worktreePane(runner, "open", spec, "--path", spec.Path)
+}
+
+// worktreePane runs one worktree verb — create or open — that answers
+// with the pane it put on screen: the verb's own arguments after the
+// working directory, then the label, no focus, and the JSON envelope
+// both share, read by one parser told which verb to name.
+func worktreePane(
+	runner Runner, verb string, spec WorktreeSpec, verbArgs ...string,
+) (string, error) {
+	args := append([]string{"worktree", verb, "--cwd", spec.CWD}, verbArgs...)
 	if spec.Label != "" {
 		args = append(args, "--label", spec.Label)
 	}
@@ -83,7 +77,7 @@ func WorktreeOpen(runner Runner, spec WorktreeSpec) (string, error) {
 		return "", err
 	}
 
-	return parseWorktreePane(out, "worktree open")
+	return parseWorktreePane(out, "worktree "+verb)
 }
 
 // parseWorktreePane reads the opened pane's id out of a worktree.create

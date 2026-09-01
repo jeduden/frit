@@ -1393,6 +1393,8 @@ func TestStartResumesFromOutsideOnTheTokenTheMarkerLocates(t *testing.T) {
 	assert.NotContains(t, got, "takeover window",
 		"no window is named for a hold nobody is being deprived of")
 	assert.Contains(t, got, "resumed plan 7")
+	assert.Contains(t, got, "worktree: "+lane,
+		"the report names the lane that was reopened, not the naming convention")
 
 	// The chain reads as a resume, not a seizure: the beat CASed
 	// straight from the hold's own tip, under the same epoch, naming
@@ -1724,15 +1726,6 @@ func TestStartDoesNotResumeAHoldThatNamesNoLane(t *testing.T) {
 		"the lane the marker records still names a real checkout")
 }
 
-// TestRecordsLane: the placeholder a lane-less lease writes is read as
-// nowhere, never as a path, and any real path is a checkout.
-func TestRecordsLane(t *testing.T) {
-	assert.False(t, recordsLane(claim.Marker{}), "an unread marker names nothing")
-	assert.False(t, recordsLane(claim.Marker{Lane: "-"}),
-		"the placeholder every key-present marker writes is not a path")
-	assert.True(t, recordsLane(claim.Marker{Lane: "/lanes/atlas-shader-unit"}))
-}
-
 // TestStartReattachesInTheLanesOwnPane: the from-outside resume phase 1
 // unlocked stands its agent up in the checkout the hold records, not in
 // whatever pane the caller happens to be standing in. `pane current`
@@ -1806,4 +1799,122 @@ func TestStartRefusesWhenAReattachCannotOpenTheLane(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "plan 7: beat", subject,
 		"the resume's own renewal stands; nothing is released")
+}
+
+// TestStartRefusesAReattachOverAnUnparkedSuffix: the lane's agent
+// committed past the token it persisted and never pushed, then its
+// pane died. A resume from outside would CAS a beat from origin's tip
+// and move the shared work ref onto it, orphaning that suffix — the
+// exact harm the park-first guard exists for (S77). The reattach
+// refuses and names yield, from the lane, and nothing moves.
+func TestStartRefusesAReattachOverAnUnparkedSuffix(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.Contains(t, got, lane, "the refusal names the lane to yield from")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.False(t, rec.verb("worktree", "open"),
+		"nothing is reopened over an unparked suffix")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "the lane's own commit still heads the branch")
+	assert.Equal(t, held, remoteWorkTip(t, repo), "origin's tip is untouched")
+}
+
+// TestStartNamesThePaneAFailedReattachLeftBehind: a reattach reopened
+// the lane's checkout into a pane and the agent then failed to start.
+// The lease stands, as for any resume, and the lane's worktree is
+// never torn down — but the pane frit itself just opened is now on
+// screen with nothing in it, so the error names it rather than leave
+// the operator to find it by hand.
+func TestStartNamesThePaneAFailedReattachLeftBehind(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	inner := emptyRosterHerdr()
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New("agent start: spawn failed")
+		}
+
+		return inner(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "spawn failed", "the cause is reported")
+	assert.Contains(t, errb.String(), "wL:p1", "the pane left behind is named")
+	assert.Contains(t, errb.String(), lane, "and where it was opened")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"the lane's own checkout is never torn down")
+	tip := remoteWorkTip(t, repo)
+	subject, err := gitCapture(t, repo, "log", "-1", "--format=%s", tip)
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject, "the resume's renewal stands")
+}
+
+// TestReattachError: a reattach that died after herdr reopened a pane
+// names that pane and the lane it sits on; one that died before any
+// pane came back reports the cause alone.
+func TestReattachError(t *testing.T) {
+	cause := errors.New("agent start: boom")
+
+	named := reattachError("/lanes/atlas-x", "wL:p1", cause)
+	assert.Contains(t, named.Error(), "/lanes/atlas-x")
+	assert.Contains(t, named.Error(), "wL:p1")
+	assert.NotContains(t, named.Error(), "worktree",
+		"nothing was stood up; only a pane was opened")
+	assert.True(t, errors.Is(named, cause), "the cause still unwraps")
+
+	assert.Equal(t, cause, reattachError("/lanes/atlas-x", "", cause),
+		"no pane came back, so there is nothing to name")
+}
+
+// TestLostRaceIncludesAFencedResume: a resume whose renewal lost its
+// CAS to a concurrent takeover is fenced, and a fence is a race start
+// lost — a refusal to render, and for pick --go a candidate to skip —
+// never a fault that aborts the walk.
+func TestLostRaceIncludesAFencedResume(t *testing.T) {
+	assert.True(t, lostRace(claim.ErrLostRace))
+	assert.True(t, lostRace(&claim.HeldError{}))
+	assert.True(t, lostRace(&claim.FenceError{PlanID: 7}))
+	assert.True(t, lostRace(fmt.Errorf("wrap: %w", &claim.FenceError{PlanID: 7})))
+	assert.False(t, lostRace(errors.New("push: boom")))
+	assert.False(t, lostRace(nil))
+}
+
+// TestLostRaceRefusalNamesAFencedResume: the refusal for a fenced
+// resume says who moved the ref, and never tells the caller to yield —
+// from outside the lane there is nothing to yield from.
+func TestLostRaceRefusalNamesAFencedResume(t *testing.T) {
+	known := lostRaceRefusal(&claim.FenceError{PlanID: 7, Known: true,
+		Marker: claim.Marker{Holder: "box-b"}})
+	assert.Contains(t, known, "box-b")
+	assert.NotContains(t, known, "yield")
+
+	unknown := lostRaceRefusal(&claim.FenceError{PlanID: 7})
+	assert.Contains(t, unknown, "lost")
+	assert.NotContains(t, unknown, "yield")
+	assert.NotContains(t, unknown, "()", "no empty holder is printed")
 }

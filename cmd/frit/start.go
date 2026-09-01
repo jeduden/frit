@@ -63,7 +63,8 @@ func startResolved(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
 	phaseSel, note string, edit, doGo bool,
 ) error {
-	doc, _, err := buildStart(c, rt, res, plan, phaseSel, note, edit, doGo)
+	doc, _, err := buildStart(
+		c, rt, res, plan, phaseSel, note, edit, doGo, true)
 	if err != nil {
 		return err
 	}
@@ -77,9 +78,15 @@ func startResolved(
 // verbs, so they cannot drift on what "startable" or "started" means.
 // The bool is true when execution lost the claim's race — the one
 // refusal pick --go retries past rather than reports.
+//
+// reattach is whether a held lane may be resumed from outside it, off
+// its hold's own marker (#122): true for an explicit `start <id>`,
+// where the caller named the lane; false for pick --go, which ranks
+// ready plans and promises to resume only an unheld one — a held
+// checkout is never quietly reopened on the way to the top candidate.
 func buildStart(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
-	phaseSel, note string, edit, doGo bool,
+	phaseSel, note string, edit, doGo, reattach bool,
 ) (*report.StartDoc, bool, error) {
 	phase, ok := dispatch.Phase(plan.Phases, phaseSel)
 	if !ok {
@@ -92,33 +99,12 @@ func buildStart(
 	// the lane in, so a resume cannot be checked either.
 	coord, coordOK := res.Coords[plan.Repo]
 	cwd, _ := os.Getwd()
-	rs := startResume(rt, plan, coord, coordOK, cwd)
+	rs := startResume(rt, plan, coord, coordOK, cwd, reattach)
 
 	// Refuse before reading the repository off disk: a plan already held
-	// or blocked needs no base, worktree path or git subprocess. A
-	// resumable own lease skips this refusal — it is startable by
-	// definition, whether or not its window has matured.
-	if !rs.active() {
-		// A deserted hold read from this exact lane is named before the
-		// ordinary readiness check ever runs: S76 already makes a dead,
-		// unmatured hold Ready for a takeover from elsewhere, but taking
-		// it over from its own dead lane would leave whatever that lane
-		// committed locally, past its persisted token, orphaned rather
-		// than parked — yield is the way out, not a silent takeover
-		// (S77).
-		if reason := desertedRefusal(rt, plan, cwd); reason != "" {
-			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
-		}
-		if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
-			return refusedStart(c, res, plan, phase, doGo, reason), false, nil
-		}
-		window, _ := staleClock(&res, plan.Repo)
-		if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
-			doc := refusedStart(c, res, plan, phase, doGo, reason)
-			scavengeGlyph(rt, doc, plan, res)
-
-			return doc, false, nil
-		}
+	// or blocked needs no base, worktree path or git subprocess.
+	if doc := startRefusal(c, rt, res, plan, phase, doGo, coord, cwd, rs); doc != nil {
+		return doc, false, nil
 	}
 
 	if !coordOK {
@@ -128,6 +114,13 @@ func buildStart(
 
 	sc := startContextOf(coord)
 	sp := composeStart(plan, phase, note, sc)
+	if rs.active() {
+		// The report names the lane the resume renews on and reopens —
+		// the checkout's real location, off the hold's marker or the
+		// caller's cwd — never the naming convention composeStart
+		// computes, which may point at a directory nothing runs in.
+		sp.Lane = rs.Lane
+	}
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 	if rs.active() {
@@ -138,7 +131,7 @@ func buildStart(
 		if err := startExecute(
 			rt, doc, plan, sp, sc, edit, rs,
 		); err != nil {
-			if errors.Is(err, claim.ErrLostRace) {
+			if lostRace(err) {
 				doc.Refuse(lostRaceRefusal(err))
 				scavengeLanded(rt, doc, plan, coord, err)
 
@@ -152,19 +145,80 @@ func buildStart(
 	return doc, false, nil
 }
 
-// startResume resolves the resume start is entitled to, "" and "" when
-// it is entitled to none. Two proofs answer the same question — is this
-// lane already ours to pick back up — and the cheaper one goes first:
-// the persisted token, read straight off the lane's own git dir when
-// start runs from inside it, then the hold's own marker, which is what
-// a closed pane leaves you outside the lane to read (#122).
+// startRefusal is the refusal buildStart renders before it reads the
+// repository off disk, nil when the plan is startable. A resumable own
+// lease skips the readiness refusals — it is startable by definition,
+// whether or not its window has matured — but a reattach still meets
+// the park-first guard: its renewal moves the shared work ref exactly
+// as a takeover would, so a suffix the dead lane never pushed would be
+// orphaned the same way (S77).
+func startRefusal(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phase string, doGo bool, coord fleet.Coord, cwd string, rs startResumption,
+) *report.StartDoc {
+	if rs.Reattach {
+		if reason := reattachParkFirstRefusal(rt, plan, coord, rs); reason != "" {
+			return refusedStart(c, res, plan, phase, doGo, reason)
+		}
+
+		return nil
+	}
+	if rs.active() {
+		return nil
+	}
+	// A deserted hold read from this exact lane is named before the
+	// ordinary readiness check ever runs: S76 already makes a dead,
+	// unmatured hold Ready for a takeover from elsewhere, but taking
+	// it over from its own dead lane would leave whatever that lane
+	// committed locally, past its persisted token, orphaned rather
+	// than parked — yield is the way out, not a silent takeover
+	// (S77).
+	if reason := desertedRefusal(rt, plan, cwd); reason != "" {
+		return refusedStart(c, res, plan, phase, doGo, reason)
+	}
+	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
+		return refusedStart(c, res, plan, phase, doGo, reason)
+	}
+	window, _ := staleClock(&res, plan.Repo)
+	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
+		doc := refusedStart(c, res, plan, phase, doGo, reason)
+		scavengeGlyph(rt, doc, plan, res)
+
+		return doc
+	}
+
+	return nil
+}
+
+// startResume resolves the resume start is entitled to, the zero value
+// when it is entitled to none. Two proofs answer the same question — is
+// this lane already ours to pick back up — and the cheaper one goes
+// first: the persisted token, read straight off the lane's own git dir
+// when start runs from inside it — ahead of the "already held"
+// refusal, exactly as claim orders it (F9, F11, S3, S21) — then, when
+// the caller allows a reattach, the hold's own marker, which is what a
+// closed pane leaves you outside the lane to read (#122). Both fail to
+// the zero value when the plan carries no matching coordinate, or none
+// of the resume conditions hold; start's ordinary claim path is then
+// the arbiter. Lane is the checkout's real location — cwd-derived for
+// the token proof, the marker's own trailer for the reattach — never
+// the naming convention composeStart computes, since a resumed renewal
+// must record where the checkout genuinely is: orphans and reap trust
+// that record to tell a foreign checkout apart from the real one.
 func startResume(
-	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+	cwd string, reattach bool,
 ) startResumption {
-	if lane, tip := startResumeTip(rt, plan, coord, coordOK, cwd); tip != "" {
+	if !coordOK {
+		return startResumption{}
+	}
+	if lane, tip, ok := resumeToken(rt, plan, coord, cwd); ok {
 		return startResumption{Lane: lane, Tip: tip}
 	}
-	lane, tip := laneTokenResumeTip(rt, plan, coord, coordOK)
+	if !reattach {
+		return startResumption{}
+	}
+	lane, tip := laneTokenResumeTip(rt, plan, coord)
 
 	return startResumption{Lane: lane, Tip: tip, Reattach: tip != ""}
 }
@@ -186,33 +240,9 @@ type startResumption struct {
 // turn on.
 func (r startResumption) active() bool { return r.Tip != "" }
 
-// startResumeTip resolves the lane's own lease from its persisted
-// token, when start is run from that exact lane — ahead of the
-// "already held" refusal, exactly as claim orders it (F9, F11, S3,
-// S21). Both return values are "" when the plan carries no matching
-// coordinate, or none of the resume conditions hold; start's ordinary
-// claim path is then the arbiter. lane is resumeToken's own
-// cwd-derived path — the lane's real location, not the naming
-// convention composeStart computes — since a resumed renewal must
-// record where the checkout genuinely is: orphans and reap now trust
-// that record to tell a foreign checkout apart from the real one.
-func startResumeTip(
-	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
-) (lane, tip string) {
-	if !coordOK {
-		return "", ""
-	}
-	lane, tip, ok := resumeToken(rt, plan, coord, cwd)
-	if !ok {
-		return "", ""
-	}
-
-	return lane, tip
-}
-
 // laneTokenResumeTip resolves the resume from outside the lane, for a
-// lane whose pane was closed (#122). startResumeTip's proof is
-// cwd-derived, so it fires only from inside the lane; out here the
+// lane whose pane was closed (#122). The token proof resumeToken
+// passes is cwd-derived, so it fires only from inside the lane; out here the
 // hold's own marker says where the lane is, and the token that lane
 // persisted is the proof it is this machine's lease — the same proof
 // ownToken passes, found by a different route. The marker's holder
@@ -227,9 +257,9 @@ func startResumeTip(
 // to read a token from, and renewing on "-" would stamp it into the
 // very trailer orphans and reap read as a path.
 func laneTokenResumeTip(
-	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+	rt *runtime, plan discovery.Plan, coord fleet.Coord,
 ) (lane, tip string) {
-	if !coordOK || !plan.Held {
+	if !plan.Held {
 		return "", ""
 	}
 	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
@@ -242,7 +272,7 @@ func laneTokenResumeTip(
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
 	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
-	if !ok || !recordsLane(m) {
+	if !ok || !m.HasLane() {
 		return "", ""
 	}
 	token := claim.ReadToken(m.Lane, plan.ID, rt.git)
@@ -270,28 +300,9 @@ func laneUnattended(rt *runtime, m claim.Marker) bool {
 	if err != nil {
 		return false
 	}
-	bound := m.Session != "" && m.Session != "-"
-	for _, p := range panes {
-		if !p.HasAgent() {
-			continue
-		}
-		if bound && p.Session == m.Session {
-			return false
-		}
-		if p.Host == "" && herdr.Resolve(p.CWD, rt.git).Root == m.Lane {
-			return false
-		}
-	}
 
-	return true
-}
-
-// recordsLane reports whether a marker names a checkout to reattach
-// to. A lease minted without one writes "-" rather than an empty
-// trailer, so every key stays present, and that placeholder is what a
-// resume must read as "nowhere", never as a path.
-func recordsLane(m claim.Marker) bool {
-	return m.Lane != "" && m.Lane != "-"
+	return !herdr.SessionLiveIn(panes, m.Session) &&
+		!herdr.LiveRoots(panes, rt.git)[m.Lane]
 }
 
 // desertedRefusal names the yield that retires a deserted hold read
@@ -335,17 +346,49 @@ func parkFirstRefusal(rt *runtime, plan discovery.Plan, coord fleet.Coord) strin
 	if !plan.Held || !plan.Dead || plan.Stale || coord.Path == "" {
 		return ""
 	}
-	local, err := localRef(rt, coord.Path, claim.Branch(plan.ID))
-	if err != nil || local == "" {
-		return ""
-	}
-	if isAncestor(rt, coord.Path, local, plan.HoldTip) {
+	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {
 		return ""
 	}
 
 	return fmt.Sprintf(
 		"deserted hold: its branch carries an unparked suffix; "+
 			"run `frit yield %d` to park it first", plan.ID)
+}
+
+// reattachParkFirstRefusal is the park-first guard for a resume from
+// outside the lane (S77). The lane is this host's own — its token just
+// proved as much — but the resume's beat is CASed from origin's tip
+// and moves the shared work ref onto it, so any commits the dead lane
+// made past that tip and never pushed would be left dangling, exactly
+// as a takeover would leave them. Whether the hold reads dead or not
+// makes no difference here: the #122 hold that never named a session
+// cannot be confirmed dead, and its suffix is orphaned just the same.
+// "" when the branch carries no such suffix, or the gather withheld a
+// coordinate to read it from.
+func reattachParkFirstRefusal(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, rs startResumption,
+) string {
+	if coord.Path == "" || !unparkedSuffix(rt, coord.Path, plan.ID, rs.Tip) {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"held lane %s carries an unparked suffix; "+
+			"run `frit yield %d` from that lane to park it first",
+		rs.Lane, plan.ID)
+}
+
+// unparkedSuffix reports whether the local work ref in dir has moved
+// past tip — commits the lane made and never pushed, which a CAS from
+// tip would silently orphan. A ref that cannot be read carries no
+// suffix to protect.
+func unparkedSuffix(rt *runtime, dir string, planID int64, tip string) bool {
+	local, err := localRef(rt, dir, claim.Branch(planID))
+	if err != nil || local == "" {
+		return false
+	}
+
+	return !isAncestor(rt, dir, local, tip)
 }
 
 // isAncestor reports whether sha is reachable from base — plumbing
@@ -447,7 +490,6 @@ func startExecute(
 		doc.Prompt = text
 	}
 
-	resume := rs.active()
 	// A resumed renewal is CASed against the lane it is actually
 	// running from (rs.Lane), never the naming convention sp.Lane
 	// computes: the two diverge the moment the checkout was set up off
@@ -455,7 +497,7 @@ func startExecute(
 	// orphans/reap now trust the marker's lane: trailer to tell a
 	// foreign checkout apart from the real one.
 	lane := sp.Lane
-	if resume {
+	if rs.active() {
 		lane = rs.Lane
 	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID); err != nil {
 		return err
@@ -470,13 +512,20 @@ func startExecute(
 
 	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text, rs)
 	if err != nil {
-		if resume {
+		if rs.active() {
 			// startAcquire's own renewal above already stands — this
 			// lane already holds the lease, resumed on its own token,
 			// not seized. A pane it could not find is a stand-up
 			// failure, not a reason to give the lease up, so there is
-			// nothing here to release; the unwind below is for a fresh
-			// acquire or takeover's worktree.create branch only.
+			// nothing here to release, and the lane's own checkout is
+			// never torn down; the unwind below is for a fresh acquire
+			// or takeover's worktree.create branch only. A reattach did
+			// open a pane of its own, though, so that is named rather
+			// than left for the operator to find.
+			if rs.Reattach {
+				return reattachError(rs.Lane, pane, err)
+			}
+
 			return err
 		}
 		// The lease is minted but nothing answers behind it. Tear down
@@ -608,6 +657,32 @@ func handoffError(lane, pane string, err error) error {
 	return fmt.Errorf(
 		"worktree %s and pane %s were stood up and are left behind: %w",
 		lane, pane, err)
+}
+
+// reattachError names the pane a failed reattach left behind: herdr
+// reopened the lane's checkout into it, and the agent then failed to
+// come up. Nothing was stood up — the worktree was already there and
+// stays — so only the pane is named. A reattach that died before any
+// pane came back reports the cause alone.
+func reattachError(lane, pane string, err error) error {
+	if pane == "" {
+		return err
+	}
+
+	return fmt.Errorf(
+		"pane %s was opened on %s and is left behind: %w", pane, lane, err)
+}
+
+// lostRace reports whether an escalation's error is a race start
+// lost rather than a fault: the lost-race family a fresh claim or
+// takeover returns, or the fence a resume's renewal returns when a
+// concurrent takeover moved the ref under it. Either is a refusal to
+// render, and for pick --go a candidate to skip, never a fault that
+// aborts the walk.
+func lostRace(err error) bool {
+	var fence *claim.FenceError
+
+	return errors.Is(err, claim.ErrLostRace) || errors.As(err, &fence)
 }
 
 // releaseLease unwinds a lease minted before a handoff, or a claim's

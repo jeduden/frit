@@ -269,7 +269,7 @@ func standUpClaimWorktree(
 		Branch: branch,
 		Base:   coord.Base,
 		Path:   path,
-		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
+		Label:  laneLabel(plan),
 	}); err != nil {
 		unwindFailedStandUp(rt, doc, plan, coord, branch, path, tip, err)
 		return
@@ -486,6 +486,10 @@ func lostRaceRefusal(err error) string {
 	if errors.As(err, &veto) {
 		return vetoRefusal(veto)
 	}
+	var fence *claim.FenceError
+	if errors.As(err, &fence) {
+		return fenceRefusal(fence)
+	}
 
 	var held *claim.HeldError
 	if !errors.As(err, &held) || !held.Known {
@@ -507,6 +511,20 @@ func lostRaceRefusal(err error) string {
 		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
+}
+
+// fenceRefusal names the machine whose takeover moved the ref under a
+// resume's renewal. It never says "run yield", as the fence's own
+// error does: a resume from outside the lane has nothing to yield
+// from, and the lease is now theirs, not ours.
+func fenceRefusal(fence *claim.FenceError) string {
+	if fence.Known && fence.Marker.Holder != "" {
+		return fmt.Sprintf(
+			"lost the lease to another machine (%s) before the resume renewed",
+			fence.Marker.Holder)
+	}
+
+	return "lost the lease to another machine before the resume renewed"
 }
 
 // vetoRefusal names the live holder a takeover was refused for, and

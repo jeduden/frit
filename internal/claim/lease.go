@@ -62,6 +62,14 @@ type Marker struct {
 	Base    string
 }
 
+// HasLane reports whether the marker names a checkout. A lease minted
+// without one writes "-" rather than an empty trailer, so every key
+// stays present, and that placeholder reads as "nowhere", never as a
+// path a verb could reopen or reap.
+func (m Marker) HasLane() bool {
+	return m.Lane != "" && m.Lane != "-"
+}
+
 // HeldError reports an acquire that lost: the work ref already carries
 // a live lease. It carries the winner's marker so the refusal can name
 // the holder's epoch, machine and lane rather than guess.
