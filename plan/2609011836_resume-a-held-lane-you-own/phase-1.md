@@ -1,79 +1,88 @@
 ---
 n: 1
-title: A host-owned lane with no live agent resumes, not refuses
-status: "✅"
+title: A lane whose token this machine holds resumes from outside, not refuses
+status: "🔳"
 result: false
 ---
 Pin the resume decision under test, the load-bearing change #122 turns
-on. A held plan whose remote hold's holder is this host, herdr-confirmed
-with no live agent, enters `start`'s resume path instead of the takeover
-refusal. This is the cmd-level slice; the from-outside reattach stand-up
-is a later phase, shaped by this one's handoff.
+on. A held plan whose marker-recorded lane carries a token matching the
+hold, herdr confirming no agent on that lane, enters `start`'s resume
+path instead of the takeover refusal. This is the cmd-level slice; the
+from-outside reattach stand-up is phase 2.
+
+**Reopened 2026-09-01.** As first written this phase gated the resume on
+the marker's `holder:` equalling this hostname. The lease protocol
+rejects that outright: identity strings admit cloned machines and
+reused paths as one holder with no race needed (A1); the token is the
+identity, and `holder:` / `lane:` are for reporting. The mechanism below
+replaces it. The tests it drove are reworked, not kept.
 
 **Assumes.** `startResumeTip` / `resumeToken` in
-[cmd/frit/start.go](../../cmd/frit/start.go) resolve a resume ahead of
-the "already held" refusal, but only from a cwd-derived token.
-`claimRefusal` in [cmd/frit/claim.go](../../cmd/frit/claim.go) returns
-"already held … not matured" for a held plan outside the ready set.
-`remoteHolder` and `ReadMarker` in
-[internal/claim/lease.go](../../internal/claim/lease.go) read the hold's
-`Holder` and tip; `claim.Resume` re-acquires from a given tip.
-`SessionLive` / `SessionDead` in
-[internal/herdr/session.go](../../internal/herdr/session.go) answer the
-liveness of the lease's bound session, failing safe to unknown. The
-start tests already script a herdr fake and origin-and-clone lease
-fixtures.
+[cmd/frit/start.go](../../cmd/frit/start.go) and
+[cmd/frit/claim.go](../../cmd/frit/claim.go) resolve a resume ahead of
+the "already held" refusal, but only from a cwd-derived token: `ownToken`
+reads the lane's own git dir, so it fires only from inside the lane.
+`claimRefusal` returns "already held … not matured" for a held plan
+outside the ready set. `ReadMarker` in
+[internal/claim/lease.go](../../internal/claim/lease.go) reads the
+hold's `lane:` trailer; `ReadToken` in
+[internal/claim/token.go](../../internal/claim/token.go) reads the token
+a checkout persisted; `OwnAdvance` accepts origin's tip as the lane's
+own advance beyond it. `herdr.List` answers which panes carry an agent
+and where each sits. The start tests already script a herdr fake and
+origin-and-clone lease fixtures.
 
 **Value.** The deadlock breaks: your own unattached lane is no longer
-refused on a window that cannot mature. `start` re-acquires it on the
-deterministic branch through the resume transition it already owns,
-rather than sending you back to `open`. A foreign holder and a live
-agent are untouched — only the act that was never a takeover stops being
-treated as one.
+refused on a window that cannot mature, and the proof is the one the
+protocol already trusts. `start` re-acquires it on the deterministic
+branch through the resume transition it already owns. A lane this
+machine cannot prove is untouched — only the act that was never a
+takeover stops being treated as one.
 
 **RED.** In [cmd/frit/start_test.go](../../cmd/frit/start_test.go),
-against the lease fixtures and herdr fake the file already uses.
+against fixtures whose lane persists its token.
 
-- `TestStartResumesAHostOwnedLaneWithNoLiveAgent`: script a held hold
-  whose marker `Holder` is this host, and a herdr fake reporting no live
-  agent on its bound session. Run `start` with no cwd token. Assert the
-  doc is not refused with "already held" / "not matured": it enters the
-  resume path — `MarkResumed` is set, `claim.Resume` runs from the hold's
-  tip — and no takeover window is named.
-- `TestStartStillRefusesALaneHeldByAnotherHost`: the marker `Holder` is a
-  different host. Assert the "already held … not matured" refusal stands
-  and no resume runs — a foreign hold is still a takeover.
-- `TestStartStillVetoesAHostOwnedLaneWithALiveAgent`: this host's hold,
-  but the herdr fake reports a live agent on the session. Assert `start`
-  does not resume — a live lane is vetoed, never reattached over
-  (the harm this guard exists to prevent).
-- `TestStartWithUnconfirmedLivenessDoesNotResume`: this host's hold, but
-  herdr liveness cannot be read. Assert the refusal stands — the guard
-  fails safe toward the window rather than resume over a possibly live
-  agent.
+- `TestStartResumesFromOutsideOnTheTokenTheMarkerLocates`: a held hold
+  recording a lane whose token matches it, bound session confirmed
+  gone. Run `start` from outside. Assert no "already held" refusal, the
+  resume beat CASed from the hold's tip under the same epoch, naming
+  the recorded lane.
+- `TestStartResumesAnUnboundHoldOnItsToken`: the #122 state exactly —
+  no session on the marker, empty herdr roster. The token needs no
+  session; it resumes.
+- `TestStartDoesNotResumeALaneWhoseTokenIsGone`: `holder:` equals this
+  hostname, token removed. The refusal stands — a string proves nothing
+  (A1).
+- `TestStartResumesWhateverTheHolderStringSays`: `holder:` names
+  another machine, token on disk (S48). It resumes, never seized.
+- `TestStartStillRefusesAForeignHoldWithNoToken` and
+  `TestStartTakesOverAForeignHoldWithNoToken`: no token, unbound or
+  dead — the window and the takeover transition are untouched.
+- `TestStartStillVetoesALaneWithALiveAgent`,
+  `TestStartDoesNotResumeOverAnAgentSittingInTheLane`,
+  `TestStartWithUnconfirmedLivenessDoesNotResume`: a live bound session,
+  an unbound agent in the checkout, and an unreachable herdr all keep
+  the refusal.
 
-**GREEN.** In [cmd/frit/start.go](../../cmd/frit/start.go). Give
-`buildStart` a resume resolution beside `startResumeTip`: when the plan
-is held, its remote hold's `Holder` equals `hostname()`, and
-`SessionDead` positively confirms no live agent on the bound session,
-resolve the resume tip from the remote hold rather than the cwd token,
-so the existing `resumeTip != ""` path re-acquires through `claim.Resume`
-and skips the takeover refusal. Leave `startResumeTip`'s token path as
-the first, cheaper source; the host-owned read is the fallback when no
-token matches.
+**GREEN.** In [cmd/frit/start.go](../../cmd/frit/start.go), replace the
+holder-gated resolve with one that reads the marker's `lane:`, reads the
+token persisted in that checkout, proves it against origin's tip the
+way `ownToken` does — shared, not copied — and then asks herdr, in one
+pane list, whether the bound session is live or any agent sits in the
+lane. Only a herdr that answered, and showed neither, resumes. Leave
+`startResumeTip`'s in-lane path as the first source. Record the
+resolved dead end in
+[docs/research/lease-protocol.md](../../docs/research/lease-protocol.md):
+S76, S77 and the Self-resume section, dated.
 
-**Guard the edges.** Only `Holder == hostname()` resumes; a foreign or
-unreadable holder keeps the window. Only a *positive* `SessionDead`
-resumes; `SessionLive` and unknown both keep the refusal — resuming over
-a possibly live agent is the one harm to avoid, so unknown fails safe.
-The resume re-acquires only; it does not park or reset, so the
-worktree's own commits are preserved. `pick --go` is unaffected: it
-ranks ready plans, and a held lane is not ready, so this path is reached
-only by an explicit `start <id>`.
+**Guard the edges.** Nothing kept gates the decision on `holder:`. No
+token, no resume — from outside, unknown liveness fails safe toward the
+window. A hold recording no lane is not resumed: `-` is not a path.
+`pick --go` ranks ready plans, and a held lane is not ready, so this is
+reached only by an explicit `start <id>`.
 
-**Gate.** With a lease fixture whose hold is this host and a herdr fake
-showing no live agent, `frit start <id>` enters the resume path and does
-not print "already held … not matured"; a foreign holder still refuses;
-a live agent still vetoes; unconfirmed liveness still refuses.
-`go test ./...` and `go tool -modfile=tools/go.mod golangci-lint run`
-are green.
+**Gate.** With a token-bearing lane and no agent on it, `frit start
+<id>` from outside resumes and prints no "already held … not matured";
+no token refuses whatever the holder string; a live agent, bound or in
+the lane, vetoes; an unreachable herdr refuses. `go test ./...` and
+`go tool -modfile=tools/go.mod golangci-lint run` are green.
