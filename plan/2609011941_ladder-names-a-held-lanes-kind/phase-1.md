@@ -1,7 +1,7 @@
 ---
 n: 1
 title: open names the honest next step per held-lane kind
-status: "🔲"
+status: "✅"
 result: false
 ---
 Break the loop at its entry rung. `open` is the first rung a stuck

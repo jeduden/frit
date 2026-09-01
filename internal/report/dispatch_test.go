@@ -57,10 +57,67 @@ func TestStartNextActionIsAPureProjectionOfHandoff(t *testing.T) {
 // rung is named only for a plan with no focused lane whose presence was
 // read; a focused lane or unread presence yields "".
 func TestOpenNextActionIsAPureProjection(t *testing.T) {
-	assert.Equal(t, "frit start 7", openNextAction(false, false, 7))
-	assert.Equal(t, "", openNextAction(true, false, 7))
-	assert.Equal(t, "", openNextAction(false, true, 7))
-	assert.Equal(t, "", openNextAction(true, true, 7))
+	assert.Equal(t, "frit start 7", openNextAction(false, false, HoldNone, 7))
+	assert.Equal(t, "", openNextAction(true, false, HoldNone, 7))
+	assert.Equal(t, "", openNextAction(false, true, HoldNone, 7))
+	assert.Equal(t, "", openNextAction(true, true, HoldNone, 7))
+}
+
+// TestOpenNextActionResumesALaneThisMachineHolds pins the ladder's
+// entry rung honest for #122's own case: a held lane whose token this
+// machine holds, with no agent attending it, is HoldResumable, and the
+// projection names the very verb that resumes it rather than a bare
+// recommendation that would refuse — the same frit start <id> a
+// laneless plan gets, now honest for a held one too because start
+// itself resumes it (plan 2609011836).
+func TestOpenNextActionResumesALaneThisMachineHolds(t *testing.T) {
+	assert.Equal(t, "frit start 7",
+		openNextAction(false, false, HoldResumable, 7),
+		"a token this machine holds makes frit start an honest resume")
+}
+
+// TestOpenNextActionNamesTheWaitForALaneItCannotProve pins the honest
+// answer for a hold with no token on disk here: frit start would still
+// refuse until the takeover window matures, so the projection never
+// names it — it names the wait, or the take-over once matured, instead.
+func TestOpenNextActionNamesTheWaitForALaneItCannotProve(t *testing.T) {
+	got := openNextAction(false, false, HoldUnproven, 7)
+	assert.NotEqual(t, "frit start 7", got,
+		"a hold this machine cannot prove would still have frit start refuse")
+	assert.Contains(t, got, "takeover window",
+		"the honest next step for an unprovable hold is to wait it out")
+}
+
+// TestOpenNextActionNamesTheLiveAgent pins the honest answer for a hold
+// a live agent already attends: the projection says so plainly, never
+// naming a start that would either refuse or interrupt a working agent.
+func TestOpenNextActionNamesTheLiveAgent(t *testing.T) {
+	got := openNextAction(false, false, HoldLive, 7)
+	assert.NotEqual(t, "frit start 7", got)
+	assert.Contains(t, got, "live agent")
+}
+
+// TestOpenNextActionNamesTheParkFirstStepForAnUnparkedHold pins the
+// honest answer for a hold whose local lane carries commits past its
+// persisted token: `frit start <id>` would still refuse there — S77's
+// park-first guard — so the projection never names it; it names
+// `frit yield <id>` instead (code review, plan 2609011941: `open` used
+// to call this HoldResumable and recommend a `frit start` that would
+// refuse the same way an unproven or live-attended hold does).
+func TestOpenNextActionNamesTheParkFirstStepForAnUnparkedHold(t *testing.T) {
+	got := openNextAction(false, false, HoldUnparked, 7)
+	assert.NotEqual(t, "frit start 7", got,
+		"a hold with unparked local work would still have frit start refuse")
+	assert.Contains(t, got, "frit yield 7",
+		"the honest next step for unparked local work is to park it first")
+}
+
+// TestOpenNextActionStillStartsAnUnheldLanelessPlan pins the common
+// path untouched: a plan with no hold at all is HoldNone, and the
+// projection still names frit start <id>, exactly as before this
+// plan's held-lane kinds existed.
+func TestOpenNextActionStillStartsAnUnheldLanelessPlan(t *testing.T) {
+	assert.Equal(t, "frit start 7", openNextAction(false, false, HoldNone, 7))
 }
 
 // TestStartHandoffTracksTheThreeTransitions pins the one axis a
