@@ -26,6 +26,32 @@ type DispatchPlan struct {
 	Title string `json:"title"`
 }
 
+// HoldKind classifies why open found no live pane for a held plan, so
+// its next-step projection never recommends a rung that would refuse
+// (#122). It is read only for a plan that reads held; a plan with no
+// hold at all carries the zero value HoldNone, the same as one whose
+// kind was never evaluated.
+type HoldKind string
+
+const (
+	// HoldNone is the ordinary case: no hold to speak of, or a hold
+	// whose kind open never read. The zero value, so a document that
+	// never sets it reads as carrying no kind.
+	HoldNone HoldKind = ""
+	// HoldResumable is a hold whose persisted token proves this
+	// machine's own lease, with no agent attending it — the case #122
+	// exists to unstick: NextAction resumes it with the very verb that
+	// used to refuse.
+	HoldResumable HoldKind = "resumable"
+	// HoldUnproven is a hold this machine cannot prove as its own — no
+	// readable marker, no matching token, or no repository coordinate to
+	// read either from — so naming frit start would still name a
+	// refusal.
+	HoldUnproven HoldKind = "unproven"
+	// HoldLive is a hold a live agent is already attending.
+	HoldLive HoldKind = "live"
+)
+
 // OpenDoc is what `frit open` did: the plan it resolved and the pane it
 // raised, or the plain fact that no lane was live to raise.
 //
@@ -40,15 +66,21 @@ type OpenDoc struct {
 	Agent   string       `json:"agent"`
 	Status  string       `json:"status"`
 	Branch  string       `json:"branch"`
-	// NextAction is the verb a consumer runs when open raised nothing:
-	// frit start <id>, the rung that creates a lane, since nudge would
+	// HoldKind is the true kind of a held lane open found no live pane
+	// for — see HoldKind's own doc. Empty when the plan carries no
+	// hold, a lane was focused, or its kind was never read.
+	HoldKind HoldKind `json:"hold_kind,omitempty"`
+	// NextAction is the real next step when open raised nothing: a
+	// resume, a wait for the takeover window, the fact a live agent
+	// already attends, or — for a plan with no hold at all — frit
+	// start <id>, the rung that creates a lane, since nudge would
 	// refuse a laneless plan. It is empty once a lane is focused (watch
 	// it, do not escalate) and empty when presence could not be read,
 	// because a lane may run behind the socket. A carried repo-read
 	// problem does not touch it — the target plan's presence was still
 	// read. The value is not written directly: it is openNextAction of
-	// Focused and presenceUnknown, refreshed whenever either changes, so
-	// it cannot disagree with them.
+	// Focused, presenceUnknown and HoldKind, refreshed whenever any of
+	// the three changes, so it cannot disagree with them.
 	NextAction string `json:"next_action"`
 	// presenceUnknown records that open could not read live presence — a
 	// herdr it could not reach, or a host it could not query. It stays
@@ -62,16 +94,31 @@ type OpenDoc struct {
 	Problems []Problem `json:"problems"`
 }
 
-// openNextAction derives the verb open hands a consumer from its two
-// authoritative facts. A focused lane is watched, not escalated; unread
-// presence leaves a lane possible, so neither names the start rung. Only
-// a plan with no lane whose presence was read escalates.
-func openNextAction(focused, presenceUnknown bool, id int64) string {
+// openNextAction derives the real next step open hands a consumer from
+// its authoritative facts. A focused lane is watched, not escalated;
+// unread presence leaves a lane possible; neither names an escalation.
+// Otherwise the projection speaks the kind's own truth: a hold whose
+// token proves this machine's own unattended lease resumes with frit
+// start <id> — the very verb #122 makes honest for it now — a hold a
+// live agent already attends says so rather than naming a send that
+// would interrupt it, a hold this machine cannot prove names the wait
+// for its takeover window rather than a frit start that would refuse,
+// and a plan with no hold at all (HoldNone) still starts, unchanged.
+func openNextAction(focused, presenceUnknown bool, kind HoldKind, id int64) string {
 	if focused || presenceUnknown {
 		return ""
 	}
 
-	return fmt.Sprintf("frit start %d", id)
+	switch kind {
+	case HoldUnproven:
+		return fmt.Sprintf(
+			"wait for the takeover window, or take it over once it "+
+				"matures with frit start %d", id)
+	case HoldLive:
+		return "a live agent is already on this lane"
+	default:
+		return fmt.Sprintf("frit start %d", id)
+	}
 }
 
 // NewOpen opens a handoff report for a resolved plan. NextAction is
@@ -91,10 +138,12 @@ func NewOpen(root string, repo string, id int64, title string) *OpenDoc {
 }
 
 // refreshNextAction reprojects NextAction from the current facts. Every
-// method that changes Focused or presenceUnknown calls it, which is the
-// one place NextAction is written — it can never lag the facts.
+// method that changes Focused, presenceUnknown or HoldKind calls it,
+// which is the one place NextAction is written — it can never lag the
+// facts.
 func (d *OpenDoc) refreshNextAction() {
-	d.NextAction = openNextAction(d.Focused, d.presenceUnknown, d.Plan.ID)
+	d.NextAction = openNextAction(
+		d.Focused, d.presenceUnknown, d.HoldKind, d.Plan.ID)
 }
 
 // Focus records the pane open raised and the lane it belongs to. A lane
@@ -106,6 +155,14 @@ func (d *OpenDoc) Focus(lane herdr.Lane) {
 	d.Agent = lane.Pane.Agent
 	d.Status = lane.Pane.Presence()
 	d.Branch = lane.Branch
+	d.refreshNextAction()
+}
+
+// SetHoldKind records the true kind of a held lane open found no live
+// pane for, read from outside it off the hold's own marker (#122). The
+// refreshed projection speaks it in NextAction.
+func (d *OpenDoc) SetHoldKind(kind HoldKind) {
+	d.HoldKind = kind
 	d.refreshNextAction()
 }
 

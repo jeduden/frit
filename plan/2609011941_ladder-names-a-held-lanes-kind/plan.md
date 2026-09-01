@@ -1,7 +1,7 @@
 ---
 id: 2609011941
 title: The escalation ladder names a held lane's kind, not a refusal loop
-status: "🔲"
+status: "🔳"
 summary: >-
   The v0.11.0 retest of #122 shows the ladder round-trips on a held lane
   you own with no live agent: open prints "start it with frit start",
@@ -135,7 +135,7 @@ footer: |
 
 | #   | Status | Phase                                                            |
 | --- | ------ | ---------------------------------------------------------------- |
-| 1   | 🔲     | [open names the honest next step per held-lane kind](phase-1.md) |
+| 1   | ✅     | [open names the honest next step per held-lane kind](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria

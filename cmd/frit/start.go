@@ -267,20 +267,8 @@ func (r startResumption) active() bool { return r.Tip != "" }
 func laneTokenResumeTip(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord,
 ) (lane, tip string) {
-	if !plan.Held {
-		return "", ""
-	}
-	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
-	// ownToken does: the CAS states its rule against origin's current
-	// tip, not this clone's possibly-stale view of the ref.
-	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
-	if tip == "" {
-		return "", ""
-	}
-	opts := claim.LeaseOptions{
-		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
-	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
-	if !ok || !m.HasLane() {
+	m, tip, ok := heldLaneMarker(rt, plan, coord)
+	if !ok {
 		return "", ""
 	}
 	token := claim.ReadToken(m.Lane, plan.ID, rt.git)
@@ -292,6 +280,37 @@ func laneTokenResumeTip(
 	}
 
 	return m.Lane, tip
+}
+
+// heldLaneMarker reads a held plan's own marker at origin's current
+// tip — the read laneTokenResumeTip runs before it ever asks whether
+// the token still proves the lease. It is shared with open's
+// holdKindFor, which needs the marker, its token proof and its
+// liveness as three separate facts rather than laneTokenResumeTip's
+// single collapsed answer of whether a resume is available. ok is
+// false when the plan carries no hold, the marker names no lane, or
+// origin could not be read.
+func heldLaneMarker(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord,
+) (m claim.Marker, tip string, ok bool) {
+	if !plan.Held {
+		return claim.Marker{}, "", false
+	}
+	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
+	// ownToken does: the CAS states its rule against origin's current
+	// tip, not this clone's possibly-stale view of the ref.
+	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	if tip == "" {
+		return claim.Marker{}, "", false
+	}
+	opts := claim.LeaseOptions{
+		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
+	m, ok = claim.ReadMarker(coord.Path, opts, tip, rt.git)
+	if !ok || !m.HasLane() {
+		return claim.Marker{}, "", false
+	}
+
+	return m, tip, true
 }
 
 // laneUnattended reports whether herdr positively shows no agent on a

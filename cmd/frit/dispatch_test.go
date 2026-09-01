@@ -287,12 +287,16 @@ func TestPresenceUnknownCoversBothUnreadPaths(t *testing.T) {
 		"a host served from stale cache still read presence, so it is known")
 }
 
-// TestOpenReportsNoLiveLane: a plan nobody is working has no pane to
-// raise. Open says so plainly and focuses nothing.
+// TestOpenReportsNoLiveLane: a plan nobody is working, and nobody
+// holds, has no pane to raise. Open says so plainly and focuses
+// nothing. The plan is in progress on main with no hold branch at
+// all — HoldNone — so this stays the ordinary laneless case; a held
+// plan's own kinds are pinned separately.
 func TestOpenReportsNoLiveLane(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔳", "Dispatch me", nil, "")
 	runner, rec := recordingHerdr() // no panes
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
@@ -304,6 +308,79 @@ func TestOpenReportsNoLiveLane(t *testing.T) {
 	assert.Contains(t, out.String(), "no live lane")
 	assert.Contains(t, out.String(), "start it with frit start 7",
 		"a laneless plan whose presence was read names the start rung")
+}
+
+// TestOpenNamesAResumeForATokenThisMachineHolds is Phase 1's own case
+// (#122): a held lane whose pane was closed, with its token still
+// persisted in the checkout the marker names and no agent anywhere on
+// it, reads HoldResumable. open names the resume rather than a bare
+// start recommendation that would refuse.
+func TestOpenNamesAResumeForATokenThisMachineHolds(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldLaneOwnedBy(t, root, hostname(), "")
+	withHerdr(t, emptyRosterHerdr())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "no live lane")
+	assert.Contains(t, got, "resume it with frit start 7",
+		"a token this machine holds is named as a resume, not a bare start")
+	assert.NotContains(t, got, "start it with",
+		"the resumable framing replaces the plain start wording")
+}
+
+// TestOpenNamesTheWaitForALaneItCannotProve: the checkout the marker
+// names has lost its token — a lane that lost its local state, or a
+// cloned machine and a reused path that never had it (A1). open cannot
+// prove the hold as this machine's own, so it never names frit start,
+// which would still refuse until the takeover window matures; it names
+// the wait instead.
+func TestOpenNamesTheWaitForALaneItCannotProve(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane, _ := heldLaneOwnedBy(t, root, hostname(), "")
+	dropToken(t, lane)
+	withHerdr(t, emptyRosterHerdr())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "start it with frit start 7",
+		"a hold this machine cannot prove would still have frit start refuse")
+	assert.Contains(t, got, "takeover window")
+}
+
+// TestOpenNamesTheLiveAgentAttendingAHeldLane: the hold's own marker
+// binds a session that is still live, read off outside the lane's own
+// worktree — the same herdr roster read laneUnattended runs, not the
+// branch-matching join liveLaneFor uses to focus a pane. open says a
+// live agent is on it rather than naming a start that would refuse or
+// interrupt.
+func TestOpenNamesTheLiveAgentAttendingAHeldLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"cwd":                     t.TempDir(),
+		"pane_id":                 "wOld:p1",
+		"agent_session":           map[string]any{"value": "wOld:p1"},
+		"terminal_title_stripped": "elsewhere",
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "frit start 7")
+	assert.Contains(t, got, "live agent")
 }
 
 func TestOpenEmitsJSON(t *testing.T) {

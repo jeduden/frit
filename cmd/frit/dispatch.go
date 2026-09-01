@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
 	"github.com/jeduden/frit/internal/fleet"
@@ -54,6 +55,9 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 			return fmt.Errorf("focus %s: %w", lane.Pane.PaneID, err)
 		}
 		doc.Focus(lane)
+	} else if plan.Held {
+		coord, coordOK := res.Coords[plan.Repo]
+		doc.SetHoldKind(holdKindFor(rt, plan, coord, coordOK))
 	}
 
 	if c.JSON {
@@ -128,22 +132,69 @@ func liveLaneFor(
 
 // printOpen reports the pane open raised, or that no lane was live to
 // raise. A plan with no live lane is not a failure — it is the signal to
-// climb a rung, to start rather than open — so it is said plainly and
-// the command still exits clean. The message does not claim nobody is
-// working the plan, because a herdr frit could not reach leaves that
-// unknown; the unreachable socket travels as a problem instead.
+// climb a rung — so it is said plainly and the command still exits
+// clean. The message does not claim nobody is working the plan, because
+// a herdr frit could not reach leaves that unknown; the unreachable
+// socket travels as a problem instead.
 func printOpen(out io.Writer, doc *report.OpenDoc) {
 	if !doc.Focused {
 		_, _ = fmt.Fprintf(out,
 			"no live lane for plan %d to open\n", doc.Plan.ID)
-		if doc.NextAction != "" {
-			_, _ = fmt.Fprintf(out, "  start it with %s\n", doc.NextAction)
-		}
+		printOpenNextStep(out, doc)
 		return
 	}
 
 	_, _ = fmt.Fprintf(out, "focused %s on plan %d (%s)\n",
 		doc.Target, doc.Plan.ID, agentLabel(true, false, doc.Agent, doc.Status))
+}
+
+// printOpenNextStep names the real next step for a held lane's kind
+// (#122), so no rung recommends a rung that would refuse: a resume for
+// one this machine's token proves and no agent attends, the wait or
+// live-agent sentence as-is for the two kinds that already read as full
+// sentences, and the unchanged "start it with" framing for a plan with
+// no hold at all.
+func printOpenNextStep(out io.Writer, doc *report.OpenDoc) {
+	if doc.NextAction == "" {
+		return
+	}
+	switch doc.HoldKind {
+	case report.HoldResumable:
+		_, _ = fmt.Fprintf(out, "  resume it with %s\n", doc.NextAction)
+	case report.HoldUnproven, report.HoldLive:
+		_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
+	default:
+		_, _ = fmt.Fprintf(out, "  start it with %s\n", doc.NextAction)
+	}
+}
+
+// holdKindFor reads the true kind of a plan's held lane from outside
+// it, off the same marker and token reads start's own resume path uses
+// (#122's mechanism, plan 2609011836): a token proving this machine's
+// own lease with no agent attending it is resumable, one with an agent
+// attending it is live, and anything unreadable or unproven is a hold
+// this machine cannot prove — the safe generic case. report.HoldNone
+// is never returned here; the caller only calls this for a plan that
+// already reads held.
+func holdKindFor(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+) report.HoldKind {
+	if !coordOK {
+		return report.HoldUnproven
+	}
+	m, tip, ok := heldLaneMarker(rt, plan, coord)
+	if !ok {
+		return report.HoldUnproven
+	}
+	token := claim.ReadToken(m.Lane, plan.ID, rt.git)
+	if !tokenProves(rt, coord, plan.ID, token, tip) {
+		return report.HoldUnproven
+	}
+	if !laneUnattended(rt, m) {
+		return report.HoldLive
+	}
+
+	return report.HoldResumable
 }
 
 type nudgeCmd struct {
