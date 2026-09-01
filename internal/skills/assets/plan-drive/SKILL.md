@@ -13,10 +13,13 @@ it. These verbs drive lanes; they never work a plan themselves.
 
 ## Survey
 
-- `{{frit}} board` — outstanding plans: status, who holds each, the
-  agent on it. `--wip` limits it to work in progress.
-- `{{frit}} who` — which lanes have a live agent, each marked idle,
-  working or unknown.
+Read these as fields, not table glyphs — `--json` is what tells a held,
+idle lane apart from an unheld one without eyeballing a dash.
+
+- `{{frit}} board --json` — outstanding plans: status, who holds each,
+  the agent on it. `--wip` limits it to work in progress.
+- `{{frit}} who --json` — which lanes have a live agent, each `status`
+  idle, working or unknown.
 
 ## Escalation ladder
 

@@ -15,11 +15,10 @@ verb that matches — never raw git.
 
 ## Read the mess
 
-- `{{frit}} orphans` — claims and checkouts that no longer add up:
-  claimed but unstaffed, prepared but unstarted, held past its takeover
-  window, or gone.
-- `{{frit}} stale --days N` — worktrees whose tip has not moved.
-- `--json` parses either.
+- `{{frit}} orphans --json` — claims and checkouts that no longer add
+  up: claimed but unstaffed, prepared but unstarted, held past its
+  takeover window, or gone.
+- `{{frit}} stale --days N --json` — worktrees whose tip has not moved.
 
 ## Match the verb
 
@@ -46,6 +45,6 @@ verb that matches — never raw git.
 - Never hand-run git for teardown: `git worktree remove` and `git
   branch -D` throw away the divergence a rescue ref keeps, and neither
   touches the claim ref — the hold outlives the worktree.
-- `{{frit}} board` shows who holds what, for the wider picture.
+- `{{frit}} board --json` shows who holds what, for the wider picture.
 - A foreign hold is `yield`'s job; `release` only ends this lane's own
   lease.
