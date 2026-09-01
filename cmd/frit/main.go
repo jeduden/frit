@@ -2030,6 +2030,43 @@ func printBoard(
 	for _, r := range rows {
 		_, _ = fmt.Fprintln(out, alignRow(r, colw))
 	}
+
+	if legend := boardLegend(cols, doc.Plans); legend != "" {
+		if width > 0 {
+			legend = textw.Truncate(legend, width)
+		}
+		_, _ = fmt.Fprintln(out, legend)
+	}
+}
+
+// boardLegend explains the `(stale …)` and `(dead)` hold markers when
+// either is actually on screen. It is "" when the hold column is not
+// among cols — a marker the reader cannot see needs no key — or when
+// no plan carries either marker, so a clean board pays nothing extra.
+// The two clauses name the same fact foreignHoldRefusal in
+// cmd/frit/release.go already refuses a foreign hold with, so a reader
+// meets one wording for it everywhere.
+func boardLegend(cols []string, plans []report.BoardPlan) string {
+	if !slices.Contains(cols, "held") {
+		return ""
+	}
+
+	var stale, dead bool
+	for _, p := range plans {
+		stale = stale || p.Stale
+		dead = dead || p.Dead
+	}
+
+	var clauses []string
+	if stale {
+		clauses = append(clauses, "(stale …) = hold has matured")
+	}
+	if dead {
+		clauses = append(clauses,
+			"(dead) = the bound session is confirmed gone")
+	}
+
+	return strings.Join(clauses, "; ")
 }
 
 // alignRow joins one row's cells with two-space gaps, padding every

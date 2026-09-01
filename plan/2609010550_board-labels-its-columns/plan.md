@@ -1,7 +1,7 @@
 ---
 id: 2609010550
 title: The board table labels its columns, so held work never reads as free
-status: "🔳"
+status: "✅"
 summary: >-
   frit board renders its table with no header row, and two adjacent
   columns — the hold and the live agent — both collapse to a bare dash
@@ -122,6 +122,7 @@ footer: |
 | #   | Status | Phase                                                                             |
 | --- | ------ | --------------------------------------------------------------------------------- |
 | 1   | ✅     | [The table opens on a header row, and a held-idle lane reads as idle](phase-1.md) |
+| 2   | ✅     | [The stale and dead hold markers carry a one-line legend](phase-2.md)             |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -132,7 +133,7 @@ footer: |
 - [x] A held plan with no live agent reads as `idle` in the agent
       column, not the bare `-` an unheld plan shows — the two columns can
       never collapse to the same glyph
-- [ ] A board carrying a `(stale …)` or `(dead)` hold prints a one-line
+- [x] A board carrying a `(stale …)` or `(dead)` hold prints a one-line
       legend explaining each marker present; a clean board prints none
 - [x] `board --json` is unchanged, and every rendered table line still
       fits the terminal width

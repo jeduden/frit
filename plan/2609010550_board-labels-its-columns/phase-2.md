@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The stale and dead hold markers carry a one-line legend
-status: "🔲"
+status: "✅"
 result: false
 ---
 Print what `(stale …)` and `(dead)` mean, once, beneath the table —
