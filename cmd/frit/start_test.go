@@ -1489,3 +1489,35 @@ func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
 	assert.Equal(t, held, remoteWorkTip(t, repo),
 		"liveness frit could not read never resumes")
 }
+
+// TestStartDoesNotResumeAHoldThatNamesNoLane: a resume reattaches to a
+// checkout, so a hold whose marker records no lane has nothing to
+// reattach to. It falls back to the ordinary claim path, which stands a
+// lane up at the naming convention — never a renewal recording "-" as
+// the place the work lives, which orphans and reap read as a checkout.
+func TestStartDoesNotResumeAHoldThatNamesNoLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "resumed plan 7",
+		"a hold naming no checkout is not something to reattach to")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.NotContains(t, body, "lane:    -",
+		"the lane the marker records still names a real checkout")
+}
