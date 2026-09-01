@@ -89,6 +89,41 @@ func TestWorktreeCreateReportsAMissingPane(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestWorktreeOpenReturnsTheRootPane reads the pane herdr put the
+// existing checkout back on screen in — the pane a reattached lane's
+// agent is then started in. There is no --base: nothing is being
+// created, only reopened.
+func TestWorktreeOpenReturnsTheRootPane(t *testing.T) {
+	var got []string
+	runner := func(args ...string) ([]byte, error) {
+		got = args
+
+		return []byte(`{"result":{"root_pane":{"pane_id":"wL:p1"}}}`), nil
+	}
+
+	pane, err := WorktreeOpen(runner, WorktreeSpec{
+		CWD: "/repo", Branch: "plan/7-x", Base: "origin/main",
+		Path: "/repo-x", Label: "plan 7",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "wL:p1", pane)
+	assert.Equal(t, []string{
+		"worktree", "open", "--cwd", "/repo",
+		"--path", "/repo-x", "--label", "plan 7", "--no-focus", "--json",
+	}, got)
+}
+
+// TestWorktreeOpenReportsAMissingPane treats a response with no pane as
+// an error rather than starting an agent in an empty target — the same
+// guard worktree create carries, since both hand a pane on to be
+// started in.
+func TestWorktreeOpenReportsAMissingPane(t *testing.T) {
+	_, err := WorktreeOpen(func(...string) ([]byte, error) {
+		return []byte(`{"result":{}}`), nil
+	}, WorktreeSpec{CWD: "/repo", Path: "/p"})
+	assert.Error(t, err)
+}
+
 // TestAgentStartPassesTheTierAsAnArg: the tier the plan declares maps to
 // a --model arg handed to the agent after the `--` separator, so dispatch
 // is typed.

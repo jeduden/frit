@@ -184,3 +184,20 @@ func TestPaneSessionReadsTheSessionBoundToAPane(t *testing.T) {
 	}
 	assert.Equal(t, "", PaneSession(broken, "wZ:p1"))
 }
+
+// TestSessionLiveInChecksOnePaneList: the pure half SessionLive
+// delegates to, the mirror of SessionDeadIn, so a caller that already
+// holds a pane list asks it directly rather than listing again.
+func TestSessionLiveInChecksOnePaneList(t *testing.T) {
+	panes := []Pane{
+		{Session: "sess-1", Agent: "claude", Status: StatusWorking},
+		{Session: "sess-3", Agent: "", Status: StatusIdle},
+	}
+
+	assert.False(t, SessionLiveIn(panes, ""), "an empty session is never live")
+	assert.False(t, SessionLiveIn(panes, "-"), "the unbound dash is never live")
+	assert.True(t, SessionLiveIn(panes, "sess-1"), "a working agent on the session is live")
+	assert.False(t, SessionLiveIn(panes, "sess-2"), "no pane carries this session")
+	assert.False(t, SessionLiveIn(panes, "sess-3"), "a bare pane on the session is not an agent")
+	assert.False(t, SessionLiveIn(nil, "sess-1"), "no panes at all")
+}

@@ -155,3 +155,31 @@ func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
 	assert.Equal(t, local, tip,
 		"the local draft branch is untouched, not clobbered")
 }
+
+// TestPickGoDoesNotReattachAHeldLane: the from-outside resume is an
+// explicit `start <id>` on a lane the caller names. pick --go ranks
+// ready plans, and a held lane herdr confirms dead is ready for a
+// takeover (S76) — but pick promises to resume only an unheld plan, so
+// it must not quietly reopen a held checkout on the way to the top
+// candidate; the takeover it always ran is what it still runs.
+func TestPickGoDoesNotReattachAHeldLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "resumed plan 7",
+		"pick never resumes a held lane")
+	assert.False(t, rec.verb("worktree", "open"),
+		"pick never reopens a held checkout")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "--format=%s", tip, "^origin/main")
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover",
+		"a dead hold reached through pick is taken over, as before")
+}

@@ -2,7 +2,6 @@ package herdr
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 )
@@ -46,11 +45,28 @@ type WorktreeSpec struct {
 // never steals focus: the escalation focuses the pane deliberately at the
 // end, not as a side effect of creating it.
 func WorktreeCreate(runner Runner, spec WorktreeSpec) (string, error) {
-	args := []string{
-		"worktree", "create", "--cwd", spec.CWD,
-		"--branch", spec.Branch, "--base", spec.Base,
-		"--path", spec.Path,
-	}
+	return worktreePane(runner, "create", spec,
+		"--branch", spec.Branch, "--base", spec.Base, "--path", spec.Path)
+}
+
+// WorktreeOpen asks herdr to put a checkout that already exists back on
+// screen and returns the pane it came up in. It is worktree.create's
+// counterpart for a lane frit is reattaching to rather than standing up:
+// create refuses a path a worktree already occupies, which is every
+// resume. No base is sent — nothing is being dated against anything —
+// and, like create, it never steals focus.
+func WorktreeOpen(runner Runner, spec WorktreeSpec) (string, error) {
+	return worktreePane(runner, "open", spec, "--path", spec.Path)
+}
+
+// worktreePane runs one worktree verb — create or open — that answers
+// with the pane it put on screen: the verb's own arguments after the
+// working directory, then the label, no focus, and the JSON envelope
+// both share, read by one parser told which verb to name.
+func worktreePane(
+	runner Runner, verb string, spec WorktreeSpec, verbArgs ...string,
+) (string, error) {
+	args := append([]string{"worktree", verb, "--cwd", spec.CWD}, verbArgs...)
 	if spec.Label != "" {
 		args = append(args, "--label", spec.Label)
 	}
@@ -61,13 +77,14 @@ func WorktreeCreate(runner Runner, spec WorktreeSpec) (string, error) {
 		return "", err
 	}
 
-	return parseWorktreePane(out)
+	return parseWorktreePane(out, "worktree "+verb)
 }
 
 // parseWorktreePane reads the opened pane's id out of a worktree.create
-// response. A response with no pane is an error rather than an empty
-// target an agent would be started into.
-func parseWorktreePane(data []byte) (string, error) {
+// or worktree.open response — one wire shape, so one reader, told which
+// call to name in its error. A response with no pane is an error rather
+// than an empty target an agent would be started into.
+func parseWorktreePane(data []byte, verb string) (string, error) {
 	var env struct {
 		Result struct {
 			RootPane struct {
@@ -76,10 +93,10 @@ func parseWorktreePane(data []byte) (string, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(data, &env); err != nil {
-		return "", fmt.Errorf("herdr worktree create: %w", err)
+		return "", fmt.Errorf("herdr %s: %w", verb, err)
 	}
 	if env.Result.RootPane.PaneID == "" {
-		return "", errors.New("herdr worktree create: no pane in response")
+		return "", fmt.Errorf("herdr %s: no pane in response", verb)
 	}
 
 	return env.Result.RootPane.PaneID, nil

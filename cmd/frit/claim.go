@@ -200,17 +200,28 @@ func ownToken(
 	// this clone's possibly-stale local view of the ref: the protocol
 	// states the rule against origin's current tip.
 	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
-	if tip == "" {
+	if !tokenProves(rt, coord, plan.ID, token, tip) {
 		return "", "", false
 	}
-	if tip == token {
-		return lane, tip, true
-	}
-	if claim.OwnAdvance(coord.Path, plan.ID, token, tip, rt.git) {
-		return lane, tip, true
+
+	return lane, tip, true
+}
+
+// tokenProves reports whether a lane's persisted token still proves
+// the lease at origin's current tip: the token is that tip, or the tip
+// is the lane's own advance beyond it (S86). An empty token proves
+// nothing — that is the whole of A1 — and neither does an origin that
+// could not be read. Shared by ownToken, reading the token from the
+// lane start runs in, and laneTokenResumeTip, reading it from the lane
+// the hold's marker records.
+func tokenProves(
+	rt *runtime, coord fleet.Coord, planID int64, token, tip string,
+) bool {
+	if token == "" || tip == "" {
+		return false
 	}
 
-	return "", "", false
+	return token == tip || claim.OwnAdvance(coord.Path, planID, token, tip, rt.git)
 }
 
 // inOwnLane reports whether cwd is this exact plan's own worktree —
@@ -258,7 +269,7 @@ func standUpClaimWorktree(
 		Branch: branch,
 		Base:   coord.Base,
 		Path:   path,
-		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
+		Label:  laneLabel(plan),
 	}); err != nil {
 		unwindFailedStandUp(rt, doc, plan, coord, branch, path, tip, err)
 		return
@@ -475,6 +486,10 @@ func lostRaceRefusal(err error) string {
 	if errors.As(err, &veto) {
 		return vetoRefusal(veto)
 	}
+	var fence *claim.FenceError
+	if errors.As(err, &fence) {
+		return fenceRefusal(fence)
+	}
 
 	var held *claim.HeldError
 	if !errors.As(err, &held) || !held.Known {
@@ -496,6 +511,20 @@ func lostRaceRefusal(err error) string {
 		// Name no machine rather than print an empty pair of parentheses.
 		return "lost the race to another machine"
 	}
+}
+
+// fenceRefusal names the machine whose takeover moved the ref under a
+// resume's renewal. It never says "run yield", as the fence's own
+// error does: a resume from outside the lane has nothing to yield
+// from, and the lease is now theirs, not ours.
+func fenceRefusal(fence *claim.FenceError) string {
+	if fence.Known && fence.Marker.Holder != "" {
+		return fmt.Sprintf(
+			"lost the lease to another machine (%s) before the resume renewed",
+			fence.Marker.Holder)
+	}
+
+	return "lost the lease to another machine before the resume renewed"
 }
 
 // vetoRefusal names the live holder a takeover was refused for, and

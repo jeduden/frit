@@ -18,6 +18,18 @@ func SessionLive(runner Runner, session string) bool {
 	if err != nil {
 		return false
 	}
+
+	return SessionLiveIn(panes, session)
+}
+
+// SessionLiveIn is SessionLive's pure half: given panes already read
+// by one List call, reports whether a live agent sits on the session.
+// The mirror of SessionDeadIn, for a caller that reads the pane list
+// once and asks it more than one question.
+func SessionLiveIn(panes []Pane, session string) bool {
+	if session == "" || session == "-" {
+		return false
+	}
 	for _, p := range panes {
 		if p.Session == session && p.HasAgent() {
 			return true

@@ -37,13 +37,21 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
+		// A deliberately different pane from pane.current's: a reattach
+		// from outside the lane must come up in the lane's own pane, and
+		// only distinct ids can tell the two apart.
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wL:p1"}}}`), nil
+		}
 		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
 			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
 		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
 			return []byte(`{"result":{"agents":[{"agent":"claude",` +
 				`"agent_status":"working","pane_id":"wZ:p1",` +
-				`"agent_session":{"value":"sess-1"}}]}}`), nil
+				`"agent_session":{"value":"sess-1"}},{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wL:p1",` +
+				`"agent_session":{"value":"sess-2"}}]}}`), nil
 		}
 
 		return nil, nil
@@ -826,6 +834,8 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 		"a resume drives the pane it is already in, not a fresh worktree")
 	assert.True(t, rec.verb("pane", "current"),
 		"the pane to drive is read the way currentSession already does")
+	assert.False(t, rec.verb("worktree", "open"),
+		"from inside the lane the pane you stand in is the lane's own")
 
 	// The chain now carries two beats: the resume itself, CASed from the
 	// lane's own persisted token, and the session bind riding atop it
@@ -1317,4 +1327,594 @@ func TestTeardownHandoffSurfacesTheRunnerError(t *testing.T) {
 	err := teardownHandoff(rt, "wZ:p1")
 
 	assert.ErrorIs(t, err, want)
+}
+
+// heldLaneOwnedBy builds a repository whose plan 7 is held by a lease
+// minted for the given holder string and bound session, with the lane's
+// own worktree checked out and its token persisted there — the shape of
+// a lane whose pane was closed: the hold stands, the checkout and its
+// token are intact, and only the agent is gone. The holder is a string
+// on the marker and nothing more (A1): what proves the lane is this
+// machine's is the token in its git dir. It returns the repository, the
+// lane's real path (deliberately off defaultLanePath's naming
+// convention, so a marker naming it proves the lane was read from the
+// hold) and origin's tip for the work ref.
+func heldLaneOwnedBy(
+	t *testing.T, root, holder, session string,
+) (repo, lane, tip string) {
+	t.Helper()
+	repo = claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane = filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: holder, Lane: lane, Session: session}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	require.Equal(t, renewed.Tip, claim.ReadToken(lane, 7, gitwt.Exec),
+		"the fixture's lane carries the token the renewal persisted")
+
+	return repo, lane, renewed.Tip
+}
+
+// dropToken removes the token a lane persisted for plan 7 — the shape
+// of a lane that lost its local state, or of a cloned machine and a
+// reused path that never had it (A1).
+func dropToken(t *testing.T, lane string) {
+	t.Helper()
+	path, err := claim.TokenPath(lane, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(path))
+}
+
+// TestStartResumesFromOutsideOnTheTokenTheMarkerLocates: a held lane
+// whose pane was closed is resumed from outside it. The hold's marker
+// records where the checkout is; the token persisted in that checkout
+// is the proof it is this machine's lease — the same proof the in-lane
+// resume already passes — and herdr confirms no agent on it. Nothing is
+// being taken from anyone, so it is a resume from the hold's own tip
+// rather than a refusal on a window that cannot mature (#122).
+func TestStartResumesFromOutsideOnTheTokenTheMarkerLocates(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused",
+		"resuming a lane whose token this machine holds is not a takeover")
+	assert.NotContains(t, got, "takeover window",
+		"no window is named for a hold nobody is being deprived of")
+	assert.Contains(t, got, "resumed plan 7")
+	assert.Contains(t, got, "worktree: "+lane,
+		"the report names the lane that was reopened, not the naming convention")
+
+	// The chain reads as a resume, not a seizure: the beat CASed
+	// straight from the hold's own tip, under the same epoch, naming
+	// the lane the hold already recorded.
+	tip := remoteWorkTip(t, repo)
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	assert.Contains(t, body, "lane:    "+lane,
+		"the resume renews on the lane the hold names")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, held, parent,
+		"the resume is CASed from the hold's own tip")
+}
+
+// TestStartResumesAnUnboundHoldOnItsToken: the exact state #122
+// reports — held, not dead, no agent — is a hold whose marker never
+// named a session, so no session can be confirmed gone. The token in
+// the lane's checkout needs no session: it is the lease's own proof,
+// and herdr showing no agent anywhere on the lane is the whole of the
+// liveness question.
+func TestStartResumesAnUnboundHoldOnItsToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "")
+	withHerdr(t, emptyRosterHerdr())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "resumed plan 7")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	parent, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, held, parent,
+		"the resume is CASed from the unbound hold's own tip; "+
+			"with no agent listed there is no session to bind")
+}
+
+// emptyRosterHerdr fakes a herdr with no agent anywhere — the roster
+// that confirms an unbound lane unattended — that still reopens a
+// worktree into a pane, so a reattach can stand up.
+func emptyRosterHerdr() herdr.Runner {
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wL:p1"}}}`), nil
+		}
+
+		return []byte(`{"result":{"agents":[]}}`), nil
+	}
+}
+
+// TestTokenProvesTheLeaseOnlyByTheTip: an empty token, or an origin
+// that could not be read, proves nothing (A1); a token equal to the
+// tip proves it outright, with no ancestry walk.
+func TestTokenProvesTheLeaseOnlyByTheTip(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+	coord := fleet.Coord{Path: t.TempDir()}
+
+	assert.False(t, tokenProves(rt, coord, 7, "", "abc"), "no token")
+	assert.False(t, tokenProves(rt, coord, 7, "abc", ""), "no origin tip")
+	assert.True(t, tokenProves(rt, coord, 7, "abc", "abc"), "the tip itself")
+}
+
+// TestLaneUnattendedReadsOnePaneList: the three answers from outside a
+// lane — an unreachable herdr is unknown, never absence; an agent on
+// the bound session, or one sitting in the recorded checkout, occupies
+// the lane; a roster showing neither confirms it unattended.
+func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
+	lane := t.TempDir()
+	git(t, lane, "init", "-q")
+	m := claim.Marker{Lane: lane, Session: "wOld:p1"}
+	agent := func(cwd, session string) map[string]any {
+		return map[string]any{
+			"agent": "claude", "agent_status": "working", "cwd": cwd,
+			"pane_id": session, "agent_session": map[string]any{"value": session},
+		}
+	}
+
+	down := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	}}
+	assert.False(t, laneUnattended(down, m), "unknown is not absence")
+
+	bound := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(t.TempDir(), "wOld:p1"))}
+	assert.False(t, laneUnattended(bound, m), "a live bound session occupies the lane")
+
+	inLane := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(lane, "wHand:p1"))}
+	assert.False(t, laneUnattended(inLane, m), "an agent in the checkout occupies it")
+
+	unbound := claim.Marker{Lane: lane}
+	assert.False(t, laneUnattended(inLane, unbound),
+		"an unbound hold's checkout is still occupied by the agent in it")
+
+	elsewhere := &runtime{git: gitwt.Exec,
+		herdr: herdrReturning(agent(t.TempDir(), "wOther:p1"))}
+	assert.True(t, laneUnattended(elsewhere, m), "an agent elsewhere is not on this lane")
+	assert.True(t, laneUnattended(elsewhere, unbound))
+}
+
+// TestStartDoesNotResumeALaneWhoseTokenIsGone: the marker's holder
+// string names this very machine, but the lane's checkout carries no
+// token. A string is reporting, never proof (A1): a cloned machine, or
+// a reused path, produces the same string with no race needed. A lane
+// that lost its local state waits the window like any other claimant.
+func TestStartDoesNotResumeALaneWhoseTokenIsGone(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures")
+	assert.NotContains(t, got, "resumed plan 7",
+		"a holder string equal to this host's proves nothing")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"a hold this machine cannot prove is left exactly as it stood")
+}
+
+// TestStartResumesWhateverTheHolderStringSays: the holder trailer
+// names another machine, but the token in the lane's checkout matches
+// the hold — a hostname that changed since the lease was minted (S48).
+// The token is the identity; the string is decoration, so the lane
+// resumes under its own epoch rather than being seized.
+func TestStartResumesWhateverTheHolderStringSays(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, "elsewhere", "wOld:p1")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "resumed plan 7")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "--format=%s", tip, "^"+held)
+	require.NoError(t, err)
+	assert.NotContains(t, body, "takeover",
+		"a lease this machine can prove is resumed, never seized")
+}
+
+// TestStartStillRefusesAForeignHoldWithNoToken: a hold this machine
+// cannot prove, with no session to confirm gone, is somebody else's
+// however healthy the lane looks. The window still governs it.
+func TestStartStillRefusesAForeignHoldWithNoToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, "elsewhere", "")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"a foreign hold is left exactly as it stood")
+}
+
+// TestStartTakesOverAForeignHoldWithNoToken: the same dead-session
+// lane as the resume above, only with no token on this machine. A dead
+// session frees the hold for takeover (S76), but a takeover it stays:
+// the epoch bumps and nothing is resumed.
+func TestStartTakesOverAForeignHoldWithNoToken(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, "elsewhere", "wOld:p1")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "resumed plan 7",
+		"a hold this machine cannot prove is seized, never resumed")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "--format=%s", tip, "^origin/main")
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover",
+		"an unprovable hold still goes through the takeover transition")
+}
+
+// TestStartDoesNotResumeOverAnAgentSittingInTheLane: the hold is
+// unbound and the token is this machine's, but herdr shows an agent
+// working in the lane's own checkout — stood up by hand, so never
+// bound. A live session owns the lane whether or not the lease names
+// it, and resuming over it is the one harm here.
+func TestStartDoesNotResumeOverAnAgentSittingInTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":         "claude",
+		"agent_status":  "working",
+		"cwd":           lane,
+		"pane_id":       "wHand:p1",
+		"agent_session": map[string]any{"value": "wHand:p1"},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"an occupied lane's hold is left exactly as it stood")
+}
+
+// TestStartStillVetoesALaneWithALiveAgent: the token is this
+// machine's, but herdr shows an agent live on the hold's bound session.
+// A live lane is never reattached over — the one harm the guard exists
+// to prevent — so the refusal stands.
+func TestStartStillVetoesALaneWithALiveAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":         "claude",
+		"agent_status":  "working",
+		"cwd":           repo,
+		"pane_id":       "wOld:p1",
+		"agent_session": map[string]any{"value": "wOld:p1"},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"a live lane's hold is left exactly as it stood")
+}
+
+// TestStartWithUnconfirmedLivenessDoesNotResume: the token is this
+// machine's, but herdr cannot be reached, so nothing confirms the lane
+// unattended. Unknown is not absence: from outside the lane the guard
+// fails safe toward the window rather than resume over an agent that
+// may still be working.
+func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"liveness frit could not read never resumes")
+}
+
+// TestStartDoesNotResumeAHoldThatNamesNoLane: a resume reattaches to a
+// checkout, so a hold whose marker records no lane has nothing to
+// reattach to. It falls back to the ordinary claim path, which stands a
+// lane up at the naming convention — never a renewal recording "-" as
+// the place the work lives, which orphans and reap read as a checkout.
+func TestStartDoesNotResumeAHoldThatNamesNoLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "resumed plan 7",
+		"a hold naming no checkout is not something to reattach to")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.NotContains(t, body, "lane:    -",
+		"the lane the marker records still names a real checkout")
+}
+
+// TestStartReattachesInTheLanesOwnPane: the from-outside resume phase 1
+// unlocked stands its agent up in the checkout the hold records, not in
+// whatever pane the caller happens to be standing in. `pane current`
+// answers the caller's pane out here, so reading it would start the
+// agent in the wrong directory; `worktree open` puts the lane's own
+// checkout back on screen and hands back the pane that belongs to it.
+func TestStartReattachesInTheLanesOwnPane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "resumed plan 7")
+	assert.False(t, rec.verb("pane", "current"),
+		"from outside the lane the current pane is the caller's, not the lane's")
+	assert.False(t, rec.verb("worktree", "create"),
+		"the lane's checkout already occupies that path")
+	assert.True(t, rec.verb("worktree", "open"),
+		"a reattach reopens the checkout that is already there")
+	assert.True(t, rec.hasArg(lane),
+		"the reattach opens the lane the hold records, not the convention's")
+	assert.True(t, rec.verb("agent", "start", "plan-7", "--kind", "claude",
+		"--pane", "wL:p1"),
+		"the agent comes up in the pane the reopened lane handed back")
+}
+
+// TestStartRefusesWhenAReattachCannotOpenTheLane: an open that fails is
+// a stand-up failure, not a lease problem. The renewal the resume
+// already CASed stands — this host holds the lane legitimately, and
+// giving that up because a pane would not come back would strand the
+// checkout's own commits — so the error is reported and nothing is
+// released.
+func TestStartRefusesWhenAReattachCannotOpenTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return nil, errors.New("dial unix .herdr.sock: no such file")
+		}
+		// An empty roster is what confirms the bound session gone, which
+		// is what entitles this start to reattach at all.
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[]}}`), nil
+		}
+
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a reattach that cannot open its lane refuses")
+	assert.Contains(t, errb.String(), "no such file",
+		"the refusal names the cause")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a reattach never falls through to create")
+	tip := remoteWorkTip(t, repo)
+	subject, err := gitCapture(t, repo, "log", "-1", "--format=%s", tip)
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject,
+		"the resume's own renewal stands; nothing is released")
+}
+
+// TestStartRefusesAReattachOverAnUnparkedSuffix: the lane's agent
+// committed past the token it persisted and never pushed, then its
+// pane died. A resume from outside would CAS a beat from origin's tip
+// and move the shared work ref onto it, orphaning that suffix — the
+// exact harm the park-first guard exists for (S77). The reattach
+// refuses and names yield, from the lane, and nothing moves.
+func TestStartRefusesAReattachOverAnUnparkedSuffix(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "yield 7")
+	assert.Contains(t, got, lane, "the refusal names the lane to yield from")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.False(t, rec.verb("worktree", "open"),
+		"nothing is reopened over an unparked suffix")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "the lane's own commit still heads the branch")
+	assert.Equal(t, held, remoteWorkTip(t, repo), "origin's tip is untouched")
+}
+
+// TestStartNamesThePaneAFailedReattachLeftBehind: a reattach reopened
+// the lane's checkout into a pane and the agent then failed to start.
+// The lease stands, as for any resume, and the lane's worktree is
+// never torn down — but the pane frit itself just opened is now on
+// screen with nothing in it, so the error names it rather than leave
+// the operator to find it by hand.
+func TestStartNamesThePaneAFailedReattachLeftBehind(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	inner := emptyRosterHerdr()
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New("agent start: spawn failed")
+		}
+
+		return inner(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "spawn failed", "the cause is reported")
+	assert.Contains(t, errb.String(), "wL:p1", "the pane left behind is named")
+	assert.Contains(t, errb.String(), lane, "and where it was opened")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"the lane's own checkout is never torn down")
+	tip := remoteWorkTip(t, repo)
+	subject, err := gitCapture(t, repo, "log", "-1", "--format=%s", tip)
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject, "the resume's renewal stands")
+}
+
+// TestReattachError: a reattach that died after herdr reopened a pane
+// names that pane and the lane it sits on; one that died before any
+// pane came back reports the cause alone.
+func TestReattachError(t *testing.T) {
+	cause := errors.New("agent start: boom")
+
+	named := reattachError("/lanes/atlas-x", "wL:p1", cause)
+	assert.Contains(t, named.Error(), "/lanes/atlas-x")
+	assert.Contains(t, named.Error(), "wL:p1")
+	assert.NotContains(t, named.Error(), "worktree",
+		"nothing was stood up; only a pane was opened")
+	assert.True(t, errors.Is(named, cause), "the cause still unwraps")
+
+	assert.Equal(t, cause, reattachError("/lanes/atlas-x", "", cause),
+		"no pane came back, so there is nothing to name")
+}
+
+// TestLostRaceIncludesAFencedResume: a resume whose renewal lost its
+// CAS to a concurrent takeover is fenced, and a fence is a race start
+// lost — a refusal to render, and for pick --go a candidate to skip —
+// never a fault that aborts the walk.
+func TestLostRaceIncludesAFencedResume(t *testing.T) {
+	assert.True(t, lostRace(claim.ErrLostRace))
+	assert.True(t, lostRace(&claim.HeldError{}))
+	assert.True(t, lostRace(&claim.FenceError{PlanID: 7}))
+	assert.True(t, lostRace(fmt.Errorf("wrap: %w", &claim.FenceError{PlanID: 7})))
+	assert.False(t, lostRace(errors.New("push: boom")))
+	assert.False(t, lostRace(nil))
+}
+
+// TestLostRaceRefusalNamesAFencedResume: the refusal for a fenced
+// resume says who moved the ref, and never tells the caller to yield —
+// from outside the lane there is nothing to yield from.
+func TestLostRaceRefusalNamesAFencedResume(t *testing.T) {
+	known := lostRaceRefusal(&claim.FenceError{PlanID: 7, Known: true,
+		Marker: claim.Marker{Holder: "box-b"}})
+	assert.Contains(t, known, "box-b")
+	assert.NotContains(t, known, "yield")
+
+	unknown := lostRaceRefusal(&claim.FenceError{PlanID: 7})
+	assert.Contains(t, unknown, "lost")
+	assert.NotContains(t, unknown, "yield")
+	assert.NotContains(t, unknown, "()", "no empty holder is printed")
 }
