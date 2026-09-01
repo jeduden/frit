@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A session renewal reads the work ref's current tip, guarded to self
-status: "🔲"
+status: "🔳"
 result: false
 ---
 Give the lease atom the reconcile the bind needs. A renewal that stamps

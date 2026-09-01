@@ -1,7 +1,7 @@
 ---
 id: 2609011611
 title: Binding a lane's session renews from the work ref's current tip
-status: "🔲"
+status: "🔳"
 summary: >-
   A fresh pick --go or start --go mints the lease, stands the lane up,
   then binds the herdr session onto the lease so a later takeover can
@@ -114,7 +114,7 @@ footer: |
 
 | #   | Status | Phase                                                                             |
 | --- | ------ | --------------------------------------------------------------------------------- |
-| 1   | 🔲     | [A session renewal reads the work ref's current tip, guarded to self](phase-1.md) |
+| 1   | 🔳     | [A session renewal reads the work ref's current tip, guarded to self](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
