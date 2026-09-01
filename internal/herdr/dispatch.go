@@ -2,7 +2,6 @@ package herdr
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 )
@@ -61,13 +60,37 @@ func WorktreeCreate(runner Runner, spec WorktreeSpec) (string, error) {
 		return "", err
 	}
 
-	return parseWorktreePane(out)
+	return parseWorktreePane(out, "worktree create")
+}
+
+// WorktreeOpen asks herdr to put a checkout that already exists back on
+// screen and returns the pane it came up in. It is worktree.create's
+// counterpart for a lane frit is reattaching to rather than standing up:
+// create refuses a path a worktree already occupies, which is every
+// resume. No base is sent — nothing is being dated against anything —
+// and, like create, it never steals focus.
+func WorktreeOpen(runner Runner, spec WorktreeSpec) (string, error) {
+	args := []string{
+		"worktree", "open", "--cwd", spec.CWD, "--path", spec.Path,
+	}
+	if spec.Label != "" {
+		args = append(args, "--label", spec.Label)
+	}
+	args = append(args, "--no-focus", "--json")
+
+	out, err := runner(args...)
+	if err != nil {
+		return "", err
+	}
+
+	return parseWorktreePane(out, "worktree open")
 }
 
 // parseWorktreePane reads the opened pane's id out of a worktree.create
-// response. A response with no pane is an error rather than an empty
-// target an agent would be started into.
-func parseWorktreePane(data []byte) (string, error) {
+// or worktree.open response — one wire shape, so one reader, told which
+// call to name in its error. A response with no pane is an error rather
+// than an empty target an agent would be started into.
+func parseWorktreePane(data []byte, verb string) (string, error) {
 	var env struct {
 		Result struct {
 			RootPane struct {
@@ -76,10 +99,10 @@ func parseWorktreePane(data []byte) (string, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(data, &env); err != nil {
-		return "", fmt.Errorf("herdr worktree create: %w", err)
+		return "", fmt.Errorf("herdr %s: %w", verb, err)
 	}
 	if env.Result.RootPane.PaneID == "" {
-		return "", errors.New("herdr worktree create: no pane in response")
+		return "", fmt.Errorf("herdr %s: no pane in response", verb)
 	}
 
 	return env.Result.RootPane.PaneID, nil

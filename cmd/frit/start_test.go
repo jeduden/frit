@@ -49,7 +49,9 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
 			return []byte(`{"result":{"agents":[{"agent":"claude",` +
 				`"agent_status":"working","pane_id":"wZ:p1",` +
-				`"agent_session":{"value":"sess-1"}}]}}`), nil
+				`"agent_session":{"value":"sess-1"}},{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wL:p1",` +
+				`"agent_session":{"value":"sess-2"}}]}}`), nil
 		}
 
 		return nil, nil
@@ -1588,6 +1590,11 @@ func TestStartRefusesWhenAReattachCannotOpenTheLane(t *testing.T) {
 		rec.mu.Unlock()
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
 			return nil, errors.New("dial unix .herdr.sock: no such file")
+		}
+		// An empty roster is what confirms the bound session gone, which
+		// is what entitles this start to reattach at all.
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[]}}`), nil
 		}
 
 		return nil, nil

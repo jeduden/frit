@@ -1,7 +1,7 @@
 ---
 n: 2
 title: Reattach stands the agent up in the lane, not the caller's pane
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make the from-outside resume usable. Phase 1 taught `start` to reach the

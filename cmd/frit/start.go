@@ -92,13 +92,13 @@ func buildStart(
 	// the lane in, so a resume cannot be checked either.
 	coord, coordOK := res.Coords[plan.Repo]
 	cwd, _ := os.Getwd()
-	resumeLane, resumeTip := startResume(rt, plan, coord, coordOK, cwd)
+	rs := startResume(rt, plan, coord, coordOK, cwd)
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess. A
 	// resumable own lease skips this refusal — it is startable by
 	// definition, whether or not its window has matured.
-	if resumeTip == "" {
+	if !rs.active() {
 		// A deserted hold read from this exact lane is named before the
 		// ordinary readiness check ever runs: S76 already makes a dead,
 		// unmatured hold Ready for a takeover from elsewhere, but taking
@@ -130,13 +130,13 @@ func buildStart(
 	sp := composeStart(plan, phase, note, sc)
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
-	if resumeTip != "" {
+	if rs.active() {
 		doc.MarkResumed()
 	}
 
 	if doGo {
 		if err := startExecute(
-			rt, doc, plan, sp, sc, edit, resumeLane, resumeTip,
+			rt, doc, plan, sp, sc, edit, rs,
 		); err != nil {
 			if errors.Is(err, claim.ErrLostRace) {
 				doc.Refuse(lostRaceRefusal(err))
@@ -160,13 +160,31 @@ func buildStart(
 // a closed pane leaves you outside the lane to read (#122).
 func startResume(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
-) (lane, tip string) {
-	if lane, tip = startResumeTip(rt, plan, coord, coordOK, cwd); tip != "" {
-		return lane, tip
+) startResumption {
+	if lane, tip := startResumeTip(rt, plan, coord, coordOK, cwd); tip != "" {
+		return startResumption{Lane: lane, Tip: tip}
 	}
+	lane, tip := ownHoldResumeTip(rt, plan, coord, coordOK)
 
-	return ownHoldResumeTip(rt, plan, coord, coordOK)
+	return startResumption{Lane: lane, Tip: tip, Reattach: tip != ""}
 }
+
+// startResumption is the resume start resolved, and which proof
+// resolved it. Reattach is the whole of the difference the stand-up
+// cares about: the token proof fires only from inside the lane, so the
+// pane to drive is the one you are standing in, while the hold's marker
+// is read from outside it, where the current pane is the caller's and
+// the lane's own checkout has to be put back on screen (#122).
+type startResumption struct {
+	Lane     string
+	Tip      string
+	Reattach bool
+}
+
+// active reports whether start is entitled to a resume at all — the
+// question the "already held" refusal and the resume transition both
+// turn on.
+func (r startResumption) active() bool { return r.Tip != "" }
 
 // startResumeTip resolves the lane's own lease from its persisted
 // token, when start is run from that exact lane — ahead of the
@@ -382,7 +400,7 @@ func composeStart(
 // lost to another machine is carried as a refusal, not a fault.
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
-	sp report.StartPlan, sc startContext, edit bool, resumeLane, resumeTip string,
+	sp report.StartPlan, sc startContext, edit bool, rs startResumption,
 ) error {
 	// Amend the prompt before minting anything: an editor that fails to
 	// launch, or a prompt left empty, must abort with no claim pushed and
@@ -400,20 +418,20 @@ func startExecute(
 		doc.Prompt = text
 	}
 
-	resume := resumeTip != ""
+	resume := rs.active()
 	// A resumed renewal is CASed against the lane it is actually
-	// running from (resumeLane), never the naming convention sp.Lane
+	// running from (rs.Lane), never the naming convention sp.Lane
 	// computes: the two diverge the moment the checkout was set up off
 	// that convention, or the plan file's slug has since changed, and
 	// orphans/reap now trust the marker's lane: trailer to tell a
 	// foreign checkout apart from the real one.
 	lane := sp.Lane
 	if resume {
-		lane = resumeLane
+		lane = rs.Lane
 	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID); err != nil {
 		return err
 	}
-	lease, err := startAcquire(rt, plan, sc, sp, lane, resumeTip)
+	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
 	if err != nil {
 		// A lost race, or a veto, is returned, not swallowed: buildStart
 		// records it as a refusal for start, and pick --go retries past it
@@ -421,7 +439,7 @@ func startExecute(
 		return err
 	}
 
-	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text, resume)
+	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text, rs)
 	if err != nil {
 		if resume {
 			// startAcquire's own renewal above already stands — this
@@ -474,7 +492,7 @@ func startExecute(
 // stands the checkout up there in the first place.
 func startAcquire(
 	rt *runtime, plan discovery.Plan, sc startContext,
-	sp report.StartPlan, lane, resumeTip string,
+	sp report.StartPlan, lane string, rs startResumption,
 ) (claim.Lease, error) {
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID,
@@ -483,10 +501,19 @@ func startAcquire(
 		Holder: hostname(),
 		Lane:   lane,
 	}
-	if resumeTip != "" {
-		opts.Session = currentSession(rt)
+	if rs.active() {
+		// Only a self-resume can name a session here: the calling pane
+		// is the lane's own, so its session is the one the lease should
+		// carry. A reattach is called from outside the lane, where that
+		// same read answers with the caller's pane instead — a session
+		// on someone else's terminal, which a later takeover would ask
+		// herdr about and be told is alive. It renews unbound and lets
+		// bindSession record the agent it is about to stand up.
+		if !rs.Reattach {
+			opts.Session = currentSession(rt)
+		}
 
-		return claim.Resume(sc.repoPath, opts, resumeTip, rt.git)
+		return claim.Resume(sc.repoPath, opts, rs.Tip, rt.git)
 	}
 
 	return mintOrTakeOver(rt, plan, sc.coord(), opts)
@@ -725,18 +752,41 @@ func livePaneOn(rt *runtime, root string) (string, bool, error) {
 	return "", false, nil
 }
 
-// laneStandUpPane is the pane standUpLane drives from: a resume's own
-// current pane — read the way currentSession already does, since a
-// resume runs from inside the lane it is resuming — or, for a fresh
-// acquire or a takeover, the pane herdr's worktree.create just opened.
-// A resume skips worktree.create entirely: the lane's own checkout
-// already occupies that path, and calling it anyway would fail with
-// "already used by worktree at <path>".
+// laneStandUpPane is the pane standUpLane drives from, and there are
+// three ways to reach one. A reattach puts the lane's own checkout back
+// on screen with worktree.open and takes the pane that comes back: it
+// is resolved from the hold's marker, so it runs from outside the lane,
+// where the current pane is the caller's and would start the agent in
+// the wrong directory (#122). A self-resume reads that current pane —
+// out of the lane's own worktree it is the right one, read the way
+// currentSession already does. A fresh acquire or takeover takes the
+// pane herdr's worktree.create just opened. Neither resume goes near
+// worktree.create: the lane's checkout already occupies that path, and
+// calling it anyway would fail with "already used by worktree at
+// <path>".
+//
+// The path reopened is the lane the resume actually renewed on, off the
+// hold's own marker, never sp.Lane's naming convention — the two
+// diverge the moment the checkout was set up off that convention, and
+// reopening the convention's path would stand an agent up beside the
+// commits rather than on them.
 func laneStandUpPane(
 	rt *runtime, plan discovery.Plan, sp report.StartPlan,
-	repoPath string, resume bool,
+	repoPath string, rs startResumption,
 ) (string, error) {
-	if resume {
+	if rs.Reattach {
+		pane, err := herdr.WorktreeOpen(rt.herdr, herdr.WorktreeSpec{
+			CWD:   repoPath,
+			Path:  rs.Lane,
+			Label: laneLabel(plan),
+		})
+		if err != nil {
+			return "", fmt.Errorf("worktree open: %w", err)
+		}
+
+		return pane, nil
+	}
+	if rs.active() {
 		pane, err := herdr.CurrentPane(rt.herdr)
 		if err != nil {
 			return "", fmt.Errorf("current pane: %w", err)
@@ -750,13 +800,20 @@ func laneStandUpPane(
 		Branch: sp.Branch,
 		Base:   sp.Base,
 		Path:   sp.Lane,
-		Label:  fmt.Sprintf("%s plan %d", plan.Repo, plan.ID),
+		Label:  laneLabel(plan),
 	})
 	if err != nil {
 		return "", fmt.Errorf("worktree create: %w", err)
 	}
 
 	return pane, nil
+}
+
+// laneLabel names the workspace a lane comes up in, for the human
+// scanning a screen full of them: the plan's repository and id, the
+// same label whether the checkout is being created or reopened.
+func laneLabel(plan discovery.Plan) string {
+	return fmt.Sprintf("%s plan %d", plan.Repo, plan.ID)
 }
 
 // standUpLane hands the checkout, the agent, the prompt and the focus to
@@ -766,15 +823,14 @@ func laneStandUpPane(
 // spawns nothing it does not hand straight over — and `agent read` is
 // deliberately never among them.
 //
-// resume is true when the caller already sits inside the lane it is
-// resuming: standUpLane then drives the pane it is already in rather
-// than creating a worktree at a path its own checkout already
-// occupies.
+// rs is the resume that got here, if any: standUpLane drives the pane
+// it names rather than creating a worktree at a path the lane's own
+// checkout already occupies.
 func standUpLane(
 	rt *runtime, plan discovery.Plan, sp report.StartPlan,
-	repoPath, text string, resume bool,
+	repoPath, text string, rs startResumption,
 ) (string, string, error) {
-	pane, err := laneStandUpPane(rt, plan, sp, repoPath, resume)
+	pane, err := laneStandUpPane(rt, plan, sp, repoPath, rs)
 	if err != nil {
 		return "", "", err
 	}

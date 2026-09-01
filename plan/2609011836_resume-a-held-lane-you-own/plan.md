@@ -97,10 +97,20 @@ shapes once Phase 1 pins the resume decision under test.
    refusal; a foreign holder still refuses, and a live agent still
    vetoes. Driven red at the cmd level against the lease fixtures and the
    herdr fake the dispatch tests already use.
-2. Later phases, shaped by Phase 1's handoff: the reattach stand-up
-   (put an agent back on the existing worktree from outside the lane
-   without a `worktree.create` collision), and `open` naming the resume
-   rung rather than a `start` that will refuse.
+2. Phase 2: the reattach stand-up. An agent goes back onto the existing
+   worktree from outside the lane, through herdr's `worktree open`
+   rather than the `worktree.create` that path would collide with, and
+   the resume renews unbound so the caller's own session never lands on
+   the lease. `open` naming a separate resume rung turned out to need no
+   code: it already sends you to `frit start <id>`, and phases 1 and 2
+   are what make that advice true.
+3. Still open, and why this plan does not yet claim #122 outright: a
+   host-owned hold whose marker names no session at all. `SessionDead`
+   is positive only about a bound session, so that hold reads unknown
+   and keeps the window — and it is the `dead: false`, `agent: ""` state
+   the issue reports. `livePaneOn` already answers whether a local pane
+   sits in a given checkout, which is ownership evidence the lane itself
+   carries and a session id never did.
 
 ## Execution
 
@@ -128,7 +138,7 @@ footer: |
 | #   | Status | Phase                                                                         |
 | --- | ------ | ----------------------------------------------------------------------------- |
 | 1   | ✅     | [A host-owned lane with no live agent resumes, not refuses](phase-1.md)       |
-| 2   | 🔲     | [Reattach stands the agent up in the lane, not the caller's pane](phase-2.md) |
+| 2   | ✅     | [Reattach stands the agent up in the lane, not the caller's pane](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -138,7 +148,7 @@ footer: |
       un-matured takeover
 - [x] The resume re-acquires on the deterministic branch and preserves
       the worktree's commits — it does not park or reset
-- [ ] The reattach stands the agent up in the checkout the hold records,
+- [x] The reattach stands the agent up in the checkout the hold records,
       never in the pane the caller happens to be standing in
 - [x] A plan held by another host still waits the takeover window
 - [x] A plan whose hold carries a live agent is still vetoed, never
