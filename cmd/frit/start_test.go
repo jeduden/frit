@@ -1318,3 +1318,174 @@ func TestTeardownHandoffSurfacesTheRunnerError(t *testing.T) {
 
 	assert.ErrorIs(t, err, want)
 }
+
+// heldLaneOwnedBy builds a repository whose plan 7 is held by a lease
+// minted for the given holder and bound session, with the lane's own
+// worktree checked out — the shape of a lane whose pane was closed:
+// the hold stands, the checkout is intact, and only the agent is gone.
+// It returns the repository, the lane's real path (deliberately off
+// defaultLanePath's naming convention, so a marker naming it proves
+// the lane was read from the hold) and origin's tip for the work ref.
+func heldLaneOwnedBy(
+	t *testing.T, root, holder, session string,
+) (repo, lane, tip string) {
+	t.Helper()
+	repo = claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane = filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: holder, Lane: lane, Session: session}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	return repo, lane, renewed.Tip
+}
+
+// TestStartResumesAHostOwnedLaneWithNoLiveAgent: a held lane whose
+// hold this host owns, with no live agent on its bound session, is not
+// a takeover — nothing is being taken from anyone — so start resumes it
+// from the hold's own tip rather than refusing it on a window that
+// cannot mature (#122). The caller stands outside the lane, so no
+// persisted token can resolve the resume; the hold itself does.
+func TestStartResumesAHostOwnedLaneWithNoLiveAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused",
+		"resuming a lane this host already holds is not a takeover")
+	assert.NotContains(t, got, "takeover window",
+		"no window is named for a hold nobody is being deprived of")
+	assert.Contains(t, got, "resumed plan 7")
+
+	// The chain reads as a resume, not a seizure: the beat CASed
+	// straight from the hold's own tip, under the same epoch, naming
+	// the lane the hold already recorded.
+	tip := remoteWorkTip(t, repo)
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat")
+	assert.Contains(t, body, "epoch:   1", "a resume never bumps the epoch")
+	assert.Contains(t, body, "lane:    "+lane,
+		"the resume renews on the lane the hold names")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, held, parent,
+		"the resume is CASed from the hold's own tip")
+}
+
+// TestStartStillRefusesALaneHeldByAnotherHost: a foreign holder is a
+// takeover however healthy the lane looks, so the window still governs
+// it and the refusal stands.
+func TestStartStillRefusesALaneHeldByAnotherHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, "elsewhere", "")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"a foreign hold is left exactly as it stood")
+}
+
+// TestStartDoesNotResumeAForeignHoldWithNoLiveAgent: the holder half of
+// the resume decision, isolated — the same dead-session lane as the
+// resume above, only held by another machine. A dead session frees the
+// hold for takeover (S76), but a takeover it stays: the epoch bumps and
+// nothing is resumed.
+func TestStartDoesNotResumeAForeignHoldWithNoLiveAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, _ := heldLaneOwnedBy(t, root, "elsewhere", "wOld:p1")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "resumed plan 7",
+		"another machine's hold is seized, never resumed")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "--format=%s", tip, "^origin/main")
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: takeover",
+		"a foreign hold still goes through the takeover transition")
+}
+
+// TestStartStillVetoesAHostOwnedLaneWithALiveAgent: this host's own
+// hold, but herdr shows an agent live on its bound session. A live lane
+// is never reattached over — the one harm the guard exists to prevent —
+// so the refusal stands.
+func TestStartStillVetoesAHostOwnedLaneWithALiveAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":         "claude",
+		"agent_status":  "working",
+		"cwd":           repo,
+		"pane_id":       "wOld:p1",
+		"agent_session": map[string]any{"value": "wOld:p1"},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"a live lane's hold is left exactly as it stood")
+}
+
+// TestStartWithUnconfirmedLivenessDoesNotResume: this host's own hold,
+// but herdr cannot be reached, so nothing confirms the session gone.
+// Unknown is not death: the guard fails safe toward the window rather
+// than resume over an agent that may still be working.
+func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "already held")
+	assert.NotContains(t, got, "resumed plan 7")
+	assert.Equal(t, held, remoteWorkTip(t, repo),
+		"liveness frit could not read never resumes")
+}
