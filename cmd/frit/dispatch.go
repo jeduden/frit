@@ -143,7 +143,7 @@ func printOpen(out io.Writer, doc *report.OpenDoc) {
 	}
 
 	_, _ = fmt.Fprintf(out, "focused %s on plan %d (%s)\n",
-		doc.Target, doc.Plan.ID, agentLabel(true, doc.Agent, doc.Status))
+		doc.Target, doc.Plan.ID, agentLabel(true, false, doc.Agent, doc.Status))
 }
 
 type nudgeCmd struct {

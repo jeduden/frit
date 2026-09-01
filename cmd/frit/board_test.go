@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +86,206 @@ func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
 	assert.Contains(t, cell, "dead", "a confirmed-dead session is not a live hold")
 }
 
+// TestBoardColLabelRendersHoldForHeld: the held column's header reads
+// as "hold" — the word a reader expects over the lane-slug cell —
+// while every other column keeps its own key as its header word.
+func TestBoardColLabelRendersHoldForHeld(t *testing.T) {
+	assert.Equal(t, "hold", boardColLabel("held"), "held renders as hold")
+	assert.Equal(t, "title", boardColLabel("title"),
+		"an ordinary column keeps its own key")
+}
+
+// TestBoardHeaderNamesEveryColumnInOrder: the header row carries one
+// label per selected column, in the order given.
+func TestBoardHeaderNamesEveryColumnInOrder(t *testing.T) {
+	got := boardHeader([]string{"id", "held", "title"})
+
+	assert.Equal(t, []string{"id", "hold", "title"}, got)
+}
+
+// TestAlignRowPadsEveryColumnButTheLast: each cell is padded out to
+// its column's width plus a two-space gap, and the last column carries
+// no trailing padding.
+func TestAlignRowPadsEveryColumnButTheLast(t *testing.T) {
+	got := alignRow([]string{"a", "bb", "c"}, []int{3, 3, 3})
+
+	assert.Equal(t, "a    bb   c", got)
+}
+
+// TestAlignRowAccountsForAWideGlyph: a two-column glyph is padded by
+// the terminal columns it paints, not its rune count — unlike
+// tabwriter, which this replaced for exactly this reason.
+func TestAlignRowAccountsForAWideGlyph(t *testing.T) {
+	got := alignRow([]string{"🔳", "x"}, []int{2, 1})
+
+	assert.Equal(t, "🔳  x", got)
+}
+
+// TestPrintBoardOpensWithAHeaderRow: the table names every column before
+// any data, so the hold column and the agent column are told apart at
+// a glance rather than read by position.
+func TestPrintBoardOpensWithAHeaderRow(t *testing.T) {
+	var buf bytes.Buffer
+
+	printBoard(&buf, boardWith("Underway"), 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "a header row, then one data row")
+	assert.Contains(t, lines[0], "hold", "the hold column is named")
+	assert.Contains(t, lines[0], "agent", "the agent column is named")
+	assert.Contains(t, lines[0], "title", "the title column is named")
+	assert.Contains(t, lines[1], "Underway", "the data row follows the header")
+}
+
+// TestAgentLabelSaysIdleForAHeldLaneWithNoLiveAgent: only a held lane
+// with no live agent — the dangerous, easily-misread case — reads as
+// idle. Every other combination is unchanged.
+func TestAgentLabelSaysIdleForAHeldLaneWithNoLiveAgent(t *testing.T) {
+	assert.Equal(t, "idle", agentLabel(true, true, "", ""),
+		"held with no live agent reads as idle, not a bare dash")
+	assert.Equal(t, "-", agentLabel(true, false, "", ""),
+		"unheld with no live agent is still a bare dash")
+	assert.Equal(t, "?", agentLabel(false, true, "", ""),
+		"herdr unreachable is unknown regardless of hold")
+	assert.Equal(t, "?", agentLabel(false, false, "", ""),
+		"herdr unreachable is unknown regardless of hold")
+	assert.Equal(t, "claude", agentLabel(true, true, "claude", ""),
+		"a live agent names itself regardless of hold")
+	assert.Equal(t, "claude (working)", agentLabel(true, false, "claude", "working"),
+		"a live agent's status rides beside it regardless of hold")
+}
+
+// TestBoardRowShowsIdleForAHeldPlanWithNoAgent: a held plan whose lane
+// has no live session reads as idle, and the held lane's slug still
+// shows — a held plan is never read as free.
+func TestBoardRowShowsIdleForAHeldPlanWithNoAgent(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-underway", wt)
+	git(t, wt, "commit", "--allow-empty", "-q", "-m", "plan 100: claim")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(wt, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "wip")
+
+	withHerdr(t, herdrReturning())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "idle", "a held lane with no live agent is idle")
+	assert.Contains(t, got, "underway",
+		"the held lane's slug still shows — held work is not read as free")
+}
+
+// TestPrintBoardLegendsAStaleHold: a matured hold's `(stale …)` marker
+// is explained beneath the table, and `dead` is not mentioned since no
+// row carries it.
+func TestPrintBoardLegendsAStaleHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, "stale", "the marker is named")
+	assert.Contains(t, got, "matured", "and explained")
+	assert.NotContains(t, got, "dead", "no row carries the dead marker")
+}
+
+// TestPrintBoardLegendsADeadHold: a confirmed-dead session's `(dead)`
+// marker is explained beneath the table, and `stale` is not mentioned
+// since no row carries it.
+func TestPrintBoardLegendsADeadHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	legend := lines[len(lines)-1]
+	assert.Contains(t, legend, "dead", "the marker is named")
+	assert.Contains(t, legend, "confirmed gone", "and explained")
+	assert.NotContains(t, legend, "stale", "no row carries the stale marker")
+}
+
+// TestPrintBoardLegendsBothWhenBothAppear: a board with one stale and
+// one dead hold explains both, on a single legend line rather than one
+// per row.
+func TestPrintBoardLegendsBothWhenBothAppear(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:101", Repo: "atlas", ID: 101, Status: "🔳",
+		Title: "Also underway", Held: true, Holds: []string{"plan/101"},
+		Dead: true,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	legend := lines[len(lines)-1]
+	assert.Contains(t, legend, "stale")
+	assert.Contains(t, legend, "dead")
+
+	legendLines := 0
+	for _, l := range lines {
+		if strings.Contains(l, "matured") || strings.Contains(l, "confirmed gone") {
+			legendLines++
+		}
+	}
+	assert.Equal(t, 1, legendLines, "one legend line, not one per marker")
+}
+
+// TestPrintBoardOmitsTheLegendWhenClean: nothing stale or dead means no
+// legend line — the common case pays nothing extra.
+func TestPrintBoardOmitsTheLegendWhenClean(t *testing.T) {
+	var buf bytes.Buffer
+
+	printBoard(&buf, boardWith("Underway"), 0, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "header and one data row, no legend")
+}
+
+// TestPrintBoardOmitsTheLegendWhenHeldIsNotShown: --columns without
+// held drops the marker itself, so there is nothing left to explain.
+func TestPrintBoardOmitsTheLegendWhenHeldIsNotShown(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, []string{"id", "title"})
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2, "header and one data row, no legend")
+}
+
 // TestPrintBoardFitsTheWidthWhenGiven: with a width, no rendered line
 // spills past it, and the trimmed title is marked.
 func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
@@ -92,10 +294,13 @@ func TestPrintBoardFitsTheWidthWhenGiven(t *testing.T) {
 
 	printBoard(&buf, boardWith(longTitle), 80, boardCols)
 
-	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 80, "the row fits the terminal")
-	assert.Contains(t, line, "…", "the trimmed title is marked")
-	assert.Contains(t, line, "underway",
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 80, "every line fits the terminal")
+	}
+	dataLine := lines[len(lines)-1]
+	assert.Contains(t, dataLine, "…", "the trimmed title is marked")
+	assert.Contains(t, dataLine, "underway",
 		"the lane shows without its plan/<id>- prefix")
 }
 
@@ -113,10 +318,12 @@ func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
 
 	printBoard(&buf, doc, 80, boardCols)
 
-	line := strings.TrimRight(buf.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 80,
-		"a long lane is trimmed rather than spilling the row")
-	assert.Contains(t, line, "…")
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 80,
+			"a long lane is trimmed rather than spilling the row")
+	}
+	assert.Contains(t, lines[len(lines)-1], "…")
 }
 
 // TestPrintBoardWidthZeroKeepsTheFullTitle: a pipe or a test gets the
@@ -145,10 +352,12 @@ func TestWidthFlagOverridesDetection(t *testing.T) {
 		&out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	line := strings.TrimRight(out.String(), "\n")
-	assert.LessOrEqual(t, textw.Width(line), 50,
-		"--width fits the table though stdout is not a terminal")
-	assert.Contains(t, line, "…")
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	for _, line := range lines {
+		assert.LessOrEqual(t, textw.Width(line), 50,
+			"--width fits the table though stdout is not a terminal")
+	}
+	assert.Contains(t, lines[len(lines)-1], "…")
 }
 
 func TestSelectBoardColumns(t *testing.T) {
