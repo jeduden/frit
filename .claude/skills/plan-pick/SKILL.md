@@ -9,8 +9,8 @@ description: >-
 # plan-pick
 
 The claim is a ref frit force-pushes, so the push — not a local look —
-settles who starts a plan. Run `go run ./cmd/frit <verb>`; add `--json` to
-parse.
+settles who starts a plan. Script against `--json`; a table is for a
+person's eyes.
 
 ## Method
 
@@ -26,9 +26,9 @@ was claimed.
 
 To look before claiming, without minting a hold:
 
-- `go run ./cmd/frit ready` lists the plans startable now — deps done, nobody
-  holds.
+- `go run ./cmd/frit ready --json` lists the plans startable now — deps done,
+  nobody holds.
 - `go run ./cmd/frit find <text>` searches plan titles and summaries to resolve
   a plan by a fragment.
-- `go run ./cmd/frit board` shows who holds what.
+- `go run ./cmd/frit board --json` shows who holds what.
 - `go run ./cmd/frit --help` lists the rest.
