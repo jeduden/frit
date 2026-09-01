@@ -1,7 +1,7 @@
 ---
 id: 2609011806
 title: One runner per lane — a dispatched phase is never started twice
-status: "🔳"
+status: "✅"
 summary: >-
   frit pick --go and start --go both claim the top plan and dispatch its
   phase prompt into a fresh pane, reporting prompt_dispatched: true. But
@@ -131,7 +131,7 @@ footer: |
 | #   | Status | Phase                                                                |
 | --- | ------ | -------------------------------------------------------------------- |
 | 1   | ✅     | [Dispatch refuses a second runner on a live lane](phase-1.md)        |
-| 2   | 🔲     | [The skills treat a dispatched phase as already running](phase-2.md) |
+| 2   | ✅     | [The skills treat a dispatched phase as already running](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -142,11 +142,11 @@ footer: |
 - [x] A plan whose lane shows no live agent still starts unchanged
 - [x] The guard fires on a live-but-unbound lane the takeover veto does
       not catch, not only on a registered leftover worktree
-- [ ] `plan-pick` and `plan-phase` tell a caller that
+- [x] `plan-pick` and `plan-phase` tell a caller that
       `prompt_dispatched: true` means the phase is already running in
       that pane — report it, never re-run it
-- [ ] The dogfood skill copies regenerate and
+- [x] The dogfood skill copies regenerate and
       `TestDogfoodCopiesMatchCanonical` passes
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
-- [ ] `mdsmith check .` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] `mdsmith check .` is clean

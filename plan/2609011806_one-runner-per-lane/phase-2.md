@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The skills treat a dispatched phase as already running
-status: "🔲"
+status: "✅"
 result: false
 ---
 Close the vector frit cannot intercept. A re-typed `/plan-phase` is not
