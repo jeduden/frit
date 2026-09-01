@@ -75,9 +75,19 @@ naming `frit start` as the resume would still point at a refusal. So the
 guidance rides on the mechanism: this plan is `depends-on: [2609011836]`
 and names the resume only once the resume works.
 
+**The scenario doc follows.** The lease-protocol research doc,
+[lease-protocol.md](../../docs/research/lease-protocol.md), records this
+deadlock as S76 — "pane gone before the window matures … a silent dead
+end", mitigated only by `orphans` naming the deserted hold. Once the
+ladder names the resume, that mitigation is no longer the whole story.
+This plan updates S76 to record that `open` and `start` point at the
+resume, so the dead end is named at the rung a stuck operator actually
+stands on.
+
 **Out of scope.** The resume mechanism itself — the guard and the
 reattach stand-up — is plan
-[2609011836](../2609011836_resume-a-held-lane-you-own/plan.md). The board
+[2609011836](../2609011836_resume-a-held-lane-you-own/plan.md), which
+owns the Self-resume and S76/S77 edits for the mechanism. The board
 table rendering is #121, fixed by #124. This plan changes only what the
 ladder *says*, not what it does beyond naming.
 
@@ -131,5 +141,7 @@ footer: |
       on it
 - [ ] A plan that nothing holds, with no live lane, still names
       `frit start <id>` unchanged
+- [ ] `lease-protocol.md`'s S76 records that `open` and `start` name the
+      resume, not only that `orphans` names the deserted hold
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
