@@ -1,7 +1,7 @@
 ---
 id: 2609011611
 title: Binding a lane's session renews from the work ref's current tip
-status: "🔳"
+status: "✅"
 summary: >-
   A fresh pick --go or start --go mints the lease, stands the lane up,
   then binds the herdr session onto the lease so a later takeover can
@@ -115,17 +115,17 @@ footer: |
 | #   | Status | Phase                                                                             |
 | --- | ------ | --------------------------------------------------------------------------------- |
 | 1   | ✅     | [A session renewal reads the work ref's current tip, guarded to self](phase-1.md) |
-| 2   | 🔳     | [bindSession stamps the session instead of self-fencing](phase-2.md)              |
+| 2   | ✅     | [bindSession stamps the session instead of self-fencing](phase-2.md)              |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A fresh `frit pick --go` / `frit start --go` binds the herdr
+- [x] A fresh `frit pick --go` / `frit start --go` binds the herdr
       session onto the lease even when the lane has advanced the shared
       work ref before the bind — no `fenced` problem is emitted
-- [ ] The lease's work ref carries the bound session trailer after a
+- [x] The lease's work ref carries the bound session trailer after a
       dispatch, so a later takeover can consult herdr
-- [ ] A renewal that loses to a genuinely foreign holder still fences
+- [x] A renewal that loses to a genuinely foreign holder still fences
       and the bind still warns rather than aborts
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

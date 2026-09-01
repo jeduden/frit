@@ -1,7 +1,7 @@
 ---
 n: 2
 title: bindSession stamps the session instead of self-fencing
-status: "🔳"
+status: "✅"
 result: false
 ---
 Wire the bind to the reconcile Phase 1 built. A fresh dispatch whose
