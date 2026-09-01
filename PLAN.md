@@ -22,9 +22,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                        |
-| ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| 2609011941 | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -109,7 +107,7 @@ footer: |
 | 2609011611 | ✅     | opus   | [Binding a lane's session renews from the work ref's current tip](plan/2609011611_bind-renews-from-the-current-tip/plan.md)            |
 | 2609011806 | ✅     | sonnet | [One runner per lane — a dispatched phase is never started twice](plan/2609011806_one-runner-per-lane/plan.md)                         |
 | 2609011836 | ✅     | opus   | [Resume a held lane you own without waiting the takeover window](plan/2609011836_resume-a-held-lane-you-own/plan.md)                   |
-| 2609011941 | 🔳     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
+| 2609011941 | ✅     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
 | 2609012000 | 🔲     | sonnet | [Every lease-protocol scenario has an executable BDD spec](plan/2609012000_bdd-scenarios-executable/plan.md)                           |
 | 2609012100 | 🔲     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
 | 2609012210 | 🔲     | sonnet | [A failed park names its real failure, not "moved by hand"](plan/2609012210_park-tells-the-real-failure/plan.md)                       |
