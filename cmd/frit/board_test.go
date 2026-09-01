@@ -86,6 +86,41 @@ func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
 	assert.Contains(t, cell, "dead", "a confirmed-dead session is not a live hold")
 }
 
+// TestBoardColLabelRendersHoldForHeld: the held column's header reads
+// as "hold" — the word a reader expects over the lane-slug cell —
+// while every other column keeps its own key as its header word.
+func TestBoardColLabelRendersHoldForHeld(t *testing.T) {
+	assert.Equal(t, "hold", boardColLabel("held"), "held renders as hold")
+	assert.Equal(t, "title", boardColLabel("title"),
+		"an ordinary column keeps its own key")
+}
+
+// TestBoardHeaderNamesEveryColumnInOrder: the header row carries one
+// label per selected column, in the order given.
+func TestBoardHeaderNamesEveryColumnInOrder(t *testing.T) {
+	got := boardHeader([]string{"id", "held", "title"})
+
+	assert.Equal(t, []string{"id", "hold", "title"}, got)
+}
+
+// TestAlignRowPadsEveryColumnButTheLast: each cell is padded out to
+// its column's width plus a two-space gap, and the last column carries
+// no trailing padding.
+func TestAlignRowPadsEveryColumnButTheLast(t *testing.T) {
+	got := alignRow([]string{"a", "bb", "c"}, []int{3, 3, 3})
+
+	assert.Equal(t, "a    bb   c", got)
+}
+
+// TestAlignRowAccountsForAWideGlyph: a two-column glyph is padded by
+// the terminal columns it paints, not its rune count — unlike
+// tabwriter, which this replaced for exactly this reason.
+func TestAlignRowAccountsForAWideGlyph(t *testing.T) {
+	got := alignRow([]string{"🔳", "x"}, []int{2, 1})
+
+	assert.Equal(t, "🔳  x", got)
+}
+
 // TestPrintBoardOpensWithAHeaderRow: the table names every column before
 // any data, so the hold column and the agent column are told apart at
 // a glance rather than read by position.
