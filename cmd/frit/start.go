@@ -204,6 +204,8 @@ func startResumeTip(
 // The lane comes off the hold's own marker rather than defaultLanePath,
 // for the reason startResumeTip records: the renewal must name where
 // the checkout genuinely is, since orphans and reap read that trailer.
+// A hold recording no lane is therefore not resumed at all: there is no
+// checkout to reattach to, and the ordinary claim path stands one up.
 //
 // Only a positive death resumes. herdr.SessionDead answers true solely
 // when herdr replied and showed no agent on the bound session; a live
@@ -227,7 +229,7 @@ func ownHoldResumeTip(
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
 	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
-	if !ok || m.Holder != hostname() {
+	if !ok || m.Holder != hostname() || !recordsLane(m) {
 		return "", ""
 	}
 	if !herdr.SessionDead(rt.herdr, m.Session) {
@@ -235,6 +237,14 @@ func ownHoldResumeTip(
 	}
 
 	return m.Lane, tip
+}
+
+// recordsLane reports whether a marker names a checkout to reattach
+// to. A lease minted without one writes "-" rather than an empty
+// trailer, so every key stays present, and that placeholder is what a
+// resume must read as "nowhere", never as a path.
+func recordsLane(m claim.Marker) bool {
+	return m.Lane != "" && m.Lane != "-"
 }
 
 // desertedRefusal names the yield that retires a deserted hold read

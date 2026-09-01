@@ -34,7 +34,9 @@ nothing until `--go`.
    with no live agent — neither is rung two.
 3. **`{{frit}} start <id>`** — compose the full escalation and, with
    `--go`, stand the lane up and run it. `--phase` picks the phase,
-   `--note` folds in a rider, `--edit` opens the prompt first.
+   `--note` folds in a rider, `--edit` opens the prompt first. A lane
+   this host already holds with no live agent resumes here — no
+   takeover window to wait out.
 
 ## Notes
 

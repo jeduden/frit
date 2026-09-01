@@ -1,7 +1,7 @@
 ---
 id: 2609011836
 title: Resume a held lane you own without waiting the takeover window
-status: "🔲"
+status: "🔳"
 summary: >-
   A lane whose pane was closed but is otherwise healthy — worktree
   present, tree clean, branch pushed, held: true, no live agent — cannot
@@ -126,20 +126,20 @@ footer: |
 
 | #   | Status | Phase                                                                   |
 | --- | ------ | ----------------------------------------------------------------------- |
-| 1   | 🔲     | [A host-owned lane with no live agent resumes, not refuses](phase-1.md) |
+| 1   | ✅     | [A host-owned lane with no live agent resumes, not refuses](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A held plan whose remote hold's holder is this host, with no live
+- [x] A held plan whose remote hold's holder is this host, with no live
       agent, resumes through `frit start` rather than being refused as an
       un-matured takeover
-- [ ] The resume re-acquires on the deterministic branch and preserves
+- [x] The resume re-acquires on the deterministic branch and preserves
       the worktree's commits — it does not park or reset
-- [ ] A plan held by another host still waits the takeover window
-- [ ] A plan whose hold carries a live agent is still vetoed, never
+- [x] A plan held by another host still waits the takeover window
+- [x] A plan whose hold carries a live agent is still vetoed, never
       resumed over
-- [ ] Liveness that cannot be confirmed dead does not resume — the guard
+- [x] Liveness that cannot be confirmed dead does not resume — the guard
       fails safe toward the window
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

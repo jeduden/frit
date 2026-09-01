@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A host-owned lane with no live agent resumes, not refuses
-status: "🔲"
+status: "✅"
 result: false
 ---
 Pin the resume decision under test, the load-bearing change #122 turns

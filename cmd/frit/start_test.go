@@ -1521,3 +1521,12 @@ func TestStartDoesNotResumeAHoldThatNamesNoLane(t *testing.T) {
 	assert.NotContains(t, body, "lane:    -",
 		"the lane the marker records still names a real checkout")
 }
+
+// TestRecordsLane: the placeholder a lane-less lease writes is read as
+// nowhere, never as a path, and any real path is a checkout.
+func TestRecordsLane(t *testing.T) {
+	assert.False(t, recordsLane(claim.Marker{}), "an unread marker names nothing")
+	assert.False(t, recordsLane(claim.Marker{Lane: "-"}),
+		"the placeholder every key-present marker writes is not a path")
+	assert.True(t, recordsLane(claim.Marker{Lane: "/lanes/atlas-shader-unit"}))
+}
