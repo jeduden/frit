@@ -106,4 +106,5 @@ footer: |
 | 2609010550 | ✅     | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md)               |
 | 2609011611 | ✅     | opus   | [Binding a lane's session renews from the work ref's current tip](plan/2609011611_bind-renews-from-the-current-tip/plan.md)            |
 | 2609011836 | 🔲     | opus   | [Resume a held lane you own without waiting the takeover window](plan/2609011836_resume-a-held-lane-you-own/plan.md)                   |
+| 2609011941 | 🔲     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
 <?/catalog?>
