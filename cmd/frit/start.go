@@ -92,7 +92,7 @@ func buildStart(
 	// the lane in, so a resume cannot be checked either.
 	coord, coordOK := res.Coords[plan.Repo]
 	cwd, _ := os.Getwd()
-	resumeLane, resumeTip := startResumeTip(rt, plan, coord, coordOK, cwd)
+	resumeLane, resumeTip := startResume(rt, plan, coord, coordOK, cwd)
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess. A
@@ -152,6 +152,22 @@ func buildStart(
 	return doc, false, nil
 }
 
+// startResume resolves the resume start is entitled to, "" and "" when
+// it is entitled to none. Two proofs answer the same question — is this
+// lane already ours to pick back up — and the cheaper one goes first:
+// the persisted token, read straight off the lane's own git dir when
+// start runs from inside it, then the hold's own marker, which is what
+// a closed pane leaves you outside the lane to read (#122).
+func startResume(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool, cwd string,
+) (lane, tip string) {
+	if lane, tip = startResumeTip(rt, plan, coord, coordOK, cwd); tip != "" {
+		return lane, tip
+	}
+
+	return ownHoldResumeTip(rt, plan, coord, coordOK)
+}
+
 // startResumeTip resolves the lane's own lease from its persisted
 // token, when start is run from that exact lane — ahead of the
 // "already held" refusal, exactly as claim orders it (F9, F11, S3,
@@ -174,6 +190,51 @@ func startResumeTip(
 	}
 
 	return lane, tip
+}
+
+// ownHoldResumeTip resolves the resume from the hold itself, for the
+// lane this host already owns and nobody is working: startResumeTip's
+// token proof only fires from inside the lane, and a closed pane leaves
+// you outside it, so a healthy hold of your own fell through to the
+// takeover refusal on a window that cannot mature (#122). Reattaching
+// to it takes nothing from anyone, so it is a resume, not a takeover.
+// Both return values are "" outside that exact case, leaving start's
+// ordinary claim path the arbiter.
+//
+// The lane comes off the hold's own marker rather than defaultLanePath,
+// for the reason startResumeTip records: the renewal must name where
+// the checkout genuinely is, since orphans and reap read that trailer.
+//
+// Only a positive death resumes. herdr.SessionDead answers true solely
+// when herdr replied and showed no agent on the bound session; a live
+// session, an unbound one and an unreachable herdr all read the same
+// as unknown, and unknown keeps the refusal. Resuming over an agent
+// that is still working is the one harm here, so the guard fails safe
+// toward the window (F3, S61).
+func ownHoldResumeTip(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+) (lane, tip string) {
+	if !coordOK || !plan.Held {
+		return "", ""
+	}
+	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
+	// ownToken does: the CAS states its rule against origin's current
+	// tip, not this clone's possibly-stale view of the ref.
+	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	if tip == "" {
+		return "", ""
+	}
+	opts := claim.LeaseOptions{
+		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
+	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
+	if !ok || m.Holder != hostname() {
+		return "", ""
+	}
+	if !herdr.SessionDead(rt.herdr, m.Session) {
+		return "", ""
+	}
+
+	return m.Lane, tip
 }
 
 // desertedRefusal names the yield that retires a deserted hold read
