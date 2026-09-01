@@ -104,9 +104,10 @@ shapes once Phase 1 pins the resume decision under test.
 
 ## Execution
 
-| Phase | Title                                                     | Tier | Gate                                                                                                                                                                |
-| ----- | --------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | A host-owned lane with no live agent resumes, not refuses | opus | a this-host hold with no live agent makes `frit start <id>` resume rather than refuse it held; a foreign holder refuses; a live agent vetoes; `go test ./...` green |
+| Phase | Title                                                           | Tier | Gate                                                                                                                                                                         |
+| ----- | --------------------------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | A host-owned lane with no live agent resumes, not refuses       | opus | a this-host hold with no live agent makes `frit start <id>` resume rather than refuse it held; a foreign holder refuses; a live agent vetoes; `go test ./...` green          |
+| 2     | Reattach stands the agent up in the lane, not the caller's pane | opus | a from-outside resume opens the checkout the hold records and starts the agent in that pane, never `pane current`; the self-resume still uses its own; `go test ./...` green |
 
 ## Phases
 
@@ -124,9 +125,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                   |
-| --- | ------ | ----------------------------------------------------------------------- |
-| 1   | ✅     | [A host-owned lane with no live agent resumes, not refuses](phase-1.md) |
+| #   | Status | Phase                                                                         |
+| --- | ------ | ----------------------------------------------------------------------------- |
+| 1   | ✅     | [A host-owned lane with no live agent resumes, not refuses](phase-1.md)       |
+| 2   | 🔲     | [Reattach stands the agent up in the lane, not the caller's pane](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -136,6 +138,8 @@ footer: |
       un-matured takeover
 - [x] The resume re-acquires on the deterministic branch and preserves
       the worktree's commits — it does not park or reset
+- [ ] The reattach stands the agent up in the checkout the hold records,
+      never in the pane the caller happens to be standing in
 - [x] A plan held by another host still waits the takeover window
 - [x] A plan whose hold carries a live agent is still vetoed, never
       resumed over

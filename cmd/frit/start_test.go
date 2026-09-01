@@ -37,6 +37,12 @@ func startHerdr() (herdr.Runner, *herdrCalls) {
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
 			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
+		// A deliberately different pane from pane.current's: a reattach
+		// from outside the lane must come up in the lane's own pane, and
+		// only distinct ids can tell the two apart.
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wL:p1"}}}`), nil
+		}
 		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
 			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
 		}
@@ -826,6 +832,8 @@ func TestStartResumesItsOwnLeaseFromThePersistedToken(t *testing.T) {
 		"a resume drives the pane it is already in, not a fresh worktree")
 	assert.True(t, rec.verb("pane", "current"),
 		"the pane to drive is read the way currentSession already does")
+	assert.False(t, rec.verb("worktree", "open"),
+		"from inside the lane the pane you stand in is the lane's own")
 
 	// The chain now carries two beats: the resume itself, CASed from the
 	// lane's own persisted token, and the session bind riding atop it
@@ -1529,4 +1537,74 @@ func TestRecordsLane(t *testing.T) {
 	assert.False(t, recordsLane(claim.Marker{Lane: "-"}),
 		"the placeholder every key-present marker writes is not a path")
 	assert.True(t, recordsLane(claim.Marker{Lane: "/lanes/atlas-shader-unit"}))
+}
+
+// TestStartReattachesInTheLanesOwnPane: the from-outside resume phase 1
+// unlocked stands its agent up in the checkout the hold records, not in
+// whatever pane the caller happens to be standing in. `pane current`
+// answers the caller's pane out here, so reading it would start the
+// agent in the wrong directory; `worktree open` puts the lane's own
+// checkout back on screen and hands back the pane that belongs to it.
+func TestStartReattachesInTheLanesOwnPane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "resumed plan 7")
+	assert.False(t, rec.verb("pane", "current"),
+		"from outside the lane the current pane is the caller's, not the lane's")
+	assert.False(t, rec.verb("worktree", "create"),
+		"the lane's checkout already occupies that path")
+	assert.True(t, rec.verb("worktree", "open"),
+		"a reattach reopens the checkout that is already there")
+	assert.True(t, rec.hasArg(lane),
+		"the reattach opens the lane the hold records, not the convention's")
+	assert.True(t, rec.verb("agent", "start", "plan-7", "--kind", "claude",
+		"--pane", "wL:p1"),
+		"the agent comes up in the pane the reopened lane handed back")
+}
+
+// TestStartRefusesWhenAReattachCannotOpenTheLane: an open that fails is
+// a stand-up failure, not a lease problem. The renewal the resume
+// already CASed stands — this host holds the lane legitimately, and
+// giving that up because a pane would not come back would strand the
+// checkout's own commits — so the error is reported and nothing is
+// released.
+func TestStartRefusesWhenAReattachCannotOpenTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "open" {
+			return nil, errors.New("dial unix .herdr.sock: no such file")
+		}
+
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code, "a reattach that cannot open its lane refuses")
+	assert.Contains(t, errb.String(), "no such file",
+		"the refusal names the cause")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a reattach never falls through to create")
+	tip := remoteWorkTip(t, repo)
+	subject, err := gitCapture(t, repo, "log", "-1", "--format=%s", tip)
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: beat", subject,
+		"the resume's own renewal stands; nothing is released")
 }
