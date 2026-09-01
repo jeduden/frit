@@ -1663,9 +1663,10 @@ func TestTokenProvesTheLeaseOnlyByTheTip(t *testing.T) {
 }
 
 // TestLaneUnattendedReadsOnePaneList: the three answers from outside a
-// lane — an unreachable herdr is unknown, never absence; an agent on
-// the bound session, or one sitting in the recorded checkout, occupies
-// the lane; a roster showing neither confirms it unattended.
+// lane — an unreachable herdr is unknown, never absence, and known
+// says so; an agent on the bound session, or one sitting in the
+// recorded checkout, occupies the lane; a roster showing neither
+// confirms it unattended, known in every case herdr actually answered.
 func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
 	lane := t.TempDir()
 	git(t, lane, "init", "-q")
@@ -1680,24 +1681,36 @@ func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
 	down := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
 		return nil, errors.New("dial unix .herdr.sock: no such file")
 	}}
-	assert.False(t, laneUnattended(down, m), "unknown is not absence")
+	unattended, known := laneUnattended(down, m)
+	assert.False(t, unattended, "unknown is not absence")
+	assert.False(t, known, "a herdr frit could not reach confirms nothing")
 
 	bound := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(t.TempDir(), "wOld:p1"))}
-	assert.False(t, laneUnattended(bound, m), "a live bound session occupies the lane")
+	unattended, known = laneUnattended(bound, m)
+	assert.False(t, unattended, "a live bound session occupies the lane")
+	assert.True(t, known)
 
 	inLane := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(lane, "wHand:p1"))}
-	assert.False(t, laneUnattended(inLane, m), "an agent in the checkout occupies it")
+	unattended, known = laneUnattended(inLane, m)
+	assert.False(t, unattended, "an agent in the checkout occupies it")
+	assert.True(t, known)
 
 	unbound := claim.Marker{Lane: lane}
-	assert.False(t, laneUnattended(inLane, unbound),
+	unattended, known = laneUnattended(inLane, unbound)
+	assert.False(t, unattended,
 		"an unbound hold's checkout is still occupied by the agent in it")
+	assert.True(t, known)
 
 	elsewhere := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(t.TempDir(), "wOther:p1"))}
-	assert.True(t, laneUnattended(elsewhere, m), "an agent elsewhere is not on this lane")
-	assert.True(t, laneUnattended(elsewhere, unbound))
+	unattended, known = laneUnattended(elsewhere, m)
+	assert.True(t, unattended, "an agent elsewhere is not on this lane")
+	assert.True(t, known)
+	unattended, known = laneUnattended(elsewhere, unbound)
+	assert.True(t, unattended)
+	assert.True(t, known)
 }
 
 // TestStartDoesNotResumeALaneWhoseTokenIsGone: the marker's holder
@@ -1921,7 +1934,12 @@ func TestStartRefusalStillNamesTheWindowForAnUnprovableHold(t *testing.T) {
 // machine's, but herdr cannot be reached, so nothing confirms the lane
 // unattended. Unknown is not absence: from outside the lane the guard
 // fails safe toward the window rather than resume over an agent that
-// may still be working.
+// may still be working. The refusal itself must keep the honest
+// takeover-window wording too, never phase 2's live-agent sentence:
+// laneUnattended's own fail-safe "not confirmed unattended" answer,
+// read here through holdKindFor, must not be misread as a confirmed
+// live agent frit never actually observed (code review, plan
+// 2609011941).
 func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -1938,6 +1956,10 @@ func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
 	got := out.String()
 	assert.Contains(t, got, "refused")
 	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures",
+		"an unread liveness is honestly a hold frit cannot prove, not a live agent")
+	assert.NotContains(t, got, "live agent",
+		"a herdr frit could not reach never confirms a live agent")
 	assert.NotContains(t, got, "resumed plan 7")
 	assert.Equal(t, held, remoteWorkTip(t, repo),
 		"liveness frit could not read never resumes")

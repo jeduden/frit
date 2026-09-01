@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,4 +206,44 @@ func TestPickGoDoesNotReattachAHeldLane(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, body, "plan 7: takeover",
 		"a dead hold reached through pick is taken over, as before")
+}
+
+// TestPickGoAdvancesPastALiveHold: a hold gone stale by its clock
+// while its agent is still genuinely working — plausible for a phase
+// that runs long between beats, the same shape
+// TestPickListsAStaleLeaseAsTakeover ranks as a takeover candidate —
+// reaches pick --go's own claim attempt, not start's phase-2
+// live-agent wording (plan 2609011941): that wording is for an
+// operator's explicit `start <id>`, not a candidate pick --go is
+// silently walking past. mintOrTakeOver's own live-session veto fires
+// exactly as it always did, classified a lost race, and the walk
+// advances — here there is nothing left to advance to.
+func TestPickGoAdvancesPastALiveHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	seedWindow(t, "atlas", 7, held, 3*time.Hour)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"cwd":                     t.TempDir(),
+		"pane_id":                 "wOld:p1",
+		"agent_session":           map[string]any{"value": "wOld:p1"},
+		"terminal_title_stripped": "elsewhere",
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "live agent",
+		"pick's own walk is not the operator staring at a named refusal")
+	assert.Contains(t, got, "nothing startable",
+		"the lost race advances past the only candidate, same as before")
+	tip := remoteWorkTip(t, repo)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: beat",
+		"the veto renews the live holder's own lease; it is never taken over")
+	assert.NotContains(t, body, "plan 7: takeover")
 }

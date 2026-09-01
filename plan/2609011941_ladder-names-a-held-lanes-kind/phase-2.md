@@ -65,6 +65,23 @@ stays the arbiter, unchanged. A reattach's own park-first refusal
 and `claimRefusal`'s own wording are untouched — this phase changes
 only the seam `start` reaches through `startRefusal`.
 
+`startRefusal` also gates `liveHoldRefusal` on `buildStart`'s own
+`reattach` flag, not `rs.Reattach`. `rs.Reattach` stays false whenever
+no resume was actually granted, HoldLive included. `startRefusal` is
+shared with `pick --go` (`reattach` false there), which reaches a held
+plan too: a stale-by-clock hold `Ready` lists as a takeover candidate
+(S76), even while its agent is still genuinely attending it. Without
+the gate, `liveHoldRefusal` fired there just the same. `buildStart`
+reports every refusal with `lost` false, so `pick --go`'s own walk
+rendered the static refusal and stopped. It should instead have reached
+`mintOrTakeOver`'s own live-session veto and advanced past a lost race,
+the way `TestPickGoAdvancesPastALostRace` already pins for every other
+contested candidate. Caught in code review as
+`TestPickGoAdvancesPastALiveHold`. Fixed by gating the call on
+`reattach`, so pick's own candidates still meet the veto at claim time,
+unchanged, and only an explicit `start <id>` gets the friendlier
+wording.
+
 **Docs.** [lease-protocol.md](../../docs/research/lease-protocol.md)'s
 S76 entry and its narrative paragraph are updated to record that `open`
 (phase 1) and `start` (this phase) now name the hold's own kind, so a

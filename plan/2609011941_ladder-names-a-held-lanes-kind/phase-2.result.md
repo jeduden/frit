@@ -42,3 +42,59 @@ paragraph if it reads as a fourth thing worth naming there.
 
 `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are clean.
+
+**Post-landing correction.** Code review caught that `startRefusal` is
+shared with `pick --go` (`buildStart`'s `reattach` false there), and
+`liveHoldRefusal` did not gate on that: a held plan gone stale by its
+clock while its agent is still genuinely attending it is a legitimate
+takeover candidate through `Ready` (S76), and the new refusal fired for
+it too — stopping `pick --go`'s walk on a static refusal instead of
+losing the race at `mintOrTakeOver`'s own live-session veto and
+advancing to the next candidate, same as any other contested claim.
+Fixed by gating the `liveHoldRefusal` call on `startRefusal`'s new
+`reattach` parameter (`buildStart`'s own flag, not `rs.Reattach`), so
+only an explicit `start <id>` gets the friendlier wording; pinned by
+`TestPickGoAdvancesPastALiveHold` in
+[cmd/frit/pick_test.go](../../cmd/frit/pick_test.go).
+
+**Post-landing correction: an unread herdr is not a confirmed live
+agent.** Code review also caught that `laneUnattended`
+([cmd/frit/start.go](../../cmd/frit/start.go)) collapses two different
+facts into one `false`: a positively confirmed agent, and a herdr frit
+simply could not reach. `laneTokenResumeTip` was always safe folding
+both into "do not resume," but `holdKindFor`
+([cmd/frit/dispatch.go](../../cmd/frit/dispatch.go)) read that same
+`false` as `report.HoldLive` — so a plain socket outage made both
+`open` and `start` assert "a live agent is on this lane" for a hold
+frit never actually observed as attended. `laneUnattended` now returns
+`(unattended, known bool)`; `holdKindFor` reads `HoldUnproven` when
+`known` is false, never guessing `HoldLive`. Pinned by
+`TestOpenReportsNoHoldKindWhenHerdrIsUnreachable` in
+[cmd/frit/dispatch_test.go](../../cmd/frit/dispatch_test.go) and a
+strengthened `TestStartWithUnconfirmedLivenessDoesNotResume` in
+[cmd/frit/start_test.go](../../cmd/frit/start_test.go), which now pins
+the refusal's exact wording rather than only its absence of "resumed".
+
+**Post-landing correction: a resumable hold can still carry unparked
+local work.** Code review also found that `holdKindFor` read
+`HoldResumable` — "resume it with `frit start <id>`" — for a lane whose
+token this machine holds and no agent attends, without checking
+whether that lane's local branch carries commits past the token it
+never pushed. `start`'s own S77 park-first guard
+(`reattachParkFirstRefusal`) already refuses exactly that case, so
+`open` was recommending a `frit start` that `start` would then refuse
+— the very defect this plan exists to close, reappearing in a case
+neither phase's own tests covered. A fourth kind, `report.HoldUnparked`
+([internal/report/dispatch.go](../../internal/report/dispatch.go)),
+now covers it: `holdKindFor` checks `unparkedSuffix` once a lane
+otherwise reads resumable, and `openNextAction` names `frit yield <id>`
+rather than a `frit start` that would refuse. `start`'s own refusal
+needed no change — `reattachParkFirstRefusal` already names this case
+correctly, and `liveHoldRefusal` only ever gates on `HoldLive`. Pinned
+by `TestOpenNamesTheParkFirstStepForAnUnparkedResumableHold` in
+[cmd/frit/dispatch_test.go](../../cmd/frit/dispatch_test.go) and
+`TestOpenNextActionNamesTheParkFirstStepForAnUnparkedHold` in
+[internal/report/dispatch_test.go](../../internal/report/dispatch_test.go).
+
+`go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
+`mdsmith check .` are clean after both corrections.

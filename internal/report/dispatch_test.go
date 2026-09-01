@@ -97,6 +97,21 @@ func TestOpenNextActionNamesTheLiveAgent(t *testing.T) {
 	assert.Contains(t, got, "live agent")
 }
 
+// TestOpenNextActionNamesTheParkFirstStepForAnUnparkedHold pins the
+// honest answer for a hold whose local lane carries commits past its
+// persisted token: `frit start <id>` would still refuse there — S77's
+// park-first guard — so the projection never names it; it names
+// `frit yield <id>` instead (code review, plan 2609011941: `open` used
+// to call this HoldResumable and recommend a `frit start` that would
+// refuse the same way an unproven or live-attended hold does).
+func TestOpenNextActionNamesTheParkFirstStepForAnUnparkedHold(t *testing.T) {
+	got := openNextAction(false, false, HoldUnparked, 7)
+	assert.NotEqual(t, "frit start 7", got,
+		"a hold with unparked local work would still have frit start refuse")
+	assert.Contains(t, got, "frit yield 7",
+		"the honest next step for unparked local work is to park it first")
+}
+
 // TestOpenNextActionStillStartsAnUnheldLanelessPlan pins the common
 // path untouched: a plan with no hold at all is HoldNone, and the
 // projection still names frit start <id>, exactly as before this

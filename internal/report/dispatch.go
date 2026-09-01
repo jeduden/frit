@@ -50,6 +50,13 @@ const (
 	HoldUnproven HoldKind = "unproven"
 	// HoldLive is a hold a live agent is already attending.
 	HoldLive HoldKind = "live"
+	// HoldUnparked is a hold whose persisted token proves this
+	// machine's own unattended lease, but whose local lane carries
+	// commits past that token it never pushed — S77's park-first guard
+	// would still refuse a resume until `frit yield <id>` parks that
+	// suffix, so naming `frit start <id>` here would name a refusal
+	// just as surely as HoldUnproven or HoldLive would.
+	HoldUnparked HoldKind = "unparked"
 )
 
 // OpenDoc is what `frit open` did: the plan it resolved and the pane it
@@ -69,7 +76,7 @@ type OpenDoc struct {
 	// HoldKind is the true kind of a held lane open found no live pane
 	// for — see HoldKind's own doc. Empty when the plan carries no
 	// hold, a lane was focused, or its kind was never read.
-	HoldKind HoldKind `json:"hold_kind,omitempty"`
+	HoldKind HoldKind `json:"hold_kind"`
 	// NextAction is the real next step when open raised nothing: a
 	// resume, a wait for the takeover window, the fact a live agent
 	// already attends, or — for a plan with no hold at all — frit
@@ -103,7 +110,9 @@ type OpenDoc struct {
 // live agent already attends says so rather than naming a send that
 // would interrupt it, a hold this machine cannot prove names the wait
 // for its takeover window rather than a frit start that would refuse,
-// and a plan with no hold at all (HoldNone) still starts, unchanged.
+// a hold whose local lane carries unparked work names frit yield <id>
+// rather than a frit start S77's park-first guard would refuse, and a
+// plan with no hold at all (HoldNone) still starts, unchanged.
 func openNextAction(focused, presenceUnknown bool, kind HoldKind, id int64) string {
 	if focused || presenceUnknown {
 		return ""
@@ -116,6 +125,9 @@ func openNextAction(focused, presenceUnknown bool, kind HoldKind, id int64) stri
 				"matures with frit start %d", id)
 	case HoldLive:
 		return "a live agent is already on this lane"
+	case HoldUnparked:
+		return fmt.Sprintf(
+			"run frit yield %d to park its unpushed work first", id)
 	default:
 		return fmt.Sprintf("frit start %d", id)
 	}

@@ -333,6 +333,34 @@ func TestOpenNamesAResumeForATokenThisMachineHolds(t *testing.T) {
 		"the resumable framing replaces the plain start wording")
 }
 
+// TestOpenNamesTheParkFirstStepForAnUnparkedResumableHold: the token
+// this machine holds proves the lease and no agent attends it — by
+// itself HoldResumable — but the lane's local branch carries a commit
+// past that token it never pushed. `frit start 7` would still refuse
+// there, S77's park-first guard (the same one
+// TestStartRefusesAReattachOverAnUnparkedSuffix pins for `start`
+// itself), so open must not recommend it as a resume; it names
+// `frit yield 7` instead (code review, plan 2609011941: holdKindFor
+// used to read this exact case as HoldResumable, so open recommended a
+// `frit start` that start would then refuse).
+func TestOpenNamesTheParkFirstStepForAnUnparkedResumableHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane, _ := heldLaneOwnedBy(t, root, hostname(), "")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work")
+	withHerdr(t, emptyRosterHerdr())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "resume it with frit start 7",
+		"a resume here would still have frit start refuse on the unparked suffix")
+	assert.Contains(t, got, "frit yield 7",
+		"the honest next step is to park the unpushed work first")
+}
+
 // TestOpenNamesTheWaitForALaneItCannotProve: the checkout the marker
 // names has lost its token — a lane that lost its local state, or a
 // cloned machine and a reused path that never had it (A1). open cannot
@@ -381,6 +409,30 @@ func TestOpenNamesTheLiveAgentAttendingAHeldLane(t *testing.T) {
 	got := out.String()
 	assert.NotContains(t, got, "frit start 7")
 	assert.Contains(t, got, "live agent")
+}
+
+// TestOpenReportsNoHoldKindWhenHerdrIsUnreachable: with the socket
+// down, open cannot confirm anything about the hold's liveness — the
+// same herdr.List call laneUnattended runs to answer that question is
+// the one that just failed. holdKindFor must not be read at all in
+// that case: reporting HoldLive off laneUnattended's fail-safe "assume
+// attended" default would assert a live agent frit never actually
+// observed, in the very hold_kind field --json exists to make an
+// unread presence honest about (code review, plan 2609011941).
+func TestOpenReportsNoHoldKindWhenHerdrIsUnreachable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var doc report.OpenDoc
+
+	emit(t, &doc, "open", "7", "--root", root)
+
+	assert.Equal(t, report.HoldNone, doc.HoldKind,
+		"an unread presence never reports a hold's kind, live included")
+	assert.Empty(t, doc.NextAction)
 }
 
 func TestOpenEmitsJSON(t *testing.T) {

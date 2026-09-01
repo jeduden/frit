@@ -105,7 +105,7 @@ func buildStart(
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess.
 	if doc := startRefusal(
-		c, rt, res, plan, phase, doGo, coord, coordOK, cwd, rs,
+		c, rt, res, plan, phase, doGo, coord, coordOK, cwd, rs, reattach,
 	); doc != nil {
 		return doc, false, nil
 	}
@@ -162,10 +162,14 @@ func buildStart(
 // the park-first guard: its renewal moves the shared work ref exactly
 // as a takeover would, so a suffix the dead lane never pushed would be
 // orphaned the same way (S77).
+//
+// reattach is buildStart's own flag, not rs.Reattach: it says whether
+// the caller named this exact lane (an explicit `start <id>`), which is
+// what liveHoldRefusal below gates on.
 func startRefusal(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
 	phase string, doGo bool, coord fleet.Coord, coordOK bool, cwd string,
-	rs startResumption,
+	rs startResumption, reattach bool,
 ) *report.StartDoc {
 	if rs.Reattach {
 		if reason := reattachParkFirstRefusal(rt, plan, coord, rs); reason != "" {
@@ -190,8 +194,10 @@ func startRefusal(
 	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
 		return refusedStart(c, res, plan, phase, doGo, reason)
 	}
-	if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
-		return refusedStart(c, res, plan, phase, doGo, reason)
+	if reattach {
+		if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
+			return refusedStart(c, res, plan, phase, doGo, reason)
+		}
 	}
 	window, _ := staleClock(&res, plan.Repo)
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
@@ -215,6 +221,16 @@ func startRefusal(
 // is already honest and stays untouched, and an ambiguous repository
 // (coordOK false) never reads as HoldLive either, since holdKindFor
 // itself falls back to HoldUnproven there.
+//
+// startRefusal only calls this when the caller reattached — an explicit
+// `start <id>` naming the lane, where an operator is staring at the
+// refusal and benefits from being told to nudge or open it instead.
+// pick --go walks many candidates with reattach false and never calls
+// it: a stale-by-clock hold a live agent still attends is a legitimate
+// takeover candidate there (the same shape TestPickListsAStaleLeaseAsTakeover
+// ranks), and mintOrTakeOver's own live-session veto is what refuses
+// it, classified a lost race so the walk advances to the next
+// candidate rather than stopping on a static refusal.
 func liveHoldRefusal(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
 ) string {
@@ -304,7 +320,7 @@ func laneTokenResumeTip(
 	if !tokenProves(rt, coord, plan.ID, token, tip) {
 		return "", ""
 	}
-	if !laneUnattended(rt, m) {
+	if unattended, _ := laneUnattended(rt, m); !unattended {
 		return "", ""
 	}
 
@@ -348,17 +364,21 @@ func heldLaneMarker(
 // recorded checkout — a lane stood up by hand is occupied whether or
 // not the lease ever named its session. One pane list answers both.
 // Only a herdr that answered counts: from outside the lane nothing
-// else vouches for it, so an unreachable herdr reads as unknown and
-// keeps the window rather than resume over an agent that may still be
-// working (F3, S61).
-func laneUnattended(rt *runtime, m claim.Marker) bool {
+// else vouches for it, so an unreachable herdr reads as unknown, not
+// occupied — known is false, and unattended is meaningless past that
+// point. laneTokenResumeTip folds both into a single "do not resume"
+// verdict (F3, S61); holdKindFor cannot: it must tell an unread herdr
+// apart from one that positively confirmed an agent, or it would
+// report a live agent frit never actually observed (code review, plan
+// 2609011941).
+func laneUnattended(rt *runtime, m claim.Marker) (unattended, known bool) {
 	panes, err := herdr.List(rt.herdr)
 	if err != nil {
-		return false
+		return false, false
 	}
 
 	return !herdr.SessionLiveIn(panes, m.Session) &&
-		!herdr.LiveRoots(panes, rt.git)[m.Lane]
+		!herdr.LiveRoots(panes, rt.git)[m.Lane], true
 }
 
 // desertedRefusal names the yield that retires a deserted hold read

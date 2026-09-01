@@ -1,7 +1,7 @@
 ---
 id: 2609011941
 title: The escalation ladder names a held lane's kind, not a refusal loop
-status: "🔳"
+status: "✅"
 summary: >-
   The v0.11.0 retest of #122 shows the ladder round-trips on a held lane
   you own with no live agent: open prints "start it with frit start",
@@ -111,8 +111,10 @@ ladder *says*, not what it does beyond naming.
    agent's presence rather than the blanket un-matured-takeover
    wording; an unprovable hold's own wording is already honest and
    stays unchanged.
-3. Later phase, shaped by Phase 2's handoff: `nudge` tells "held, no
-   agent attached" apart from "no lane at all".
+3. Later, in a plan of its own rather than a phase here: `nudge` tells
+   "held, no agent attached" apart from "no lane at all" — this plan's
+   own Acceptance Criteria name only `open` and `start`, and both are
+   closed as of Phase 2 plus its post-landing corrections.
 
 ## Execution
 
@@ -145,15 +147,15 @@ footer: |
 
 ## Acceptance Criteria
 
-- [ ] `frit open` on a lane whose token this machine holds, unattended,
+- [x] `frit open` on a lane whose token this machine holds, unattended,
       names a resume, not a blanket `frit start` that would refuse
-- [ ] `frit open` on a lane this machine cannot prove (no token) names
+- [x] `frit open` on a lane this machine cannot prove (no token) names
       the wait or the take-over, not `frit start`
-- [ ] `frit open` on a lane with a live agent names that a live agent is
+- [x] `frit open` on a lane with a live agent names that a live agent is
       on it
-- [ ] A plan that nothing holds, with no live lane, still names
+- [x] A plan that nothing holds, with no live lane, still names
       `frit start <id>` unchanged
-- [ ] `lease-protocol.md`'s S76 records that `open` and `start` name the
+- [x] `lease-protocol.md`'s S76 records that `open` and `start` name the
       resume, not only that `orphans` names the deserted hold
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
