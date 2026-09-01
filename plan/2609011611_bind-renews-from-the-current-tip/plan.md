@@ -114,7 +114,7 @@ footer: |
 
 | #   | Status | Phase                                                                             |
 | --- | ------ | --------------------------------------------------------------------------------- |
-| 1   | 🔳     | [A session renewal reads the work ref's current tip, guarded to self](phase-1.md) |
+| 1   | ✅     | [A session renewal reads the work ref's current tip, guarded to self](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
