@@ -1903,6 +1903,30 @@ func agentFor(
 // trimmed to fit; the rest set their width from their content.
 var boardCols = []string{"host", "repo", "id", "status", "held", "agent", "title"}
 
+// boardColLabel is the header word for a column key. held reads as
+// hold — the word a person types with --columns and the word the
+// header names it are the same either way (boardColAliases already
+// accepts "lane" too), but "hold" is what a reader expects over the
+// lane-slug cell.
+func boardColLabel(name string) string {
+	if name == "held" {
+		return "hold"
+	}
+
+	return name
+}
+
+// boardHeader names every selected column, in order, so the header row
+// flows through the same fit and alignment as any data row.
+func boardHeader(cols []string) []string {
+	row := make([]string, len(cols))
+	for i, name := range cols {
+		row[i] = boardColLabel(name)
+	}
+
+	return row
+}
+
 // boardColAliases lets a person name a column by the word they think in
 // — description for the title, lane for who holds it.
 var boardColAliases = map[string]string{
@@ -1956,7 +1980,7 @@ func boardCell(name string, doc *report.BoardDoc, p report.BoardPlan) string {
 	case "held":
 		return heldCell(p)
 	case "agent":
-		return agentLabel(doc.Presence, p.Agent, p.AgentStatus)
+		return agentLabel(doc.Presence, p.Held, p.Agent, p.AgentStatus)
 	default: // title
 		return p.Title
 	}
@@ -1977,24 +2001,54 @@ func printBoard(
 		return
 	}
 
-	rows := make([][]string, len(doc.Plans))
+	dataRows := make([][]string, len(doc.Plans))
 	for i, p := range doc.Plans {
 		row := make([]string, len(cols))
 		for c, name := range cols {
 			row[c] = boardCell(name, doc, p)
 		}
-		rows[i] = row
+		dataRows[i] = row
 	}
+	rows := append([][]string{boardHeader(cols)}, dataRows...)
 
 	if width > 0 {
 		fitBoard(width, rows, cols)
 	}
 
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	// tabwriter pads a column by rune count, not by the terminal columns
+	// a rune paints — wrong for a wide glyph like a status emoji sharing
+	// a column with the plain-ASCII header word above it. Aligning by
+	// hand with textw.Width keeps every row the width fitBoard measured.
+	colw := make([]int, len(cols))
 	for _, r := range rows {
-		_, _ = fmt.Fprintln(tw, strings.Join(r, "\t"))
+		for c, cell := range r {
+			if w := textw.Width(cell); w > colw[c] {
+				colw[c] = w
+			}
+		}
 	}
-	_ = tw.Flush()
+	for _, r := range rows {
+		_, _ = fmt.Fprintln(out, alignRow(r, colw))
+	}
+}
+
+// alignRow joins one row's cells with two-space gaps, padding every
+// column but the last to colw's width for that column — by terminal
+// columns, so a wide glyph does not throw off the columns after it.
+func alignRow(row []string, colw []int) string {
+	var b strings.Builder
+	for c, cell := range row {
+		b.WriteString(cell)
+		if c == len(row)-1 {
+			continue
+		}
+		pad := colw[c] + 2 - textw.Width(cell)
+		if pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
+		}
+	}
+
+	return b.String()
 }
 
 // fitBoard trims the flexible columns present — the lane and the title —
@@ -2142,17 +2196,21 @@ func terminalWidth(w io.Writer) int {
 
 // agentLabel names the agent on a lane and how it reads. With herdr
 // unreachable the column is unknown rather than empty, since a missing
-// socket is not the same as no agent.
-func agentLabel(presence bool, agent, status string) string {
+// socket is not the same as no agent. A held lane with no live agent
+// reads as idle rather than the bare dash an unheld lane shows, so the
+// hold and agent columns can never collapse to the same glyph.
+func agentLabel(presence, held bool, agent, status string) string {
 	switch {
 	case !presence:
 		return "?"
-	case agent == "":
-		return "-"
-	case status == "":
+	case agent != "" && status == "":
 		return agent
-	default:
+	case agent != "":
 		return agent + " (" + status + ")"
+	case held:
+		return "idle"
+	default:
+		return "-"
 	}
 }
 

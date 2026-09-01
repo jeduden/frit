@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                                    |
+| ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
+| 2609010550 | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -103,5 +105,5 @@ footer: |
 | 2608310454 | ✅     | sonnet | [Doctor and next read phase state from phase front matter](plan/2608310454_doctor-next-read-phase-front-matter/plan.md)                |
 | 2608310704 | ✅     | sonnet | [Interleaved phase overview with result summaries](plan/2608310704_interleaved-phase-overview/plan.md)                                 |
 | 2608311255 | ✅     | sonnet | [A released lane's leftover worktree is seen and reconciled](plan/2608311255_released-lane-worktree-reconciled/plan.md)                |
-| 2609010550 | 🔲     | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md)               |
+| 2609010550 | 🔳     | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md)               |
 <?/catalog?>

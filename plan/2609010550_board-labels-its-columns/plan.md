@@ -1,7 +1,7 @@
 ---
 id: 2609010550
 title: The board table labels its columns, so held work never reads as free
-status: "🔲"
+status: "🔳"
 summary: >-
   frit board renders its table with no header row, and two adjacent
   columns — the hold and the live agent — both collapse to a bare dash
@@ -52,13 +52,21 @@ and the JSON contract are untouched.
 
 **Reuse first.** The header rides the existing path: `boardCols` already
 names the columns in order, so the header is those names as a first row
-that flows through the same `fitBoard` and `tabwriter` — column widths
-and trimming already account for every row, the header included, with no
-new width machinery. The idle case is a third branch in `agentLabel`,
-keyed on the `Held` flag `BoardPlan` already carries — no new data
-reaches the renderer. The legend reads the same `p.Stale`/`p.Dead`
-already on the rows, printed once beneath the table only when a marker
-is actually present.
+that flows through the same `fitBoard` — column widths and trimming
+already account for every row, the header included, with no new width
+machinery. The idle case is a third branch in `agentLabel`, keyed on the
+`Held` flag `BoardPlan` already carries — no new data reaches the
+renderer. The legend reads the same `p.Stale`/`p.Dead` already on the
+rows, printed once beneath the table only when a marker is actually
+present.
+
+Phase 1 found one seam that did need new machinery: `tabwriter` sizes a
+column by rune count, not the terminal columns a rune paints, so the
+one-rune, two-column-wide status glyph shares a column with the new
+six-rune `status` header word and lands one column over budget.
+`printBoard` now aligns by hand with `textw.Width` instead of
+`tabwriter`; see [phase-1.result.md](phase-1.result.md) for the detail.
+`tabwriter` is untouched everywhere else.
 
 **What the header row disturbs.** A few board tests in
 [cmd/frit/board_test.go](../../cmd/frit/board_test.go) treat the whole
@@ -113,20 +121,20 @@ footer: |
 
 | #   | Status | Phase                                                                             |
 | --- | ------ | --------------------------------------------------------------------------------- |
-| 1   | 🔲     | [The table opens on a header row, and a held-idle lane reads as idle](phase-1.md) |
+| 1   | ✅     | [The table opens on a header row, and a held-idle lane reads as idle](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit board`'s rendered table opens on a header row that names
+- [x] `frit board`'s rendered table opens on a header row that names
       every selected column, so the hold column and the agent column are
       told apart at a glance
-- [ ] A held plan with no live agent reads as `idle` in the agent
+- [x] A held plan with no live agent reads as `idle` in the agent
       column, not the bare `-` an unheld plan shows — the two columns can
       never collapse to the same glyph
 - [ ] A board carrying a `(stale …)` or `(dead)` hold prints a one-line
       legend explaining each marker present; a clean board prints none
-- [ ] `board --json` is unchanged, and every rendered table line still
+- [x] `board --json` is unchanged, and every rendered table line still
       fits the terminal width
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

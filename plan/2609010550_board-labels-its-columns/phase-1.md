@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The table opens on a header row, and a held-idle lane reads as idle
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give the board table the two things that keep held work from reading as
