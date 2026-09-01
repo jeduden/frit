@@ -5,10 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/jeduden/frit/internal/claim"
-	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -166,17 +163,7 @@ func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
 func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
-	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
-		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
-	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
-	require.NoError(t, err)
-	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
-	lane := liveLeaseLane(t, repo, "plan/7")
-	runner, rec := recordingHerdr(map[string]any{
-		"agent": "claude", "agent_status": "working",
-		"pane_id": "wLive:p1", "cwd": lane,
-	})
+	repo, lease, runner, rec := liveLeaseFixture(t, root)
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
 

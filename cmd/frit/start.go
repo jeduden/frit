@@ -74,10 +74,11 @@ func startResolved(
 
 // buildStart composes the escalation doc for a plan already chosen and,
 // under doGo, runs start's claim-and-stand-up path. It refuses an
-// unstartable plan and an ambiguous repository the same way for both
-// verbs, so they cannot drift on what "startable" or "started" means.
-// The bool is true when execution lost the claim's race — the one
-// refusal pick --go retries past rather than reports.
+// unstartable plan, an ambiguous repository, and a fresh acquire onto
+// a lane herdr already shows live (#126) the same way for both verbs,
+// so they cannot drift on what "startable" or "started" means. The
+// bool is true when execution lost the claim's race — the one refusal
+// pick --go retries past rather than reports.
 //
 // reattach is whether a held lane may be resumed from outside it, off
 // its hold's own marker (#122): true for an explicit `start <id>`,
