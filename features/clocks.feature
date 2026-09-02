@@ -38,5 +38,9 @@ Feature: Clocks
     When a further observer watches "box-b"'s tip mature by the same span
     Then that span does not read stale once the takeover count backs the threshold off
 
-  @S36 @pending
+  @S36
   Scenario: cross-host clock skew
+    Given "box-a" holds the lease for plan 36
+    And a second host's clock is skewed years from the first's
+    When both hosts watch "box-a"'s tip go stale, each on its own clock
+    Then both hosts' windows read the hold stale
