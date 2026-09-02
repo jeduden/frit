@@ -1,7 +1,7 @@
 ---
 id: 2609021310
 title: The process-death scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The lease-protocol matrix's "Process death, at every lifecycle step"
   section, S1..S13, is declared in features/process-death.feature but
