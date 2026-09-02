@@ -114,7 +114,7 @@ footer: |
 | 2609012100 | ✅     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
 | 2609012210 | ✅     | sonnet | [A failed park names its real failure, not "moved by hand"](plan/2609012210_park-tells-the-real-failure/plan.md)                       |
 | 2609021114 | ✅     | sonnet | [Scavenge and Yield stop reading an unreadable remote as gone](plan/2609021114_scavenge-yield-honest-remote-read/plan.md)              |
-| 2609021115 | 🔲     | opus   | [casPush and park share their push-then-classify skeleton](plan/2609021115_park-caspush-shared-skeleton/plan.md)                       |
+| 2609021115 | ✅     | opus   | [casPush and park share their push-then-classify skeleton](plan/2609021115_park-caspush-shared-skeleton/plan.md)                       |
 | 2609021310 | ✅     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
 | 2609021311 | 🔲     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
 | 2609021312 | 🔲     | sonnet | [The partition and clock scenarios run under godog](plan/2609021312_bdd-partitions-and-clocks/plan.md)                                 |

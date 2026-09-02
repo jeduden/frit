@@ -1,7 +1,7 @@
 ---
 id: 2609021115
 title: casPush and park share their push-then-classify skeleton
-status: "🔲"
+status: "✅"
 summary: >-
   casPush, park, and (after plan 2609021114) Scavenge's delete
   confirmation each independently attempt a git push and, on failure,
@@ -92,19 +92,20 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                  |
-| --- | ------ | -------------------------------------------------------------------------------------- |
-| 1   | 🔲     | [casPush, park and Scavenge's delete share one classify-on-failure helper](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [casPush, park and Scavenge's delete share one classify-on-failure helper](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                        |
+|     | ↳      | One push-then-confirm helper now carries the skeleton casPush, park and Scavenge's delete confirmation each wrote independently: run the push, and only on failure ask the remote what holds the ref, with a read fault kept apart from a confirmed-absent ref. Each caller keeps its own success side effect and its own failure-shape switch inline. No typed error, message wording or signature changed, and the suite passed unchanged before and after. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `casPush`, `park`, and Scavenge's delete confirmation classify a
+- [x] `casPush`, `park`, and Scavenge's delete confirmation classify a
       failed push through one shared helper, not three independent
       copies
-- [ ] No typed error, message wording, or exported signature changes
+- [x] No typed error, message wording, or exported signature changes
       for any of the three
-- [ ] Every existing test on `casPush`, `park`, and `Scavenge` passes
+- [x] Every existing test on `casPush`, `park`, and `Scavenge` passes
       unchanged
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

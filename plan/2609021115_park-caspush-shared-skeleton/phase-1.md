@@ -1,7 +1,7 @@
 ---
 n: 1
 title: casPush, park and Scavenge's delete share one classify-on-failure helper
-status: "🔲"
+status: "✅"
 result: false
 ---
 `casPush`, `park`, and Scavenge's delete confirmation, all in

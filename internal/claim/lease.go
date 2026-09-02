@@ -433,12 +433,10 @@ func Scavenge(
 		return res, err
 	}
 
-	if _, err := run(repoDir, "push",
-		"--force-with-lease="+ref+":"+from,
-		opts.Remote, ":"+ref); err != nil {
-		// The delete is classified like every push: by what holds the
-		// ref now, never by stderr. Gone is a win; anything else is not.
-		holder, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
+	// The delete is classified like every push: by what holds the ref
+	// now, never by stderr. Gone is a win; anything else is not.
+	if err, holder, readErr := pushThenConfirm(
+		repoDir, opts, ref, from, "", run); err != nil {
 		if readErr != nil {
 			// The confirmation read failed too — the same stalled or
 			// dropped connection took out both calls. Reading that as
@@ -759,14 +757,11 @@ func rescueRef(planID int64, holder, tip string) string {
 func park(
 	repoDir string, opts LeaseOptions, rescue, tip string, run gitwt.Runner,
 ) error {
-	_, pushErr := run(repoDir, "push",
-		"--force-with-lease="+rescue+":",
-		opts.Remote, tip+":"+rescue)
+	pushErr, now, readErr := pushThenConfirm(
+		repoDir, opts, rescue, "", tip, run)
 	if pushErr == nil {
 		return nil
 	}
-
-	now, readErr := remoteHolderErr(repoDir, opts.Remote, rescue, run)
 	if readErr != nil {
 		return &UnconfirmedPushError{
 			PlanID: opts.PlanID,
@@ -1094,6 +1089,34 @@ func mintMarker(
 		"-m", leaseMessage(kind, opts, epoch, nonce, base)))
 }
 
+// pushThenConfirm runs one arbitrated push and, when it fails, asks
+// the remote what holds the ref now — the shared skeleton casPush,
+// park and Scavenge's delete confirmation all ride. All three push to
+// one ref, take the lease on that same ref, and re-read that same
+// ref, so ref, the expected old value and the source to push describe
+// every one of them; an empty src is the delete refspec.
+//
+// A push that succeeds costs no read: pushErr nil means there is
+// nothing to classify, and the caller runs its own success side
+// effect. A push that fails comes back with its own error alongside
+// the read's answer, with the read fault kept apart from a
+// confirmed-absent ref (see remoteHolderErr) — the one step that must
+// never fold, now written once instead of three times. Each caller
+// switches on now in its own shape.
+func pushThenConfirm(
+	repoDir string, opts LeaseOptions, ref, expected, src string,
+	run gitwt.Runner,
+) (pushErr error, now string, readErr error) {
+	if _, pushErr = run(repoDir, "push",
+		"--force-with-lease="+ref+":"+expected,
+		opts.Remote, src+":"+ref); pushErr == nil {
+		return nil, "", nil
+	}
+	now, readErr = remoteHolderErr(repoDir, opts.Remote, ref, run)
+
+	return pushErr, now, readErr
+}
+
 // casPush is the one server-side arbitration every transition rides:
 // push the marker over the expected old value — "" means the ref must
 // be absent — and classify a failure by what actually holds the ref on
@@ -1105,15 +1128,12 @@ func casPush(
 	repoDir, ref string, opts LeaseOptions, marker, expected string,
 	run gitwt.Runner,
 ) (lost bool, tip string, err error) {
-	_, pushErr := run(repoDir, "push",
-		"--force-with-lease="+ref+":"+expected,
-		opts.Remote, marker+":"+ref)
+	pushErr, now, readErr := pushThenConfirm(
+		repoDir, opts, ref, expected, marker, run)
 	if pushErr == nil {
 		syncLocalRef(repoDir, ref, marker, run)
 		return false, marker, nil
 	}
-
-	now, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
 	if readErr != nil {
 		// The reconciliation read failed too — the same stalled or
 		// dropped connection took out both calls. Unlike a confirmed
