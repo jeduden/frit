@@ -1,7 +1,7 @@
 ---
 n: 3
 title: The cross-host clock skew row runs for real, closing the matrix's ten
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the matrix's last row, S36. Phase 2's own handoff already
