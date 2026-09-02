@@ -110,4 +110,5 @@ footer: |
 | 2609011941 | 🔲     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
 | 2609012000 | ✅     | sonnet | [Every lease-protocol scenario has an executable BDD spec](plan/2609012000_bdd-scenarios-executable/plan.md)                           |
 | 2609012100 | 🔲     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
+| 2609021310 | 🔲     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
 <?/catalog?>
