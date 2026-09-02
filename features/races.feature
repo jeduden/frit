@@ -43,8 +43,15 @@ Feature: Races
     And "box-b" takes the lease over
     Then "box-a"'s raw push is rejected as non-fast-forward
 
-  @S31 @pending
+  @S31
   Scenario: orphan report vs sleeping host
+    Given "elsewhere" holds the lease for plan 7, bound to a session
+    Then origin's orphan report lists plan 7 as neither stale nor deserted
+    When the hold's takeover window has matured
+    And "elsewhere"'s bound session wakes and answers live
+    And this host claims plan 7
+    Then the claim is refused, naming the lease already held
+    And "elsewhere"'s lease is renewed by a beat instead of seized
 
   @S32 @pending
   Scenario: two same-host sessions race
