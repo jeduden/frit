@@ -417,7 +417,7 @@ func Scavenge(
 		opts.Remote, ":"+ref); err != nil {
 		// The delete is classified like every push: by what holds the
 		// ref now, never by stderr. Gone is a win; anything else is not.
-		now, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
+		holder, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
 		if readErr != nil {
 			// The confirmation read failed too — the same stalled or
 			// dropped connection took out both calls. Reading that as
@@ -426,12 +426,10 @@ func Scavenge(
 			return res, &UnconfirmedDeleteError{
 				PlanID: opts.PlanID,
 				Ref:    ref,
-				Err: fmt.Errorf(
-					"delete %s for plan %d: %w; confirm: %w",
-					ref, opts.PlanID, err, readErr),
+				Err:    fmt.Errorf("%w; confirm: %w", err, readErr),
 			}
 		}
-		if now != "" {
+		if holder != "" {
 			return res, fmt.Errorf(
 				"delete %s for plan %d: %w", ref, opts.PlanID, err)
 		}
