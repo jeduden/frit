@@ -74,6 +74,17 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 				"fenced lane, use release instead")
 			return renderYield(c, rt, doc)
 		}
+		var unconfirmed *claim.UnconfirmedYieldError
+		if errors.As(err, &unconfirmed) {
+			// The still-held read itself failed, before park was ever
+			// attempted — nothing was parked or torn down, the same as
+			// StillHeldError, so this is a refusal too, not a warning
+			// tacked onto a "yielded" that never happened.
+			doc.Refuse(fmt.Sprintf(
+				"could not confirm whether it is still held: %v",
+				unconfirmed.Err))
+			return renderYield(c, rt, doc)
+		}
 		// A park conflict is a warning, not a command failure, the same
 		// way scavengeRef treats it: the document still renders, and
 		// under --json nothing is lost to stderr. The lane is left

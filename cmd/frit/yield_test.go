@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/frit/internal/claim"
@@ -183,6 +184,44 @@ func TestYieldWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
 		"the warning is worded as the next step, not just the ref name")
 	assert.False(t, rec.verb("worktree", "remove"),
 		"a failed park leaves the worktree standing")
+}
+
+// TestYieldReportsAnUnconfirmedYieldAsARefusalNotAWarning: the
+// still-held check's own read fails, before park is ever attempted —
+// claim.Yield returns an UnconfirmedYieldError. This must not fall
+// into the generic park-conflict warning, which would print "yielded
+// plan 7" followed by a warning and claim a success that never
+// happened; it reads as a refusal instead, the same way StillHeldError
+// does, since nothing was parked or torn down either way.
+func TestYieldReportsAnUnconfirmedYieldAsARefusalNotAWarning(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+
+	fenceWithATakeover(t, repo, 7)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "remote", "set-url", "origin",
+		filepath.Join(root, "nonexistent-origin.git"))
+
+	runner, rec := yieldHerdr("w1A", repo)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root, "--no-fetch"},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused",
+		"an unconfirmed still-held read is a refusal")
+	assert.NotContains(t, out.String(), "yielded plan 7",
+		"nothing was parked or torn down; it must not read as a success")
+	assert.False(t, rec.verb("worktree", "remove"),
+		"an unconfirmed still-held read leaves the worktree standing")
 }
 
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still
