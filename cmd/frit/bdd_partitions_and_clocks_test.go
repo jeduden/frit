@@ -32,6 +32,7 @@ import (
 func init() {
 	registrars = append(registrars, (*world).registerPartitionsAndClocks)
 	registrars = append(registrars, (*world).registerVerbLevelPartitionsAndClocks)
+	registrars = append(registrars, (*world).registerCrossHostClocks)
 }
 
 // pcState is this section's own state, kept beside the shared world
@@ -62,6 +63,14 @@ type pcState struct {
 	// origin cannot also cut off the holder's own renewals.
 	observerRoot string
 	observerRepo string
+	// hostWindows and hostClocks are S36's own shape: more than one
+	// observer's own window and clock, keyed by host, kept apart from
+	// the singular window/clock pair every other row in this file
+	// shares — two hosts converging on the same tip despite years of
+	// skew between them, never one host's clock read against the
+	// other's window.
+	hostWindows map[string]discovery.Window
+	hostClocks  map[string]time.Time
 }
 
 // pc fetches this scenario's section state, lazily initialized on
@@ -74,6 +83,8 @@ func (w *world) pc() *pcState {
 		s.lanes = map[string]string{}
 		s.tips = map[string]string{}
 		s.clock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		s.hostWindows = map[string]discovery.Window{}
+		s.hostClocks = map[string]time.Time{}
 	}
 
 	return s
@@ -188,6 +199,16 @@ func (w *world) registerVerbLevelPartitionsAndClocks(sc *godog.ScenarioContext) 
 	sc.Step(`^a further observer watches "([^"]+)"'s tip mature by the same span$`, w.observerWatchesTipGoStale)
 	sc.Step(`^that span does not read stale once the takeover count backs the threshold off$`,
 		w.thatSpanDoesNotReadStaleOnceBackedOff)
+}
+
+// registerCrossHostClocks binds the step texts S36 adds — its own
+// registrar, kept apart only for this file's own lint budget, not a
+// different section of state.
+func (w *world) registerCrossHostClocks(sc *godog.ScenarioContext) {
+	sc.Step(`^a second host's clock is skewed years from the first's$`, w.aSecondHostsClockIsSkewedYearsFromTheFirsts)
+	sc.Step(`^both hosts watch "([^"]+)"'s tip go stale, each on its own clock$`,
+		w.bothHostsWatchTipGoStaleEachOnItsOwnClock)
+	sc.Step(`^both hosts' windows read the hold stale$`, w.bothHostsWindowsReadTheHoldStale)
 }
 
 // holdsTheLeaseInARealLane is S21's own acquisition: a real worktree
@@ -965,6 +986,69 @@ func (w *world) thatSpanDoesNotReadStaleOnceBackedOff() error {
 	}
 	if discovery.StaleHold(s.window, s.clock, threshold, discovery.DefaultSampleGap) {
 		return fmt.Errorf("window still reads stale under the backed-off threshold %s (k=%d)", threshold, k)
+	}
+
+	return nil
+}
+
+// aSecondHostsClockIsSkewedYearsFromTheFirsts seeds two hosts' own
+// starting clocks, years apart, with no window yet for either — the
+// premise S36's own maturation and Then steps build on.
+func (w *world) aSecondHostsClockIsSkewedYearsFromTheFirsts() error {
+	s := w.pc()
+	s.hostClocks["host-1"] = s.clock
+	s.hostClocks["host-2"] = s.clock.AddDate(7, 0, 0)
+
+	return nil
+}
+
+// bothHostsWatchTipGoStaleEachOnItsOwnClock matures a fresh window per
+// host, independently, on that host's own clock alone —
+// observerWatchesTipGoStale's own loop, run once per entry in
+// hostClocks, so no host's clock ever informs another's window.
+func (w *world) bothHostsWatchTipGoStaleEachOnItsOwnClock(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	tip := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
+	if tip == "" {
+		return fmt.Errorf("origin holds no tip for plan %d", w.planID)
+	}
+	s := w.pc()
+	if len(s.hostClocks) == 0 {
+		return errors.New("no hosts recorded; a step that skews their clocks comes first")
+	}
+	for host, now := range s.hostClocks {
+		win := discovery.Window{}
+		for {
+			win = discovery.Observe(win, tip, now, discovery.DefaultSampleGap)
+			if win.Span() > discovery.DefaultTakeoverWindow {
+				break
+			}
+			now = now.Add(discovery.DefaultSampleGap)
+		}
+		s.hostWindows[host] = win
+		s.hostClocks[host] = now
+	}
+
+	return nil
+}
+
+// bothHostsWindowsReadTheHoldStale checks every host's own window
+// reads stale against only that host's own clock — the convergence
+// S36 promises, proven by construction: no host's clock is ever read
+// here against another host's window.
+func (w *world) bothHostsWindowsReadTheHoldStale() error {
+	s := w.pc()
+	if len(s.hostWindows) < 2 {
+		return fmt.Errorf("only %d host windows recorded, want 2", len(s.hostWindows))
+	}
+	for host, win := range s.hostWindows {
+		now := s.hostClocks[host]
+		if !discovery.StaleHold(win, now, discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap) {
+			return fmt.Errorf("host %q's window did not read stale", host)
+		}
 	}
 
 	return nil
@@ -1751,4 +1835,77 @@ func TestThatSpanDoesNotReadStaleOnceBackedOffRefusesWithNoTakeover(t *testing.T
 	w.taker, w.taken = "box-a", w.lease
 
 	require.Error(t, w.thatSpanDoesNotReadStaleOnceBackedOff())
+}
+
+// TestASecondHostsClockIsSkewedYearsFromTheFirstsSeedsTwoDistinctClocks.
+func TestASecondHostsClockIsSkewedYearsFromTheFirstsSeedsTwoDistinctClocks(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.aSecondHostsClockIsSkewedYearsFromTheFirsts())
+
+	s := w.pc()
+	require.Len(t, s.hostClocks, 2)
+	assert.Greater(t, s.hostClocks["host-2"].Sub(s.hostClocks["host-1"]), 5*365*24*time.Hour)
+}
+
+// TestBothHostsWatchTipGoStaleEachOnItsOwnClockMaturesTwoIndependentWindows.
+func TestBothHostsWatchTipGoStaleEachOnItsOwnClockMaturesTwoIndependentWindows(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 921)
+	require.NoError(t, w.aSecondHostsClockIsSkewedYearsFromTheFirsts())
+
+	require.NoError(t, w.bothHostsWatchTipGoStaleEachOnItsOwnClock("box-a"))
+
+	s := w.pc()
+	require.Len(t, s.hostWindows, 2)
+	for host, win := range s.hostWindows {
+		assert.Greater(t, win.Span(), discovery.DefaultTakeoverWindow, host)
+	}
+}
+
+// TestBothHostsWatchTipGoStaleEachOnItsOwnClockRefusesWithNoHosts.
+func TestBothHostsWatchTipGoStaleEachOnItsOwnClockRefusesWithNoHosts(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 922)
+
+	require.Error(t, w.bothHostsWatchTipGoStaleEachOnItsOwnClock("box-a"))
+}
+
+// TestBothHostsWatchTipGoStaleEachOnItsOwnClockRefusesAMachineTheScenarioNeverIntroduced.
+func TestBothHostsWatchTipGoStaleEachOnItsOwnClockRefusesAMachineTheScenarioNeverIntroduced(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.bothHostsWatchTipGoStaleEachOnItsOwnClock("ghost"))
+}
+
+// TestBothHostsWindowsReadTheHoldStaleFailsWithFewerThanTwoWindows.
+func TestBothHostsWindowsReadTheHoldStaleFailsWithFewerThanTwoWindows(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.bothHostsWindowsReadTheHoldStale())
+
+	s := w.pc()
+	s.hostWindows["host-1"] = discovery.Window{Tip: "abc", Samples: 1}
+	require.Error(t, w.bothHostsWindowsReadTheHoldStale())
+}
+
+// TestBothHostsWindowsReadTheHoldStaleFailsIfEitherHostIsNotStale:
+// convergence means both, so one host's own window falling short of
+// the takeover window fails the check even though the other's
+// matured — pairing bugs (a swapped clock, a shared window) would
+// otherwise slip through on the host that happens to be checked
+// first.
+func TestBothHostsWindowsReadTheHoldStaleFailsIfEitherHostIsNotStale(t *testing.T) {
+	w := newWorld(t)
+	s := w.pc()
+	first := s.clock
+	matured := discovery.Window{Tip: "abc", First: first, Last: first.Add(3 * time.Hour), Samples: 6}
+	fresh := discovery.Window{Tip: "abc", First: first, Last: first, Samples: 1}
+	s.hostWindows["host-1"] = matured
+	s.hostWindows["host-2"] = fresh
+	s.hostClocks["host-1"] = matured.Last
+	s.hostClocks["host-2"] = fresh.Last
+
+	require.Error(t, w.bothHostsWindowsReadTheHoldStale(), "host-2 never matured")
+
+	s.hostWindows["host-2"] = matured
+	require.NoError(t, w.bothHostsWindowsReadTheHoldStale())
 }
