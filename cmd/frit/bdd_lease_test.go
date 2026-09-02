@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,7 +29,6 @@ type world struct {
 	t      *testing.T
 	planID int
 	clones map[string]string
-	opts   map[string]claim.LeaseOptions
 	holder string
 	taker  string
 	lease  claim.Lease
@@ -47,7 +44,6 @@ func newWorld(t *testing.T) *world {
 	return &world{
 		t:        t,
 		clones:   map[string]string{},
-		opts:     map[string]claim.LeaseOptions{},
 		sections: map[reflect.Type]any{},
 	}
 }
@@ -101,9 +97,8 @@ func (w *world) holdsTheLease(holder string, planID int) error {
 	w.planID = planID
 	repo := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
 	w.clones[holder] = repo
-	w.opts[holder] = leaseFor(holder, planID)
 
-	lease, err := claim.Acquire(repo, w.opts[holder], gitwt.Exec)
+	lease, err := claim.Acquire(repo, leaseFor(holder, planID), gitwt.Exec)
 	if err != nil {
 		return err
 	}
@@ -118,7 +113,7 @@ func (w *world) commitsUnpushedWork(holder string) error {
 		return err
 	}
 	git(w.t, repo, "checkout", "-q", claim.Branch(int64(w.planID)))
-	require.NoError(w.t, os.WriteFile(filepath.Join(repo, "w.txt"), []byte("wip\n"), 0o600))
+	writeFile(w.t, repo, "w.txt", "wip\n")
 	git(w.t, repo, "add", "-A")
 	git(w.t, repo, "commit", "-q", "-m", "unlanded work")
 	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
@@ -141,9 +136,8 @@ func (w *world) takesTheLeaseOver(holder string) error {
 	}
 	second := cloneAgain(w.t, first)
 	w.clones[holder] = second
-	w.opts[holder] = leaseFor(holder, w.planID)
 
-	taken, err := claim.Takeover(second, w.opts[holder], w.lease.Tip, gitwt.Exec)
+	taken, err := claim.Takeover(second, leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
 	if err != nil {
 		return err
 	}
@@ -156,7 +150,7 @@ func (w *world) comesBackAndRenews(holder string) error {
 	if holder != w.holder {
 		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
 	}
-	_, w.err = claim.Renew(w.clones[holder], w.opts[holder], w.lease.Tip, gitwt.Exec)
+	_, w.err = claim.Renew(w.clones[holder], leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
 
 	return nil
 }
@@ -200,12 +194,28 @@ func (w *world) siblingHistoryIsLeft(holder string) error {
 	return nil
 }
 
+// unpushedWork is the tip the commits step left unpushed. The push and
+// yield steps stand on it: with no tip, the push would be a delete of
+// the ref under test and yield would park nothing, so both refuse
+// rather than pass on an empty world.
+func (w *world) unpushedWork(holder string) (string, error) {
+	if w.local == "" {
+		return "", fmt.Errorf("%q has no unpushed work; the commits step comes first", holder)
+	}
+
+	return w.local, nil
+}
+
 func (w *world) pushIsRejected(holder string) error {
 	repo, err := w.cloneOf(holder)
 	if err != nil {
 		return err
 	}
-	out, err := gitCapture(w.t, repo, "push", "origin", w.local+":"+w.branch())
+	local, err := w.unpushedWork(holder)
+	if err != nil {
+		return err
+	}
+	out, err := gitCapture(w.t, repo, "push", "origin", local+":"+w.branch())
 	if err == nil {
 		return fmt.Errorf("origin accepted the sibling history: %s", out)
 	}
@@ -221,8 +231,12 @@ func (w *world) yieldParks(holder, taker string) error {
 		return fmt.Errorf("%q did not take the lease over, %q did", taker, w.taker)
 	}
 	repo := w.clones[holder]
+	local, err := w.unpushedWork(holder)
+	if err != nil {
+		return err
+	}
 
-	sc, err := claim.Yield(repo, w.opts[holder], w.local, gitwt.Exec)
+	sc, err := claim.Yield(repo, leaseFor(holder, w.planID), local, gitwt.Exec)
 	if err != nil {
 		return err
 	}
@@ -230,8 +244,10 @@ func (w *world) yieldParks(holder, taker string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", rescue, err)
 	}
-	if !strings.Contains(rescue, w.local) {
-		return fmt.Errorf("the rescue ref %s does not carry %s: %q", sc.Rescue, w.local, rescue)
+	// The rescue ref's name carries the tip too, so it is the object
+	// column that says what origin parked, not the line as a whole.
+	if fields := strings.Fields(rescue); len(fields) == 0 || fields[0] != local {
+		return fmt.Errorf("the rescue ref %s does not point at %s: %q", sc.Rescue, local, rescue)
 	}
 
 	return w.originHoldsTheTakeover()
@@ -261,6 +277,7 @@ func cloneAgain(t *testing.T, repo string) string {
 
 	return dst
 }
+
 func TestLeaseForNamesTheMachineAndItsLane(t *testing.T) {
 	got := leaseFor("box-a", 7)
 	assert.Equal(t, claim.LeaseOptions{
@@ -282,6 +299,42 @@ func TestWorldRefusesAMachineItNeverMet(t *testing.T) {
 	require.Error(t, w.comesBackAndRenews("box-b"), "only the holder renews")
 	require.Error(t, w.yieldParks("box-b", "box-a"), "roles cannot be swapped")
 	require.Error(t, w.commitsUnpushedWork("ghost"))
+}
+
+// TestWorldRefusesToPushOrYieldWorkItNeverCommitted: the push and
+// yield steps stand on the unpushed tip the commits step recorded.
+// Without it the push would be `git push origin :<ref>` — a delete of
+// the ref under test — and yield would park nothing and pass; both
+// refuse before touching git.
+func TestWorldRefusesToPushOrYieldWorkItNeverCommitted(t *testing.T) {
+	w := newWorld(t)
+	w.holder, w.taker = "box-a", "box-b"
+	w.clones["box-a"] = t.TempDir()
+
+	err := w.pushIsRejected("box-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no unpushed work")
+
+	err = w.yieldParks("box-a", "box-b")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no unpushed work")
+}
+
+// TestThenStepsReadTheRenewalError: the fence step wants a fence that
+// names the taker, and the yield hint step wants the word in the
+// error; a missing or wrong error fails each rather than passing on
+// an empty world.
+func TestThenStepsReadTheRenewalError(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theRenewalIsFencedNaming("box-b"), "no error is no fence")
+	require.Error(t, w.theErrorSuggestsYield(), "no error suggests nothing")
+
+	w.err = &claim.FenceError{Marker: claim.Marker{Holder: "box-c"}}
+	require.Error(t, w.theRenewalIsFencedNaming("box-b"), "the fence names another machine")
+
+	w.err = fmt.Errorf("fenced by box-b: run yield")
+	require.Error(t, w.theRenewalIsFencedNaming("box-b"), "a plain error is no fence")
+	require.NoError(t, w.theErrorSuggestsYield())
 }
 
 // TestCloneAgainSharesTheOrigin: the second clone points at the same
