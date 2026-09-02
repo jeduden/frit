@@ -36,14 +36,34 @@ Feature: Partitions
     And "box-a" is recognized as the owner of origin's tip
     And "box-a" resumes at the same epoch
 
-  @S22 @pending
+  @S22
   Scenario: observer partitioned
+    Given "box-a" holds the lease for plan 22
+    And an observer has already watched "box-a"'s tip for a while
+    When the network cuts the observer off from origin
+    And the observer reads the board
+    Then the board reports "box-a"'s observed-at age
+    And the board reports the observer's fetch as unreachable
+    And origin's tip has not moved
 
-  @S23 @pending
+  @S23
   Scenario: everyone partitioned, origin up
+    Given several held plans were each observed a while ago
+    And the gap since each one's last sample exceeds the sample-gap bound
+    When the fleet is observed again, now that origin is reachable
+    Then every window resets to one sample
+    And no plan reads its takeover window matured
 
-  @S24 @pending
+  @S24
   Scenario: asymmetric: push ok, fetch fails
+    Given "box-a" holds the lease for plan 24 in a real lane
+    When "box-a" renews its lease
+    Then the renewal is a plain win
+    When an observer clones origin, catching up with the renewed tip
+    And the network cuts the observer off from origin
+    And the observer reads the board
+    Then the board reports the observer's fetch as unreachable
+    And the board still reports "box-a" held at the renewed tip
 
   @S25
   Scenario: stale unwind delete after heal
