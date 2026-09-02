@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The five lease-API rows of process death run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the five process-death rows the lease API alone can drive —
