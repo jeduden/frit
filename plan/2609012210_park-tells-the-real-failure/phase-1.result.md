@@ -22,8 +22,12 @@ discards the push's error or folds every non-landed outcome into
 keeps a read fault apart from a confirmed-absent ref:
 
 - absent ref → the push's own error, unwrapped
-- read also fails → `&UnconfirmedPushError{Err: errors.Join(pushErr,
-  readErr)}`, so both faults are reachable through `errors.Is`
+- read also fails → `&UnconfirmedPushError{Err: fmt.Errorf("push: %w;
+  confirm: %w", pushErr, readErr)}`, so both faults are reachable
+  through `errors.Is` without an embedded newline breaking a
+  single-line warning render (a post-landing code review caught
+  `errors.Join`'s newline; `fmt.Errorf`'s double-`%w` carries the same
+  two faults on one line)
 - a different object at the exact rescue name → `RescueConflictError`,
   now carrying `Found` and `Tip` so its message names both commits
 - the read confirms the rescue ref already holds the tip → nil, the

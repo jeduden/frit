@@ -711,7 +711,8 @@ func park(
 	now, readErr := remoteHolderErr(repoDir, opts.Remote, rescue, run)
 	if readErr != nil {
 		return &UnconfirmedPushError{
-			PlanID: opts.PlanID, Err: errors.Join(pushErr, readErr),
+			PlanID: opts.PlanID,
+			Err:    fmt.Errorf("push: %w; confirm: %w", pushErr, readErr),
 		}
 	}
 	switch now {
