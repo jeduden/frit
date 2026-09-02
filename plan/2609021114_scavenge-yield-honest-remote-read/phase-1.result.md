@@ -39,6 +39,19 @@ green unchanged. `go test ./...`,
 `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are clean.
 
+**A third call site this plan's scope never named.** `/code-review
+high` on this phase's diff found that `park`'s own rescue-push
+confirmation in [internal/claim/lease.go](../../internal/claim/lease.go)
+(`remoteHolder(repoDir, opts.Remote, rescue, run) == tip`) still folds
+a failed confirmation read to absent, the same class of bug this
+plan's `Scavenge` fix corrects — and contradicts this plan's own
+`plan.md` text, which asserts `park` already uses `remoteHolderErr`
+(true only on the still-unlanded `plan/2609012210` branch, not on
+`main`/this lane). Left unfixed here: it needs its own red/green
+cycle outside this phase's touched functions, and is a call site
+neither this plan's two phases nor 2609012210 name. Phase 2 or a
+follow-up plan should weigh folding it in.
+
 **A tree gap this phase's landing closed first.** This lane's claim on
 plan 2609021114 was minted before the plan's own definition had landed
 anywhere this branch's history could see: the plan was authored on the
