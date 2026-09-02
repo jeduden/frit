@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The three verb-level partition rows and the far-forward clock row run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the four rows Phase 1's handoff flagged as needing more than
