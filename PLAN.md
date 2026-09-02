@@ -111,4 +111,10 @@ footer: |
 | 2609012000 | ✅     | sonnet | [Every lease-protocol scenario has an executable BDD spec](plan/2609012000_bdd-scenarios-executable/plan.md)                           |
 | 2609012100 | 🔲     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
 | 2609021310 | 🔲     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
+| 2609021311 | 🔲     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
+| 2609021312 | 🔲     | sonnet | [The partition and clock scenarios run under godog](plan/2609021312_bdd-partitions-and-clocks/plan.md)                                 |
+| 2609021313 | 🔲     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
+| 2609021314 | 🔲     | sonnet | [The identity and cross-layer scenarios run under godog](plan/2609021314_bdd-identity-and-cross-layer/plan.md)                         |
+| 2609021315 | 🔲     | sonnet | [The lifecycle claim-and-ref scenarios run under godog](plan/2609021315_bdd-lifecycle-claims-and-refs/plan.md)                         |
+| 2609021316 | 🔲     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
 <?/catalog?>
