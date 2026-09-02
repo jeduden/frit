@@ -1,7 +1,7 @@
 ---
 id: 2609012000
 title: Every lease-protocol scenario has an executable BDD spec
-status: "🔳"
+status: "✅"
 summary: >-
   The lease protocol commits to a numbered scenario matrix (S1..S87) in
   docs/research/lease-protocol.md, and the code cites those S-numbers in
@@ -114,21 +114,21 @@ footer: |
 
 | #   | Status | Phase                                                                                          |
 | --- | ------ | ---------------------------------------------------------------------------------------------- |
-| 1   | 🔲     | [The godog harness runs one real scenario, and the coverage gate binds the matrix](phase-1.md) |
+| 1   | ✅     | [The godog harness runs one real scenario, and the coverage gate binds the matrix](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] godog runs from `go test ./...`, in the one package where the
+- [x] godog runs from `go test ./...`, in the one package where the
       existing origin-and-clone fixtures, the herdr fake and the verbs
       are all reachable; the real scenario drives the git fixtures,
       and the herdr fake waits for the first session-liveness scenario
       a later batch converts
-- [ ] One stable matrix scenario is a fully-implemented Gherkin spec and
+- [x] One stable matrix scenario is a fully-implemented Gherkin spec and
       passes
-- [ ] Every matrix id has a tagged Gherkin scenario, real or pending
-- [ ] A coverage test asserts the matrix ids and the feature tags are in
+- [x] Every matrix id has a tagged Gherkin scenario, real or pending
+- [x] A coverage test asserts the matrix ids and the feature tags are in
       bijection, and it fails red when a matrix row is added with no
       scenario, or a tag names no row
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

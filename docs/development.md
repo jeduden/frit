@@ -51,6 +51,27 @@ Re-record the golden files with `go test ./internal/report -update`,
 and read the diff before committing it. Every consumer of frit is
 written against those files.
 
+## The executable scenario matrix
+
+The lease protocol's scenario matrix in
+[lease-protocol.md](research/lease-protocol.md) is executable: every
+`S<n>` row has a Gherkin scenario tagged `@S<n>` under `features/`,
+one file per matrix section, run by godog from `cmd/frit`'s
+`TestFeatures`. A scenario still tagged `@pending` is declared but
+unwritten, and is skipped rather than run. `internal/scenario` keeps
+the two sides in bijection: a row with no tag, a tag with no row, or a
+malformed or duplicate id on either side fails `go test ./...`.
+
+- `go test ./cmd/frit -run TestFeatures` — every scenario, pending ones skipped
+- `go test ./cmd/frit -run TestFeatures/S16` — one scenario, by its id
+- `go test ./internal/scenario` — the matrix/features gate alone
+
+To add a scenario, add its row to the matrix and a tagged scenario to
+the section's feature file. Tag it `@pending` until its steps exist.
+To write one, drop `@pending` and write its Given/When/Then. Bind the
+step functions in `cmd/frit/bdd_test.go`. godog runs strict, so a step
+that matches no definition fails instead of passing as undefined.
+
 ## The skills bundle
 
 frit ships the instructions for driving frit. `frit skills` lays a
