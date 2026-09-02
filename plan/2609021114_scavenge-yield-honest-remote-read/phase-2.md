@@ -1,7 +1,7 @@
 ---
 n: 2
 title: Yield refuses rather than guess when the still-held read fails
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `Yield`'s still-held check in

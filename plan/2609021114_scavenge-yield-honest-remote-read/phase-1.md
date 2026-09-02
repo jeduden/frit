@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Scavenge's post-delete confirmation stops reading unreadable as gone
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `Scavenge`'s delete-confirmation step in

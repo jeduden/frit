@@ -1161,6 +1161,39 @@ func TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp(t *testing.T) {
 	assert.Empty(t, rescue, "no rescue ref was fabricated")
 }
 
+// TestYieldReportsAnUnconfirmedYieldWhenTheStillHeldReadFails: the
+// still-held check's own ls-remote read fails — an unreadable remote
+// must not fold to "not held" the way remoteHolder's own contract
+// would, since a fold-to-absent "" can never be told apart from a
+// genuinely absent ref. Yield refuses with a typed error instead of
+// falling through to park, which could rescue a lease that in fact is
+// still held live elsewhere.
+func TestYieldReportsAnUnconfirmedYieldWhenTheStillHeldReadFails(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	readErr := errors.New("git: timed out after 1ms")
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, readErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Yield(first, opts, lease.Tip, run)
+
+	require.Error(t, err)
+	var unconfirmed *UnconfirmedYieldError
+	require.ErrorAs(t, err, &unconfirmed)
+	assert.ErrorIs(t, err, readErr)
+	rescue := gitCmd(t, first, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue,
+		"an unconfirmed still-held read parks nothing")
+}
+
 // TestRescueRefsListsEveryMachinesParkedWork: rescue is per plan, per
 // machine and per tip, so a fresh content-addressed park comes back
 // alongside a legacy two-segment ref from before this shape — both
@@ -1261,6 +1294,82 @@ func TestScavengeErrsWhenTheRemoteCannotBeRead(t *testing.T) {
 	require.Error(t, err)
 	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
 	assert.NotEmpty(t, local, "the local ref survives an unreadable remote")
+}
+
+// TestScavengeReportsAnUnconfirmedDeleteWhenTheConfirmationReadFails:
+// the delete push errors and the follow-up ls-remote read used to
+// classify it also errors — the same stalled or dropped connection
+// took out both calls. This must not read as a confirmed-absent ref:
+// deleting the local ref on unconfirmed evidence could destroy the
+// last copy of a lease the remote still carries.
+func TestScavengeReportsAnUnconfirmedDeleteWhenTheConfirmationReadFails(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	pushErr := errors.New("connection reset")
+	readErr := errors.New("git: timed out after 1ms")
+	lsRemoteCalls := 0
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, pushErr
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			lsRemoteCalls++
+			if lsRemoteCalls > 1 {
+				return nil, readErr
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Scavenge(work, leaseOptions("box-b", "/lanes/b"), lease.Tip, run)
+
+	require.Error(t, err)
+	var unconfirmed *UnconfirmedDeleteError
+	require.ErrorAs(t, err, &unconfirmed)
+	assert.ErrorIs(t, err, pushErr)
+	assert.ErrorIs(t, err, readErr)
+	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.NotEmpty(t, local,
+		"an unconfirmed delete leaves the local ref untouched")
+}
+
+// TestScavengeKeepsTodaysDeleteErrorWhenTheConfirmationReadConfirmsStillPresent:
+// the delete push errors, but a clean confirmation read shows the ref
+// still present — a real delete fault, not an unconfirmed one. Today's
+// wrapped delete error is unchanged.
+func TestScavengeKeepsTodaysDeleteErrorWhenTheConfirmationReadConfirmsStillPresent(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	pushErr := errors.New("remote rejected")
+	lsRemoteCalls := 0
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, pushErr
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			lsRemoteCalls++
+			if lsRemoteCalls > 1 {
+				return []byte(lease.Tip + "\trefs/heads/plan/7\n"), nil
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Scavenge(work, leaseOptions("box-b", "/lanes/b"), lease.Tip, run)
+
+	require.Error(t, err)
+	var unconfirmed *UnconfirmedDeleteError
+	assert.False(t, errors.As(err, &unconfirmed),
+		"a confirmed-present ref is a real delete fault, not an unconfirmed one")
+	assert.ErrorIs(t, err, pushErr)
+	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
+	assert.NotEmpty(t, local, "today's behavior: the local ref survives too")
 }
 
 // TestParkUnlandedParksAChainCarryingWork: the park half of a scavenge
