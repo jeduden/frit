@@ -57,13 +57,16 @@ written against those files.
 ## The executable scenario matrix
 
 The lease protocol's scenario matrix in
-[lease-protocol.md](research/lease-protocol.md) is executable: every
+[lease-protocol.md](research/lease-protocol.md) is executable. Every
 `S<n>` row has a Gherkin scenario tagged `@S<n>` under `features/`,
 one file per matrix section, run by godog from `cmd/frit`'s
-`TestFeatures`. A scenario still tagged `@pending` is declared but
-unwritten, and is skipped rather than run. `internal/scenario` keeps
-the two sides in bijection: a row with no tag, a tag with no row, or a
-malformed or duplicate id on either side fails `go test ./...`.
+`TestFeatures`. The twenty-row Lifecycle section is two files:
+`lifecycle.feature` for claims and refs, `landed-evidence.feature` for
+scavenge's evidence. A scenario still tagged `@pending` is declared
+but unwritten, and is skipped rather than run. `internal/scenario`
+keeps the two sides in bijection. A row with no tag, a tag with no
+row, or a malformed or duplicate id on either side fails
+`go test ./...`.
 
 - `go test ./cmd/frit -run TestFeatures` — every scenario, pending ones skipped
 - `go test ./cmd/frit -run TestFeatures/S16` — one scenario, by its id
