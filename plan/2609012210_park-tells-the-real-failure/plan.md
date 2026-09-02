@@ -1,7 +1,7 @@
 ---
 id: 2609012210
 title: A failed park names its real failure, not "moved by hand"
-status: "🔲"
+status: "✅"
 summary: >-
   When the rescue-ref push fails, park reports the same "moved by hand"
   refusal no matter what actually happened — a rejected or slow pre-push
@@ -113,21 +113,22 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                        |
-| --- | ------ | ------------------------------------------------------------ |
-| 1   | 🔲     | [park classifies its failure into four outcomes](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [park classifies its failure into four outcomes](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                   |
+|     | ↳      | park now reads the remote with remoteHolderErr on a failed push and answers each of the four shapes honestly: the push's own error when the rescue ref is absent, an UnconfirmedPushError wrapping both faults when the confirmation read itself fails, a RescueConflictError naming both the sha found and the tip being parked on a genuine conflict, and a clean no-op when the read confirms the tip already landed. "moved by hand" is said only in that last, true case. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A park whose push fails while the rescue ref is absent on the
+- [x] A park whose push fails while the rescue ref is absent on the
       remote reports the push's own failure, not "moved by hand"
-- [ ] A park whose push fails and whose confirmation read also fails
+- [x] A park whose push fails and whose confirmation read also fails
       reports both faults and does not claim the ref was moved
-- [ ] A park finding a different object at the rescue ref still
+- [x] A park finding a different object at the rescue ref still
       refuses, and the refusal names the commit found and the commit
       being parked
-- [ ] A park finding the tip already at the rescue ref proceeds as
+- [x] A park finding the tip already at the rescue ref proceeds as
       today: no error, teardown continues
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

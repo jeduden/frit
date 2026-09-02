@@ -1,7 +1,7 @@
 ---
 n: 1
 title: park classifies its failure into four outcomes
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `park` in
