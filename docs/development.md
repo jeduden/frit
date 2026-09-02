@@ -12,6 +12,9 @@ dependency trees never constrain consumers of this module.
 - `go build ./...` — build all packages
 - `go test ./...` — run all tests
 - `go test -run TestName ./...` — run a specific test
+- `go test ./... -coverpkg=./... -coverprofile=cover.out` — all tests,
+  one coverage profile; `go tool cover -func=cover.out` summarises it,
+  `-html=cover.out` browses it
 - `go vet ./...` — run go vet
 - `go tool -modfile=tools/go.mod golangci-lint run` — lint
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
@@ -50,6 +53,41 @@ per-clone local config, which is why each clone installs it.
 Re-record the golden files with `go test ./internal/report -update`,
 and read the diff before committing it. Every consumer of frit is
 written against those files.
+
+## The executable scenario matrix
+
+The lease protocol's scenario matrix in
+[lease-protocol.md](research/lease-protocol.md) is executable. Every
+`S<n>` row has a Gherkin scenario tagged `@S<n>` under `features/`,
+one file per matrix section, run by godog from `cmd/frit`'s
+`TestFeatures`. The twenty-row Lifecycle section is two files:
+`lifecycle.feature` for claims and refs, `landed-evidence.feature` for
+scavenge's evidence. A scenario still tagged `@pending` is declared
+but unwritten, and is skipped rather than run. `internal/scenario`
+keeps the two sides in bijection. A row with no tag, a tag with no
+row, or a malformed or duplicate id on either side fails
+`go test ./...`.
+
+- `go test ./cmd/frit -run TestFeatures` — every scenario, pending ones skipped
+- `go test ./cmd/frit -run 'TestFeatures/^S16:'` — one scenario, by its
+  id; the anchor and colon matter, since a bare `S1` also matches S10
+  to S19
+- `go test ./internal/scenario` — the matrix/features gate alone
+
+To add a scenario, add its row to the matrix and a tagged scenario to
+the section's feature file. Tag it `@pending` until its steps exist.
+To write one, drop `@pending` and write its Given/When/Then. Bind the
+step functions in the section's own `cmd/frit/bdd_<section>_test.go`,
+appended to the step registry from `init` the way
+`bdd_lease_test.go` is — a section adds a file, never a line to
+`bdd_test.go`, so sections land in any order. Every registrar binds
+on the one world a scenario threads, so a section's step reads what a
+reused lease step set up. The lease vocabulary is that shared world;
+what a later section tracks beyond it lives in a struct reached
+through `section[T]`, never as a new field on `world`. godog runs
+strict, so a step that matches no definition fails instead of passing
+as undefined, and a step text two sections both define fails as
+ambiguous — reuse the existing text.
 
 ## The skills bundle
 
@@ -112,6 +150,13 @@ describes — build, vet, test, golangci-lint, `mdsmith check .` — on
 every push and pull request to `main`, plus zizmor over the workflows
 themselves. It is the local gate run where it cannot be skipped, so a
 job that drifts from the Build & test commands above is the bug.
+
+The test job writes one coverage profile across every package —
+unit tests and the godog scenarios contribute to the same file, with
+`-coverpkg=./...` so a BDD step in `cmd/frit` that drives
+`internal/claim` counts toward `internal/claim` — and uploads it as
+the `coverage` artifact. It is a measurement, not a gate: nothing
+fails on a percentage.
 
 The markdown job pins the mdsmith action to the same version `go.mod`
 imports. Bump the two together, or frit lints with one release and

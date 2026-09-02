@@ -491,20 +491,18 @@ func executionTable(body []byte) map[PhaseNumber]executionRow {
 	return out
 }
 
-// collectExecutionRows reads an Execution table's header to find its
-// Design, Implement and Gate columns by name, then fills one row per
-// data row, keyed by the phase number the first column leads with.
+// collectExecutionRows reads an Execution table through readTable,
+// finds its Design, Implement and Gate columns by name in the header,
+// then fills one row per data row, keyed by the phase number the first
+// column leads with.
 func collectExecutionRows(
 	tbl *extast.Table, body []byte, out map[PhaseNumber]executionRow,
 ) {
-	header, ok := tbl.FirstChild().(*extast.TableHeader)
-	if !ok {
-		return
-	}
+	table := readTable(tbl, body)
 
 	designCol, implCol, gateCol := -1, -1, -1
-	for i, c := 0, header.FirstChild(); c != nil; i, c = i+1, c.NextSibling() {
-		switch label := strings.ToLower(inlineText(c, body)); {
+	for i, label := range table.Header {
+		switch label = strings.ToLower(label); {
 		case strings.Contains(label, "design"):
 			designCol = i
 		case strings.Contains(label, "implement"):
@@ -514,12 +512,8 @@ func collectExecutionRows(
 		}
 	}
 
-	for n := header.NextSibling(); n != nil; n = n.NextSibling() {
-		row, ok := n.(*extast.TableRow)
-		if !ok {
-			continue
-		}
-		cells := cellTexts(row, body)
+	for _, row := range table.Rows {
+		cells := row.Cells
 		if len(cells) == 0 {
 			continue
 		}
@@ -544,11 +538,69 @@ func collectExecutionRows(
 	}
 }
 
-// cellTexts reads a table row's cells as prose, in column order.
-func cellTexts(row *extast.TableRow, body []byte) []string {
+// cellsOf reads the cells under any table row node — a header or a
+// data row — as prose, in column order.
+func cellsOf(row ast.Node, body []byte) []string {
 	var out []string
 	for c := row.FirstChild(); c != nil; c = c.NextSibling() {
 		out = append(out, strings.TrimSpace(inlineText(c, body)))
+	}
+
+	return out
+}
+
+// Table is one GFM table read off a markdown body: its header cells
+// and its data rows as prose, in column order.
+type Table struct {
+	Header []string
+	Rows   []TableRow
+}
+
+// TableRow is one data row of a Table, with the source line it sits on.
+type TableRow struct {
+	Line  int
+	Cells []string
+}
+
+// Tables reads every GFM table in body, in document order, through the
+// same parser seam executionTable uses — so a pipe row quoted inside a
+// fenced code block is not a table, an escaped `\|` stays inside its
+// cell, and emphasis around a cell reads as the cell's text — rather
+// than by splitting lines on "|". It is the one table reader for any
+// document frit keeps a gate over.
+func Tables(body []byte) []Table {
+	p, reset := flavor.NewPooledParserWith(extension.Table)
+	defer reset()
+	root := p.Parse(text.NewReader(body))
+
+	var out []Table
+	_ = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		tbl, ok := n.(*extast.Table)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
+		}
+		out = append(out, readTable(tbl, body))
+
+		return ast.WalkSkipChildren, nil
+	})
+
+	return out
+}
+
+// readTable collects a table's header and data rows. Each row's line
+// comes from the position the parser stamped on it as it read the row,
+// so a row with no text in any cell is placed the same as one with
+// text.
+func readTable(tbl *extast.Table, body []byte) Table {
+	var out Table
+	for n := tbl.FirstChild(); n != nil; n = n.NextSibling() {
+		switch row := n.(type) {
+		case *extast.TableHeader:
+			out.Header = cellsOf(row, body)
+		case *extast.TableRow:
+			line := 1 + markdown.CountLines(body[:row.Pos()])
+			out.Rows = append(out.Rows, TableRow{Line: line, Cells: cellsOf(row, body)})
+		}
 	}
 
 	return out

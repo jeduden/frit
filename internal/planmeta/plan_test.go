@@ -3,6 +3,11 @@ package planmeta
 import (
 	"testing"
 
+	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/extension"
+	extast "github.com/jeduden/mdsmith/pkg/goldmark/extension/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/text"
+	"github.com/jeduden/mdsmith/pkg/markdown/flavor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -474,4 +479,111 @@ func TestIsProtoRecognisesTheTemplateByName(t *testing.T) {
 	assert.True(t, IsProto("proto.md"))
 	assert.False(t, IsProto("plan/2608142306_fleet-index.md"))
 	assert.False(t, IsProto("plan/prototype-notes.md"))
+}
+
+// TestTablesReadsEveryTableWithItsRowsAndLines: tables come back in
+// document order, header and rows as prose with the source line each
+// row sits on; a pipe row quoted in a fenced code block is not a
+// table, and emphasis around a cell reads as the cell's text.
+func TestTablesReadsEveryTableWithItsRowsAndLines(t *testing.T) {
+	src := "# T\n\n" +
+		"| #  | Scenario |\n" +
+		"| -- | -------- |\n" +
+		"| S1 | **one**  |\n" +
+		"| S2 | two      |\n" +
+		"\n```\n| S9 | fenced |\n```\n\n" +
+		"| Key | Value |\n" +
+		"| --- | ----- |\n" +
+		"| k   | v     |\n"
+
+	got := Tables([]byte(src))
+	require.Len(t, got, 2)
+	assert.Equal(t, []string{"#", "Scenario"}, got[0].Header)
+	assert.Equal(t, []TableRow{
+		{Line: 5, Cells: []string{"S1", "one"}},
+		{Line: 6, Cells: []string{"S2", "two"}},
+	}, got[0].Rows)
+	assert.Equal(t, []string{"Key", "Value"}, got[1].Header)
+	assert.Equal(t, []TableRow{{Line: 14, Cells: []string{"k", "v"}}}, got[1].Rows)
+}
+
+// TestTablesGivesATextlessRowThePositionItSitsAt: a row whose every
+// cell is empty has no text to place it by, yet it sits on the line
+// the parser read it from — even under a header with no text of its
+// own, and however far down the document the table starts.
+func TestTablesGivesATextlessRowThePositionItSitsAt(t *testing.T) {
+	src := "| a | b |\n| - | - |\n|   |   |\n| x |   |\n"
+
+	got := Tables([]byte(src))
+	require.Len(t, got, 1)
+	assert.Equal(t, []TableRow{
+		{Line: 3, Cells: []string{"", ""}},
+		{Line: 4, Cells: []string{"x", ""}},
+	}, got[0].Rows)
+
+	src = "intro\n\n|   |   |\n| - | - |\n|   |   |\n| y | z |\n"
+
+	got = Tables([]byte(src))
+	require.Len(t, got, 1)
+	assert.Equal(t, []string{"", ""}, got[0].Header)
+	assert.Equal(t, []TableRow{
+		{Line: 5, Cells: []string{"", ""}},
+		{Line: 6, Cells: []string{"y", "z"}},
+	}, got[0].Rows)
+}
+
+// TestTablesReportsNothingForProse: a body without a table yields no
+// tables, not an empty one.
+func TestTablesReportsNothingForProse(t *testing.T) {
+	assert.Empty(t, Tables([]byte("# T\n\nJust prose with a | pipe.\n")))
+}
+
+// firstTable parses body and hands back its first table node, so a
+// test can drive readTable directly.
+func firstTable(t *testing.T, body []byte) *extast.Table {
+	t.Helper()
+	p, reset := flavor.NewPooledParserWith(extension.Table)
+	defer reset()
+	root := p.Parse(text.NewReader(body))
+
+	var tbl *extast.Table
+	_ = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if found, ok := n.(*extast.Table); ok && entering && tbl == nil {
+			tbl = found
+		}
+
+		return ast.WalkContinue, nil
+	})
+	require.NotNil(t, tbl, "no table in %q", body)
+
+	return tbl
+}
+
+// TestReadTableSplitsHeaderFromRowsAndPlacesEachRow pins the reader
+// under Tables: the header comes back apart from the data rows, and
+// each data row carries the line it sits on.
+func TestReadTableSplitsHeaderFromRowsAndPlacesEachRow(t *testing.T) {
+	body := []byte("# T\n\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n")
+
+	got := readTable(firstTable(t, body), body)
+
+	assert.Equal(t, Table{
+		Header: []string{"a", "b"},
+		Rows: []TableRow{
+			{Line: 5, Cells: []string{"1", "2"}},
+			{Line: 6, Cells: []string{"3", "4"}},
+		},
+	}, got)
+}
+
+// TestCellsOfReadsEachCellAsTrimmedProse: a cell's text comes back with
+// its padding trimmed and its emphasis reduced to the words, one entry
+// per cell in column order; a row with no cells reads as nothing.
+func TestCellsOfReadsEachCellAsTrimmedProse(t *testing.T) {
+	body := []byte("| **a** | b c |\n| - | - |\n| x | |\n")
+	tbl := firstTable(t, body)
+
+	assert.Equal(t, []string{"a", "b c"}, cellsOf(tbl.FirstChild(), body))
+	assert.Equal(t, []string{"x", ""}, cellsOf(tbl.LastChild(), body))
+	assert.Empty(t, cellsOf(extast.NewTableRow(nil), body))
 }
