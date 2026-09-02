@@ -92,6 +92,57 @@ func (w *world) branch() string {
 	return "refs/heads/" + claim.Branch(int64(w.planID))
 }
 
+// cloneAs makes a fresh clone off from's own clone and registers it
+// under holder — the shape every step that mints a second claimant's
+// clone shares, from a takeover to a race attempt to a rename.
+func (w *world) cloneAs(from, holder string) (string, error) {
+	first, err := w.cloneOf(from)
+	if err != nil {
+		return "", err
+	}
+	repo := cloneAgain(w.t, first)
+	w.clones[holder] = repo
+
+	return repo, nil
+}
+
+// originTipIs checks a holder's clone of origin's remote tip against
+// an expected lease tip — the read every Then step confirming an
+// origin fact reduces to.
+func (w *world) originTipIs(holder, want string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
+	if got != want {
+		return fmt.Errorf("origin holds %s, want %q's tip %s", got, holder, want)
+	}
+
+	return nil
+}
+
+// verifyRescue runs a fenced lane's own Yield and confirms the rescue
+// ref it wrote on origin actually points at local — the fact every
+// yield step checks before asking what else moved.
+func (w *world) verifyRescue(repo, holder, local string) error {
+	sc, err := claim.Yield(repo, leaseFor(holder, w.planID), local, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	rescue, err := gitCapture(w.t, repo, "ls-remote", "origin", sc.Rescue)
+	if err != nil {
+		return fmt.Errorf("%s: %w", rescue, err)
+	}
+	// The rescue ref's name carries the tip too, so it is the object
+	// column that says what origin parked, not the line as a whole.
+	if fields := strings.Fields(rescue); len(fields) == 0 || fields[0] != local {
+		return fmt.Errorf("the rescue ref %s does not point at %s: %q", sc.Rescue, local, rescue)
+	}
+
+	return nil
+}
+
 func (w *world) holdsTheLease(holder string, planID int) error {
 	isolate(w.t)
 	w.planID = planID
@@ -130,12 +181,10 @@ func (w *world) takesTheLeaseOver(holder string) error {
 	if holder == w.holder {
 		return fmt.Errorf("%q already holds the lease; a takeover comes from another machine", holder)
 	}
-	first, err := w.cloneOf(w.holder)
+	second, err := w.cloneAs(w.holder, holder)
 	if err != nil {
 		return err
 	}
-	second := cloneAgain(w.t, first)
-	w.clones[holder] = second
 
 	taken, err := claim.Takeover(second, leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
 	if err != nil {
@@ -235,19 +284,8 @@ func (w *world) yieldParks(holder, taker string) error {
 	if err != nil {
 		return err
 	}
-
-	sc, err := claim.Yield(repo, leaseFor(holder, w.planID), local, gitwt.Exec)
-	if err != nil {
+	if err := w.verifyRescue(repo, holder, local); err != nil {
 		return err
-	}
-	rescue, err := gitCapture(w.t, repo, "ls-remote", "origin", sc.Rescue)
-	if err != nil {
-		return fmt.Errorf("%s: %w", rescue, err)
-	}
-	// The rescue ref's name carries the tip too, so it is the object
-	// column that says what origin parked, not the line as a whole.
-	if fields := strings.Fields(rescue); len(fields) == 0 || fields[0] != local {
-		return fmt.Errorf("the rescue ref %s does not point at %s: %q", sc.Rescue, local, rescue)
 	}
 
 	return w.originHoldsTheTakeover()
@@ -256,12 +294,7 @@ func (w *world) yieldParks(holder, taker string) error {
 // originHoldsTheTakeover checks the work ref on origin still sits at
 // the takeover's tip — nothing the fenced holder did moved it.
 func (w *world) originHoldsTheTakeover() error {
-	repo := w.clones[w.holder]
-	if got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec); got != w.taken.Tip {
-		return fmt.Errorf("origin holds %s, want the takeover %s", got, w.taken.Tip)
-	}
-
-	return nil
+	return w.originTipIs(w.holder, w.taken.Tip)
 }
 
 // cloneAgain makes a second working clone of the origin repo points

@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,12 +78,11 @@ func (w *world) attemptsClaim(holder string, planID int) error {
 	}
 	repo, ok := w.clones[holder]
 	if !ok {
-		first, err := w.cloneOf(w.holder)
+		var err error
+		repo, err = w.cloneAs(w.holder, holder)
 		if err != nil {
 			return err
 		}
-		repo = cloneAgain(w.t, first)
-		w.clones[holder] = repo
 	}
 
 	rs := section[racesState](w)
@@ -143,25 +144,27 @@ func (w *world) retryAcquiresAtEpoch(holder string, epoch int) error {
 	return nil
 }
 
+// originsTipIsClaimMarker reads back the holder's own claim attempt:
+// a holder whose last attempt lost carries no lease of its own to
+// compare against, so that is refused by name rather than read as a
+// zero-value tip that would only fail later with a confusing message.
 func (w *world) originsTipIsClaimMarker(holder string) error {
 	a, err := w.attemptOf(holder)
 	if err != nil {
 		return err
 	}
-	repo, err := w.cloneOf(holder)
-	if err != nil {
-		return err
-	}
-	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
-	if got != a.lease.Tip {
-		return fmt.Errorf("origin holds %s, want %q's claim marker %s", got, holder, a.lease.Tip)
+	if a.err != nil {
+		return fmt.Errorf("%q's claim never won, so it minted no marker: %w", holder, a.err)
 	}
 
-	return nil
+	return w.originTipIs(holder, a.lease.Tip)
 }
 
-// originCarriesOneWorkRef counts the work refs a race left on origin:
-// exactly one, however many machines contended for it.
+// originCarriesOneWorkRef counts the work refs a race left on origin
+// for this plan: exactly one, however many machines contended for it.
+// The ls-remote pattern names the plan's own ref rather than every
+// plan/* ref on the remote, so a second plan sharing the same origin
+// can never be counted as if it were this one's contention.
 func (w *world) originCarriesOneWorkRef(planID int) error {
 	if planID != w.planID {
 		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
@@ -170,11 +173,11 @@ func (w *world) originCarriesOneWorkRef(planID int) error {
 	if err != nil {
 		return err
 	}
-	refs, err := gitCapture(w.t, repo, "ls-remote", "--heads", "origin", "refs/heads/plan/*")
+	refs, err := gitCapture(w.t, repo, "ls-remote", "--heads", "origin", w.branch())
 	if err != nil {
 		return fmt.Errorf("%s: %w", refs, err)
 	}
-	if count := strings.Count(refs, "refs/heads/plan/"); count != 1 {
+	if count := strings.Count(refs, w.branch()); count != 1 {
 		return fmt.Errorf("origin carries %d work refs for plan %d, want 1", count, planID)
 	}
 
@@ -186,12 +189,10 @@ func (w *world) originCarriesOneWorkRef(planID int) error {
 // ref is minted from the plan id alone (claim.Branch), so nothing of
 // this rename can reach it: the point S27 proves.
 func (w *world) knowsThePlanFileByANewName(holder string) error {
-	first, err := w.cloneOf(w.holder)
+	repo, err := w.cloneAs(w.holder, holder)
 	if err != nil {
 		return err
 	}
-	repo := cloneAgain(w.t, first)
-	w.clones[holder] = repo
 
 	matches, err := filepath.Glob(
 		filepath.Join(repo, "plan", fmt.Sprintf("%d_*.md", w.planID)))
@@ -269,16 +270,7 @@ func (w *world) pushesItsTipRaw(holder string) error {
 // originAcceptsIt is the TRUST observable: a fact read back off origin,
 // never inferred from the push command's own exit status.
 func (w *world) originAcceptsIt() error {
-	repo, err := w.cloneOf(w.holder)
-	if err != nil {
-		return err
-	}
-	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
-	if got != w.lease.Tip {
-		return fmt.Errorf("origin holds %s, want %s's tip %s", got, w.holder, w.lease.Tip)
-	}
-
-	return nil
+	return w.originTipIs(w.holder, w.lease.Tip)
 }
 
 // rawPushIsRejectedAsNonFastForward is S16's pushIsRejected with one
@@ -294,7 +286,7 @@ func (w *world) rawPushIsRejectedAsNonFastForward(holder string) error {
 	if err != nil {
 		return err
 	}
-	out, pushErr := gitCapture(w.t, repo, "push", "origin", local+":"+w.branch())
+	out, pushErr := gitCaptureEnglish(w.t, repo, "push", "origin", local+":"+w.branch())
 	if pushErr == nil {
 		return fmt.Errorf("origin accepted the raw push: %s", out)
 	}
@@ -304,6 +296,20 @@ func (w *world) rawPushIsRejectedAsNonFastForward(holder string) error {
 	}
 
 	return w.originHoldsTheTakeover()
+}
+
+// gitCaptureEnglish is gitCapture pinned to the "C" locale: this step
+// asserts on the specific English wording of git's own rejection
+// message, so it must not depend on the host's locale producing a
+// translated one.
+func gitCaptureEnglish(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	cmd := exec.Command("git", full...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	out, err := cmd.CombinedOutput()
+
+	return strings.TrimSpace(string(out)), err
 }
 
 func (w *world) releasesTheLease(holder string) error {
@@ -324,12 +330,10 @@ func (w *world) releasesTheLease(holder string) error {
 }
 
 func (w *world) claimsTheReleasedPlan(holder string) error {
-	first, err := w.cloneOf(w.taker)
+	repo, err := w.cloneAs(w.taker, holder)
 	if err != nil {
 		return err
 	}
-	repo := cloneAgain(w.t, first)
-	w.clones[holder] = repo
 
 	lease, err := claim.Acquire(repo, leaseFor(holder, w.planID), gitwt.Exec)
 	if err != nil {
@@ -386,25 +390,11 @@ func (w *world) yieldParksLeavingReclaim(holder, reclaimer string) error {
 	if err != nil {
 		return err
 	}
-
-	sc, err := claim.Yield(repo, leaseFor(holder, w.planID), local, gitwt.Exec)
-	if err != nil {
+	if err := w.verifyRescue(repo, holder, local); err != nil {
 		return err
 	}
-	rescue, err := gitCapture(w.t, repo, "ls-remote", "origin", sc.Rescue)
-	if err != nil {
-		return fmt.Errorf("%s: %w", rescue, err)
-	}
-	if fields := strings.Fields(rescue); len(fields) == 0 || fields[0] != local {
-		return fmt.Errorf("the rescue ref %s does not point at %s: %q", sc.Rescue, local, rescue)
-	}
 
-	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
-	if got != hs.reclaimed.Tip {
-		return fmt.Errorf("origin holds %s, want the re-claim %s", got, hs.reclaimed.Tip)
-	}
-
-	return nil
+	return w.originTipIs(holder, hs.reclaimed.Tip)
 }
 
 // TestAttemptsClaimRefusesAPlanTheScenarioNeverSetUp: a scenario names
