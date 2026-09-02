@@ -18,13 +18,20 @@ import (
 )
 
 type reapCmd struct {
-	Go bool `help:"Tear a stranded or unstaffed lane down; without it, reap only prints what it would do."`
+	Go       bool   `help:"Tear a stranded or unstaffed lane down; without it, reap only prints what it would do."`
+	Selector string `arg:"" optional:"" help:"Plan id or slug; empty sweeps the whole fleet."`
 }
 
 // Run tears down every kind of orphan `frit orphans` already reports:
 // a stranded checkout, an unstaffed hold, a prunable or never-started
 // worktree. It is a dry-run by default and acts only on --go, exactly
 // like nudge and start.
+//
+// A selector narrows the stranded pass to the one plan it resolves
+// to, the way yield and start already narrow their own verb; the
+// unstaffed-hold drop and the rescue-ref prune stay whole-fleet, left
+// for a later phase. An empty selector sweeps the fleet exactly as
+// before.
 func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
@@ -35,6 +42,11 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	// the fleet gather runs, not in lanes.Find's git-ref sweep, so reap
 	// gathers beside the walk exactly as orphans does.
 	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+
+	plan, scoped, err := reapSelectorPlan(rt, rc.Selector, res.Plans)
 	if err != nil {
 		return err
 	}
@@ -66,8 +78,12 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		found := lanes.Find(built, repo.Worktrees)
 		window, _ := staleClock(&res, repo.Name)
 
+		stranded := found.Stranded
+		if scoped {
+			stranded = strandedForPlan(stranded, repo.Name, plan)
+		}
 		reaped, refused := reapStranded(
-			rt, repo, found.Stranded, evidence, remote, base, rc.Go, progress)
+			rt, repo, stranded, evidence, remote, base, rc.Go, progress)
 		pruned, refusedPruned := reapPruned(
 			rt, repo, found.Prunable, found.Empty,
 			foreignWorktrees(found.Foreign), rc.Go, progress)
@@ -88,6 +104,23 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
+// reapSelectorPlan resolves an optional selector to the one plan it
+// names, the way yield's own does. An empty selector resolves nothing
+// and scopes reap to the whole fleet, exactly as before.
+func reapSelectorPlan(
+	rt *runtime, selector string, plans []discovery.Plan,
+) (discovery.Plan, bool, error) {
+	if selector == "" {
+		return discovery.Plan{}, false, nil
+	}
+	plan, err := resolveSelector(rt, selector, plans, false)
+	if err != nil {
+		return discovery.Plan{}, false, err
+	}
+
+	return plan, true, nil
+}
+
 // repoRemoteBase reads the remote a claim lease is pushed to and the
 // ref it is dated against — the two facts claim.Scavenge needs, read
 // directly here since reap walks every repository rather than
@@ -103,6 +136,28 @@ func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
 	}
 
 	return cfg.Remote, base, nil
+}
+
+// strandedForPlan keeps only the one lane a resolved selector named —
+// this repository, this plan id, the same identity `claim.Branch(id)`
+// encodes in a lane's own hold branch — so a targeted reap can only
+// tear down what the fleet-wide reap would have. A selector for a
+// different repository, or naming no stranded lane here, narrows to
+// nothing rather than falling through to the whole fleet.
+func strandedForPlan(
+	stranded []lanes.Lane, repoName string, plan discovery.Plan,
+) []lanes.Lane {
+	if repoName != plan.Repo {
+		return nil
+	}
+	out := make([]lanes.Lane, 0, 1)
+	for _, lane := range stranded {
+		if lane.PlanID == plan.ID {
+			out = append(out, lane)
+		}
+	}
+
+	return out
 }
 
 // reapStranded classifies and, under doGo, tears down every worktree
