@@ -12,6 +12,9 @@ dependency trees never constrain consumers of this module.
 - `go build ./...` — build all packages
 - `go test ./...` — run all tests
 - `go test -run TestName ./...` — run a specific test
+- `go test ./... -coverpkg=./... -coverprofile=cover.out` — all tests,
+  one coverage profile; `go tool cover -func=cover.out` summarises it,
+  `-html=cover.out` browses it
 - `go vet ./...` — run go vet
 - `go tool -modfile=tools/go.mod golangci-lint run` — lint
 - `go mod tidy -modfile=tools/go.mod` — tidy the tools module
@@ -133,6 +136,13 @@ describes — build, vet, test, golangci-lint, `mdsmith check .` — on
 every push and pull request to `main`, plus zizmor over the workflows
 themselves. It is the local gate run where it cannot be skipped, so a
 job that drifts from the Build & test commands above is the bug.
+
+The test job writes one coverage profile across every package —
+unit tests and the godog scenarios contribute to the same file, with
+`-coverpkg=./...` so a BDD step in `cmd/frit` that drives
+`internal/claim` counts toward `internal/claim` — and uploads it as
+the `coverage` artifact. It is a measurement, not a gate: nothing
+fails on a percentage.
 
 The markdown job pins the mdsmith action to the same version `go.mod`
 imports. Bump the two together, or frit lints with one release and

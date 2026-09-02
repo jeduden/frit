@@ -32,7 +32,19 @@ jobs:
       # that only reproduces on one git version is otherwise a mystery.
       - name: Show the git version under test
         run: git --version
-      - run: go test ./...
+      # One profile from every test — the unit tests and the godog
+      # scenarios alike. -coverpkg=./... attributes a hit to the package
+      # whose code ran, not the package whose test ran: the BDD steps
+      # live in cmd/frit but exercise internal/claim, and without it
+      # that coverage would be counted against the wrong package or
+      # not at all.
+      - run: go test ./... -coverpkg=./... -coverprofile=cover.out
+      - name: Summarise coverage
+        run: go tool cover -func=cover.out | tail -1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: cover.out
 
   lint:
     runs-on: ubuntu-latest
