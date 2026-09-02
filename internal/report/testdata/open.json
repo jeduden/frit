@@ -12,6 +12,7 @@
   "agent": "claude",
   "status": "working",
   "branch": "plan/2608161810-dispatch",
+  "hold_kind": "",
   "next_action": "",
   "problems": []
 }

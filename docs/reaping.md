@@ -28,6 +28,12 @@ reason, and every delete honors the park-before-delete rule of
 [the lease protocol](research/lease-protocol.md): unlanded work is
 parked to a rescue ref before anything is removed.
 
+`frit reap <selector>` narrows the stranded-checkout row to the one
+plan the selector resolves to, the way `yield` and `start` already
+narrow their own verb. The unstaffed and rescued rows still sweep the
+whole fleet regardless of a selector — narrowing those is later work.
+A bare `frit reap`, selector omitted, is unchanged.
+
 A stranded worktree is removed and its branch deleted, but only when
 frit's own evidence confirms the branch landed. Ancestry evidence is
 tied to the tip, so the delete loses nothing. The ✅ glyph is not:

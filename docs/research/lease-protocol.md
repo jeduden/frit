@@ -224,6 +224,21 @@ Only an explicit `start <id>` reattaches; `pick --go` promises to
 resume an unheld plan alone and takes a dead hold over as it always
 did.
 
+Added 2026-09-01 by plan 2609011941: the resume mechanism above closed
+S76's silent dead end, but until now nothing said so at the rung a
+stuck operator actually stands on — `open` still named `frit start`
+for a lane `start` would refuse, and `start`'s own refusal read every
+held plan as the same un-matured takeover. Both now read the hold's
+kind off the reads above, from outside the lane: `open`'s
+`printOpenNextStep` names the resume for a token this machine holds
+unattended, the takeover window's wait for a hold it cannot prove, and
+the live agent it finds attending — never a `frit start` that would
+refuse (phase 1). `start`'s own refusal, for the one kind that changes
+the honest answer, names the live agent instead of the blanket
+un-matured-takeover wording; an unprovable hold's wording was already
+honest and is unchanged (phase 2). `orphans` naming the deserted hold
+is no longer the only mitigation S76 has.
+
 ### Scavenge
 
 The evidence must be fresh against the tip it deletes (A2). Three

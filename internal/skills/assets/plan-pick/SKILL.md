@@ -22,6 +22,10 @@ candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
 
+`prompt_dispatched: true` means the phase is already running in
+`pane`. Report the pane and stop there. Never invoke `/plan-phase`
+yourself — a second run puts two runners on the same lane.
+
 ## Survey first
 
 To look before claiming, without minting a hold:

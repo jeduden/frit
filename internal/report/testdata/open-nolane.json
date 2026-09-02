@@ -12,6 +12,7 @@
   "agent": "",
   "status": "",
   "branch": "",
+  "hold_kind": "",
   "next_action": "frit start 2608161810",
   "problems": []
 }

@@ -1,7 +1,7 @@
 ---
 id: 2609011941
 title: The escalation ladder names a held lane's kind, not a refusal loop
-status: "🔲"
+status: "✅"
 summary: >-
   The v0.11.0 retest of #122 shows the ladder round-trips on a held lane
   you own with no live agent: open prints "start it with frit start",
@@ -107,15 +107,21 @@ ladder *says*, not what it does beyond naming.
    would refuse, naming the resume, the wait, or the live agent instead.
    Driven red as the pure projection the report layer already unit-tests,
    then wired where `open` reads the hold.
-2. Later phases, shaped by Phase 1's handoff: `start`'s refusal names
-   which held kind it is rather than a blanket un-matured takeover, and
-   `nudge` tells "held, no agent attached" apart from "no lane at all".
+2. Phase 2, shaped by Phase 1's handoff: `start`'s refusal names a live
+   agent's presence rather than the blanket un-matured-takeover
+   wording; an unprovable hold's own wording is already honest and
+   stays unchanged.
+3. Later, in a plan of its own rather than a phase here: `nudge` tells
+   "held, no agent attached" apart from "no lane at all" — this plan's
+   own Acceptance Criteria name only `open` and `start`, and both are
+   closed as of Phase 2 plus its post-landing corrections.
 
 ## Execution
 
-| Phase | Title                                              | Tier   | Gate                                                                                                                                                 |
-| ----- | -------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | open names the honest next step per held-lane kind | sonnet | `open` names a resume, a wait, or a live holder by held-lane kind, never a refusing `start`; an unheld plan says `frit start`; `go test ./...` green |
+| Phase | Title                                                                 | Tier   | Gate                                                                                                                                                 |
+| ----- | --------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | open names the honest next step per held-lane kind                    | sonnet | `open` names a resume, a wait, or a live holder by held-lane kind, never a refusing `start`; an unheld plan says `frit start`; `go test ./...` green |
+| 2     | start's refusal names a live agent, not a blanket un-matured takeover | sonnet | a live-attended hold's refusal names the agent, never the takeover-window wording; an unprovable hold's wording is unchanged; `go test ./...` green  |
 
 ## Phases
 
@@ -133,22 +139,23 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                            |
-| --- | ------ | ---------------------------------------------------------------- |
-| 1   | 🔲     | [open names the honest next step per held-lane kind](phase-1.md) |
+| #   | Status | Phase                                                                               |
+| --- | ------ | ----------------------------------------------------------------------------------- |
+| 1   | ✅     | [open names the honest next step per held-lane kind](phase-1.md)                    |
+| 2   | ✅     | [start's refusal names a live agent, not a blanket un-matured takeover](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit open` on a lane whose token this machine holds, unattended,
+- [x] `frit open` on a lane whose token this machine holds, unattended,
       names a resume, not a blanket `frit start` that would refuse
-- [ ] `frit open` on a lane this machine cannot prove (no token) names
+- [x] `frit open` on a lane this machine cannot prove (no token) names
       the wait or the take-over, not `frit start`
-- [ ] `frit open` on a lane with a live agent names that a live agent is
+- [x] `frit open` on a lane with a live agent names that a live agent is
       on it
-- [ ] A plan that nothing holds, with no live lane, still names
+- [x] A plan that nothing holds, with no live lane, still names
       `frit start <id>` unchanged
-- [ ] `lease-protocol.md`'s S76 records that `open` and `start` name the
+- [x] `lease-protocol.md`'s S76 records that `open` and `start` name the
       resume, not only that `orphans` names the deserted hold
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -74,10 +74,11 @@ func startResolved(
 
 // buildStart composes the escalation doc for a plan already chosen and,
 // under doGo, runs start's claim-and-stand-up path. It refuses an
-// unstartable plan and an ambiguous repository the same way for both
-// verbs, so they cannot drift on what "startable" or "started" means.
-// The bool is true when execution lost the claim's race — the one
-// refusal pick --go retries past rather than reports.
+// unstartable plan, an ambiguous repository, and a fresh acquire onto
+// a lane herdr already shows live (#126) the same way for both verbs,
+// so they cannot drift on what "startable" or "started" means. The
+// bool is true when execution lost the claim's race — the one refusal
+// pick --go retries past rather than reports.
 //
 // reattach is whether a held lane may be resumed from outside it, off
 // its hold's own marker (#122): true for an explicit `start <id>`,
@@ -103,13 +104,21 @@ func buildStart(
 
 	// Refuse before reading the repository off disk: a plan already held
 	// or blocked needs no base, worktree path or git subprocess.
-	if doc := startRefusal(c, rt, res, plan, phase, doGo, coord, cwd, rs); doc != nil {
+	if doc := startRefusal(
+		c, rt, res, plan, phase, doGo, coord, coordOK, cwd, rs, reattach,
+	); doc != nil {
 		return doc, false, nil
 	}
 
 	if !coordOK {
 		return refusedStart(
 			c, res, plan, phase, doGo, ambiguousRepo(plan.Repo)), false, nil
+	}
+
+	liveDoc, liveProbs, liveHerdrErr := startLiveLaneRefusal(
+		c, rt, res, plan, phase, doGo, rs)
+	if liveDoc != nil {
+		return liveDoc, false, nil
 	}
 
 	sc := startContextOf(coord)
@@ -123,6 +132,7 @@ func buildStart(
 	}
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
+	carryLiveLaneProblems(doc, liveProbs, liveHerdrErr)
 	if rs.active() {
 		doc.MarkResumed()
 	}
@@ -152,9 +162,14 @@ func buildStart(
 // the park-first guard: its renewal moves the shared work ref exactly
 // as a takeover would, so a suffix the dead lane never pushed would be
 // orphaned the same way (S77).
+//
+// reattach is buildStart's own flag, not rs.Reattach: it says whether
+// the caller named this exact lane (an explicit `start <id>`), which is
+// what liveHoldRefusal below gates on.
 func startRefusal(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
-	phase string, doGo bool, coord fleet.Coord, cwd string, rs startResumption,
+	phase string, doGo bool, coord fleet.Coord, coordOK bool, cwd string,
+	rs startResumption, reattach bool,
 ) *report.StartDoc {
 	if rs.Reattach {
 		if reason := reattachParkFirstRefusal(rt, plan, coord, rs); reason != "" {
@@ -179,6 +194,11 @@ func startRefusal(
 	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
 		return refusedStart(c, res, plan, phase, doGo, reason)
 	}
+	if reattach {
+		if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
+			return refusedStart(c, res, plan, phase, doGo, reason)
+		}
+	}
 	window, _ := staleClock(&res, plan.Repo)
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 		doc := refusedStart(c, res, plan, phase, doGo, reason)
@@ -188,6 +208,39 @@ func startRefusal(
 	}
 
 	return nil
+}
+
+// liveHoldRefusal names a held lane a live agent already attends, ahead
+// of the generic un-matured-takeover wording claimRefusal would
+// otherwise give it: waiting for the window will not free a lane
+// somebody is actively working, so the honest next step reads
+// differently (#122, plan 2609011941 phase 2). Read off the same
+// marker, token and liveness reads holdKindFor already runs for `open`.
+// "" for every other kind, leaving claimRefusal the arbiter — an
+// unprovable hold's own "not takeable until the window matures" wording
+// is already honest and stays untouched, and an ambiguous repository
+// (coordOK false) never reads as HoldLive either, since holdKindFor
+// itself falls back to HoldUnproven there.
+//
+// startRefusal only calls this when the caller reattached — an explicit
+// `start <id>` naming the lane, where an operator is staring at the
+// refusal and benefits from being told to nudge or open it instead.
+// pick --go walks many candidates with reattach false and never calls
+// it: a stale-by-clock hold a live agent still attends is a legitimate
+// takeover candidate there (the same shape TestPickListsAStaleLeaseAsTakeover
+// ranks), and mintOrTakeOver's own live-session veto is what refuses
+// it, classified a lost race so the walk advances to the next
+// candidate rather than stopping on a static refusal.
+func liveHoldRefusal(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
+) string {
+	if !plan.Held || holdKindFor(rt, plan, coord, coordOK) != report.HoldLive {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"already held (%s); a live agent is on this lane; "+
+			"nudge or open it instead of starting", heldLabel(plan.Holds))
 }
 
 // startResume resolves the resume start is entitled to, the zero value
@@ -259,31 +312,50 @@ func (r startResumption) active() bool { return r.Tip != "" }
 func laneTokenResumeTip(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord,
 ) (lane, tip string) {
-	if !plan.Held {
-		return "", ""
-	}
-	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
-	// ownToken does: the CAS states its rule against origin's current
-	// tip, not this clone's possibly-stale view of the ref.
-	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
-	if tip == "" {
-		return "", ""
-	}
-	opts := claim.LeaseOptions{
-		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
-	m, ok := claim.ReadMarker(coord.Path, opts, tip, rt.git)
-	if !ok || !m.HasLane() {
+	m, tip, ok := heldLaneMarker(rt, plan, coord)
+	if !ok {
 		return "", ""
 	}
 	token := claim.ReadToken(m.Lane, plan.ID, rt.git)
 	if !tokenProves(rt, coord, plan.ID, token, tip) {
 		return "", ""
 	}
-	if !laneUnattended(rt, m) {
+	if unattended, _ := laneUnattended(rt, m); !unattended {
 		return "", ""
 	}
 
 	return m.Lane, tip
+}
+
+// heldLaneMarker reads a held plan's own marker at origin's current
+// tip — the read laneTokenResumeTip runs before it ever asks whether
+// the token still proves the lease. It is shared with open's
+// holdKindFor, which needs the marker, its token proof and its
+// liveness as three separate facts rather than laneTokenResumeTip's
+// single collapsed answer of whether a resume is available. ok is
+// false when the plan carries no hold, the marker names no lane, or
+// origin could not be read.
+func heldLaneMarker(
+	rt *runtime, plan discovery.Plan, coord fleet.Coord,
+) (m claim.Marker, tip string, ok bool) {
+	if !plan.Held {
+		return claim.Marker{}, "", false
+	}
+	// Origin is read fresh rather than trusting plan.HoldTip, exactly as
+	// ownToken does: the CAS states its rule against origin's current
+	// tip, not this clone's possibly-stale view of the ref.
+	tip = claim.RemoteTip(coord.Path, coord.Remote, plan.ID, rt.git)
+	if tip == "" {
+		return claim.Marker{}, "", false
+	}
+	opts := claim.LeaseOptions{
+		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base}
+	m, ok = claim.ReadMarker(coord.Path, opts, tip, rt.git)
+	if !ok || !m.HasLane() {
+		return claim.Marker{}, "", false
+	}
+
+	return m, tip, true
 }
 
 // laneUnattended reports whether herdr positively shows no agent on a
@@ -292,17 +364,21 @@ func laneTokenResumeTip(
 // recorded checkout — a lane stood up by hand is occupied whether or
 // not the lease ever named its session. One pane list answers both.
 // Only a herdr that answered counts: from outside the lane nothing
-// else vouches for it, so an unreachable herdr reads as unknown and
-// keeps the window rather than resume over an agent that may still be
-// working (F3, S61).
-func laneUnattended(rt *runtime, m claim.Marker) bool {
+// else vouches for it, so an unreachable herdr reads as unknown, not
+// occupied — known is false, and unattended is meaningless past that
+// point. laneTokenResumeTip folds both into a single "do not resume"
+// verdict (F3, S61); holdKindFor cannot: it must tell an unread herdr
+// apart from one that positively confirmed an agent, or it would
+// report a live agent frit never actually observed (code review, plan
+// 2609011941).
+func laneUnattended(rt *runtime, m claim.Marker) (unattended, known bool) {
 	panes, err := herdr.List(rt.herdr)
 	if err != nil {
-		return false
+		return false, false
 	}
 
 	return !herdr.SessionLiveIn(panes, m.Session) &&
-		!herdr.LiveRoots(panes, rt.git)[m.Lane]
+		!herdr.LiveRoots(panes, rt.git)[m.Lane], true
 }
 
 // desertedRefusal names the yield that retires a deserted hold read
@@ -400,6 +476,58 @@ func isAncestor(rt *runtime, dir, sha, base string) bool {
 	_, err := rt.git(dir, "merge-base", "--is-ancestor", sha, base)
 
 	return err == nil
+}
+
+// startLiveLaneRefusal is buildStart's live-lane pre-flight, on the
+// fresh-acquire branch only: a resume (rs.active(), resumeTip != "")
+// skips it outright, since the live agent it would find is the lane
+// resuming its own token. It refuses when herdr already shows a live
+// agent on the plan's own hold branch, and otherwise returns a nil doc
+// carrying the presence read's own problems, so they can still ride
+// into the eventual success doc rather than being swallowed here.
+func startLiveLaneRefusal(
+	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
+	phase string, doGo bool, rs startResumption,
+) (*report.StartDoc, []hostProblem, error) {
+	if rs.active() {
+		return nil, nil, nil
+	}
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	if !found {
+		return nil, hostProbs, herdrErr
+	}
+	doc := refusedStart(c, res, plan, phase, doGo, liveLaneRefusal(lane))
+	carryLiveLaneProblems(doc, hostProbs, herdrErr)
+
+	return doc, nil, nil
+}
+
+// carryLiveLaneProblems adds the live-lane presence read's own
+// problems onto doc, whichever shape it ends up: a refusal when a live
+// agent was found, or the eventual success doc when it was not, so an
+// unreachable herdr or an unread host is never silently dropped either
+// way.
+func carryLiveLaneProblems(
+	doc *report.StartDoc, probs []hostProblem, herdrErr error,
+) {
+	for _, p := range probs {
+		doc.AddProblem(p.name, p.err)
+	}
+	if herdrErr != nil {
+		doc.AddProblem("herdr", herdrErr)
+	}
+}
+
+// liveLaneRefusal names the refusal a fresh acquire meets when herdr
+// already shows a live agent on the plan's own hold branch: the
+// live-but-unbound lane a session-less lease leaves the takeover veto
+// unable to see, and reconcileLeftoverWorktree misses when no worktree
+// is registered on the branch in this repository at all (issue #126).
+func liveLaneRefusal(lane herdr.Lane) string {
+	return fmt.Sprintf(
+		"a live herdr pane (%s) already sits on lane %s; "+
+			"free it before starting this plan again",
+		lane.Pane.PaneID, lane.Branch)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

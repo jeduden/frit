@@ -799,6 +799,200 @@ func TestStartRefusesATakeoverVetoedByALiveSession(t *testing.T) {
 	assert.Contains(t, body, "holder:  elsewhere")
 }
 
+// liveLeaseLane checks a plan's hold branch out into its own clone, so
+// herdr can be scripted with a pane sitting in it without registering
+// a worktree of repo itself — the live-but-unbound lane
+// reconcileLeftoverWorktree cannot see because no worktree sits on the
+// branch in this repository at all, only a live agent elsewhere on it
+// (issue #126). The clone is named for repo's own directory so
+// fleet.RepoName resolves the pane back to the same repository, and it
+// lives outside root so the fleet walk never indexes it as a plan
+// repository of its own.
+func liveLeaseLane(t *testing.T, repo, branch string) string {
+	t.Helper()
+	originURL, err := gitCapture(t, repo, "remote", "get-url", "origin")
+	require.NoError(t, err)
+	lane := filepath.Join(t.TempDir(), filepath.Base(repo))
+	git(t, t.TempDir(), "clone", "-q", "--branch", branch, originURL, lane)
+
+	return lane
+}
+
+// liveLeaseFixture stands up the one scenario all three live-lane
+// tests below drive: a matured, session-less hold on plan 7 — fair
+// game for a takeover by every earlier guard — with a herdr pane
+// already sitting live on that exact branch in a clone outside root,
+// the live-but-unbound lane the takeover veto cannot see (issue #126).
+// Callers differ only in the verb they run and the assertions they
+// make on top.
+func liveLeaseFixture(
+	t *testing.T, root string,
+) (repo string, lease claim.Lease, runner herdr.Runner, rec *herdrCalls) {
+	t.Helper()
+	repo = claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	runner, rec = recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	})
+
+	return repo, lease, runner, rec
+}
+
+// TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane: a matured stale
+// hold whose lease never bound a session is ordinarily fair game for a
+// takeover, but a herdr pane already sits live on that exact branch —
+// the live-but-unbound lane the session veto misses because no session
+// was ever stamped on the lease, and reconcileLeftoverWorktree misses
+// because a worktree is not what it is guarding here. start --go
+// refuses instead of dispatching a second runner into that lane.
+func TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lease, runner, rec := liveLeaseFixture(t, root)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "plan/7", "the reason names the live lane")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a live lane is refused before a fresh acquire stands anything up")
+	assert.False(t, rec.verb("agent", "prompt"), "nothing is dispatched")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "nothing was claimed or taken over")
+}
+
+// TestStartGoStillStartsWhenNoLiveAgentOnTheLane: the same matured
+// stale hold, but herdr shows no live agent anywhere near the lane —
+// the ordinary takeover proceeds unchanged.
+func TestStartGoStillStartsWhenNoLiveAgentOnTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7")
+	assert.True(t, rec.verb("worktree", "create"))
+	assert.True(t, rec.verb("agent", "prompt"))
+}
+
+// TestStartGoRefusalOfALiveLaneCarriesInJSON: the live-lane refusal
+// meets the JSON contract every other pre-flight refusal does —
+// `refused` names it and `prompt_dispatched` stays false.
+func TestStartGoRefusalOfALiveLaneCarriesInJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, _, runner, _ := liveLeaseFixture(t, root)
+	withHerdr(t, runner)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
+
+	assert.Contains(t, doc.Refused, "plan/7")
+	assert.False(t, doc.PromptDispatched)
+	assert.Empty(t, doc.Pane)
+}
+
+// startHerdrUnreachableList is startHerdr with agent.list erroring —
+// the one call the live-lane presence read depends on — layered so
+// every other exchange of a normal escalation still succeeds. It
+// drives the fail-open branch carryLiveLaneProblems documents: an
+// unreachable herdr never blocks a legitimate start, it only rides
+// along as a problem.
+func startHerdrUnreachableList() (herdr.Runner, *herdrCalls) {
+	base, rec := startHerdr()
+
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			rec.mu.Lock()
+			rec.calls = append(rec.calls, append([]string(nil), args...))
+			rec.mu.Unlock()
+
+			return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+		}
+
+		return base(args...)
+	}, rec
+}
+
+// TestStartGoStillDispatchesWhenHerdrIsUnreachableForTheLiveLaneCheck
+// drives the one branch startLiveLaneRefusal's design deliberately
+// leaves unguarded (mirroring TestOpenCarriesAnUnreachableHerdr's
+// socket-failure branch for open): the plan is unheld, so nothing
+// short-circuits ahead of the live-lane read, and the read itself
+// fails. The escalation still runs — an unreadable herdr can prove
+// nothing is live, so it must not veto a legitimate start — and the
+// failure travels as a problem instead of being swallowed.
+func TestStartGoStillDispatchesWhenHerdrIsUnreachableForTheLiveLaneCheck(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdrUnreachableList()
+	withHerdr(t, runner)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--go", "--root", root)
+
+	assert.Empty(t, doc.Refused,
+		"an unreachable herdr never blocks a legitimate start")
+	assert.True(t, doc.PromptDispatched)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	assert.True(t, rec.verb("agent", "prompt"), "the escalation still ran")
+}
+
+// TestLiveLaneRefusalNamesThePaneAndItsBranch pins the wording the
+// live-lane refusal renders: a caller reading the reason string, not
+// just the JSON contract, still finds the pane and branch to go free.
+func TestLiveLaneRefusalNamesThePaneAndItsBranch(t *testing.T) {
+	reason := liveLaneRefusal(herdr.Lane{
+		Pane:   herdr.Pane{PaneID: "wLive:p1"},
+		Branch: "plan/7",
+	})
+
+	assert.Contains(t, reason, "wLive:p1")
+	assert.Contains(t, reason, "plan/7")
+}
+
+// TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems pins
+// carryLiveLaneProblems's own contract in isolation from the
+// integration tests that only exercise it indirectly: a host problem
+// and a herdr error both land on the doc, in that order, neither
+// dropping the other.
+func TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems(t *testing.T) {
+	doc := report.NewStart(
+		"", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+
+	carryLiveLaneProblems(doc,
+		[]hostProblem{{name: "vault", err: errors.New("boom")}},
+		errors.New("dial refused"))
+
+	require.Len(t, doc.Problems, 2)
+	assert.Equal(t, "vault", doc.Problems[0].Repo)
+	assert.Equal(t, "herdr", doc.Problems[1].Repo)
+}
+
 // TestStartResumesItsOwnLeaseFromThePersistedToken: run from the
 // lane's own worktree, a restarted fleet of one resumes its lease by
 // its persisted token and still stands a fresh agent up on it, with no
@@ -1469,9 +1663,10 @@ func TestTokenProvesTheLeaseOnlyByTheTip(t *testing.T) {
 }
 
 // TestLaneUnattendedReadsOnePaneList: the three answers from outside a
-// lane — an unreachable herdr is unknown, never absence; an agent on
-// the bound session, or one sitting in the recorded checkout, occupies
-// the lane; a roster showing neither confirms it unattended.
+// lane — an unreachable herdr is unknown, never absence, and known
+// says so; an agent on the bound session, or one sitting in the
+// recorded checkout, occupies the lane; a roster showing neither
+// confirms it unattended, known in every case herdr actually answered.
 func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
 	lane := t.TempDir()
 	git(t, lane, "init", "-q")
@@ -1486,24 +1681,36 @@ func TestLaneUnattendedReadsOnePaneList(t *testing.T) {
 	down := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
 		return nil, errors.New("dial unix .herdr.sock: no such file")
 	}}
-	assert.False(t, laneUnattended(down, m), "unknown is not absence")
+	unattended, known := laneUnattended(down, m)
+	assert.False(t, unattended, "unknown is not absence")
+	assert.False(t, known, "a herdr frit could not reach confirms nothing")
 
 	bound := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(t.TempDir(), "wOld:p1"))}
-	assert.False(t, laneUnattended(bound, m), "a live bound session occupies the lane")
+	unattended, known = laneUnattended(bound, m)
+	assert.False(t, unattended, "a live bound session occupies the lane")
+	assert.True(t, known)
 
 	inLane := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(lane, "wHand:p1"))}
-	assert.False(t, laneUnattended(inLane, m), "an agent in the checkout occupies it")
+	unattended, known = laneUnattended(inLane, m)
+	assert.False(t, unattended, "an agent in the checkout occupies it")
+	assert.True(t, known)
 
 	unbound := claim.Marker{Lane: lane}
-	assert.False(t, laneUnattended(inLane, unbound),
+	unattended, known = laneUnattended(inLane, unbound)
+	assert.False(t, unattended,
 		"an unbound hold's checkout is still occupied by the agent in it")
+	assert.True(t, known)
 
 	elsewhere := &runtime{git: gitwt.Exec,
 		herdr: herdrReturning(agent(t.TempDir(), "wOther:p1"))}
-	assert.True(t, laneUnattended(elsewhere, m), "an agent elsewhere is not on this lane")
-	assert.True(t, laneUnattended(elsewhere, unbound))
+	unattended, known = laneUnattended(elsewhere, m)
+	assert.True(t, unattended, "an agent elsewhere is not on this lane")
+	assert.True(t, known)
+	unattended, known = laneUnattended(elsewhere, unbound)
+	assert.True(t, unattended)
+	assert.True(t, known)
 }
 
 // TestStartDoesNotResumeALaneWhoseTokenIsGone: the marker's holder
@@ -1668,11 +1875,71 @@ func TestStartStillVetoesALaneWithALiveAgent(t *testing.T) {
 		"a live lane's hold is left exactly as it stood")
 }
 
+// TestStartRefusalNamesALiveAgentInsteadOfTheWindow: the same hold
+// TestStartStillVetoesALaneWithALiveAgent refuses, but the refusal
+// itself now names why — a live agent on the lane — rather than the
+// blanket un-matured-takeover wording, which would wrongly suggest
+// waiting frees it (plan 2609011941, phase 2).
+func TestStartRefusalNamesALiveAgentInsteadOfTheWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, _, held := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent":         "claude",
+		"agent_status":  "working",
+		"cwd":           repo,
+		"pane_id":       "wOld:p1",
+		"agent_session": map[string]any{"value": "wOld:p1"},
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "live agent")
+	assert.NotContains(t, got, "not takeable until the window matures",
+		"waiting will not free a lane a live agent is on")
+	assert.Equal(t, held, remoteWorkTip(t, repo))
+}
+
+// TestStartRefusalStillNamesTheWindowForAnUnprovableHold: the same
+// hold TestStartDoesNotResumeALaneWhoseTokenIsGone refuses keeps its
+// existing wording — waiting really is the honest next step for a
+// hold this machine cannot prove, so phase 2's new live-agent wording
+// must not fire here.
+func TestStartRefusalStillNamesTheWindowForAnUnprovableHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(t, root, hostname(), "")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures")
+	assert.NotContains(t, got, "live agent")
+	assert.Equal(t, held, remoteWorkTip(t, repo))
+}
+
 // TestStartWithUnconfirmedLivenessDoesNotResume: the token is this
 // machine's, but herdr cannot be reached, so nothing confirms the lane
 // unattended. Unknown is not absence: from outside the lane the guard
 // fails safe toward the window rather than resume over an agent that
-// may still be working.
+// may still be working. The refusal itself must keep the honest
+// takeover-window wording too, never phase 2's live-agent sentence:
+// laneUnattended's own fail-safe "not confirmed unattended" answer,
+// read here through holdKindFor, must not be misread as a confirmed
+// live agent frit never actually observed (code review, plan
+// 2609011941).
 func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -1689,6 +1956,10 @@ func TestStartWithUnconfirmedLivenessDoesNotResume(t *testing.T) {
 	got := out.String()
 	assert.Contains(t, got, "refused")
 	assert.Contains(t, got, "already held")
+	assert.Contains(t, got, "not takeable until the window matures",
+		"an unread liveness is honestly a hold frit cannot prove, not a live agent")
+	assert.NotContains(t, got, "live agent",
+		"a herdr frit could not reach never confirms a live agent")
 	assert.NotContains(t, got, "resumed plan 7")
 	assert.Equal(t, held, remoteWorkTip(t, repo),
 		"liveness frit could not read never resumes")

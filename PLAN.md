@@ -105,11 +105,12 @@ footer: |
 | 2608311255 | ✅     | sonnet | [A released lane's leftover worktree is seen and reconciled](plan/2608311255_released-lane-worktree-reconciled/plan.md)                |
 | 2609010550 | ✅     | sonnet | [The board table labels its columns, so held work never reads as free](plan/2609010550_board-labels-its-columns/plan.md)               |
 | 2609011611 | ✅     | opus   | [Binding a lane's session renews from the work ref's current tip](plan/2609011611_bind-renews-from-the-current-tip/plan.md)            |
-| 2609011806 | 🔲     | sonnet | [One runner per lane — a dispatched phase is never started twice](plan/2609011806_one-runner-per-lane/plan.md)                         |
+| 2609011806 | ✅     | sonnet | [One runner per lane — a dispatched phase is never started twice](plan/2609011806_one-runner-per-lane/plan.md)                         |
 | 2609011836 | ✅     | opus   | [Resume a held lane you own without waiting the takeover window](plan/2609011836_resume-a-held-lane-you-own/plan.md)                   |
-| 2609011941 | 🔲     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
+| 2609011941 | ✅     | sonnet | [The escalation ladder names a held lane's kind, not a refusal loop](plan/2609011941_ladder-names-a-held-lanes-kind/plan.md)           |
 | 2609012000 | ✅     | sonnet | [Every lease-protocol scenario has an executable BDD spec](plan/2609012000_bdd-scenarios-executable/plan.md)                           |
-| 2609012100 | 🔲     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
+| 2609012100 | ✅     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
+| 2609012210 | 🔲     | sonnet | [A failed park names its real failure, not "moved by hand"](plan/2609012210_park-tells-the-real-failure/plan.md)                       |
 | 2609021310 | 🔲     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
 | 2609021311 | 🔲     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
 | 2609021312 | 🔲     | sonnet | [The partition and clock scenarios run under godog](plan/2609021312_bdd-partitions-and-clocks/plan.md)                                 |
