@@ -13,7 +13,10 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/observe"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +31,7 @@ import (
 // history", "push is rejected", "yield parks" — is reused as-is.
 func init() {
 	registrars = append(registrars, (*world).registerPartitionsAndClocks)
+	registrars = append(registrars, (*world).registerVerbLevelPartitionsAndClocks)
 }
 
 // pcState is this section's own state, kept beside the shared world
@@ -45,6 +49,19 @@ type pcState struct {
 	beats   []string
 	window  discovery.Window
 	clock   time.Time
+	// heldPlans is S23's own synthetic fleet: a plan list built by hand
+	// rather than gathered from a repository, since observeHolds only
+	// ever compares HoldTip strings, never resolves them through git.
+	heldPlans []discovery.Plan
+	// board is the document a "reads the board" step last decoded, for
+	// a following Then to read.
+	board *report.BoardDoc
+	// observerRoot and observerRepo are the --root directory and the
+	// checkout under it an "observer" step built — a second, discoverable
+	// clone distinct from any holder's own, so cutting it off from
+	// origin cannot also cut off the holder's own renewals.
+	observerRoot string
+	observerRepo string
 }
 
 // pc fetches this scenario's section state, lazily initialized on
@@ -144,6 +161,33 @@ func (w *world) registerPartitionsAndClocks(sc *godog.ScenarioContext) {
 	sc.Step(`^the window reads the hold live$`, w.theWindowReadsTheHoldLive)
 	sc.Step(`^the tip still moved$`, w.theTipStillMoved)
 	sc.Step(`^the commit date on the tip is smaller than on its parent$`, w.commitDateOnTipIsSmallerThanParent)
+}
+
+// registerVerbLevelPartitionsAndClocks binds the step texts S22, S23,
+// S24 and S35 add — a second registrar, kept apart from
+// registerPartitionsAndClocks only to stay under this file's own
+// statement-count lint budget, not a different section of state.
+func (w *world) registerVerbLevelPartitionsAndClocks(sc *godog.ScenarioContext) {
+	sc.Step(`^an observer has already watched "([^"]+)"'s tip for a while$`, w.observerHasAlreadyWatchedTipForAWhile)
+	sc.Step(`^the network cuts the observer off from origin$`, w.theNetworkCutsTheObserverOffFromOrigin)
+	sc.Step(`^the observer reads the board$`, w.theObserverReadsTheBoard)
+	sc.Step(`^the board reports "([^"]+)"'s observed-at age$`, w.theBoardReportsObservedAtAge)
+	sc.Step(`^the board reports the observer's fetch as unreachable$`, w.theBoardReportsTheObserversFetchAsUnreachable)
+	sc.Step(`^several held plans were each observed a while ago$`, w.severalHeldPlansWereEachObservedAWhileAgo)
+	sc.Step(`^the gap since each one's last sample exceeds the sample-gap bound$`,
+		w.theGapSinceEachOnesLastSampleExceedsTheBound)
+	sc.Step(`^the fleet is observed again, now that origin is reachable$`,
+		w.theFleetIsObservedAgainNowThatOriginIsReachable)
+	sc.Step(`^every window resets to one sample$`, w.everyWindowResetsToOneSample)
+	sc.Step(`^no plan reads its takeover window matured$`, w.noPlanReadsItsTakeoverWindowMatured)
+	sc.Step(`^the renewal is a plain win$`, w.theRenewalIsAPlainWin)
+	sc.Step(`^an observer clones origin, catching up with the renewed tip$`,
+		w.anObserverClonesOriginCatchingUpWithTheRenewedTip)
+	sc.Step(`^the board still reports "([^"]+)" held at the renewed tip$`, w.theBoardStillReportsHeldAtTheRenewedTip)
+	sc.Step(`^origin holds the takeover$`, w.originHoldsTheTakeover)
+	sc.Step(`^a further observer watches "([^"]+)"'s tip mature by the same span$`, w.observerWatchesTipGoStale)
+	sc.Step(`^that span does not read stale once the takeover count backs the threshold off$`,
+		w.thatSpanDoesNotReadStaleOnceBackedOff)
 }
 
 // holdsTheLeaseInARealLane is S21's own acquisition: a real worktree
@@ -623,6 +667,304 @@ func (w *world) commitDateOnTipIsSmallerThanParent() error {
 	}
 	if tipDate >= parentDate {
 		return fmt.Errorf("tip's commit date %d is not smaller than its parent's %d", tipDate, parentDate)
+	}
+
+	return nil
+}
+
+// observerClone clones originURL into filepath.Join(root, name) — a
+// checkout under a shared --root that `board --root root` actually
+// discovers, unlike cloneAgain's own throwaway t.TempDir(). name is
+// the repo name a scenario's plans are keyed under, so the clone reads
+// as the same repository a holder's own checkout does.
+func observerClone(t *testing.T, root, name, originURL string) string {
+	t.Helper()
+	dst := filepath.Join(root, name)
+	git(t, root, "clone", "-q", originURL, dst)
+	git(t, dst, "config", "user.email", "observer@example.com")
+	git(t, dst, "config", "user.name", "frit-observer")
+
+	return dst
+}
+
+// buildObserverClone builds a second, discoverable checkout of
+// holder's own origin, under a fresh --root of its own, and records it
+// on this section's state for the network-cut and board-read steps
+// that follow.
+func (w *world) buildObserverClone(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	origin, err := gitCapture(w.t, repo, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return fmt.Errorf("%s: %w", origin, err)
+	}
+	s := w.pc()
+	s.observerRoot = w.t.TempDir()
+	s.observerRepo = observerClone(w.t, s.observerRoot, "atlas", strings.TrimSpace(origin))
+
+	return nil
+}
+
+// observerHasAlreadyWatchedTipForAWhile builds the observer's checkout
+// and seeds it a window already well past any takeover threshold —
+// S22's own shape, so a following cut and read is not a race against
+// the test's own runtime.
+func (w *world) observerHasAlreadyWatchedTipForAWhile(holder string) error {
+	if err := w.buildObserverClone(holder); err != nil {
+		return err
+	}
+	seedWindow(w.t, "atlas", int64(w.planID), w.lease.Tip, 3*time.Hour)
+
+	return nil
+}
+
+// anObserverClonesOriginCatchingUpWithTheRenewedTip builds the
+// observer checkout only after a renewal has already landed — S24's
+// own shape, so the clone already carries the fresh tip with no fetch
+// needed to see it, and seeds no window: this row asserts
+// classification, never a staleness age.
+func (w *world) anObserverClonesOriginCatchingUpWithTheRenewedTip() error {
+	return w.buildObserverClone(w.holder)
+}
+
+// theNetworkCutsTheObserverOffFromOrigin points the observer's own
+// remote at a path that does not exist — the holder's remote is
+// untouched, so nothing here can affect its own ability to renew.
+func (w *world) theNetworkCutsTheObserverOffFromOrigin() error {
+	s := w.pc()
+	if s.observerRepo == "" {
+		return errors.New("no observer checkout recorded; a step that builds one comes first")
+	}
+	git(w.t, s.observerRepo, "remote", "set-url", "origin", filepath.Join(w.t.TempDir(), "gone"))
+
+	return nil
+}
+
+// theObserverReadsTheBoard runs the real board verb, --root pointed at
+// the observer's own directory, and decodes its JSON document for a
+// following Then to read.
+func (w *world) theObserverReadsTheBoard() error {
+	s := w.pc()
+	if s.observerRoot == "" {
+		return errors.New("no observer root recorded; a step that builds one comes first")
+	}
+	var doc report.BoardDoc
+	emit(w.t, &doc, "board", "--root", s.observerRoot)
+	s.board = &doc
+
+	return nil
+}
+
+// theBoardReportsObservedAtAge checks the last board read carries a
+// nonzero observed-at age for holder's plan — the display an observer
+// cut off from origin still owes a reader, from whatever it last saw.
+func (w *world) theBoardReportsObservedAtAge(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	p, err := w.boardPlan()
+	if err != nil {
+		return err
+	}
+	if p.StaleSeconds <= 0 {
+		return fmt.Errorf("plan %d carries no observed-at age: %d seconds", w.planID, p.StaleSeconds)
+	}
+
+	return nil
+}
+
+// theBoardReportsTheObserversFetchAsUnreachable checks the last board
+// read named the observer's own failed fetch — a Problem, not a
+// crash, not a silently-dropped plan.
+func (w *world) theBoardReportsTheObserversFetchAsUnreachable() error {
+	s := w.pc()
+	if s.board == nil {
+		return errors.New("the board was never read")
+	}
+	for _, p := range s.board.Problems {
+		if strings.Contains(p.Message, "could not fetch") {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no problem names a failed fetch: %+v", s.board.Problems)
+}
+
+// theBoardStillReportsHeldAtTheRenewedTip checks holder's plan still
+// reads held on the board an observer read after cutting itself off —
+// the classification a renewal elsewhere never corrupts.
+func (w *world) theBoardStillReportsHeldAtTheRenewedTip(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	p, err := w.boardPlan()
+	if err != nil {
+		return err
+	}
+	if !p.Held {
+		return fmt.Errorf("plan %d no longer reads held", w.planID)
+	}
+
+	return nil
+}
+
+// boardPlan finds this scenario's own plan on the last board document
+// read, refusing when no read happened yet or the plan is missing from
+// it — a Then step should fail loudly on either rather than reading a
+// zero BoardPlan as if it meant something.
+func (w *world) boardPlan() (report.BoardPlan, error) {
+	s := w.pc()
+	if s.board == nil {
+		return report.BoardPlan{}, errors.New("the board was never read")
+	}
+	for _, p := range s.board.Plans {
+		if p.ID == int64(w.planID) {
+			return p, nil
+		}
+	}
+
+	return report.BoardPlan{}, fmt.Errorf("the board does not carry plan %d", w.planID)
+}
+
+// theRenewalIsAPlainWin checks the last renewal landed with no error
+// at all — S24's own positive case, the mirror of every "reports the
+// push unconfirmed" Then the earlier rows already carry.
+func (w *world) theRenewalIsAPlainWin() error {
+	if w.err != nil {
+		return fmt.Errorf("expected a plain win, got %v", w.err)
+	}
+
+	return nil
+}
+
+// severalHeldPlansWereEachObservedAWhileAgo builds S23's own synthetic
+// fleet — several plans with no repository behind them at all, since
+// observeHolds only ever compares HoldTip strings — and seeds each a
+// window already freshly observed at this section's own clock.
+func (w *world) severalHeldPlansWereEachObservedAWhileAgo() error {
+	isolate(w.t)
+	s := w.pc()
+	path, err := observe.Path()
+	if err != nil {
+		return err
+	}
+	state := observe.State{}
+	var plans []discovery.Plan
+	for _, id := range []int64{23, 24, 25} {
+		tip := fmt.Sprintf("tip-%d", id)
+		plans = append(plans, discovery.Plan{Repo: "atlas", ID: id, HoldTip: tip, Held: true})
+		state[observe.Key("atlas", id)] = discovery.Window{
+			Tip: tip, First: s.clock.Add(-3 * time.Hour), Last: s.clock, Samples: 9,
+		}
+	}
+	if err := observe.Save(path, state); err != nil {
+		return err
+	}
+	s.heldPlans = plans
+
+	return nil
+}
+
+// theGapSinceEachOnesLastSampleExceedsTheBound advances this section's
+// own clock past DefaultSampleGap with no new sample taken — the
+// partition itself, on the explicit clock every row in this file
+// reads decisions from, never the wall clock.
+func (w *world) theGapSinceEachOnesLastSampleExceedsTheBound() error {
+	s := w.pc()
+	if len(s.heldPlans) == 0 {
+		return errors.New("no held plans recorded; a step that seeds them comes first")
+	}
+	s.clock = s.clock.Add(discovery.DefaultSampleGap + time.Minute)
+
+	return nil
+}
+
+// theFleetIsObservedAgainNowThatOriginIsReachable calls observeHolds
+// directly against S23's synthetic fleet and this section's own clock
+// — no repository, no gitwt.Runner beyond the unused default main
+// wires up, since no plan here carries a coordinate for TakeoverCount
+// to read.
+func (w *world) theFleetIsObservedAgainNowThatOriginIsReachable() error {
+	s := w.pc()
+	if len(s.heldPlans) == 0 {
+		return errors.New("no held plans recorded; a step that seeds them comes first")
+	}
+	res := &fleet.Result{Plans: s.heldPlans}
+	observeHolds(res, &runtime{git: gitwt.Exec}, s.clock)
+	s.heldPlans = res.Plans
+
+	return nil
+}
+
+// everyWindowResetsToOneSample checks the persisted state left every
+// seeded plan's window a fresh, voided single sample — a restart, not
+// the false maturity a naive elapsed-time reading would have shown.
+func (w *world) everyWindowResetsToOneSample() error {
+	s := w.pc()
+	path, err := observe.Path()
+	if err != nil {
+		return err
+	}
+	state := observe.Load(path)
+	for _, p := range s.heldPlans {
+		key := observe.Key(p.Repo, p.ID)
+		win, ok := state[key]
+		if !ok {
+			return fmt.Errorf("no window recorded for %s", key)
+		}
+		if win.Samples != 1 {
+			return fmt.Errorf("plan %d window carries %d samples, want 1", p.ID, win.Samples)
+		}
+		if win.Voided == "" {
+			return fmt.Errorf("plan %d window carries no void note", p.ID)
+		}
+	}
+
+	return nil
+}
+
+// noPlanReadsItsTakeoverWindowMatured checks observeHolds left every
+// seeded plan un-stale — no mass takeover fires on heal.
+func (w *world) noPlanReadsItsTakeoverWindowMatured() error {
+	s := w.pc()
+	for _, p := range s.heldPlans {
+		if p.Stale {
+			return fmt.Errorf("plan %d reads stale after the partition healed", p.ID)
+		}
+	}
+
+	return nil
+}
+
+// thatSpanDoesNotReadStaleOnceBackedOff reads the takeover count off
+// the real chain w.taker's own takeover minted, computes the same
+// backed-off threshold observeHolds does, and checks the span this
+// section's window last matured to reads stale under the bare window
+// — proving the row actually matured something — but not under the
+// backed-off one, the pair that pins the damping rather than either
+// half alone.
+func (w *world) thatSpanDoesNotReadStaleOnceBackedOff() error {
+	s := w.pc()
+	repo, err := w.cloneOf(w.taker)
+	if err != nil {
+		return err
+	}
+	base, err := gitCapture(w.t, repo, "rev-parse", "origin/main")
+	if err != nil {
+		return fmt.Errorf("%s: %w", base, err)
+	}
+	k := claim.TakeoverCount(repo, int64(w.planID), strings.TrimSpace(base), w.taken.Tip, gitwt.Exec)
+	if k == 0 {
+		return errors.New("no takeover marker found in the chain; the backoff was never tested")
+	}
+	threshold := time.Duration(k+1) * discovery.DefaultTakeoverWindow
+	if !discovery.StaleHold(s.window, s.clock, discovery.DefaultTakeoverWindow, discovery.DefaultSampleGap) {
+		return errors.New("the span did not mature past the base window; the backoff was never tested")
+	}
+	if discovery.StaleHold(s.window, s.clock, threshold, discovery.DefaultSampleGap) {
+		return fmt.Errorf("window still reads stale under the backed-off threshold %s (k=%d)", threshold, k)
 	}
 
 	return nil
@@ -1118,4 +1460,295 @@ func TestHoldsTheLeaseInARealLaneBuildsAWorktreeWithNoTokenPersistedYet(t *testi
 	require.NoError(t, err, "a real worktree was created")
 	assert.Empty(t, claim.ReadToken(lane, 910, gitwt.Exec),
 		"Acquire ran before the worktree existed: nothing persisted yet")
+}
+
+// TestObserverCloneBuildsADiscoverableCheckout: the clone lands at
+// filepath.Join(root, name), the layout board --root root actually
+// walks, and it carries the origin's own history.
+func TestObserverCloneBuildsADiscoverableCheckout(t *testing.T) {
+	isolate(t)
+	origin := claimableRepo(t, t.TempDir(), "atlas", 911, "Shader unit")
+	url, err := gitCapture(t, origin, "config", "--get", "remote.origin.url")
+	require.NoError(t, err)
+	root := t.TempDir()
+
+	dst := observerClone(t, root, "atlas", strings.TrimSpace(url))
+
+	assert.Equal(t, filepath.Join(root, "atlas"), dst)
+	out, err := gitCapture(t, dst, "log", "-1", "--format=%s")
+	require.NoError(t, err)
+	assert.NotEmpty(t, strings.TrimSpace(out))
+}
+
+// TestBuildObserverCloneRefusesAMachineTheScenarioNeverIntroduced.
+func TestBuildObserverCloneRefusesAMachineTheScenarioNeverIntroduced(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.buildObserverClone("ghost"))
+}
+
+// TestObserverHasAlreadyWatchedTipForAWhileBuildsAMaturedWindow: the
+// clone lands under a fresh --root and the seeded window already
+// spans well past the takeover threshold, on the observe store the
+// same isolate(t) call the holder step made points at.
+func TestObserverHasAlreadyWatchedTipForAWhileBuildsAMaturedWindow(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 912)
+
+	require.NoError(t, w.observerHasAlreadyWatchedTipForAWhile("box-a"))
+
+	s := w.pc()
+	assert.NotEmpty(t, s.observerRoot)
+	_, err := os.Stat(filepath.Join(s.observerRepo, ".git"))
+	require.NoError(t, err)
+	path, err := observe.Path()
+	require.NoError(t, err)
+	win := observe.Load(path)[observe.Key("atlas", 912)]
+	assert.Greater(t, win.Span(), discovery.DefaultTakeoverWindow)
+}
+
+// TestAnObserverClonesOriginCatchingUpWithTheRenewedTipSeedsNoWindow:
+// S24's own shape needs only a fresh clone, never a staleness age.
+func TestAnObserverClonesOriginCatchingUpWithTheRenewedTipSeedsNoWindow(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 913)
+
+	require.NoError(t, w.anObserverClonesOriginCatchingUpWithTheRenewedTip())
+
+	path, err := observe.Path()
+	require.NoError(t, err)
+	_, ok := observe.Load(path)[observe.Key("atlas", 913)]
+	assert.False(t, ok, "this row never seeds a window")
+}
+
+// TestTheNetworkCutsTheObserverOffFromOriginRefusesWithNoObserver.
+func TestTheNetworkCutsTheObserverOffFromOriginRefusesWithNoObserver(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.theNetworkCutsTheObserverOffFromOrigin())
+}
+
+// TestTheNetworkCutsTheObserverOffFromOriginBreaksItsFetchAlone: the
+// observer's own remote stops resolving; a sibling holder checkout is
+// never touched by this step at all.
+func TestTheNetworkCutsTheObserverOffFromOriginBreaksItsFetchAlone(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 914)
+	require.NoError(t, w.observerHasAlreadyWatchedTipForAWhile("box-a"))
+
+	require.NoError(t, w.theNetworkCutsTheObserverOffFromOrigin())
+
+	_, err := gitCapture(w.t, w.pc().observerRepo, "fetch", "origin")
+	assert.Error(t, err, "the observer's own fetch now fails")
+	_, err = gitCapture(w.t, w.clones["box-a"], "fetch", "origin")
+	assert.NoError(t, err, "the holder's own remote is untouched")
+}
+
+// TestTheObserverReadsTheBoardRefusesWithNoObserverRoot.
+func TestTheObserverReadsTheBoardRefusesWithNoObserverRoot(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.theObserverReadsTheBoard())
+}
+
+// TestTheObserverReadsTheBoardDecodesTheDocument: a real board read,
+// through the CLI, lands the plan on w.pc().board for a Then step to
+// read.
+func TestTheObserverReadsTheBoardDecodesTheDocument(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 915)
+	require.NoError(t, w.observerHasAlreadyWatchedTipForAWhile("box-a"))
+
+	require.NoError(t, w.theObserverReadsTheBoard())
+
+	require.NotNil(t, w.pc().board)
+	found := false
+	for _, p := range w.pc().board.Plans {
+		if p.ID == 915 {
+			found = true
+		}
+	}
+	assert.True(t, found, "the observer's own board carries the plan")
+}
+
+// TestBoardPlanRefusesWithNoReadOrAMissingPlan.
+func TestBoardPlanRefusesWithNoReadOrAMissingPlan(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 916
+
+	_, err := w.boardPlan()
+	require.Error(t, err, "the board was never read")
+
+	w.pc().board = &report.BoardDoc{}
+	_, err = w.boardPlan()
+	require.Error(t, err, "the plan is missing from the document")
+
+	w.pc().board.Plans = []report.BoardPlan{{ID: 916, Held: true}}
+	got, err := w.boardPlan()
+	require.NoError(t, err)
+	assert.True(t, got.Held)
+}
+
+// TestTheBoardReportsObservedAtAgeReadsStaleSecondsAndTheHolder.
+func TestTheBoardReportsObservedAtAgeReadsStaleSecondsAndTheHolder(t *testing.T) {
+	w := newWorld(t)
+	w.holder, w.planID = "box-a", 917
+	w.pc().board = &report.BoardDoc{
+		Plans: []report.BoardPlan{{ID: 917, StaleSeconds: 3600}},
+	}
+
+	require.NoError(t, w.theBoardReportsObservedAtAge("box-a"))
+	require.Error(t, w.theBoardReportsObservedAtAge("box-b"), "box-a held it, not box-b")
+
+	w.pc().board.Plans[0].StaleSeconds = 0
+	require.Error(t, w.theBoardReportsObservedAtAge("box-a"), "no age at all is no observation")
+}
+
+// TestTheBoardReportsTheObserversFetchAsUnreachableReadsProblems.
+func TestTheBoardReportsTheObserversFetchAsUnreachableReadsProblems(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.theBoardReportsTheObserversFetchAsUnreachable(), "the board was never read")
+
+	w.pc().board = &report.BoardDoc{Problems: []report.Problem{{Repo: "atlas", Message: "some other fault"}}}
+	require.Error(t, w.theBoardReportsTheObserversFetchAsUnreachable())
+
+	w.pc().board.Problems[0].Message = "could not fetch origin; remote-tracking view may be stale"
+	require.NoError(t, w.theBoardReportsTheObserversFetchAsUnreachable())
+}
+
+// TestTheBoardStillReportsHeldAtTheRenewedTipReadsHeldAndTheHolder.
+func TestTheBoardStillReportsHeldAtTheRenewedTipReadsHeldAndTheHolder(t *testing.T) {
+	w := newWorld(t)
+	w.holder, w.planID = "box-a", 918
+	w.pc().board = &report.BoardDoc{Plans: []report.BoardPlan{{ID: 918, Held: false}}}
+
+	require.Error(t, w.theBoardStillReportsHeldAtTheRenewedTip("box-a"), "not held")
+	require.Error(t, w.theBoardStillReportsHeldAtTheRenewedTip("box-b"), "box-a held it, not box-b")
+
+	w.pc().board.Plans[0].Held = true
+	require.NoError(t, w.theBoardStillReportsHeldAtTheRenewedTip("box-a"))
+}
+
+// TestTheRenewalIsAPlainWinReadsWErr.
+func TestTheRenewalIsAPlainWinReadsWErr(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.theRenewalIsAPlainWin())
+
+	w.err = errors.New("fenced")
+	require.Error(t, w.theRenewalIsAPlainWin())
+}
+
+// TestSeveralHeldPlansWereEachObservedAWhileAgoSeedsThreeFreshWindows.
+func TestSeveralHeldPlansWereEachObservedAWhileAgoSeedsThreeFreshWindows(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.severalHeldPlansWereEachObservedAWhileAgo())
+
+	s := w.pc()
+	require.Len(t, s.heldPlans, 3)
+	path, err := observe.Path()
+	require.NoError(t, err)
+	state := observe.Load(path)
+	for _, p := range s.heldPlans {
+		win := state[observe.Key(p.Repo, p.ID)]
+		assert.Equal(t, p.HoldTip, win.Tip)
+		assert.Equal(t, s.clock, win.Last, "each window was last sampled at the section's own clock")
+	}
+}
+
+// TestTheGapSinceEachOnesLastSampleExceedsTheBoundRefusesWithNoPlans.
+func TestTheGapSinceEachOnesLastSampleExceedsTheBoundRefusesWithNoPlans(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.theGapSinceEachOnesLastSampleExceedsTheBound())
+}
+
+// TestTheGapSinceEachOnesLastSampleExceedsTheBoundAdvancesTheClock.
+func TestTheGapSinceEachOnesLastSampleExceedsTheBoundAdvancesTheClock(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.severalHeldPlansWereEachObservedAWhileAgo())
+	before := w.pc().clock
+
+	require.NoError(t, w.theGapSinceEachOnesLastSampleExceedsTheBound())
+
+	assert.Greater(t, w.pc().clock.Sub(before), discovery.DefaultSampleGap)
+}
+
+// TestTheFleetIsObservedAgainNowThatOriginIsReachableRefusesWithNoPlans.
+func TestTheFleetIsObservedAgainNowThatOriginIsReachableRefusesWithNoPlans(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.theFleetIsObservedAgainNowThatOriginIsReachable())
+}
+
+// TestTheFleetIsObservedAgainNowThatOriginIsReachableVoidsAGoneQuietWindow:
+// the full S23 pipeline — seed, let the gap pass, observe again —
+// leaves every plan un-stale, the mass-takeover guard the row exists
+// to pin.
+func TestTheFleetIsObservedAgainNowThatOriginIsReachableVoidsAGoneQuietWindow(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.severalHeldPlansWereEachObservedAWhileAgo())
+	require.NoError(t, w.theGapSinceEachOnesLastSampleExceedsTheBound())
+
+	require.NoError(t, w.theFleetIsObservedAgainNowThatOriginIsReachable())
+
+	require.NoError(t, w.everyWindowResetsToOneSample())
+	require.NoError(t, w.noPlanReadsItsTakeoverWindowMatured())
+}
+
+// TestEveryWindowResetsToOneSampleFailsOnAMaturedOrUnvoidedWindow.
+func TestEveryWindowResetsToOneSampleFailsOnAMaturedOrUnvoidedWindow(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.severalHeldPlansWereEachObservedAWhileAgo())
+	s := w.pc()
+	path, err := observe.Path()
+	require.NoError(t, err)
+
+	require.Error(t, w.everyWindowResetsToOneSample(), "still carries the seeded 9-sample windows")
+
+	state := observe.State{}
+	for _, p := range s.heldPlans {
+		state[observe.Key(p.Repo, p.ID)] = discovery.Window{Tip: p.HoldTip, Samples: 1}
+	}
+	require.NoError(t, observe.Save(path, state))
+	require.Error(t, w.everyWindowResetsToOneSample(), "one sample with no void note is not a reset")
+
+	for k, win := range state {
+		win.Voided = "window restarted"
+		state[k] = win
+	}
+	require.NoError(t, observe.Save(path, state))
+	require.NoError(t, w.everyWindowResetsToOneSample())
+}
+
+// TestNoPlanReadsItsTakeoverWindowMaturedFailsOnAnyStalePlan.
+func TestNoPlanReadsItsTakeoverWindowMaturedFailsOnAnyStalePlan(t *testing.T) {
+	w := newWorld(t)
+	w.pc().heldPlans = []discovery.Plan{{ID: 1}, {ID: 2}}
+
+	require.NoError(t, w.noPlanReadsItsTakeoverWindowMatured())
+
+	w.pc().heldPlans[1].Stale = true
+	require.Error(t, w.noPlanReadsItsTakeoverWindowMatured())
+}
+
+// TestThatSpanDoesNotReadStaleOnceBackedOffPinsTheDamping: the same
+// span that reads stale under the bare takeover window no longer does
+// once one real takeover has minted a marker and TakeoverCount backs
+// the threshold off.
+func TestThatSpanDoesNotReadStaleOnceBackedOffPinsTheDamping(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 919)
+	require.NoError(t, w.observerWatchesTipGoStale("box-a"))
+	require.NoError(t, w.takesTheLeaseOver("box-b"))
+	require.NoError(t, w.observerWatchesTipGoStale("box-b"))
+
+	require.NoError(t, w.thatSpanDoesNotReadStaleOnceBackedOff())
+}
+
+// TestThatSpanDoesNotReadStaleOnceBackedOffRefusesWithNoTakeover: a
+// chain carrying no takeover marker at all reads k=0, so the row's own
+// premise — a backoff to test — was never set up.
+func TestThatSpanDoesNotReadStaleOnceBackedOffRefusesWithNoTakeover(t *testing.T) {
+	w := leaseWorldFixture(t, "box-a", 920)
+	w.taker, w.taken = "box-a", w.lease
+
+	require.Error(t, w.thatSpanDoesNotReadStaleOnceBackedOff())
 }
