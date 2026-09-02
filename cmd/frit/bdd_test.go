@@ -372,3 +372,17 @@ func TestCloneAgainSharesTheOrigin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, a, b)
 }
+
+// TestBindAllCallsEveryRegistrar: a section's step file appends its
+// binder to the registry from init, and a scenario run binds every one
+// of them on the subtest's own *testing.T — so a new section adds a
+// file, never a line to this one.
+func TestBindAllCallsEveryRegistrar(t *testing.T) {
+	var seen []*testing.T
+	probe := func(pt *testing.T, _ *godog.ScenarioContext) { seen = append(seen, pt) }
+
+	bindAll(t, nil, []registrar{probe, probe})
+
+	assert.Equal(t, []*testing.T{t, t}, seen)
+	assert.NotEmpty(t, registrars, "the lease steps register themselves")
+}
