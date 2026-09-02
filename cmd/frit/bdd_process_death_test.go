@@ -311,25 +311,17 @@ func (w *world) observationRestartsFreshOnTheNewTip() error {
 // pushesAWorkCommit lands a work commit on origin's copy of the hold
 // branch — the phase work a real lane pushes as it goes, as opposed
 // to the unpushed commit "commits work on the lane it never pushes"
-// leaves only local.
+// leaves only local. It shares commitWorkFileOnLane with that unpushed
+// step and only adds the push.
 func (w *world) pushesAWorkCommit(holder string) error {
-	repo, err := w.cloneOf(holder)
+	tip, err := w.commitWorkFileOnLane(holder, "landed\n", "pushed work")
 	if err != nil {
 		return err
 	}
-	git(w.t, repo, "checkout", "-q", claim.Branch(int64(w.planID)))
-	writeFile(w.t, repo, "w.txt", "landed\n")
-	git(w.t, repo, "add", "-A")
-	git(w.t, repo, "commit", "-q", "-m", "pushed work")
-	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
-	if err != nil {
-		return fmt.Errorf("%s: %w", tip, err)
-	}
+	repo := w.clones[holder]
 	if out, err := gitCapture(w.t, repo, "push", "-q", "origin", w.branch()); err != nil {
 		return fmt.Errorf("push work: %s: %w", out, err)
 	}
-	git(w.t, repo, "checkout", "-q", "main")
-
 	section[deathState](w).pushedTip = tip
 
 	return nil
@@ -338,29 +330,20 @@ func (w *world) pushesAWorkCommit(holder string) error {
 // takesOverTheCurrentLease is a takeover CASed from whatever origin's
 // work ref actually holds right now, read fresh — unlike "takes the
 // lease over", which CASes from the tip the world's own earlier
-// acquire recorded, this sees a push the holder made afterward.
+// acquire recorded, this sees a push the holder made afterward. The
+// fresh tip is read off the holder's own clone, which shares origin
+// with the second machine takeoverFromTip stands up.
 func (w *world) takesOverTheCurrentLease(holder string) error {
-	if holder == w.holder {
-		return fmt.Errorf("%q already holds the lease; a takeover comes from another machine", holder)
-	}
 	first, err := w.cloneOf(w.holder)
 	if err != nil {
 		return err
 	}
-	second := cloneAgain(w.t, first)
-	w.clones[holder] = second
-
-	from := claim.RemoteTip(second, "origin", int64(w.planID), gitwt.Exec)
+	from := claim.RemoteTip(first, "origin", int64(w.planID), gitwt.Exec)
 	if from == "" {
 		return fmt.Errorf("origin carries no lease for plan %d to take over", w.planID)
 	}
-	taken, err := claim.Takeover(second, leaseFor(holder, w.planID), from, gitwt.Exec)
-	if err != nil {
-		return err
-	}
-	w.taker, w.taken = holder, taken
 
-	return nil
+	return w.takeoverFromTip(holder, from)
 }
 
 // takeoverIsChildOfTheReachedTip checks the takeover's parent against
@@ -560,16 +543,15 @@ func (w *world) runsClaimForPlan(holder string, planID int) error {
 // machine — so a second machine's own `--root` names only its own
 // tree. cloneAgain's bare clone, by contrast, sits directly in its
 // own temp directory; a `--root` built from its parent would walk
-// into the first machine's tree too and find the plan twice.
+// into the first machine's tree too and find the plan twice. The
+// clone itself, and the second machine's git identity, are
+// cloneOriginOf's, shared with cloneAgain; git runs the clone from the
+// root, since the atlas subdirectory is what the clone creates.
 func cloneRepoIntoRoot(t *testing.T, repo string) (root, dst string) {
 	t.Helper()
-	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
-	require.NoError(t, err, origin)
 	root = t.TempDir()
 	dst = filepath.Join(root, "atlas")
-	git(t, root, "clone", "-q", origin, dst)
-	git(t, dst, "config", "user.email", "t2@example.com")
-	git(t, dst, "config", "user.name", "frit-test-2")
+	cloneOriginOf(t, repo, root, dst)
 
 	return root, dst
 }
