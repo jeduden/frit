@@ -116,16 +116,34 @@ func TestScenarioTagsReadsTheIDAndWhetherPending(t *testing.T) {
 	assert.True(t, pending)
 }
 
-// TestBindAllCallsEveryRegistrar: a section's step file appends its
-// binder to the registry from init, and a scenario run binds every one
-// of them on the subtest's own *testing.T — so a new section adds a
-// file, never a line to this one.
-func TestBindAllCallsEveryRegistrar(t *testing.T) {
-	var seen []*testing.T
-	probe := func(pt *testing.T, _ *godog.ScenarioContext) { seen = append(seen, pt) }
+// TestBindAllBindsEveryRegistrarOnOneWorld: a section's step file
+// appends its binder to the registry from init, and a scenario run
+// hands every one of them the same world, built on the subtest's own
+// *testing.T — so a section's step can read what a reused lease step
+// set up, and a new section adds a file, never a line to this one.
+func TestBindAllBindsEveryRegistrarOnOneWorld(t *testing.T) {
+	var seen []*world
+	probe := func(w *world, _ *godog.ScenarioContext) { seen = append(seen, w) }
+	w := newWorld(t)
 
-	bindAll(t, nil, []registrar{probe, probe})
+	bindAll(w, nil, []registrar{probe, probe})
 
-	assert.Equal(t, []*testing.T{t, t}, seen)
+	assert.Equal(t, []*world{w, w}, seen)
+	assert.Same(t, t, w.t)
 	assert.NotEmpty(t, registrars, "the lease steps register themselves")
+}
+
+// TestSectionStateIsOnePerTypePerWorld: a section keeps its own state
+// beside the shared world, keyed by its type — one value per scenario,
+// created on first use, the same pointer on every later call.
+func TestSectionStateIsOnePerTypePerWorld(t *testing.T) {
+	type storage struct{ origin string }
+	w := newWorld(t)
+
+	first := section[storage](w)
+	first.origin = "/o"
+
+	assert.Same(t, first, section[storage](w))
+	assert.Equal(t, "/o", section[storage](w).origin)
+	assert.NotSame(t, first, section[storage](newWorld(t)), "another scenario, another value")
 }
