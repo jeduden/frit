@@ -50,7 +50,7 @@ Feature: Races
     When the hold's takeover window has matured
     And "elsewhere"'s bound session wakes and answers live
     And this host claims plan 7
-    Then the claim is refused, naming the lease already held
+    Then the takeover is refused, naming a live agent session
     And "elsewhere"'s lease is renewed by a beat instead of seized
 
   @S32 @pending

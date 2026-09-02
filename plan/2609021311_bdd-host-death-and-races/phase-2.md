@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The resume-path and window rows of host death and races run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert S14, S15, S18 and S31 from `@pending` into passing scenarios —
