@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The five lease-level partition and clock rows run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the five partition and clock rows the lease API can drive on

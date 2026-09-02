@@ -26,12 +26,13 @@ Feature: Partitions
   @S21
   Scenario: push landed during partition
     Given "box-a" holds the lease for plan 21 in a real lane
+    And "box-a" renews its lease
     And "box-a"'s next push lands on origin but its confirmation is lost
     When "box-a" renews its lease
     Then the renewal reports the push unconfirmed
-    And origin's tip has moved past "box-a"'s claim
+    And origin's tip has moved past "box-a"'s last confirmed beat
     When the partition heals for "box-a"
-    Then "box-a"'s persisted token still matches its claim
+    Then "box-a"'s persisted token still matches its last confirmed beat
     And "box-a" is recognized as the owner of origin's tip
     And "box-a" resumes at the same epoch
 
