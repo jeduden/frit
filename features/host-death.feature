@@ -2,7 +2,7 @@ Feature: Host death, suspension, zombies
 
   Scenarios from the lease-protocol matrix's own "Host death,
   suspension, zombies" section, one per row, tagged with its S-id.
-  One still tagged @pending is declared but not yet written.
+  A scenario still tagged @pending is declared but not yet written.
 
   @S14 @pending
   Scenario: power loss mid-push

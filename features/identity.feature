@@ -1,7 +1,8 @@
 Feature: Identity anomalies
 
-  Scenarios from the lease-protocol matrix's own "Identity anomalies" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Identity anomalies"
+  section, one per row, tagged with its S-id. A scenario still
+  tagged @pending is declared but not yet written.
 
   @S45 @pending
   Scenario: two agents, one plan, one host

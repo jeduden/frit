@@ -58,7 +58,8 @@ the id set is exactly the S-scenarios. A malformed table row fails loud
 rather than silently dropping an id.
 
 **Gate.** `go test ./...` runs the godog suite: the one real scenario
-passes, the rest report pending, and `TestMatrixAndFeaturesAreInBijection`
-is green. Add a matrix row with no scenario in a scratch check and watch
+passes, the rest are skipped as pending, and
+`TestMatrixAndFeaturesAreInBijection` is green. Add a matrix row with
+no scenario in a scratch check and watch
 the bijection test go red, then revert. `go test ./...` and
 `go tool -modfile=tools/go.mod golangci-lint run` are green.

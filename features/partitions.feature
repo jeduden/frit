@@ -1,7 +1,8 @@
 Feature: Partitions
 
-  Scenarios from the lease-protocol matrix's own "Partitions" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Partitions" section,
+  one per row, tagged with its S-id. A scenario still tagged @pending
+  is declared but not yet written.
 
   @S20 @pending
   Scenario: worker partitioned mid-work

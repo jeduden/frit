@@ -1,7 +1,8 @@
 Feature: Storage anomalies
 
-  Scenarios from the lease-protocol matrix's own "Storage anomalies" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Storage anomalies"
+  section, one per row, tagged with its S-id. A scenario still
+  tagged @pending is declared but not yet written.
 
   @S37 @pending
   Scenario: work ref hand-deleted

@@ -4,8 +4,8 @@ Feature: Lifecycle anomalies — landed evidence
   anomalies" section, one scenario per row, tagged with its S-id: how
   scavenge, reap and the read verbs decide that work has landed, and
   what they refuse to do without that evidence. The claim-and-ref
-  half is lifecycle.feature. One still tagged @pending is declared but
-  not yet written.
+  half is lifecycle.feature. A scenario still tagged @pending is
+  declared but not yet written.
 
   @S54 @pending
   Scenario: squash-merge, status never ✅

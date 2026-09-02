@@ -1,7 +1,8 @@
 Feature: Process death, at every lifecycle step
 
-  Scenarios from the lease-protocol matrix's own "Process death, at every lifecycle step" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Process death, at
+  every lifecycle step" section, one per row, tagged with its S-id. A
+  scenario still tagged @pending is declared but not yet written.
 
   @S1 @pending
   Scenario: killed before local ref write

@@ -6,8 +6,8 @@ result: true
 summary: >-
   godog runs from `go test ./...` in cmd/frit — the one package where
   the lease API, the repo fixtures, the herdr fake and the verbs all
-  meet — over nine feature files, one per matrix section, all 87 S-ids
-  tagged: S16 (host resurrected days later -> FENCE, sibling history,
+  meet — over ten feature files, one per matrix section and two for
+  Lifecycle, all 87 S-ids tagged: S16 (host resurrected days later -> FENCE, sibling history,
   every push rejected, YIELD) is fully written over the claim API and
   the cmd/frit fixtures, and every other id is declared `@pending` and
   skipped, never run. Each scenario is its own subtest named by id,
@@ -45,8 +45,10 @@ scenario that loses its `@pending` tag without gaining steps fails.
 Feature files are split per matrix section (`features/process-death
 .feature`, `host-death.feature`, `partitions.feature`, `races.feature`,
 `clocks.feature`, `storage.feature`, `identity.feature`,
-`lifecycle.feature`, `cross-layer.feature`), so each later batch can
-work one file. A declared-but-unwritten scenario carries `@pending`
+`cross-layer.feature`, and the twenty-row Lifecycle section as
+`lifecycle.feature` for claims and refs beside
+`landed-evidence.feature` for scavenge's evidence), so each later
+batch can work one file. A declared-but-unwritten scenario carries `@pending`
 beside its id and no steps; `TestFeatures` skips it, so `go test -v`
 shows it as SKIP rather than a pass, and runs every other scenario as
 its own subtest — `go test ./cmd/frit -run 'TestFeatures/^S16:'` picks
@@ -87,11 +89,8 @@ this is not.
 
 Open after this phase: the plan's second task, converting the 86
 pending scenarios in themed batches, has no phase spec of its own, so
-the plan reads ✅ while its goal is one scenario deep — a successor
-plan, or further phases here, must carry it. The branch's red commit
-(06830b4) does not lint on its own: it flipped this plan's status
-without regenerating PLAN.md, so a bisect of `mdsmith check .` lands
-on it.
+the plan reads ✅ while its goal is one scenario deep — the successor
+plans 2609021310 to 2609021316 carry it, one per themed batch.
 
 `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are clean.

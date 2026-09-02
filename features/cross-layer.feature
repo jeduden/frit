@@ -1,7 +1,8 @@
 Feature: Cross-layer: herdr and frit disagree
 
-  Scenarios from the lease-protocol matrix's own "Cross-layer: herdr and frit disagree" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Cross-layer: herdr
+  and frit disagree" section, one per row, tagged with its S-id. A
+  scenario still tagged @pending is declared but not yet written.
 
   @S60 @pending
   Scenario: herdr down at claim time

@@ -15,10 +15,12 @@ summary: >-
   origin-and-clone git fixtures and herdr fake the lease tests already
   build, and a coverage gate asserts the matrix's ids and the feature
   tags are in bijection. A scenario can then never be documented without
-  a spec, or specced without a doc row. godog's pending steps let every
-  scenario be declared from the start and fleshed out incrementally, so
-  the gate is green from Phase 1 while the backfill proceeds in themed
-  batches that mirror the matrix's own sections.
+  a spec, or specced without a doc row. A @pending tag lets every
+  scenario be declared from the start — skipped, not run — and fleshed
+  out incrementally, so the gate is green from Phase 1 while the
+  backfill proceeds in themed batches that mirror the matrix's own
+  sections. This plan delivers the harness, the gate and one real
+  scenario; the batches are plans 2609021310 to 2609021316.
 model: sonnet
 depends-on: []
 ---
@@ -85,10 +87,11 @@ assert the internals.
    tagged scenario; add the coverage gate asserting the matrix ids and
    the feature tags are in bijection. The gate is green with one real
    scenario and the rest pending.
-2. Later phases: convert pending scenarios to real specs in themed
-   batches that mirror the matrix's own sections — process death, host
-   death, partitions, races, clocks, storage, identity, lifecycle,
-   cross-layer.
+2. Carried by successor plans 2609021310 to 2609021316, not by a phase
+   here: convert pending scenarios to real specs in themed batches
+   that mirror the matrix's own sections — process death, host death
+   and races, partitions and clocks, storage, identity and
+   cross-layer, lifecycle's claims and refs, and its landed evidence.
 
 ## Execution
 

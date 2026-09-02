@@ -4,8 +4,8 @@ Feature: Lifecycle anomalies — claims and refs
   anomalies" section, one scenario per row, tagged with its S-id: a
   plan renamed, deleted, reused or re-opened, a ref gone or dated
   against an old base. The landed-evidence half is
-  landed-evidence.feature. One still tagged @pending is declared but
-  not yet written.
+  landed-evidence.feature. A scenario still tagged @pending is
+  declared but not yet written.
 
   @S50 @pending
   Scenario: plan file renamed after claim

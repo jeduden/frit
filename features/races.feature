@@ -1,7 +1,8 @@
 Feature: Races
 
-  Scenarios from the lease-protocol matrix's own "Races" section, one per row, tagged with its S-id. One still tagged @pending is declared
-  but not yet written.
+  Scenarios from the lease-protocol matrix's own "Races" section, one
+  per row, tagged with its S-id. A scenario still tagged @pending is
+  declared but not yet written.
 
   @S26 @pending
   Scenario: N claimants, one plan
