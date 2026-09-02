@@ -792,6 +792,142 @@ func TestReapRemovesAnEmptyWorktreeWithGo(t *testing.T) {
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
+// TestReapSelectorRetiresOnlyTheNamedLane: two landed, stranded
+// worktrees on different plan branches, neither with a live pane. A
+// selector naming one retires only that lane, leaving the other's
+// landed leftover standing — the fleet-wide sweep a bare reap runs
+// would have taken both.
+func TestReapSelectorRetiresOnlyTheNamedLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branchA := "plan/501-a"
+	branchB := "plan/502-b"
+	laneA := strandedCheckout(t, root, repo, "atlas-a", branchA)
+	laneB := strandedCheckout(t, root, repo, "atlas-b", branchB)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branchA)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land b", branchB)
+	landPlan(t, repo, 501, "a", "✅")
+	landPlan(t, repo, 502, "b", "✅")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "501", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-a")
+	_, statErr := os.Stat(laneA)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"the named plan's leftover checkout is removed")
+	assert.False(t, branchExists(t, repo, branchA),
+		"the named plan's branch no longer resolves")
+	_, statErr = os.Stat(laneB)
+	assert.NoError(t, statErr,
+		"the other landed lane is left standing")
+	assert.True(t, branchExists(t, repo, branchB),
+		"the other landed lane's branch is untouched")
+}
+
+// TestReapSelectorDryRunNamesOnlyThatLane: without --go, a selector's
+// preview lists only the selected plan's leftover, not every landed
+// lane the bare report would show.
+func TestReapSelectorDryRunNamesOnlyThatLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branchA := "plan/501-a"
+	branchB := "plan/502-b"
+	strandedCheckout(t, root, repo, "atlas-a", branchA)
+	strandedCheckout(t, root, repo, "atlas-b", branchB)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branchA)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land b", branchB)
+	landPlan(t, repo, 501, "a", "✅")
+	landPlan(t, repo, 502, "b", "✅")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "501", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "atlas-a")
+	assert.NotContains(t, out.String(), "atlas-b",
+		"the unselected plan's landed lane is not named")
+}
+
+// TestReapSelectorRefusesALivePaneOnTheLane pins that a selector
+// leaves the unstaffed-hold pass's own live-lease guard untouched:
+// this phase only narrows the stranded pass, so a plan whose hold is
+// live per herdr still refuses with the same reason the fleet-wide
+// reap gives, and the hold survives.
+func TestReapSelectorRefusesALivePaneOnTheLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	tip, err := holdRef(t, repo, 7)
+	require.NoError(t, err)
+	require.NotEmpty(t, tip, "the claim minted the canonical hold")
+
+	var out, errb bytes.Buffer
+	code = run([]string{"reap", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "unchanged for")
+	_, err = holdRef(t, repo, 7)
+	assert.NoError(t, err, "a live lease survives a selected reap --go")
+}
+
+// TestReapNoSelectorStillSweepsTheFleet: the default, no argument,
+// behavior is unchanged — both stranded, landed lanes are still
+// reaped.
+func TestReapNoSelectorStillSweepsTheFleet(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branchA := "plan/501-a"
+	branchB := "plan/502-b"
+	laneA := strandedCheckout(t, root, repo, "atlas-a", branchA)
+	laneB := strandedCheckout(t, root, repo, "atlas-b", branchB)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branchA)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land b", branchB)
+	landPlan(t, repo, 501, "a", "✅")
+	landPlan(t, repo, 502, "b", "✅")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	_, statErr := os.Stat(laneA)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"a bare reap still reaps every stranded lane")
+	_, statErr = os.Stat(laneB)
+	assert.ErrorIs(t, statErr, os.ErrNotExist,
+		"a bare reap still reaps every stranded lane")
+}
+
+// TestReapUnknownSelectorRefuses: a selector matching no plan refuses
+// before any teardown, the same way yield's own selector does.
+func TestReapUnknownSelectorRefuses(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/501-a"
+	lane := strandedCheckout(t, root, repo, "atlas-a", branch)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land a", branch)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "999", "--go", "--root", root}, &out, &errb)
+
+	require.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "no plan matches")
+	_, statErr := os.Stat(lane)
+	assert.NoError(t, statErr,
+		"an unknown selector tears nothing down")
+}
+
 // TestReapRemovesAnEmptyWorktreeWithoutAlsoRefusingItAsStranded pins
 // the S79 double-classification hazard shut: an unborn worktree whose
 // branch matches a hold pattern has no ref for lanes.Build to find, so
