@@ -111,4 +111,5 @@ footer: |
 | 2609012000 | 🔲     | sonnet | [Every lease-protocol scenario has an executable BDD spec](plan/2609012000_bdd-scenarios-executable/plan.md)                           |
 | 2609012100 | ✅     | sonnet | [reap takes a selector, so one landed lane retires without its neighbours](plan/2609012100_targeted-reap/plan.md)                      |
 | 2609012210 | 🔲     | sonnet | [A failed park names its real failure, not "moved by hand"](plan/2609012210_park-tells-the-real-failure/plan.md)                       |
+| 2609021114 | 🔲     | sonnet | [Scavenge and Yield stop reading an unreadable remote as gone](plan/2609021114_scavenge-yield-honest-remote-read/plan.md)              |
 <?/catalog?>
