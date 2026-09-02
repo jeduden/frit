@@ -14,9 +14,10 @@ Feature: Process death, at every lifecycle step
   @S2
   Scenario: killed after local write, before push
     Given "box-a" mints a local claim it never pushes for plan 7
-    When "box-b" claims plan 7
-    Then "box-b" wins the lease at epoch 1
-    And "box-a"'s retry is refused: the local branch diverges
+    When "box-a" retries the claim
+    And "box-b" claims plan 7
+    Then "box-a"'s retry is refused: the local branch diverges
+    And "box-b" wins the lease at epoch 1
 
   @S3 @pending
   Scenario: killed mid-push, server committed
