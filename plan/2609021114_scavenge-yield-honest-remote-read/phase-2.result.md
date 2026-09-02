@@ -35,6 +35,20 @@ unchanged. `go test ./...`,
 **This plan is done.** Both Acceptance Criteria pairs are met; `plan.md`
 flips to ✅.
 
+**A CLI-layer gap `/code-review high` found and closed after this
+phase's own commit.** `cmd/frit/yield.go`'s `Run` only special-cased
+`StillHeldError`; every other `claim.Yield` error, including the new
+`UnconfirmedYieldError`, fell into the generic `doc.Warn(fmt.Sprintf(
+"park: %v", err))` branch — mislabeling a pre-park refusal as a park
+failure and, worse, printing `"yielded plan %d"` ahead of the warning,
+claiming a success that never happened (nothing was parked or torn
+down). Fixed to `doc.Refuse`, the same as `StillHeldError`, driven by
+a new `TestYieldReportsAnUnconfirmedYieldAsARefusalNotAWarning` in
+[cmd/frit/yield_test.go](../../cmd/frit/yield_test.go) — it breaks the
+origin remote's URL after fencing the lane and runs `yield --no-fetch`
+so `claim.Yield`'s live still-held read fails for real, while fleet
+discovery stays on local refs.
+
 **Left for elsewhere.** Phase 1's `code-review`-found third call site —
 `park`'s own rescue-push confirmation folding a failed read to
 absent — resolved itself when this lane merged `origin/main`: PR #136
