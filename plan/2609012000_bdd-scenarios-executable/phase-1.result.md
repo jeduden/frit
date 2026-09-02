@@ -54,7 +54,10 @@ out. Converting a scenario means dropping `@pending`, writing its
 Given/When/Then, and binding the step functions in the section's own
 `cmd/frit/bdd_<section>_test.go`, appended to the step registry from
 `init` as `bdd_lease_test.go` is — a section adds a file, never a line
-to `bdd_test.go`, so sections land in any order; a step whose text
+to `bdd_test.go`, so sections land in any order. Every registrar
+binds on the one world a scenario threads, so a section's step reads
+what a reused lease step set up, and keeps its own state in a struct
+reached through `section[T]`; a step whose text
 matches nothing fails under godog's strict mode instead of passing as
 undefined, and one two sections both define fails as ambiguous.
 

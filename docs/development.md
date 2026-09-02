@@ -78,9 +78,13 @@ To write one, drop `@pending` and write its Given/When/Then. Bind the
 step functions in the section's own `cmd/frit/bdd_<section>_test.go`,
 appended to the step registry from `init` the way
 `bdd_lease_test.go` is — a section adds a file, never a line to
-`bdd_test.go`, so sections land in any order. godog runs strict, so a
-step that matches no definition fails instead of passing as undefined,
-and a step text two sections both define fails as ambiguous.
+`bdd_test.go`, so sections land in any order. Every registrar binds
+on the one world a scenario threads, so a section's step reads what a
+reused lease step set up; a section keeps its own state in a struct
+reached through `section[T]`, never as a field on `world`. godog runs
+strict, so a step that matches no definition fails instead of passing
+as undefined, and a step text two sections both define fails as
+ambiguous — reuse the existing text.
 
 ## The skills bundle
 

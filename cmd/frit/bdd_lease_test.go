@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -19,9 +20,7 @@ import (
 // yields. It registers itself, like every section's step file, so a
 // section adds a file and never a line here.
 func init() {
-	registrars = append(registrars, func(t *testing.T, sc *godog.ScenarioContext) {
-		newWorld(t).register(sc)
-	})
+	registrars = append(registrars, (*world).register)
 }
 
 // world is the state one scenario threads through its steps: each
@@ -39,13 +38,17 @@ type world struct {
 	taken  claim.Lease
 	local  string
 	err    error
+	// sections holds each section's own state, keyed by type; see
+	// section in bdd_test.go.
+	sections map[reflect.Type]any
 }
 
 func newWorld(t *testing.T) *world {
 	return &world{
-		t:      t,
-		clones: map[string]string{},
-		opts:   map[string]claim.LeaseOptions{},
+		t:        t,
+		clones:   map[string]string{},
+		opts:     map[string]claim.LeaseOptions{},
+		sections: map[reflect.Type]any{},
 	}
 }
 

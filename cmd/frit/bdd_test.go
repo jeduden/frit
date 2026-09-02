@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,25 +62,40 @@ func scenarioTags(tags []string) (id string, pending bool) {
 	return id, pending
 }
 
-// registrar binds one section's step texts to a fresh world built on
-// the running subtest's *testing.T.
-type registrar func(*testing.T, *godog.ScenarioContext)
+// registrar binds one section's step texts to the scenario's world.
+type registrar func(*world, *godog.ScenarioContext)
 
 // registrars is the step registry. Each section's step file appends its
 // registrar from init — bdd_lease_test.go the lease vocabulary, a later
 // bdd_<section>_test.go its own — so converting a section adds a file
 // and never edits this one, and two sections can land in any order.
-// godog runs strict, so a step text two sections both define is an
-// ambiguity that fails at the second landing rather than a silent
-// shadow.
+// Every registrar binds on the one world a scenario threads, so a
+// section's step reads what a reused lease step set up. godog runs
+// strict, so a step text two sections both define is an ambiguity that
+// fails at the second landing rather than a silent shadow.
 var registrars []registrar
 
-// bindAll registers every section's steps for one scenario run.
-func bindAll(t *testing.T, sc *godog.ScenarioContext, regs []registrar) {
-	t.Helper()
+// bindAll registers every section's steps on w for one scenario run.
+func bindAll(w *world, sc *godog.ScenarioContext, regs []registrar) {
+	w.t.Helper()
 	for _, bind := range regs {
-		bind(t, sc)
+		bind(w, sc)
 	}
+}
+
+// section is a section's own state beside the shared world, keyed by
+// its type: created on first use, the same value for the rest of the
+// scenario, and gone with the world. A section declares a struct for
+// what its rows track and never adds a field to world.
+func section[T any](w *world) *T {
+	key := reflect.TypeFor[T]()
+	if v, ok := w.sections[key]; ok {
+		return v.(*T)
+	}
+	v := new(T)
+	w.sections[key] = v
+
+	return v
 }
 
 // runScenario drives the one scenario tagged id through godog on this
@@ -90,8 +106,9 @@ func bindAll(t *testing.T, sc *godog.ScenarioContext, regs []registrar) {
 func runScenario(t *testing.T, id string) {
 	t.Helper()
 	var report bytes.Buffer
+	w := newWorld(t)
 	suite := godog.TestSuite{
-		ScenarioInitializer: func(sc *godog.ScenarioContext) { bindAll(t, sc, registrars) },
+		ScenarioInitializer: func(sc *godog.ScenarioContext) { bindAll(w, sc, registrars) },
 		Options: &godog.Options{
 			Paths:    []string{featuresDir},
 			Tags:     "@" + id,
