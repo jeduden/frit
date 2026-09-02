@@ -19,7 +19,7 @@ import (
 
 type reapCmd struct {
 	Go       bool   `help:"Tear a stranded or unstaffed lane down; without it, reap only prints what it would do."`
-	Selector string `arg:"" optional:"" help:"Plan id or slug; empty sweeps the whole fleet."`
+	Selector string `arg:"" optional:"" help:"Plan id or slug; narrows the stranded pass; empty sweeps the fleet."`
 }
 
 // Run tears down every kind of orphan `frit orphans` already reports:
@@ -147,10 +147,10 @@ func repoRemoteBase(repo discover.Repo, rt *runtime) (string, string, error) {
 func strandedForPlan(
 	stranded []lanes.Lane, repoName string, plan discovery.Plan,
 ) []lanes.Lane {
-	if repoName != plan.Repo {
-		return nil
-	}
 	out := make([]lanes.Lane, 0, 1)
+	if repoName != plan.Repo {
+		return out
+	}
 	for _, lane := range stranded {
 		if lane.PlanID == plan.ID {
 			out = append(out, lane)
