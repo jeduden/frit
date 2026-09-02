@@ -22,11 +22,27 @@ Feature: Host death, suspension, zombies
     And "box-a"'s push of that work is rejected
     And yield parks "box-a"'s work and leaves "box-b"'s takeover untouched
 
-  @S17 @pending
+  @S17
   Scenario: suspended weeks, plan re-claimed
+    Given "box-a" holds the lease for plan 7
+    And "box-a" commits work on the lane it never pushes
+    And "box-b" takes the lease over
+    And "box-b" releases the lease
+    And "box-c" claims the released plan
+    Then the re-claim lands at epoch 3, a child of the release marker
+    When "box-a" comes back and renews its lease
+    Then the renewal is fenced, naming "box-c"
+    And yield parks "box-a"'s work and leaves "box-c"'s re-claim untouched
 
   @S18 @pending
   Scenario: zombie re-runs its own claim
 
-  @S19 @pending
+  @S19
   Scenario: zombie pushes to a completed plan
+    Given "box-a" holds the lease for plan 7
+    When the plan completes and its ref is deleted on origin
+    And "box-a" comes back and renews its lease
+    Then the renewal fails
+    And origin still has no work ref
+    When "box-a" pushes its tip raw
+    Then origin accepts it

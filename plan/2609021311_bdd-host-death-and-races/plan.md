@@ -1,7 +1,7 @@
 ---
 id: 2609021311
 title: The host-death and race scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The lease-protocol matrix's "Host death, suspension, zombies" section
   (S14..S19) and its "Races" section (S26..S32) are declared in
