@@ -25,10 +25,11 @@ func TestFetchRemoteSurfacesAProbeFailureRatherThanSilentlySkipping(t *testing.T
 		return nil, nil
 	}
 
-	err := fetchRemote("/repo", "origin", run)
+	fetched, err := fetchRemote("/repo", "origin", run)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, probeErr)
+	assert.False(t, fetched, "a failed probe fetched nothing")
 }
 
 // TestFetchRemoteSkipsANotConfiguredRemote: a remote absent from the
@@ -44,13 +45,16 @@ func TestFetchRemoteSkipsANotConfiguredRemote(t *testing.T) {
 		return nil, nil
 	}
 
-	err := fetchRemote("/repo", "origin", run)
+	fetched, err := fetchRemote("/repo", "origin", run)
 
 	require.NoError(t, err)
+	assert.False(t, fetched, "a remote not configured fetched nothing")
 }
 
 // TestFetchRemoteFetchesAConfiguredRemote: a remote present in the
 // configured list is fetched, and the fetch's own result is returned.
+// A fetch that failed did not refresh anything, so it reports fetched
+// false alongside the error.
 func TestFetchRemoteFetchesAConfiguredRemote(t *testing.T) {
 	fetchErr := errors.New("connection refused")
 	var fetchedArgs []string
@@ -63,9 +67,28 @@ func TestFetchRemoteFetchesAConfiguredRemote(t *testing.T) {
 		return nil, fetchErr
 	}
 
-	err := fetchRemote("/repo", "origin", run)
+	fetched, err := fetchRemote("/repo", "origin", run)
 
 	require.ErrorIs(t, err, fetchErr)
+	assert.False(t, fetched, "a failed fetch refreshed nothing")
 	assert.Equal(t, []string{"fetch", "--prune", "--quiet", "origin"},
 		fetchedArgs)
+}
+
+// TestFetchRemoteReportsASuccessfulFetch: a fetch against a configured
+// remote that succeeds reports fetched true, the signal the gather's
+// status summary counts.
+func TestFetchRemoteReportsASuccessfulFetch(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "remote" {
+			return []byte("origin\n"), nil
+		}
+
+		return nil, nil
+	}
+
+	fetched, err := fetchRemote("/repo", "origin", run)
+
+	require.NoError(t, err)
+	assert.True(t, fetched, "a successful fetch reports it refreshed")
 }

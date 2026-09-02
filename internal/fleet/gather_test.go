@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
@@ -54,7 +55,7 @@ func TestGatherCarriesRepoCoordinates(t *testing.T) {
 	root := t.TempDir()
 	repo := repoWithPlan(t, root, "atlas", 7)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	coord, ok := res.Coords["atlas"]
@@ -81,7 +82,7 @@ func TestGatherCarriesTheConfiguredBase(t *testing.T) {
 	gitCmd(t, repo, "add", "-A")
 	gitCmd(t, repo, "commit", "-q", "-m", "pin base")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	coord, ok := res.Coords["atlas"]
@@ -101,7 +102,7 @@ func TestGatherWithholdsAnAmbiguousCoordinate(t *testing.T) {
 	repoWithPlan(t, filepath.Join(root, "a"), "frontend", 7)
 	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	_, ok := res.Coords["frontend"]
@@ -127,7 +128,7 @@ func TestGatherKeepsAUniqueCoordinate(t *testing.T) {
 	repoWithPlan(t, filepath.Join(root, "b"), "frontend", 9)
 	repoWithPlan(t, root, "atlas", 3)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	_, ok := res.Coords["atlas"]
@@ -164,7 +165,7 @@ func TestGatherLeavesAMarkerlessBranchUnheld(t *testing.T) {
 	gitCmd(t, repo, "commit", "-q", "-m", "hand-made branch, no marker")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -185,7 +186,7 @@ func TestGatherReadsAClaimMarkerBeneathLaterWorkAsHeld(t *testing.T) {
 	gitCmd(t, repo, "commit", "-q", "-m", "real work")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -201,7 +202,7 @@ func TestGatherReadsAMarkerOnlyBranchAsHeld(t *testing.T) {
 	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -218,7 +219,7 @@ func TestGatherLeavesAReleasedTipUnheld(t *testing.T) {
 	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: release")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -236,7 +237,7 @@ func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
 		"plan 7: claim shader")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -279,7 +280,7 @@ func TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags(t *testing.T) {
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -294,7 +295,7 @@ func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
 		"plan 7: claim shader")
 	gitCmd(t, repo, "checkout", "-q", "main")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	p := planByID(t, res, 7)
@@ -322,7 +323,7 @@ func TestGatherReportsALocalDefaultBranchLaggingItsFetchedRemote(t *testing.T) {
 	gitCmd(t, repo, "branch", "-D", "tmp-ahead")
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", ahead)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	var found *Problem
@@ -344,7 +345,7 @@ func TestGatherLeavesAnInSyncDefaultBranchProblemless(t *testing.T) {
 	head := gitOut(t, repo, "rev-parse", "HEAD")
 	gitCmd(t, repo, "update-ref", "refs/remotes/origin/main", head)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	for _, p := range res.Problems {
@@ -389,7 +390,7 @@ func TestGatherFetchesBeforeReadingLandedEvidence(t *testing.T) {
 	root := landedPlanWithStaleOrigin(t, "atlas", 7)
 
 	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
-		Options{Fetch: true})
+		Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -404,7 +405,7 @@ func TestGatherWithoutFetchStillReadsHeld(t *testing.T) {
 	root := landedPlanWithStaleOrigin(t, "atlas", 7)
 
 	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
-		Options{})
+		Options{}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.True(t, planByID(t, res, 7).Held,
@@ -421,7 +422,7 @@ func TestGatherFetchSkipsARepositoryWithNoRemoteConfigured(t *testing.T) {
 	repoWithPlan(t, root, "atlas", 7)
 
 	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
-		Options{Fetch: true})
+		Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.False(t, planByID(t, res, 7).Held,
@@ -462,7 +463,7 @@ func TestGatherWithoutFetchIssuesNoFetchSubprocess(t *testing.T) {
 
 	var calls []string
 	_, err := Gather(root, "testhost", recordingRunner(&calls),
-		gitwt.ExecPipe, Options{})
+		gitwt.ExecPipe, Options{}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.NotContains(t, calls, "fetch",
@@ -478,7 +479,7 @@ func TestGatherFetchErrorFallsBackAndNamesStaleness(t *testing.T) {
 	repoWithUnreachableRemote(t, root, "atlas", 7)
 
 	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
-		Options{Fetch: true})
+		Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
@@ -503,7 +504,7 @@ func TestGatherFetchErrorOnALocalOnlyRepoRecordsNoStaleness(t *testing.T) {
 	repoWithPlan(t, root, "atlas", 7)
 
 	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
-		Options{Fetch: true})
+		Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
@@ -521,7 +522,7 @@ func TestGatherLeavesAnUnfetchedDefaultBranchProblemless(t *testing.T) {
 	root := t.TempDir()
 	repoWithPlan(t, root, "atlas", 7)
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{Fetch: true}, DiscardReporter{})
 	require.NoError(t, err)
 
 	for _, p := range res.Problems {
@@ -543,7 +544,7 @@ func TestGatherReportsASkippedRepositoryAsAProblem(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(broken, ".git"),
 		[]byte("gitdir: /nonexistent\n"), 0o600))
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{}, DiscardReporter{})
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(7), planByID(t, res, 7).ID,
@@ -575,7 +576,7 @@ func TestGatherReportsAMislaidPlanAsAProblem(t *testing.T) {
 	gitCmd(t, dir, "add", "-A")
 	gitCmd(t, dir, "commit", "-q", "-m", "mislay a plan")
 
-	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{})
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe, Options{}, DiscardReporter{})
 	require.NoError(t, err)
 
 	var found *Problem
@@ -644,4 +645,73 @@ func TestReleasedRefsLeavesALiveClaimOffTheMap(t *testing.T) {
 	got := ReleasedRefs("/repo", refs, holds, nil, nil, run)
 
 	assert.Empty(t, got, "a live claim is not released")
+}
+
+// recordedRepo is one Repo event a recordingReporter captured.
+type recordedRepo struct {
+	name  string
+	index int
+	total int
+}
+
+// recordingReporter satisfies Reporter by appending every call, so a
+// test can assert the exact sequence Gather emits as it walks.
+type recordingReporter struct {
+	starts []int
+	repos  []recordedRepo
+	dones  []Summary
+}
+
+func (r *recordingReporter) Start(repos int) {
+	r.starts = append(r.starts, repos)
+}
+
+func (r *recordingReporter) Repo(name string, index, total int) {
+	r.repos = append(r.repos, recordedRepo{name, index, total})
+}
+
+func (r *recordingReporter) Done(s Summary) {
+	r.dones = append(r.dones, s)
+}
+
+// TestGatherReportsProgressAndSummary: Gather emits a start naming the
+// walkable repositories, one repo event per repository in walk order,
+// and a single done carrying the same status it returns on the result.
+// A repository git refuses to read is discovered but not read, so the
+// summary shows read short of discovered and counts the problem.
+func TestGatherReportsProgressAndSummary(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "alpha", 7)
+	repoWithPlan(t, root, "zeta", 9)
+
+	broken := filepath.Join(root, "broken")
+	require.NoError(t, os.MkdirAll(broken, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(broken, ".git"),
+		[]byte("gitdir: /nonexistent\n"), 0o600))
+
+	rep := &recordingReporter{}
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, rep)
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{2}, rep.starts,
+		"Start fires once naming the two walkable repositories")
+	assert.Equal(t, []recordedRepo{
+		{"alpha", 1, 2}, {"zeta", 2, 2},
+	}, rep.repos, "one repo event per repository, in walk order")
+
+	require.Len(t, rep.dones, 1, "Done fires exactly once")
+	assert.Equal(t, res.Summary, rep.dones[0],
+		"the summary handed to Done is the one carried on the result")
+
+	assert.Equal(t, 3, res.Summary.Discovered,
+		"both readable repos and the broken one are discovered")
+	assert.Equal(t, 2, res.Summary.Read,
+		"the broken repo is discovered but not read")
+	assert.Equal(t, 0, res.Summary.Fetched,
+		"with fetch off nothing is fetched")
+	assert.Equal(t, 1, res.Summary.Problems,
+		"the broken repo is the one problem, tallied on the summary")
+	assert.GreaterOrEqual(t, res.Summary.Elapsed, time.Duration(0),
+		"the walk reports a non-negative elapsed span")
 }

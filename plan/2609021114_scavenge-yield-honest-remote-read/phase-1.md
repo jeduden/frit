@@ -17,7 +17,7 @@ that failed with a confirmation read that failed too. Its wording
 landed") is specific to a landing push and does not fit a delete, so
 this phase mints a sibling rather than reusing it verbatim. The
 scripted-`gitwt.Runner` pattern in
-`internal/claim/park_test.go` and
+[internal/claim/park_test.go](../../internal/claim/park_test.go) and
 [internal/claim/caspush_test.go](../../internal/claim/caspush_test.go)
 drives `Scavenge` the same way: a chosen delete-push error, a chosen
 `ls-remote` read answer.

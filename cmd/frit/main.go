@@ -1203,7 +1203,8 @@ func gatherFleet(c *cli, rt *runtime) (fleet.Result, error) {
 }
 
 func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, error) {
-	res, err := fleet.Gather(c.Root, hostname(), rt.git, rt.gitPipe, opts)
+	res, err := fleet.Gather(
+		c.Root, hostname(), rt.git, rt.gitPipe, opts, progressFor(c, rt))
 	if err != nil {
 		return res, err
 	}

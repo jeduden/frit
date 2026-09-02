@@ -68,6 +68,11 @@ type Result struct {
 	Plans    []discovery.Plan
 	Problems []Problem
 	Coords   map[string]Coord
+	// Summary is the status of the walk that produced this result: how
+	// many repositories were discovered, read and fetched, and how long
+	// it took. Gather always fills it, so a caller cannot hold a
+	// gathered fleet without knowing how much of the fleet it reflects.
+	Summary Summary
 }
 
 // Options tunes how Gather reads a repository.
@@ -88,8 +93,10 @@ type Options struct {
 // it. One unreadable repository is recorded and stepped over; a bad
 // front matter file within a good repository is recorded too.
 func Gather(
-	root, host string, run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
+	root, host string, run gitwt.Runner, pipe gitwt.PipeRunner,
+	opts Options, rep Reporter,
 ) (Result, error) {
+	start := time.Now()
 	repos, skipped, err := discover.Repos(root, run)
 	if err != nil {
 		return Result{}, err
@@ -107,14 +114,22 @@ func Gather(
 				"could not read repository at %s: %w", s.Dir, s.Err),
 		})
 	}
+
+	rep.Start(len(repos))
+	var read, fetched int
 	ambiguous := map[string]bool{}
-	for _, repo := range repos {
-		entries, held, leaseTips, coord, problems, err := gatherRepo(
+	for i, repo := range repos {
+		rep.Repo(repo.Name, i+1, len(repos))
+		entries, held, leaseTips, coord, problems, didFetch, err := gatherRepo(
 			host, repo, run, pipe, opts)
 		if err != nil {
 			res.Problems = append(res.Problems,
 				Problem{Repo: repo.Name, Err: err})
 			continue
+		}
+		read++
+		if didFetch {
+			fetched++
 		}
 		res.Problems = append(res.Problems, problems...)
 		recordCoord(&res, ambiguous, repo.Name, coord)
@@ -123,6 +138,15 @@ func Gather(
 				planOf(repo.Name, e, held, leaseTips))
 		}
 	}
+
+	res.Summary = Summary{
+		Discovered: len(repos) + len(skipped),
+		Read:       read,
+		Fetched:    fetched,
+		Problems:   len(res.Problems),
+		Elapsed:    time.Since(start),
+	}
+	rep.Done(res.Summary)
 
 	return res, nil
 }
@@ -189,21 +213,22 @@ func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
 ) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
-	[]Problem, error,
+	[]Problem, bool, error,
 ) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, false, err
 	}
 
+	var fetched bool
 	var fetchErr error
 	if opts.Fetch {
-		fetchErr = fetchRemote(repo.Path, cfg.Remote, run)
+		fetched, fetchErr = fetchRemote(repo.Path, cfg.Remote, run)
 	}
 
 	files, mislaid, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, false, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
@@ -212,7 +237,7 @@ func gatherRepo(
 
 	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, false, err
 	}
 	if p := staleFetch(repo, cfg.Remote, fetchErr, refs); p != nil {
 		problems = append(problems, *p)
@@ -224,11 +249,11 @@ func gatherRepo(
 	held, leaseTips, err := heldBranches(
 		repo, cfg, preferred, refs, index.LandedIDs(entries, preferred), run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, err
+		return nil, nil, nil, Coord{}, nil, false, err
 	}
 
 	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
-		problems, nil
+		problems, fetched, nil
 }
 
 // fetchRemote refreshes remote's tracking refs so Gather reads landed
@@ -244,18 +269,18 @@ func gatherRepo(
 // `remote get-url <remote>` cannot tell "not configured" from "the
 // probe itself failed" by error alone, and folding the two together
 // silently skips a fetch that staleFetch should have named instead.
-func fetchRemote(dir, remote string, run gitwt.Runner) error {
+func fetchRemote(dir, remote string, run gitwt.Runner) (bool, error) {
 	names, err := run(dir, "remote")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !hasRemoteName(string(names), remote) {
-		return nil
+		return false, nil
 	}
 
 	_, err = run(dir, "fetch", "--prune", "--quiet", remote)
 
-	return err
+	return err == nil, err
 }
 
 // hasRemoteName reports whether out — `git remote`'s one-name-per-line

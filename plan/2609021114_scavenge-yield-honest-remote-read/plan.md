@@ -53,7 +53,7 @@ introduced, and again when plan 2609012210 swept `park`.
 changes. The scripted-`gitwt.Runner` test pattern, established in
 [internal/claim/caspush_test.go](../../internal/claim/caspush_test.go)
 and reused by plan 2609012210 in
-`internal/claim/park_test.go`,
+[internal/claim/park_test.go](../../internal/claim/park_test.go),
 drives both new tests. `UnconfirmedPushError`'s shape (a `PlanID`,
 wrapped `Err`, and an `Unwrap`) is the template each new error type
 follows. Neither is reused verbatim, though: its wording ("push
