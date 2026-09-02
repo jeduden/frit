@@ -33,15 +33,22 @@ jobs:
       - name: Show the git version under test
         run: git --version
       # One profile from every test — the unit tests and the godog
-      # scenarios alike. -coverpkg=./... attributes a hit to the package
-      # whose code ran, not the package whose test ran: the BDD steps
-      # live in cmd/frit but exercise internal/claim, and without it
-      # that coverage would be counted against the wrong package or
-      # not at all.
+      # scenarios alike. Without -coverpkg=./... a test only instruments
+      # its own package, so the BDD steps in cmd/frit that exercise
+      # internal/claim would count for nothing there; with it, a hit is
+      # attributed to the package whose code ran.
       - run: go test ./... -coverpkg=./... -coverprofile=cover.out
+      # The profile is a measurement, not a gate, and is most wanted
+      # from a run that failed — so the summary and the upload run on
+      # any outcome short of a cancel. The explicit shell adds pipefail:
+      # a bare `run:` is `bash -e`, under which a failing `go tool
+      # cover` is hidden behind tail's exit status.
       - name: Summarise coverage
+        if: ${{ !cancelled() }}
+        shell: bash
         run: go tool cover -func=cover.out | tail -1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
         with:
           name: coverage
           path: cover.out
