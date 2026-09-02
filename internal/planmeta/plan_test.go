@@ -3,6 +3,9 @@ package planmeta
 import (
 	"testing"
 
+	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	extast "github.com/jeduden/mdsmith/pkg/goldmark/extension/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/text"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -474,4 +477,61 @@ func TestIsProtoRecognisesTheTemplateByName(t *testing.T) {
 	assert.True(t, IsProto("proto.md"))
 	assert.False(t, IsProto("plan/2608142306_fleet-index.md"))
 	assert.False(t, IsProto("plan/prototype-notes.md"))
+}
+
+// TestTablesReadsEveryTableWithItsRowsAndLines: tables come back in
+// document order, header and rows as prose with the source line each
+// row sits on; a pipe row quoted in a fenced code block is not a
+// table, and emphasis around a cell reads as the cell's text.
+func TestTablesReadsEveryTableWithItsRowsAndLines(t *testing.T) {
+	src := "# T\n\n" +
+		"| #  | Scenario |\n" +
+		"| -- | -------- |\n" +
+		"| S1 | **one**  |\n" +
+		"| S2 | two      |\n" +
+		"\n```\n| S9 | fenced |\n```\n\n" +
+		"| Key | Value |\n" +
+		"| --- | ----- |\n" +
+		"| k   | v     |\n"
+
+	got := Tables([]byte(src))
+	require.Len(t, got, 2)
+	assert.Equal(t, []string{"#", "Scenario"}, got[0].Header)
+	assert.Equal(t, []TableRow{
+		{Line: 5, Cells: []string{"S1", "one"}},
+		{Line: 6, Cells: []string{"S2", "two"}},
+	}, got[0].Rows)
+	assert.Equal(t, []string{"Key", "Value"}, got[1].Header)
+	assert.Equal(t, []TableRow{{Line: 14, Cells: []string{"k", "v"}}}, got[1].Rows)
+}
+
+// TestTablesGivesATextlessRowThePositionItSitsAt: a row whose every
+// cell is empty has no text segment to place it by, so its line is
+// counted down from the header past the delimiter row.
+func TestTablesGivesATextlessRowThePositionItSitsAt(t *testing.T) {
+	src := "| a | b |\n| - | - |\n|   |   |\n| x |   |\n"
+
+	got := Tables([]byte(src))
+	require.Len(t, got, 1)
+	assert.Equal(t, []TableRow{
+		{Line: 3, Cells: []string{"", ""}},
+		{Line: 4, Cells: []string{"x", ""}},
+	}, got[0].Rows)
+}
+
+// TestTablesReportsNothingForProse: a body without a table yields no
+// tables, not an empty one.
+func TestTablesReportsNothingForProse(t *testing.T) {
+	assert.Empty(t, Tables([]byte("# T\n\nJust prose with a | pipe.\n")))
+}
+
+// TestFirstLineIsZeroForANodeWithoutText pins the fallback readTable
+// leans on: a cell with no text has no line of its own.
+func TestFirstLineIsZeroForANodeWithoutText(t *testing.T) {
+	body := []byte("x\n\ny")
+	assert.Equal(t, 0, firstLine(extast.NewTableCell(), body))
+
+	cell := extast.NewTableCell()
+	cell.AppendChild(cell, ast.NewTextSegment(text.NewSegment(3, 4)))
+	assert.Equal(t, 3, firstLine(cell, body), "the segment's offset places it")
 }

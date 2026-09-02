@@ -546,12 +546,97 @@ func collectExecutionRows(
 
 // cellTexts reads a table row's cells as prose, in column order.
 func cellTexts(row *extast.TableRow, body []byte) []string {
+	return cellsOf(row, body)
+}
+
+// cellsOf reads the cells under any table row node — a header or a
+// data row — as prose, in column order.
+func cellsOf(row ast.Node, body []byte) []string {
 	var out []string
 	for c := row.FirstChild(); c != nil; c = c.NextSibling() {
 		out = append(out, strings.TrimSpace(inlineText(c, body)))
 	}
 
 	return out
+}
+
+// Table is one GFM table read off a markdown body: its header cells
+// and its data rows as prose, in column order.
+type Table struct {
+	Header []string
+	Rows   []TableRow
+}
+
+// TableRow is one data row of a Table, with the source line it sits on.
+type TableRow struct {
+	Line  int
+	Cells []string
+}
+
+// Tables reads every GFM table in body, in document order, through the
+// same parser seam executionTable uses — so a pipe row quoted inside a
+// fenced code block is not a table, an escaped `\|` stays inside its
+// cell, and emphasis around a cell reads as the cell's text — rather
+// than by splitting lines on "|". It is the one table reader for any
+// document frit keeps a gate over.
+func Tables(body []byte) []Table {
+	p, reset := flavor.NewPooledParserWith(extension.Table)
+	defer reset()
+	root := p.Parse(text.NewReader(body))
+
+	var out []Table
+	_ = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		tbl, ok := n.(*extast.Table)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
+		}
+		out = append(out, readTable(tbl, body))
+
+		return ast.WalkSkipChildren, nil
+	})
+
+	return out
+}
+
+// readTable collects a table's header and data rows. A row's line comes
+// from its first text segment; a row with no text in any cell takes the
+// line its position implies, since a GFM table is one source line per
+// row with the delimiter row between header and data.
+func readTable(tbl *extast.Table, body []byte) Table {
+	var out Table
+	headerLine := 0
+	for n := tbl.FirstChild(); n != nil; n = n.NextSibling() {
+		switch row := n.(type) {
+		case *extast.TableHeader:
+			out.Header = cellsOf(row, body)
+			headerLine = firstLine(row, body)
+		case *extast.TableRow:
+			line := firstLine(row, body)
+			if line == 0 {
+				line = headerLine + 2 + len(out.Rows)
+			}
+			out.Rows = append(out.Rows, TableRow{Line: line, Cells: cellsOf(row, body)})
+		}
+	}
+
+	return out
+}
+
+// firstLine is the 1-based source line of the first text under n, or 0
+// when n carries no text at all.
+func firstLine(n ast.Node, body []byte) int {
+	line := 0
+	_ = ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
+		t, ok := c.(*ast.Text)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
+		}
+		line = 1 + bytes.Count(body[:t.Segment.Start], []byte{'\n'})
+
+		return ast.WalkStop, nil
+	})
+
+	return line
 }
 
 // tierRank orders the model tiers by how demanding they are, so
