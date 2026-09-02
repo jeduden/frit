@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The verb-level rows S3, S4, S5 and S6 run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the four process-death rows that live above the lease API —
