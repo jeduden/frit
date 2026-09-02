@@ -1,7 +1,7 @@
 ---
 id: 2609021310
 title: The process-death scenarios run under godog
-status: "🔳"
+status: "✅"
 summary: >-
   The lease-protocol matrix's "Process death, at every lifecycle step"
   section, S1..S13, is declared in features/process-death.feature but
@@ -96,10 +96,11 @@ made here.
 
 ## Execution
 
-| Phase | Title                                                 | Tier   | Gate                                                                                                                                                                  |
-| ----- | ----------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | The five lease-API rows of process death run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(1\|2\|7\|10\|11)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean             |
-| 2     | The verb-level rows S3, S4, S5 and S6 run for real    | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(1\|2\|3\|4\|5\|6\|7\|10\|11):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| Phase | Title                                                         | Tier   | Gate                                                                                                                                                                  |
+| ----- | ------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | The five lease-API rows of process death run for real         | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(1\|2\|7\|10\|11)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean             |
+| 2     | The verb-level rows S3, S4, S5 and S6 run for real            | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(1\|2\|3\|4\|5\|6\|7\|10\|11):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| 3     | The scavenge and unwind rows S8, S9, S12 and S13 run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S'` reports S1..S13 all PASS, none SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean               |
 
 ## Phases
 
@@ -128,18 +129,20 @@ footer: |
 |     | ↳      | S1, S2, S7, S10 and S11 drop `@pending` and run as real scenarios in the new `cmd/frit/bdd_process_death_test.go`: a claim killed before any local write leaves origin untouched and a retry acquires clean at epoch 1; one killed after the local write but before the push is refused on its own retry as a local-diverges branch while a second machine claims fresh; `resetWindow` restarts an observer's matured window fresh, one sample, on the tip a takeover actually moved to; a takeover started after the holder pushed a phase commit is a child of that pushed tip and carries the work; one started after the holder only committed locally is a child of the last tip that reached origin, and the local-only commit is reachable from nowhere on origin. The file registers itself the way `bdd_lease_test.go` does, reuses "holds the lease for plan", "commits work on the lane it never pushes" and "takes the lease over" as-is, and keeps its own state in a `deathState` reached through `section[T]` rather than a field on `world`. |
 | 2   | ✅     | [The verb-level rows S3, S4, S5 and S6 run for real](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 |     | ↳      | S3, S4, S5 and S6 drop `@pending` and run as real scenarios, this time driving `cmd/frit`'s own `claim` and `board` verbs through `run` and `--json` rather than the raw lease API: a lane that already persisted a token from a prior renewal resumes on retry, no window read; a claim killed before its worktree ever stood up is refused on an immediate retry — not resumed, since no token was ever persisted anywhere — and only becomes takeable once the window matures; `board` shows a held plan with no agent when nobody is on it; a matured hold whose bound session herdr positively confirms empty is taken over, the veto's own query path finding nothing to protect rather than never running at all. Each `Then` reads `report.ClaimDoc`'s `Claimed`/`Resumed`/`Refused` or `report.BoardDoc`'s per-plan `Held`/`Agent`, decoded by `emit`'s own pattern, and the takeover claim also confirms the minted tip's marker actually says `takeover`, not merely that the run reported success.                                               |
+| 3   | ✅     | [The scavenge and unwind rows S8, S9, S12 and S13 run for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|     | ↳      | S8, S9, S12 and S13 drop `@pending` and run as real scenarios, driving `internal/claim`'s exported API directly the way phase 1's S7 drove `resetWindow`: a released lease leaves a release marker on origin and deletes nothing (S8); a scavenge over pushed unlanded work parks it to a rescue ref that carries the tip before deleting, so the work is never lost (S9); a scavenge over work that has since squash-landed on origin's default branch parks nothing and still deletes the ref, with no window seeded (S12); and a plan marked done on its own branch, origin's default branch untouched, still reads unlanded, because `claim.WorkLanded` judges against `origin/main` alone (S13). The whole process-death section now runs: `go test ./cmd/frit -run TestFeatures/S` reports S1..S13 all PASS, none SKIP, and no `@pending` remains in `features/process-death.feature`.                                                                                                                                                                 |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/process-death.feature` carries
+- [x] No scenario in `features/process-death.feature` carries
       `@pending`; `go test ./cmd/frit -run TestFeatures/S` reports
       S1..S13 as PASS, none as SKIP
-- [ ] Every step is bound in `cmd/frit/bdd_process_death_test.go` or
+- [x] Every step is bound in `cmd/frit/bdd_process_death_test.go` or
       reused from `bdd_lease_test.go`; `bdd_test.go` is untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a marker — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

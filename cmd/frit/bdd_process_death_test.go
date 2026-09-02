@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -48,6 +49,14 @@ type deathState struct {
 	lastClaimant string
 	lastClaimDoc report.ClaimDoc
 	boardDoc     report.BoardDoc
+	// phase 3, the scavenge-and-unwind rows: the marker a release left,
+	// what a scavenge parked and deleted, and the landed read a status
+	// flip on the branch does not sway.
+	releasedTip  string
+	scavenged    claim.Scavenged
+	landedTip    string
+	landedRead   bool
+	landedResult bool
 }
 
 func (w *world) registerProcessDeath(sc *godog.ScenarioContext) {
@@ -83,6 +92,19 @@ func (w *world) registerProcessDeath(sc *godog.ScenarioContext) {
 	sc.Step(`^board shows plan (\d+) held with no session$`, w.boardShowsPlanHeldWithNoSession)
 	sc.Step(`^"([^"]+)" holds the lease for plan (\d+) with a session bound$`, w.holdsTheLeaseWithASessionBound)
 	sc.Step(`^herdr confirms no live agent on that session$`, w.herdrConfirmsNoLiveAgentOnThatSession)
+	sc.Step(`^"([^"]+)"'s handoff unwinds and releases the lease$`, w.handoffUnwindsAndReleasesTheLease)
+	sc.Step(`^origin still carries the work ref for plan (\d+)$`, w.originStillCarriesTheWorkRef)
+	sc.Step(`^the work ref's tip is a release marker$`, w.theWorkRefsTipIsAReleaseMarker)
+	sc.Step(`^the ref is scavenged$`, w.theRefIsScavenged)
+	sc.Step(`^the pushed work is parked to a rescue ref, not lost$`, w.thePushedWorkIsParkedToARescueRef)
+	sc.Step(`^the work ref is deleted from origin$`, w.theWorkRefIsDeletedFromOrigin)
+	sc.Step(`^that work is squash-landed on origin's default branch$`, w.thatWorkIsSquashLandedOnDefaultBranch)
+	sc.Step(`^nothing is parked, because the work already landed$`, w.nothingIsParkedBecauseTheWorkLanded)
+	sc.Step(`^plan (\d+) is marked done on the branch, but origin's default branch is untouched$`,
+		w.planIsMarkedDoneOnTheBranchOnly)
+	sc.Step(`^the landed evidence for plan (\d+) is read$`, w.theLandedEvidenceForPlanIsRead)
+	sc.Step(`^the work reads as unlanded, because evidence is origin's default branch only$`,
+		w.theWorkReadsAsUnlanded)
 }
 
 // hasAClaimablePlan sets up a startable plan, held by nobody — the
@@ -697,6 +719,251 @@ func (w *world) boardShowsPlanHeldWithNoSession(planID int) error {
 	return fmt.Errorf("plan %d has no row on the board", planID)
 }
 
+// handoffUnwindsAndReleasesTheLease runs the release a failed handoff
+// runs (releaseLease in start.go), pushing a release marker child of
+// the held tip. It deletes nothing — the whole of S8: an unwind has
+// no delete to fail.
+func (w *world) handoffUnwindsAndReleasesTheLease(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q holds no lease to unwind; %q does", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	lease, err := claim.Release(repo, leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	section[deathState](w).releasedTip = lease.Tip
+
+	return nil
+}
+
+// originStillCarriesTheWorkRef reads origin directly and refuses an
+// absent ref: an unwind that deleted the hold is exactly the failure
+// S8 says cannot happen.
+func (w *world) originStillCarriesTheWorkRef(planID int) error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	if got := claim.RemoteTip(repo, "origin", int64(planID), gitwt.Exec); got == "" {
+		return fmt.Errorf("origin carries no work ref for plan %d; an unwind must not delete it", planID)
+	}
+
+	return nil
+}
+
+// theWorkRefsTipIsAReleaseMarker checks the tip a release left both
+// reads as a release marker and is the tip origin now holds — the
+// marker landed, and nothing else moved the ref past it.
+func (w *world) theWorkRefsTipIsAReleaseMarker() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	released := section[deathState](w).releasedTip
+	if released == "" {
+		return fmt.Errorf("no release ran; the unwind step comes first")
+	}
+	if !claim.Released(repo, released, int64(w.planID), gitwt.Exec) {
+		return fmt.Errorf("the tip %s is not a release marker for plan %d", released, w.planID)
+	}
+	if got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec); got != released {
+		return fmt.Errorf("origin holds %s, want the release marker %s", got, released)
+	}
+
+	return nil
+}
+
+// theRefIsScavenged scavenges the plan's work ref from whatever tip
+// origin holds right now — the teardown a landed or abandoned lease
+// gets. The Scavenged result is kept for the Then steps to read what
+// was parked and what was deleted.
+func (w *world) theRefIsScavenged() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	from := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
+	if from == "" {
+		return fmt.Errorf("origin carries no work ref for plan %d to scavenge", w.planID)
+	}
+	sc, err := claim.Scavenge(repo, leaseFor(w.holder, w.planID), from, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	section[deathState](w).scavenged = sc
+
+	return nil
+}
+
+// thePushedWorkIsParkedToARescueRef checks the scavenge parked the
+// pushed tip to a rescue ref before deleting — the promise that a
+// teardown never destroys unlanded work (S9). The rescue ref on
+// origin is read directly and must carry the exact tip.
+func (w *world) thePushedWorkIsParkedToARescueRef() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[deathState](w)
+	pushedTip := ds.pushedTip
+	if pushedTip == "" {
+		return fmt.Errorf("%q pushed no work; the push step comes first", w.holder)
+	}
+	if ds.scavenged.Rescue == "" {
+		return fmt.Errorf("scavenge parked nothing; the pushed work %s would be lost", pushedTip)
+	}
+	line, err := gitCapture(w.t, repo, "ls-remote", "origin", ds.scavenged.Rescue)
+	if err != nil {
+		return fmt.Errorf("%s: %w", line, err)
+	}
+	if !strings.Contains(line, pushedTip) {
+		return fmt.Errorf("the rescue ref %s does not carry the pushed work %s: %q",
+			ds.scavenged.Rescue, pushedTip, line)
+	}
+
+	return nil
+}
+
+// theWorkRefIsDeletedFromOrigin checks the scavenge removed the work
+// ref — the delete that follows the park, shared by S9 and S12.
+func (w *world) theWorkRefIsDeletedFromOrigin() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	if got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec); got != "" {
+		return fmt.Errorf("origin still carries %s; the ref was not deleted", got)
+	}
+
+	return nil
+}
+
+// thatWorkIsSquashLandedOnDefaultBranch brings the branch's own work
+// file onto origin's default branch as a fresh commit — the squash-
+// merge shape, where the content lands but ancestry never sees the
+// lane's commits as merged. Copying the file straight off the branch
+// keeps the landed content identical to whatever the push step wrote,
+// so the content-landed check reads a true no-op.
+func (w *world) thatWorkIsSquashLandedOnDefaultBranch() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	branch := claim.Branch(int64(w.planID))
+	git(w.t, repo, "checkout", "-q", "main")
+	git(w.t, repo, "checkout", "-q", branch, "--", "w.txt")
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m", fmt.Sprintf("squash-merge plan %d", w.planID))
+	if out, err := gitCapture(w.t, repo, "push", "-q", "origin", "main"); err != nil {
+		return fmt.Errorf("push squash to main: %s: %w", out, err)
+	}
+
+	return nil
+}
+
+// nothingIsParkedBecauseTheWorkLanded checks the scavenge parked
+// nothing — the content already landed, so there is nothing a delete
+// would destroy. It reads the rescue refs on origin directly, not
+// only the returned struct: a park under a name the struct failed to
+// report would otherwise slip past.
+func (w *world) nothingIsParkedBecauseTheWorkLanded() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	if rescue := section[deathState](w).scavenged.Rescue; rescue != "" {
+		return fmt.Errorf("scavenge parked %s, but the work already landed", rescue)
+	}
+	if refs := claim.RescueRefs(repo, "origin", int64(w.planID), gitwt.Exec); len(refs) != 0 {
+		return fmt.Errorf("origin carries rescue refs %v, want none for landed work", refs)
+	}
+
+	return nil
+}
+
+// planIsMarkedDoneOnTheBranchOnly flips the plan file's status to done
+// on the hold branch and pushes it there, leaving origin's default
+// branch exactly as it was. It is the "looks finished, but only on
+// the branch" state S13 turns on; the branch tip it advances to is
+// kept for the landed read.
+func (w *world) planIsMarkedDoneOnTheBranchOnly(planID int) error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	branch := claim.Branch(int64(planID))
+	git(w.t, repo, "checkout", "-q", branch)
+	matches, err := filepath.Glob(filepath.Join(repo, "plan", fmt.Sprintf("%d_*.md", planID)))
+	if err != nil {
+		return err
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("no plan file for plan %d on the branch", planID)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		return err
+	}
+	flipped := strings.Replace(string(body), `status: "🔲"`, `status: "✅"`, 1)
+	if flipped == string(body) {
+		return fmt.Errorf("plan %d's file carried no 🔲 status to flip", planID)
+	}
+	if err := os.WriteFile(matches[0], []byte(flipped), 0o600); err != nil {
+		return err
+	}
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d: mark done", planID))
+	if out, err := gitCapture(w.t, repo, "push", "-q", "origin", branch); err != nil {
+		return fmt.Errorf("push branch status flip: %s: %w", out, err)
+	}
+	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+	section[deathState](w).landedTip = tip
+
+	return nil
+}
+
+// theLandedEvidenceForPlanIsRead asks the landed check the same
+// question a teardown asks — is this tip's work already on origin's
+// default branch — with the base pinned to origin/main, never a local
+// view. The answer is kept for the Then step.
+func (w *world) theLandedEvidenceForPlanIsRead(planID int) error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[deathState](w)
+	if ds.landedTip == "" {
+		return fmt.Errorf("no branch tip to read; the mark-done step comes first")
+	}
+	ds.landedRead = true
+	ds.landedResult = claim.WorkLanded(repo, int64(planID), "origin/main", ds.landedTip, gitwt.Exec)
+
+	return nil
+}
+
+// theWorkReadsAsUnlanded checks the landed read came back false: a
+// status flipped on the branch is not evidence, because evidence is
+// origin's default branch alone.
+func (w *world) theWorkReadsAsUnlanded() error {
+	ds := section[deathState](w)
+	if !ds.landedRead {
+		return fmt.Errorf("no landed read ran; the read step comes first")
+	}
+	if ds.landedResult {
+		return fmt.Errorf("the work read as landed; a status flip on the branch is not evidence")
+	}
+
+	return nil
+}
+
 // TestProcessDeathStepsRefuseAMachineTheyNeverMet: every quoted role
 // this section's steps read is checked against the world, the same
 // guard bdd_lease_test.go's own steps carry, so a scenario cannot
@@ -716,6 +983,7 @@ func TestProcessDeathStepsRefuseAMachineTheyNeverMet(t *testing.T) {
 	require.Error(t, w.localWorkInNoOriginHistory("ghost"))
 	require.Error(t, w.takeoverIsChildOfTheReachedTip("ghost"))
 	require.Error(t, w.takesOverTheCurrentLease("box-a"), "the holder cannot take over from itself")
+	require.Error(t, w.handoffUnwindsAndReleasesTheLease("ghost"), "only the holder unwinds")
 }
 
 // TestWinsTheLeaseAtEpoch1ReadsTheRecordedClaim: the step reads back
@@ -877,4 +1145,75 @@ func TestCloneRepoIntoRootIsolatesASecondMachinesRoot(t *testing.T) {
 	b, err := gitCapture(t, dst, "config", "--get", "remote.origin.url")
 	require.NoError(t, err)
 	assert.Equal(t, a, b, "both clones share the same origin")
+}
+
+// TestReleaseAndScavengeThenStepsRefuseTheirMissingPrecondition: each
+// scavenge-and-unwind Then reads back what its own earlier When
+// recorded — a release marker, a parked tip, a landed read — and
+// refuses when that step never ran, rather than passing on the zero
+// value.
+func TestReleaseAndScavengeThenStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+	w.clones["box-a"] = t.TempDir()
+
+	err := w.theWorkRefsTipIsAReleaseMarker()
+	require.Error(t, err, "no release ran")
+	assert.Contains(t, err.Error(), "no release ran")
+
+	err = w.thePushedWorkIsParkedToARescueRef()
+	require.Error(t, err, "nothing was pushed")
+	assert.Contains(t, err.Error(), "pushed no work")
+
+	err = w.theLandedEvidenceForPlanIsRead(7)
+	require.Error(t, err, "no branch tip recorded")
+	assert.Contains(t, err.Error(), "mark-done step comes first")
+
+	err = w.theWorkReadsAsUnlanded()
+	require.Error(t, err, "no read ran")
+	assert.Contains(t, err.Error(), "read step comes first")
+}
+
+// TestPushedWorkParkedRefusesWhenScavengeParkedNothing: the pushed tip
+// was recorded, but the scavenge parked nothing — a delete that lost
+// the work rather than rescuing it, exactly the failure S9 rules out.
+func TestPushedWorkParkedRefusesWhenScavengeParkedNothing(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+	w.clones["box-a"] = t.TempDir()
+	section[deathState](w).pushedTip = "deadbeef"
+
+	err := w.thePushedWorkIsParkedToARescueRef()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parked nothing")
+}
+
+// TestWorkReadsAsUnlandedWantsAFalseRead: a read that came back true —
+// the work really was on origin's default branch — is the opposite of
+// what S13 promises, and the step must refuse it.
+func TestWorkReadsAsUnlandedWantsAFalseRead(t *testing.T) {
+	w := newWorld(t)
+	ds := section[deathState](w)
+
+	ds.landedRead, ds.landedResult = true, true
+	require.Error(t, w.theWorkReadsAsUnlanded(), "a landed read is not this row's promise")
+
+	ds.landedResult = false
+	assert.NoError(t, w.theWorkReadsAsUnlanded())
+}
+
+// TestNothingParkedRefusesAReportedRescue: the scavenge reported a
+// rescue ref, so work was parked — not the clean landed delete S12
+// promises.
+func TestNothingParkedRefusesAReportedRescue(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+	w.clones["box-a"] = t.TempDir()
+	section[deathState](w).scavenged = claim.Scavenged{Rescue: "refs/frit/rescue/7/box-a-deadbeef"}
+
+	err := w.nothingIsParkedBecauseTheWorkLanded()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parked")
 }
