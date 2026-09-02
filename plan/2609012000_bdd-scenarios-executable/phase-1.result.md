@@ -49,8 +49,8 @@ Feature files are split per matrix section (`features/process-death
 work one file. A declared-but-unwritten scenario carries `@pending`
 beside its id and no steps; `TestFeatures` skips it, so `go test -v`
 shows it as SKIP rather than a pass, and runs every other scenario as
-its own subtest — `go test ./cmd/frit -run TestFeatures/S16` picks one
-out. Converting a scenario means dropping `@pending`, writing its
+its own subtest — `go test ./cmd/frit -run 'TestFeatures/^S16:'` picks
+one out. Converting a scenario means dropping `@pending`, writing its
 Given/When/Then, and binding the step functions in the section's own
 `cmd/frit/bdd_<section>_test.go`, appended to the step registry from
 `init` as `bdd_lease_test.go` is — a section adds a file, never a line

@@ -69,7 +69,9 @@ row, or a malformed or duplicate id on either side fails
 `go test ./...`.
 
 - `go test ./cmd/frit -run TestFeatures` — every scenario, pending ones skipped
-- `go test ./cmd/frit -run TestFeatures/S16` — one scenario, by its id
+- `go test ./cmd/frit -run 'TestFeatures/^S16:'` — one scenario, by its
+  id; the anchor and colon matter, since a bare `S1` also matches S10
+  to S19
 - `go test ./internal/scenario` — the matrix/features gate alone
 
 To add a scenario, add its row to the matrix and a tagged scenario to
