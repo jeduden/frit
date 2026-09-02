@@ -33,6 +33,49 @@ func TestFeatureTagIDsCollectsEveryScenarioGodogWouldRun(t *testing.T) {
 	assert.Equal(t, map[string]bool{"S1": true, "S2": true, "S3": true, "S4": true}, ids)
 }
 
+// TestFeatureTagIDsCountsAnOutlineOnce: a Scenario Outline compiles to
+// one pickle per Examples row, every one carrying the outline's tag;
+// they are one scenario, so its id is recorded once rather than
+// reported as repeated.
+func TestFeatureTagIDsCountsAnOutlineOnce(t *testing.T) {
+	dir := t.TempDir()
+	writeFeature(t, dir, "a.feature", "Feature: a\n\n  @S1\n  Scenario Outline: one\n    Given <x>\n\n"+
+		"    Examples:\n      | x |\n      | p |\n      | q |\n")
+
+	ids, err := FeatureTagIDs(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"S1": true}, ids)
+}
+
+// TestScenariosListsEachScenarioOnceWithItsPlace: the runner's view —
+// every scenario under dir in file order, placed by file and line,
+// its id and whether it is pending, an outline listed once.
+func TestScenariosListsEachScenarioOnceWithItsPlace(t *testing.T) {
+	dir := t.TempDir()
+	writeFeature(t, dir, "a.feature", "Feature: a\n\n  @S1 @pending\n  Scenario: one\n\n"+
+		"  @S2\n  Scenario Outline: two\n    Given <x>\n\n    Examples:\n      | x |\n      | p |\n      | q |\n")
+
+	got, err := Scenarios(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []Scenario{
+		{Path: filepath.Join(dir, "a.feature"), Line: 4, Name: "one", ID: "S1", Pending: true},
+		{Path: filepath.Join(dir, "a.feature"), Line: 7, Name: "two", ID: "S2"},
+	}, got)
+}
+
+// TestScenariosFailsOnAScenarioWithoutAnID: the runner and the gate
+// read scenarios through the same walk, so a scenario with no id is an
+// error naming its place rather than a scenario with an empty one.
+func TestScenariosFailsOnAScenarioWithoutAnID(t *testing.T) {
+	dir := t.TempDir()
+	writeFeature(t, dir, "a.feature", "Feature: a\n\n  Scenario: untagged\n    Given a\n")
+
+	_, err := Scenarios(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a.feature:3:")
+	assert.Contains(t, err.Error(), "want exactly one")
+}
+
 // TestFeatureTagIDsFailsOnATagRepeatedAcrossScenarios: two scenarios
 // tagged for the same id would both count as that row's coverage, so
 // the repeat is reported with the second scenario's line.
@@ -108,30 +151,42 @@ func TestFeatureTagIDsIgnoresAnEmptyDirectory(t *testing.T) {
 	assert.Empty(t, ids)
 }
 
-// TestScenarioIDsListsOnlyCleanSTags: "@S16" names an id, while
-// "@pending", "@S016" and "@s16" do not.
-func TestScenarioIDsListsOnlyCleanSTags(t *testing.T) {
-	tags := []*messages.PickleTag{
-		{Name: "@pending"}, {Name: "@S16"}, {Name: "@S016"}, {Name: "@s16"}, {Name: "@S2"},
+// TestScenarioOfReadsTheOneIDAndWhetherPending: "@S16" names the id
+// and "@pending" marks the scenario unwritten, while "@S016" and
+// "@s16" name nothing; two ids, or none, is not exactly one.
+func TestScenarioOfReadsTheOneIDAndWhetherPending(t *testing.T) {
+	tagged := func(names ...string) *messages.Pickle {
+		p := &messages.Pickle{Name: "one"}
+		for _, name := range names {
+			p.Tags = append(p.Tags, &messages.PickleTag{Name: name})
+		}
+
+		return p
 	}
-	assert.Equal(t, []string{"S16", "S2"}, scenarioIDs(tags))
-}
 
-// TestRecordIDKeepsOneIDPerScenario pins the three outcomes: one id is
-// recorded, a second sighting of it is a repeat, and none or several
-// is not exactly one.
-func TestRecordIDKeepsOneIDPerScenario(t *testing.T) {
-	ids := map[string]bool{}
-	require.NoError(t, recordID("a.feature", 4, "one", []string{"S1"}, ids))
-	assert.Equal(t, map[string]bool{"S1": true}, ids)
+	got, err := scenarioOf("a.feature", 4, tagged("@pending", "@S16", "@S016", "@s16"))
+	require.NoError(t, err)
+	assert.Equal(t, Scenario{Path: "a.feature", Line: 4, Name: "one", ID: "S16", Pending: true}, got)
 
-	err := recordID("a.feature", 9, "dup", []string{"S1"}, ids)
+	_, err = scenarioOf("a.feature", 9, tagged("@S1", "@S2"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "a.feature:9: tag \"@S1\" repeated")
+	assert.Contains(t, err.Error(), "a.feature:9: scenario \"one\" carries 2 S tags")
 
-	err = recordID("a.feature", 12, "none", nil, ids)
+	_, err = scenarioOf("a.feature", 12, tagged("@wip"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "carries 0 S tags")
+}
+
+// TestRecordIDReportsASecondSighting pins the two outcomes: a first
+// sighting of an id is recorded, a second is a repeat.
+func TestRecordIDReportsASecondSighting(t *testing.T) {
+	ids := map[string]bool{}
+	require.NoError(t, recordID(Scenario{Path: "a.feature", Line: 4, ID: "S1"}, ids))
+	assert.Equal(t, map[string]bool{"S1": true}, ids)
+
+	err := recordID(Scenario{Path: "a.feature", Line: 9, ID: "S1"}, ids)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a.feature:9: tag \"@S1\" repeated")
 }
 
 // TestScenarioLinesPlacesFeatureAndRuleScenarios maps a scenario's AST

@@ -8,61 +8,108 @@ import (
 	messages "github.com/cucumber/messages/go/v34"
 )
 
-var featureTag = regexp.MustCompile(`^@(S[1-9][0-9]*)$`)
+// featureTag is the shape of a scenario's id tag: "@S" and a number in
+// the same form a matrix row's id takes, so "@S016" names nothing.
+var featureTag = regexp.MustCompile(`^@(S` + idNumber + `)$`)
 
-// FeatureTagIDs reads the "@S<n>" tag off every scenario godog would run
-// from dir, keyed by the id each names. The features are parsed the way
-// godog parses them — the same recursive walk, the same Gherkin — so
-// the gate and the runner can never disagree about which scenarios
-// exist: a feature in a subdirectory, a tag inherited from the Feature
-// line, or a line inside a docstring reads the same to both. Every
-// scenario must carry exactly one S tag, and a tag repeated across
-// scenarios is reported rather than merged, since two scenarios sharing
-// one id would otherwise both count as the matrix row's coverage.
-func FeatureTagIDs(dir string) (map[string]bool, error) {
+// Scenario is one scenario godog would run, as both the gate and the
+// runner see it: where it sits, what it is called, the matrix id its
+// tag names, and whether it is still declared rather than written.
+type Scenario struct {
+	Path    string
+	Line    int64
+	Name    string
+	ID      string
+	Pending bool
+}
+
+// Scenarios lists every scenario under dir in the order godog walks
+// them — the same recursive walk, the same Gherkin — so the gate and
+// the runner can never disagree about which scenarios exist: a feature
+// in a subdirectory, a tag inherited from the Feature line, or a line
+// inside a docstring reads the same to both. A Scenario Outline is one
+// scenario however many Examples rows it has; godog compiles a pickle
+// per row and every one carries the outline's tags, so the rows are
+// folded back onto the outline they came from. Every scenario must
+// carry exactly one S tag: one with none or several is reported with
+// its place rather than listed with an empty or arbitrary id.
+func Scenarios(dir string) ([]Scenario, error) {
 	suite := godog.TestSuite{Options: &godog.Options{Paths: []string{dir}}}
 	features, err := suite.RetrieveFeatures()
 	if err != nil {
 		return nil, fmt.Errorf("scenario: read features: %w", err)
 	}
 
-	ids := map[string]bool{}
+	var out []Scenario
 	for _, f := range features {
 		lines := scenarioLines(f.GherkinDocument)
+		seen := map[string]bool{}
 		for _, p := range f.Pickles {
-			found := scenarioIDs(p.Tags)
-			if err := recordID(f.Uri, lines[p.AstNodeIds[0]], p.Name, found, ids); err != nil {
+			node := p.AstNodeIds[0]
+			if seen[node] {
+				continue
+			}
+			seen[node] = true
+			sc, err := scenarioOf(f.Uri, lines[node], p)
+			if err != nil {
 				return nil, err
 			}
+			out = append(out, sc)
+		}
+	}
+
+	return out, nil
+}
+
+// FeatureTagIDs reads the "@S<n>" tag off every scenario under dir,
+// keyed by the id each names. A tag repeated across scenarios is
+// reported rather than merged, since two scenarios sharing one id
+// would otherwise both count as the matrix row's coverage.
+func FeatureTagIDs(dir string) (map[string]bool, error) {
+	scenarios, err := Scenarios(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := map[string]bool{}
+	for _, sc := range scenarios {
+		if err := recordID(sc, ids); err != nil {
+			return nil, err
 		}
 	}
 
 	return ids, nil
 }
 
-// scenarioIDs lists the S ids a scenario's tags name, in tag order.
-func scenarioIDs(tags []*messages.PickleTag) []string {
+// scenarioOf reads one pickle's tags for the S id it names and whether
+// it is pending, reporting a scenario with no id or several.
+func scenarioOf(uri string, line int64, p *messages.Pickle) (Scenario, error) {
+	sc := Scenario{Path: uri, Line: line, Name: p.Name}
 	var found []string
-	for _, tag := range tags {
+	for _, tag := range p.Tags {
+		if tag.Name == "@pending" {
+			sc.Pending = true
+		}
 		if m := featureTag.FindStringSubmatch(tag.Name); m != nil {
 			found = append(found, m[1])
 		}
 	}
+	if len(found) != 1 {
+		return Scenario{}, fmt.Errorf("scenario: %s:%d: scenario %q carries %d S tags, want exactly one",
+			uri, line, p.Name, len(found))
+	}
+	sc.ID = found[0]
 
-	return found
+	return sc, nil
 }
 
-// recordID keeps the one S id a scenario names, reporting a scenario
-// with none or several, or an id another scenario already carries.
-func recordID(uri string, line int64, name string, found []string, ids map[string]bool) error {
-	if len(found) != 1 {
-		return fmt.Errorf("scenario: %s:%d: scenario %q carries %d S tags, want exactly one",
-			uri, line, name, len(found))
+// recordID keeps a scenario's id, reporting one another scenario
+// already carries.
+func recordID(sc Scenario, ids map[string]bool) error {
+	if ids[sc.ID] {
+		return fmt.Errorf("scenario: %s:%d: tag %q repeated", sc.Path, sc.Line, "@"+sc.ID)
 	}
-	if ids[found[0]] {
-		return fmt.Errorf("scenario: %s:%d: tag %q repeated", uri, line, "@"+found[0])
-	}
-	ids[found[0]] = true
+	ids[sc.ID] = true
 
 	return nil
 }

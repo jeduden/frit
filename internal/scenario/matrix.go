@@ -11,10 +11,14 @@ import (
 	"github.com/jeduden/frit/internal/planmeta"
 )
 
+// idNumber is how every id is numbered, on the matrix side and the
+// feature side alike: from 1 with no leading zero, so "S01" and "S1"
+// can never name one row twice.
+const idNumber = `[1-9][0-9]*`
+
 // rowID is the shape every id cell in a matrix table takes: an S
-// scenario, or an F liveness / A safety attacker row, numbered from 1
-// with no leading zero, so "S01" and "S1" can never name one row twice.
-var rowID = regexp.MustCompile(`^[SFA][1-9][0-9]*$`)
+// scenario, or an F liveness / A safety attacker row, so numbered.
+var rowID = regexp.MustCompile(`^[SFA]` + idNumber + `$`)
 
 // MatrixIDs reads the S-scenario ids off the matrix tables in path —
 // the tables whose header leads with "#", the shape every S, F and A
