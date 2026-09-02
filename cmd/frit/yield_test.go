@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/frit/internal/claim"
@@ -44,17 +43,11 @@ func yieldHerdr(workspace, cwd string) (herdr.Runner, *herdrCalls) {
 // lane still carries.
 func fenceWithATakeover(t *testing.T, repo string, planID int64) {
 	t.Helper()
-	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
-	require.NoError(t, err)
 	tip, err := gitCapture(t, repo, "rev-parse",
 		fmt.Sprintf("refs/heads/plan/%d", planID))
 	require.NoError(t, err)
 
-	tmp := t.TempDir()
-	other := filepath.Join(tmp, "elsewhere")
-	git(t, tmp, "clone", "-q", origin, other)
-	git(t, other, "config", "user.email", "elsewhere@example.com")
-	git(t, other, "config", "user.name", "frit-test-elsewhere")
+	other := cloneAgain(t, repo)
 	_, err = claim.Takeover(other, claim.LeaseOptions{
 		PlanID: planID, Remote: "origin", Base: "origin/main",
 		Holder: "elsewhere", Lane: "/lanes/x",

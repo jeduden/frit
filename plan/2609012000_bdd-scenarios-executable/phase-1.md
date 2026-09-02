@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The godog harness runs one real scenario, and the coverage gate binds the matrix
-status: "🔲"
+status: "✅"
 result: false
 ---
 Stand the BDD harness up and make it self-checking. One matrix scenario
@@ -16,9 +16,9 @@ table whose scenario rows lead with an id cell, `| S3 | … |`. The lease
 tests in [internal/claim](../../internal/claim) and
 [cmd/frit](../../cmd/frit) already build real origin-and-clone git
 fixtures and a herdr fake that a step definition can drive. godog runs
-as a `*_test.go` `TestMain` that hands its scenarios to `go test`, and
-its steps may return a pending result so a declared scenario need not be
-implemented yet.
+from an ordinary `*_test.go` test that hands each scenario to `go test`
+as a subtest, and a scenario can be tagged pending so a declared one
+need not be implemented yet.
 
 **Value.** The scenario matrix stops being prose a comment points at and
 becomes an executable, self-checking registry. A scenario added to the
@@ -40,13 +40,12 @@ wiring end to end.
 
 **GREEN.** Build the harness in three moves.
 
-- Add `features/lease.feature` (or per-section files) declaring all 86
-  ids as `@S<n>` scenarios: the chosen one fully written, every other a
-  single pending step, so the bijection holds while the work is
-  incremental.
+- Add `features/lease.feature` (or per-section files) declaring all 87
+  ids as `@S<n>` scenarios: the chosen one fully written, every other
+  tagged pending, so the bijection holds while the work is incremental.
 - Add the step definitions for the chosen scenario over the existing
-  origin-and-clone fixtures and herdr fake, and the godog `TestMain`
-  runner wired into `go test`.
+  origin-and-clone fixtures and herdr fake, and the godog runner wired
+  into `go test`.
 - Decide godog's placement: a test-only require on the main module, or
   an isolated module, whichever keeps godog's graph from constraining a
   library consumer. Record the choice in the handoff.
@@ -59,7 +58,8 @@ the id set is exactly the S-scenarios. A malformed table row fails loud
 rather than silently dropping an id.
 
 **Gate.** `go test ./...` runs the godog suite: the one real scenario
-passes, the rest report pending, and `TestMatrixAndFeaturesAreInBijection`
-is green. Add a matrix row with no scenario in a scratch check and watch
+passes, the rest are skipped as pending, and
+`TestMatrixAndFeaturesAreInBijection` is green. Add a matrix row with
+no scenario in a scratch check and watch
 the bijection test go red, then revert. `go test ./...` and
 `go tool -modfile=tools/go.mod golangci-lint run` are green.
