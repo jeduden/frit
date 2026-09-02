@@ -19,17 +19,34 @@ Feature: Process death, at every lifecycle step
     Then "box-a"'s retry is refused: the local branch diverges
     And "box-b" wins the lease at epoch 1
 
-  @S3 @pending
+  @S3
   Scenario: killed mid-push, server committed
+    Given "box-a" holds the lease for plan 7 with its token persisted in its own worktree
+    When "box-a" runs claim for plan 7 from its own worktree
+    Then the claim resumes instead of refusing
 
-  @S4 @pending
+  @S4
   Scenario: killed before worktree creation
+    Given "box-a" has claimed plan 7 but its worktree was never stood up
+    When "box-a" runs claim for plan 7
+    Then the claim is refused, not resumed
+    When the takeover window has matured for plan 7
+    And "box-b" runs claim for plan 7
+    Then the claim takes the lease over
 
-  @S5 @pending
+  @S5
   Scenario: killed between worktree and agent start
+    Given "box-a" holds the lease for plan 7
+    When "box-a" runs board
+    Then board shows plan 7 held with no session
 
-  @S6 @pending
+  @S6
   Scenario: killed between agent start and prompt
+    Given "box-a" holds the lease for plan 7 with a session bound
+    And herdr confirms no live agent on that session
+    And the takeover window has matured for plan 7
+    When "box-b" runs claim for plan 7
+    Then the claim takes the lease over
 
   @S7
   Scenario: observer saw a claim that then unwound
