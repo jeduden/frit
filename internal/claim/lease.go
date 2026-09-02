@@ -224,6 +224,24 @@ func (e *UnconfirmedDeleteError) Error() string {
 
 func (e *UnconfirmedDeleteError) Unwrap() error { return e.Err }
 
+// UnconfirmedYieldError reports a yield refused because the still-held
+// check's own read failed — an unreadable remote is a fault, not a
+// "not held" answer, and folding it to absent would let Yield fall
+// through to park a lease that may in fact still be held live
+// elsewhere.
+type UnconfirmedYieldError struct {
+	PlanID int64
+	Err    error // the still-held read's own failure
+}
+
+func (e *UnconfirmedYieldError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: could not confirm whether this lane still holds the "+
+			"lease before yielding: %v", e.PlanID, e.Err)
+}
+
+func (e *UnconfirmedYieldError) Unwrap() error { return e.Err }
+
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
 //
 // An absent ref is acquired fresh at epoch 1 on the base; a ref whose
@@ -493,7 +511,14 @@ func Yield(
 	}
 
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
-	if remoteHolder(repoDir, opts.Remote, ref, run) == local {
+	holder, err := remoteHolderErr(repoDir, opts.Remote, ref, run)
+	if err != nil {
+		// An unreadable remote must refuse, not fall through to park: a
+		// fold-to-absent "" here could rescue a lease that may still be
+		// held live by this very lane.
+		return Scavenged{}, &UnconfirmedYieldError{PlanID: opts.PlanID, Err: err}
+	}
+	if holder == local {
 		return Scavenged{}, &StillHeldError{PlanID: opts.PlanID}
 	}
 

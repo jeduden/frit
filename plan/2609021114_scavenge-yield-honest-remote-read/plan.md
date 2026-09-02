@@ -1,7 +1,7 @@
 ---
 id: 2609021114
 title: Scavenge and Yield stop reading an unreadable remote as gone
-status: "🔳"
+status: "✅"
 summary: >-
   Scavenge's post-delete confirmation and Yield's still-held check both
   classify a read with the fold-to-absent `remoteHolder`, whose
@@ -108,7 +108,8 @@ footer: |
 | --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [Scavenge's post-delete confirmation stops reading unreadable as gone](phase-1.md)                                                                                                                                                                                            |
 |     | ↳      | Scavenge's delete-confirmation read switches from remoteHolder to remoteHolderErr; a read fault now returns a typed UnconfirmedDeleteError wrapping both the delete's and the confirmation read's faults and leaves the local ref untouched, instead of silently deleting it. |
-| 2   | 🔲     | [Yield refuses rather than guess when the still-held read fails](phase-2.md)                                                                                                                                                                                                  |
+| 2   | ✅     | [Yield refuses rather than guess when the still-held read fails](phase-2.md)                                                                                                                                                                                                  |
+|     | ↳      | Yield's still-held check switches from remoteHolder to remoteHolderErr; a read fault now returns a typed UnconfirmedYieldError and refuses before park is ever called, instead of falling through to park a lease that may still be held live.                                |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -118,9 +119,9 @@ footer: |
       ref untouched
 - [x] A Scavenge whose delete push fails and whose confirmation read
       confirms the ref still present keeps today's behavior unchanged
-- [ ] A Yield whose still-held read fails refuses with a typed error
+- [x] A Yield whose still-held read fails refuses with a typed error
       and never calls park
-- [ ] A Yield whose still-held read confirms or denies the still-held
+- [x] A Yield whose still-held read confirms or denies the still-held
       case keeps today's behavior unchanged
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
