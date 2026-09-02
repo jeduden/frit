@@ -56,11 +56,20 @@ Feature: Process death, at every lifecycle step
     And the observer resets the window on the new tip
     Then the observation restarts fresh on the new tip
 
-  @S8 @pending
+  @S8
   Scenario: unwind's remote delete fails
+    Given "box-a" holds the lease for plan 7
+    When "box-a"'s handoff unwinds and releases the lease
+    Then origin still carries the work ref for plan 7
+    And the work ref's tip is a release marker
 
-  @S9 @pending
+  @S9
   Scenario: unwind deletes a branch with pushed work
+    Given "box-a" holds the lease for plan 7
+    And "box-a" pushes a work commit on the lane
+    When the ref is scavenged
+    Then the pushed work is parked to a rescue ref, not lost
+    And the work ref is deleted from origin
 
   @S10
   Scenario: killed mid-phase, work pushed
@@ -78,8 +87,19 @@ Feature: Process death, at every lifecycle step
     Then "box-b"'s takeover is a child of the tip that actually reached origin
     And "box-a"'s local-only work is in no history on origin
 
-  @S12 @pending
+  @S12
   Scenario: killed after merge, before status flip
+    Given "box-a" holds the lease for plan 7
+    And "box-a" pushes a work commit on the lane
+    And that work is squash-landed on origin's default branch
+    When the ref is scavenged
+    Then nothing is parked, because the work already landed
+    And the work ref is deleted from origin
 
-  @S13 @pending
+  @S13
   Scenario: status flipped on branch, not merged
+    Given "box-a" holds the lease for plan 7
+    And "box-a" pushes a work commit on the lane
+    And plan 7 is marked done on the branch, but origin's default branch is untouched
+    When the landed evidence for plan 7 is read
+    Then the work reads as unlanded, because evidence is origin's default branch only
