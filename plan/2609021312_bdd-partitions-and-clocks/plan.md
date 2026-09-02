@@ -1,7 +1,7 @@
 ---
 id: 2609021312
 title: The partition and clock scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The lease-protocol matrix's "Partitions" section, S20..S25, and its
   "Clocks" section, S33..S36, are declared in features/partitions
