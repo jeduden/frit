@@ -31,13 +31,12 @@ Feature: Clocks
   @S35
   Scenario: clock steps far forward
     Given "box-a" holds the lease for plan 35
-    When an observer's clock jumps years forward in one sample
-    Then the window reads the hold stale on far fewer samples than sound polling would take
+    When an observer watches "box-a"'s tip go stale
+    Then the window reads the hold stale
     When "box-b" takes the lease over
-    Then origin holds the takeover, a plain CAS win
-    When a further observer samples "box-b"'s tip and its clock again jumps years forward
-    Then the takeover count has backed the threshold off
-    And the window does not read stale under the backed-off threshold
+    Then origin holds the takeover
+    When a further observer watches "box-b"'s tip mature by the same span
+    Then that span does not read stale once the takeover count backs the threshold off
 
   @S36 @pending
   Scenario: cross-host clock skew

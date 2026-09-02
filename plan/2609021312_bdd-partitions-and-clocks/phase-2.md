@@ -37,9 +37,8 @@ backoff Phase 1 never exercised.
 - `seedWindow` in [claim_test.go](../../cmd/frit/claim_test.go)
   writes a matured `observe.State` entry; reused as-is for S22.
 - `cloneAgain` in [bdd_lease_test.go](../../cmd/frit/bdd_lease_test.go)
-  clones a repo's origin into its own `t.TempDir()`; S22/S24 need a
-  clone placed under a shared `--root` instead, the way `initRepo`
-  lays one out — a new helper, not this one reused as-is.
+  clones into its own `t.TempDir()`; S22/S24 need a clone under a
+  shared `--root` instead, `initRepo`'s own layout — a new helper.
 
 **Value.** `board` is the verb an operator actually reads under a
 partition; nothing in Phase 1 touched it. S22 and S24 pin that a read
@@ -47,8 +46,8 @@ failure degrades to a caveat, never a wrong answer, and never touches
 a mutation happening elsewhere. S23 pins the line that keeps a
 recovering fleet from stampeding: an outage voids every window rather
 than reading its wall-clock gap as one long stale span. S35 closes
-Phase 1's gap: a fast clock is safe not just abstractly — the backoff
-that damps it is `TakeoverCount`, now driven through a real chain.
+Phase 1's gap: the backoff that damps a wrongly-early takeover is
+`TakeoverCount`, driven through a real chain, not the bare function.
 
 **RED.** Drop `@pending` from S22, S23, S24 in
 [partitions.feature](../../features/partitions.feature) and S35 in
@@ -90,13 +89,12 @@ Scenario: asymmetric: push ok, fetch fails
 @S35
 Scenario: clock steps far forward
   Given "box-a" holds the lease for plan 35
-  When an observer's clock jumps years forward in one sample
-  Then the window reads the hold stale on far fewer samples than sound polling would take
+  When an observer watches "box-a"'s tip go stale
+  Then the window reads the hold stale
   When "box-b" takes the lease over
-  Then origin holds the takeover, a plain CAS win
-  When a further observer samples "box-b"'s tip and its clock again jumps years forward
-  Then the takeover count has backed the threshold off
-  And the window does not read stale under the backed-off threshold
+  Then origin holds the takeover
+  When a further observer watches "box-b"'s tip mature by the same span
+  Then that span does not read stale once the takeover count backs the threshold off
 ```
 
 **GREEN.** Every step appends to `registerPartitionsAndClocks`, in
@@ -139,27 +137,40 @@ rows actually share.
   gitwt.Exec}, w.pc().clock)` directly, no `Coords`. Assert every
   plan's `Stale` is `false` and its window is a fresh, one-sample
   span.
-- **S35.** Reuses `w.holdsTheLease`, `w.takesTheLeaseOver` and
-  `w.pc()`'s window/clock. `observerWatchesTipGoStale`'s loop
-  advances by `DefaultSampleGap` until matured — wrong shape here;
-  jump the clock by years in one `discovery.Observe` call and assert
-  `Samples == 1`, where a matured window would show at least five (the
-  doc's S_max = T/4 rule). After "box-b" takes over, a further
-  observer's window starts fresh on `w.taken.Tip`; compute its
-  threshold the way `observeHolds` does —
+- **S35.** `discovery.Observe`/`StaleHold` take whatever `now` a
+  caller passes and never see wall-clock time at all, so a single
+  large jump cannot demonstrate an "early" maturity: the gap since the
+  last sample would itself exceed S_max and void the window on the
+  spot (the same rule any partition trips). What actually varies with
+  a fast clock is real time elapsed under one logical "T", not sample
+  count — indistinguishable from ordinary maturation at this pure
+  layer. This row's real, testable content is what happens once one
+  is already live: `w.holdsTheLease`, then the existing
+  `observerWatchesTipGoStale("box-a")` matures a window exactly as
+  S20/S25 do — reused, not reinvented. `w.takesTheLeaseOver("box-b")`
+  and `w.originHoldsTheTakeover` (both reused) are "CAS makes it
+  safe": nothing here needs a new assertion, a takeover is already
+  proven safe by every other row that does one. The backoff is the
+  new part: `observerWatchesTipGoStale("box-b")` called a second time
+  matures a fresh window on `w.taken.Tip` of the same shape (it always
+  builds from a bare `Window{}`, so calling it again is calling it
+  fresh, not extending the first). A new Then step reads
   `claim.TakeoverCount(repo, int64(w.planID), "origin/main",
-  w.taken.Tip, gitwt.Exec)`, `time.Duration(k+1) *
-  discovery.DefaultTakeoverWindow` — and read `StaleHold` against that
-  threshold for both the early-fire Then and the final "not stale"
-  one.
+  w.taken.Tip, gitwt.Exec)` — `k` should be `1`, the marker "box-b"'s
+  own takeover minted — and computes `threshold :=
+  time.Duration(k+1) * discovery.DefaultTakeoverWindow`, the same
+  formula `observeHolds` uses. It asserts `StaleHold` true against the
+  bare `DefaultTakeoverWindow` (the span really did mature — otherwise
+  the row proves nothing) and false against the backed-off `threshold`
+  — the pair, not either alone, is what pins the damping.
 
 **Guard the edges.** Assert "box-a"'s own remote is untouched, not
 just that its tip did not move — a shared-config bug should not pass
 by accident. S23's plans need `Held: true`; re-check `observeHolds`
 before assuming which field gates it, rather than trusting this
-prose. S35's early-fire assertion must fail on a window that matured
-the ordinary way: assert `Samples` is small before asserting
-`StaleHold`.
+prose. S35's backoff Then must assert both halves of the pair above —
+a check that only asserts "not stale under the backed-off threshold"
+passes vacuously if the window never matured at all.
 
 **Gate.** `go test ./cmd/frit -run 'TestFeatures/S(22|23|24|35):'`
 passes, all four PASS, none SKIP. `go test ./...` and `go tool
