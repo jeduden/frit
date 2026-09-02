@@ -1,7 +1,7 @@
 ---
 n: 1
 title: reap <id> retires one landed leftover worktree, not the fleet
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give `reap` the selector its sibling verbs already have, proven on the

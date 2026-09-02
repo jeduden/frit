@@ -1,7 +1,7 @@
 ---
 id: 2609012100
 title: reap takes a selector, so one landed lane retires without its neighbours
-status: "🔲"
+status: "✅"
 summary: >-
   frit reap tears down every leftover orphans reports across the whole
   fleet, or nothing — it has no selector. yield and release already take
@@ -110,18 +110,18 @@ footer: |
 
 | #   | Status | Phase                                                                       |
 | --- | ------ | --------------------------------------------------------------------------- |
-| 1   | 🔲     | [reap <id> retires one landed leftover worktree, not the fleet](phase-1.md) |
+| 1   | ✅     | [reap <id> retires one landed leftover worktree, not the fleet](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit reap <id>` dry-run names only the selected plan's leftover,
+- [x] `frit reap <id>` dry-run names only the selected plan's leftover,
       not the whole fleet's
-- [ ] `frit reap <id> --go` removes that lane's leftover worktree and
+- [x] `frit reap <id> --go` removes that lane's leftover worktree and
       leaves every other landed worktree standing
-- [ ] A live herdr pane on the selected lane still refuses the teardown
-- [ ] A bare `frit reap` (no selector) still reports and, with `--go`,
+- [x] A live herdr pane on the selected lane still refuses the teardown
+- [x] A bare `frit reap` (no selector) still reports and, with `--go`,
       tears down the whole fleet's leftovers unchanged
-- [ ] An unknown or ambiguous selector is refused the way `yield`'s is
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] An unknown or ambiguous selector is refused the way `yield`'s is
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
