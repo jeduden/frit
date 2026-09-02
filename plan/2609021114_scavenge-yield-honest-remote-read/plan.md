@@ -1,7 +1,7 @@
 ---
 id: 2609021114
 title: Scavenge and Yield stop reading an unreadable remote as gone
-status: "🔲"
+status: "🔳"
 summary: >-
   Scavenge's post-delete confirmation and Yield's still-held check both
   classify a read with the fold-to-absent `remoteHolder`, whose
@@ -104,18 +104,19 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                              |
-| --- | ------ | ---------------------------------------------------------------------------------- |
-| 1   | 🔲     | [Scavenge's post-delete confirmation stops reading unreadable as gone](phase-1.md) |
-| 2   | 🔲     | [Yield refuses rather than guess when the still-held read fails](phase-2.md)       |
+| #   | Status | Phase                                                                                                                                                                                                                                                                         |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Scavenge's post-delete confirmation stops reading unreadable as gone](phase-1.md)                                                                                                                                                                                            |
+|     | ↳      | Scavenge's delete-confirmation read switches from remoteHolder to remoteHolderErr; a read fault now returns a typed UnconfirmedDeleteError wrapping both the delete's and the confirmation read's faults and leaves the local ref untouched, instead of silently deleting it. |
+| 2   | 🔲     | [Yield refuses rather than guess when the still-held read fails](phase-2.md)                                                                                                                                                                                                  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A Scavenge whose delete push fails and whose confirmation read
+- [x] A Scavenge whose delete push fails and whose confirmation read
       also fails reports an unconfirmed delete and leaves the local
       ref untouched
-- [ ] A Scavenge whose delete push fails and whose confirmation read
+- [x] A Scavenge whose delete push fails and whose confirmation read
       confirms the ref still present keeps today's behavior unchanged
 - [ ] A Yield whose still-held read fails refuses with a typed error
       and never calls park

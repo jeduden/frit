@@ -200,6 +200,27 @@ func (e *UnconfirmedPushError) Error() string {
 
 func (e *UnconfirmedPushError) Unwrap() error { return e.Err }
 
+// UnconfirmedDeleteError reports a delete push that failed and whose
+// confirmation read also failed — the same stalled or dropped
+// connection took out both calls, so Scavenge cannot tell a landed
+// delete from one that never happened. Unlike a confirmed-gone ref,
+// deleting the local copy on this evidence could destroy the last
+// copy of a lease the remote still carries.
+type UnconfirmedDeleteError struct {
+	PlanID int64
+	Ref    string
+	Err    error // wraps both the delete push's and the confirmation read's faults
+}
+
+func (e *UnconfirmedDeleteError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: delete of %s could not be confirmed either way; "+
+			"it may still be held — check before retrying: %v",
+		e.PlanID, e.Ref, e.Err)
+}
+
+func (e *UnconfirmedDeleteError) Unwrap() error { return e.Err }
+
 // Acquire leases the work ref for a plan: refs/heads/plan/<id>.
 //
 // An absent ref is acquired fresh at epoch 1 on the base; a ref whose
@@ -396,7 +417,21 @@ func Scavenge(
 		opts.Remote, ":"+ref); err != nil {
 		// The delete is classified like every push: by what holds the
 		// ref now, never by stderr. Gone is a win; anything else is not.
-		if remoteHolder(repoDir, opts.Remote, ref, run) != "" {
+		now, readErr := remoteHolderErr(repoDir, opts.Remote, ref, run)
+		if readErr != nil {
+			// The confirmation read failed too — the same stalled or
+			// dropped connection took out both calls. Reading that as
+			// "gone" would delete the local copy of a lease the remote
+			// may still carry.
+			return res, &UnconfirmedDeleteError{
+				PlanID: opts.PlanID,
+				Ref:    ref,
+				Err: fmt.Errorf(
+					"delete %s for plan %d: %w; confirm: %w",
+					ref, opts.PlanID, err, readErr),
+			}
+		}
+		if now != "" {
 			return res, fmt.Errorf(
 				"delete %s for plan %d: %w", ref, opts.PlanID, err)
 		}
