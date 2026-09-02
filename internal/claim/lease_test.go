@@ -1161,6 +1161,39 @@ func TestYieldWithNoLocalRefAndAForeignHolderIsStillANoOp(t *testing.T) {
 	assert.Empty(t, rescue, "no rescue ref was fabricated")
 }
 
+// TestYieldReportsAnUnconfirmedYieldWhenTheStillHeldReadFails: the
+// still-held check's own ls-remote read fails — an unreadable remote
+// must not fold to "not held" the way remoteHolder's own contract
+// would, since a fold-to-absent "" can never be told apart from a
+// genuinely absent ref. Yield refuses with a typed error instead of
+// falling through to park, which could rescue a lease that in fact is
+// still held live elsewhere.
+func TestYieldReportsAnUnconfirmedYieldWhenTheStillHeldReadFails(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	readErr := errors.New("git: timed out after 1ms")
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, readErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Yield(first, opts, lease.Tip, run)
+
+	require.Error(t, err)
+	var unconfirmed *UnconfirmedYieldError
+	require.ErrorAs(t, err, &unconfirmed)
+	assert.ErrorIs(t, err, readErr)
+	rescue := gitCmd(t, first, "ls-remote", "origin", "refs/frit/rescue/*")
+	assert.Empty(t, rescue,
+		"an unconfirmed still-held read parks nothing")
+}
+
 // TestRescueRefsListsEveryMachinesParkedWork: rescue is per plan, per
 // machine and per tip, so a fresh content-addressed park comes back
 // alongside a legacy two-segment ref from before this shape — both
