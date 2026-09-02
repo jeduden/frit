@@ -51,9 +51,12 @@ beside its id and no steps; `TestFeatures` skips it, so `go test -v`
 shows it as SKIP rather than a pass, and runs every other scenario as
 its own subtest — `go test ./cmd/frit -run TestFeatures/S16` picks one
 out. Converting a scenario means dropping `@pending`, writing its
-Given/When/Then, and binding the step functions in
-`cmd/frit/bdd_test.go`; a step whose text matches nothing fails under
-godog's strict mode instead of passing as undefined.
+Given/When/Then, and binding the step functions in the section's own
+`cmd/frit/bdd_<section>_test.go`, appended to the step registry from
+`init` as `bdd_lease_test.go` is — a section adds a file, never a line
+to `bdd_test.go`, so sections land in any order; a step whose text
+matches nothing fails under godog's strict mode instead of passing as
+undefined, and one two sections both define fails as ambiguous.
 
 The harness lives in cmd/frit, not internal/claim: claim does not
 import herdr by design (the veto lives above the lease atom), and

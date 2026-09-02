@@ -72,8 +72,12 @@ malformed or duplicate id on either side fails `go test ./...`.
 To add a scenario, add its row to the matrix and a tagged scenario to
 the section's feature file. Tag it `@pending` until its steps exist.
 To write one, drop `@pending` and write its Given/When/Then. Bind the
-step functions in `cmd/frit/bdd_test.go`. godog runs strict, so a step
-that matches no definition fails instead of passing as undefined.
+step functions in the section's own `cmd/frit/bdd_<section>_test.go`,
+appended to the step registry from `init` the way
+`bdd_lease_test.go` is — a section adds a file, never a line to
+`bdd_test.go`, so sections land in any order. godog runs strict, so a
+step that matches no definition fails instead of passing as undefined,
+and a step text two sections both define fails as ambiguous.
 
 ## The skills bundle
 
