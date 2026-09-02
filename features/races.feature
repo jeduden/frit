@@ -28,7 +28,7 @@ Feature: Races
     And "box-b"'s claim loses, naming "box-a" at epoch 1
     When a human deletes the work ref on origin
     And "box-b" retries plan 7
-    Then the retry acquires at epoch 1
+    Then "box-b"'s retry acquires at epoch 1
     And origin's tip is "box-b"'s claim marker
     When "box-a" comes back and renews its lease
     Then the renewal is fenced, naming "box-b"

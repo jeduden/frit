@@ -145,9 +145,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                     |
-| --- | ------ | ------------------------------------------------------------------------- |
-| 1   | 🔲     | [The six lease-API rows of host death and races run for real](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [The six lease-API rows of host death and races run for real](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                          |
+|     | ↳      | S17, S19, S26, S27, S28 and S30 drop `@pending` and pass as real godog scenarios, each asserting an observable fact on origin or a typed lease error — never a comment. All twelve rows in the two sections' new step file, `bdd_host_death_and_races_test.go`, reuse the shared `world` `bdd_lease_test.go` built, threading their own state through the existing `section[T]` mechanism rather than adding fields to `world` or standing up a second world type. |
 <?/catalog?>
 
 ## Acceptance Criteria
