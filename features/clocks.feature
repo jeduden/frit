@@ -4,11 +4,29 @@ Feature: Clocks
   per row, tagged with its S-id. A scenario still tagged @pending is
   declared but not yet written.
 
-  @S33 @pending
+  @S33
   Scenario: frozen clock on worker
+    Given "box-a" holds the lease for plan 33
+    And "box-a"'s commit clock is pinned to one instant
+    When "box-a" renews its lease
+    And an observer samples the current tip
+    And "box-a" renews its lease
+    And an observer samples the current tip
+    Then the two beats carry the same commit date and different SHAs
+    And the window resets to one sample with no void
+    And the window reads the hold live
 
-  @S34 @pending
+  @S34
   Scenario: clock steps backward
+    Given "box-a" holds the lease for plan 34
+    When "box-a" renews its lease
+    And an observer samples the current tip
+    And "box-a"'s commit clock steps years backward
+    And "box-a" renews its lease
+    And an observer samples the current tip
+    Then the tip still moved
+    And the window resets to one sample with no void
+    And the commit date on the tip is smaller than on its parent
 
   @S35 @pending
   Scenario: clock steps far forward
