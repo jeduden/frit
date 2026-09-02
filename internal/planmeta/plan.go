@@ -491,20 +491,18 @@ func executionTable(body []byte) map[PhaseNumber]executionRow {
 	return out
 }
 
-// collectExecutionRows reads an Execution table's header to find its
-// Design, Implement and Gate columns by name, then fills one row per
-// data row, keyed by the phase number the first column leads with.
+// collectExecutionRows reads an Execution table through readTable,
+// finds its Design, Implement and Gate columns by name in the header,
+// then fills one row per data row, keyed by the phase number the first
+// column leads with.
 func collectExecutionRows(
 	tbl *extast.Table, body []byte, out map[PhaseNumber]executionRow,
 ) {
-	header, ok := tbl.FirstChild().(*extast.TableHeader)
-	if !ok {
-		return
-	}
+	table := readTable(tbl, body)
 
 	designCol, implCol, gateCol := -1, -1, -1
-	for i, c := 0, header.FirstChild(); c != nil; i, c = i+1, c.NextSibling() {
-		switch label := strings.ToLower(inlineText(c, body)); {
+	for i, label := range table.Header {
+		switch label = strings.ToLower(label); {
 		case strings.Contains(label, "design"):
 			designCol = i
 		case strings.Contains(label, "implement"):
@@ -514,12 +512,8 @@ func collectExecutionRows(
 		}
 	}
 
-	for n := header.NextSibling(); n != nil; n = n.NextSibling() {
-		row, ok := n.(*extast.TableRow)
-		if !ok {
-			continue
-		}
-		cells := cellTexts(row, body)
+	for _, row := range table.Rows {
+		cells := row.Cells
 		if len(cells) == 0 {
 			continue
 		}
@@ -542,11 +536,6 @@ func collectExecutionRows(
 		}
 		out[PhaseNumber(fields[0])] = er
 	}
-}
-
-// cellTexts reads a table row's cells as prose, in column order.
-func cellTexts(row *extast.TableRow, body []byte) []string {
-	return cellsOf(row, body)
 }
 
 // cellsOf reads the cells under any table row node — a header or a
@@ -598,45 +587,23 @@ func Tables(body []byte) []Table {
 	return out
 }
 
-// readTable collects a table's header and data rows. A row's line comes
-// from its first text segment; a row with no text in any cell takes the
-// line its position implies, since a GFM table is one source line per
-// row with the delimiter row between header and data.
+// readTable collects a table's header and data rows. Each row's line
+// comes from the position the parser stamped on it as it read the row,
+// so a row with no text in any cell is placed the same as one with
+// text.
 func readTable(tbl *extast.Table, body []byte) Table {
 	var out Table
-	headerLine := 0
 	for n := tbl.FirstChild(); n != nil; n = n.NextSibling() {
 		switch row := n.(type) {
 		case *extast.TableHeader:
 			out.Header = cellsOf(row, body)
-			headerLine = firstLine(row, body)
 		case *extast.TableRow:
-			line := firstLine(row, body)
-			if line == 0 {
-				line = headerLine + 2 + len(out.Rows)
-			}
+			line := 1 + markdown.CountLines(body[:row.Pos()])
 			out.Rows = append(out.Rows, TableRow{Line: line, Cells: cellsOf(row, body)})
 		}
 	}
 
 	return out
-}
-
-// firstLine is the 1-based source line of the first text under n, or 0
-// when n carries no text at all.
-func firstLine(n ast.Node, body []byte) int {
-	line := 0
-	_ = ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
-		t, ok := c.(*ast.Text)
-		if !entering || !ok {
-			return ast.WalkContinue, nil
-		}
-		line = 1 + bytes.Count(body[:t.Segment.Start], []byte{'\n'})
-
-		return ast.WalkStop, nil
-	})
-
-	return line
 }
 
 // tierRank orders the model tiers by how demanding they are, so
