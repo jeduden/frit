@@ -1,7 +1,7 @@
 ---
 id: 2609021554
 title: A fleet gather reports its progress and its status
-status: "🔲"
+status: "🔳"
 summary: >-
   Gathering the fleet walks every repository under the root and fetches
   each one over the network, yet today it runs in total silence — a
@@ -116,23 +116,24 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                             |
-| --- | ------ | ----------------------------------------------------------------- |
-| 1   | 🔲     | [A required reporter and a returned status on Gather](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                         |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                             |
+|     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `fleet.Gather` cannot be called without a reporter: it is a
+- [x] `fleet.Gather` cannot be called without a reporter: it is a
       required parameter, and the build fails if a caller omits it
-- [ ] `Gather` emits a start event, one event per repository as it
+- [x] `Gather` emits a start event, one event per repository as it
       walks, and a done event carrying the summary — verified by a
       recording reporter over a multi-repository fixture
-- [ ] `Gather` returns a status `Summary` on every `Result`, counting
+- [x] `Gather` returns a status `Summary` on every `Result`, counting
       the repositories discovered, read, and fetched, the problems met,
       and the elapsed time
-- [ ] Running the built `frit` against a multi-repository root prints
+- [x] Running the built `frit` against a multi-repository root prints
       per-repository progress to stderr while it walks, and stdout
       still carries only the command's own output
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

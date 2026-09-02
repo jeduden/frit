@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A required reporter and a returned status on Gather
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make progress and status structural to `Gather` in
@@ -41,13 +41,23 @@ fetched, problems, elapsed), and a `DiscardReporter` no-op. Give
 loop, `Repo` inside it, and `Done` after. Set `res.Summary` before
 returning. Update the ~22 existing test call sites to pass
 `DiscardReporter{}`. Then, in
-[cmd/frit/main.go](../../cmd/frit/main.go), have `gatherFleetOpts`
-build a reporter that writes one line per repository to `rt.stderr`,
-and pass it in. The transient, terminal-aware rendering and the final
-status line are a later phase.
+[cmd/frit/main.go](../../cmd/frit/main.go), have `gatherFleetOpts` pass
+a `progressFor(c, rt)` reporter that writes one line per repository to
+`rt.stderr`.
+
+**Deviation from the first sketch.** The `--json` contract forced the
+render gate earlier than planned. Existing tests pin that stderr stays
+empty under `--json`, and many capture stderr into a buffer. A reporter
+that wrote unconditionally would break both and panic where a test
+runtime carries no stderr. So `progressFor` in
+[cmd/frit/progress.go](../../cmd/frit/progress.go) renders only when
+stderr is a real terminal and the run is not `--json`; every other run
+gets `DiscardReporter`, and the gather still emits into it. The
+transient redraw and the closing status line remain a later phase.
 
 **Gate.** `go test ./internal/fleet` red first, then green. Then build
 `frit` and run a fleet-reading verb against a root of several
-repositories: per-repository progress appears on stderr, and stdout
-still carries only the command's own table or JSON. Then the full suite
-and lint.
+repositories with stderr on a terminal: per-repository progress appears
+on stderr, and stdout still carries only the command's own table. The
+same verb under `--json` leaves stderr empty. Then the full suite and
+lint.
