@@ -141,7 +141,7 @@ made here.
 
 | Phase | Title                                                      | Tier   | Gate                                                                                                                                                         |
 | ----- | ---------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | The five lease-level partition and clock rows run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(20\|21\|25\|33\|34)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| 1     | The five lease-level partition and clock rows run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(20\|21\|25\|33\|34):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
 
 ## Phases
 

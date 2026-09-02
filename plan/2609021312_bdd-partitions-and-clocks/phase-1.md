@@ -47,7 +47,7 @@ remaining five rows join already exists.
 [partitions.feature](../../features/partitions.feature) and from S33
 and S34 in [clocks.feature](../../features/clocks.feature), and write
 each one's Given/When/Then. Run `go test ./cmd/frit -run
-TestFeatures/S20_`: strict mode reports the new steps undefined and
+TestFeatures/S20:`: strict mode reports the new steps undefined and
 the subtest fails. That is the red — commit it.
 
 The scenarios, in the matrix's own terms:
@@ -112,7 +112,7 @@ A scenario that only passes by weakening an assertion — sampling a
 window on `time.Now()`, or reading an observer's clock into a marker
 — is a finding for the handoff, not a green.
 
-**Gate.** `go test ./cmd/frit -run 'TestFeatures/S(20|21|25|33|34)_'`
+**Gate.** `go test ./cmd/frit -run 'TestFeatures/S(20|21|25|33|34):'`
 passes with every one of the five reported PASS and none SKIP. `go
 test ./internal/scenario` stays green. `go test ./...` and `go tool
 -modfile=tools/go.mod golangci-lint run` are clean.

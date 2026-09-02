@@ -33,13 +33,13 @@ func init() {
 // pcState is this section's own state, kept beside the shared world
 // via section — never a field on world itself. It carries a Runner per
 // machine (gitwt.Exec until a partition step swaps one in and a heal
-// step swaps it back), which machines are currently cut off, each
-// machine's real worktree lane where one was built, the chain of
-// beats a scenario's own renewals produced, and the observation window
-// a step advances on a clock it — never time.Now — chooses.
+// step swaps it back — a machine's presence in runners is what "cut
+// off" means, so no separate flag tracks it), each machine's real
+// worktree lane where one was built, the chain of beats a scenario's
+// own renewals produced, and the observation window a step advances
+// on a clock it — never time.Now — chooses.
 type pcState struct {
 	runners map[string]gitwt.Runner
-	cut     map[string]bool
 	lanes   map[string]string
 	tips    map[string]string
 	beats   []string
@@ -54,7 +54,6 @@ func (w *world) pc() *pcState {
 	s := section[pcState](w)
 	if s.runners == nil {
 		s.runners = map[string]gitwt.Runner{}
-		s.cut = map[string]bool{}
 		s.lanes = map[string]string{}
 		s.tips = map[string]string{}
 		s.clock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -182,7 +181,6 @@ func (w *world) theNetworkCutsOff(holder string) error {
 	}
 	s := w.pc()
 	s.runners[holder] = partitionRunner(gitwt.Exec)
-	s.cut[holder] = true
 
 	return nil
 }
@@ -196,7 +194,6 @@ func (w *world) nextPushLandsButConfirmationIsLost(holder string) error {
 	}
 	s := w.pc()
 	s.runners[holder] = landedButUnconfirmedRunner(gitwt.Exec)
-	s.cut[holder] = true
 
 	return nil
 }
@@ -208,11 +205,10 @@ func (w *world) thePartitionHealsFor(holder string) error {
 		return err
 	}
 	s := w.pc()
-	if !s.cut[holder] {
+	if _, ok := s.runners[holder]; !ok {
 		return fmt.Errorf("%q was never cut off from origin; nothing to heal", holder)
 	}
 	delete(s.runners, holder)
-	s.cut[holder] = false
 
 	return nil
 }
@@ -273,7 +269,10 @@ func (w *world) theRenewalReportsUnconfirmed() error {
 // holder's own claim — a cut renewal's failed push left nothing on the
 // remote to move it.
 func (w *world) originsTipHasNotMoved() error {
-	repo := w.clones[w.holder]
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
 	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
 	if got != w.lease.Tip {
 		return fmt.Errorf("origin's tip moved to %s, want the unchanged claim %s", got, w.lease.Tip)
@@ -448,7 +447,10 @@ func (w *world) originStillHoldsTheTakeover() error {
 // on origin at all — there is no unleased delete for a fenced release
 // to have fired.
 func (w *world) theWorkRefStillExists() error {
-	repo := w.clones[w.holder]
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
 	out, err := gitCapture(w.t, repo, "ls-remote", "origin", w.branch())
 	if err != nil {
 		return fmt.Errorf("%s: %w", out, err)
@@ -500,7 +502,10 @@ func (w *world) commitClockStepsBackward(holder string) error {
 // scenario that cares what one specific sample does rather than
 // whether the window eventually matures.
 func (w *world) observerSamplesTheCurrentTip() error {
-	repo := w.clones[w.holder]
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
 	tip := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
 	if tip == "" {
 		return fmt.Errorf("origin holds no tip for plan %d", w.planID)
@@ -525,17 +530,20 @@ func (w *world) theTwoBeatsShareADateNotASHA() error {
 	if first == second {
 		return fmt.Errorf("both beats share one SHA %s", first)
 	}
-	repo := w.clones[w.holder]
-	d1, err := gitCapture(w.t, repo, "log", "-1", "--format=%ct", first)
+	repo, err := w.cloneOf(w.holder)
 	if err != nil {
-		return fmt.Errorf("%s: %w", d1, err)
+		return err
 	}
-	d2, err := gitCapture(w.t, repo, "log", "-1", "--format=%ct", second)
+	d1, err := commitEpoch(w.t, repo, first)
 	if err != nil {
-		return fmt.Errorf("%s: %w", d2, err)
+		return err
+	}
+	d2, err := commitEpoch(w.t, repo, second)
+	if err != nil {
+		return err
 	}
 	if d1 != d2 {
-		return fmt.Errorf("commit dates differ: %s vs %s", d1, d2)
+		return fmt.Errorf("commit dates differ: %d vs %d", d1, d2)
 	}
 
 	return nil
@@ -601,7 +609,10 @@ func (w *world) commitDateOnTipIsSmallerThanParent() error {
 		return errors.New("no beat recorded")
 	}
 	tip := s.beats[len(s.beats)-1]
-	repo := w.clones[w.holder]
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
 	tipDate, err := commitEpoch(w.t, repo, tip)
 	if err != nil {
 		return err
