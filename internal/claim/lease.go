@@ -172,12 +172,15 @@ func (e *StillHeldError) Error() string {
 type RescueConflictError struct {
 	PlanID int64
 	Rescue string // the rescue ref a different object already holds
+	Found  string // the object the rescue ref actually holds
+	Tip    string // the tip park was asked to land there
 }
 
 func (e *RescueConflictError) Error() string {
 	return fmt.Sprintf(
-		"rescue ref %s was moved by hand; frit does not contend for it — "+
-			"fetch and inspect it, then delete it and retry", e.Rescue)
+		"rescue ref %s was moved by hand: it holds %s, not %s being "+
+			"parked; frit does not contend for it — fetch and inspect it, "+
+			"then delete it and retry", e.Rescue, e.Found, e.Tip)
 }
 
 // UnconfirmedPushError reports a push that failed and whose
@@ -685,24 +688,42 @@ func rescueRef(planID int64, holder, tip string) string {
 // park pushes the tip to the rescue ref, create-only. The ref name is
 // content-addressed by that same tip, so a rescue that already exists
 // there can only be an earlier half-done run's work, already parked —
-// a retry is a no-op by construction. Anything else found at that
-// exact name is a different object under a name the tip should own: a
-// hand-moved or forged ref outside frit's trust domain, and clobbering
-// it would destroy exactly what the rescue exists to keep — so park
-// refuses, and the caller must not delete.
+// a retry is a no-op by construction. A push that fails is classified
+// by reading the remote with remoteHolderErr, which keeps a read
+// fault apart from a confirmed-absent ref (the same split casPush
+// already relies on): an absent ref surfaces the push's own error, an
+// unreadable remote surfaces both faults as an unconfirmed park, and
+// only a *different* object found at that exact name is the
+// hand-moved or forged ref outside frit's trust domain that
+// RescueConflictError exists to refuse — clobbering it would destroy
+// exactly what the rescue exists to keep, so park refuses and the
+// caller must not delete.
 func park(
 	repoDir string, opts LeaseOptions, rescue, tip string, run gitwt.Runner,
 ) error {
-	if _, err := run(repoDir, "push",
+	_, pushErr := run(repoDir, "push",
 		"--force-with-lease="+rescue+":",
-		opts.Remote, tip+":"+rescue); err == nil {
-		return nil
-	}
-	if remoteHolder(repoDir, opts.Remote, rescue, run) == tip {
+		opts.Remote, tip+":"+rescue)
+	if pushErr == nil {
 		return nil
 	}
 
-	return &RescueConflictError{PlanID: opts.PlanID, Rescue: rescue}
+	now, readErr := remoteHolderErr(repoDir, opts.Remote, rescue, run)
+	if readErr != nil {
+		return &UnconfirmedPushError{
+			PlanID: opts.PlanID, Err: errors.Join(pushErr, readErr),
+		}
+	}
+	switch now {
+	case tip:
+		return nil
+	case "":
+		return pushErr
+	default:
+		return &RescueConflictError{
+			PlanID: opts.PlanID, Rescue: rescue, Found: now, Tip: tip,
+		}
+	}
 }
 
 // hasUnlanded reports whether the chain from the base to the tip
