@@ -1,7 +1,7 @@
 ---
 id: 2609021313
 title: The storage-anomaly scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The lease-protocol matrix's "Storage anomalies" section — S37..S44,
   S67..S69, S71 and S78 — is declared in features/storage.feature but
