@@ -60,8 +60,12 @@ Feature: Lifecycle anomalies — claims and refs
     Then origin carries no plan/7 ref
     And frit claims plan 7 fresh at epoch 1
 
-  @S58 @pending
+  @S58
   Scenario: released before the PR merges
+    Given plan 7 is done and its lease is released
+    When "box-b" acquires the lease for plan 7
+    Then "box-b"'s claim succeeds at epoch 2
+    And origin's tip is "box-b"'s claim
 
   @S70
   Scenario: claim dated against an old base
