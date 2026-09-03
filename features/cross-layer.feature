@@ -59,8 +59,11 @@ Feature: Cross-layer: herdr and frit disagree
     Then it takes over cleanly at the next epoch
     And the veto never fired
 
-  @S72 @pending
+  @S72
   Scenario: claim and start race on one host
+    Given plan 7 is unclaimed
+    When claim and start both race to mint plan 7
+    Then one wins and the loser's refusal names the winning lane
 
   @S73
   Scenario: prompt fails after agent start
@@ -71,8 +74,11 @@ Feature: Cross-layer: herdr and frit disagree
     And the agent was started before the failure
     And the worktree it stood up is torn down
 
-  @S74 @pending
+  @S74
   Scenario: same plan id in two repos
+    Given plan 7 is unclaimed in "atlas" and in "forge"
+    When this machine claims plan 7 in "atlas" and in "forge"
+    Then both are claimed with no collision, and the lanes and panes carry the repo
 
   @S76
   Scenario: pane gone before the window matures
