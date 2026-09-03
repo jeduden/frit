@@ -128,6 +128,8 @@ made here.
 | ----- | -------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | The six lease-API rows of host death and races run for real          | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(17\|19\|26\|27\|28\|30)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
 | 2     | The resume-path and window rows of host death and races run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(14\|15\|18\|31):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean         |
+| 3     | S29, the release-vs-loser's-read race, runs for real                 | sonnet | `go test ./cmd/frit -run 'TestFeatures/S29:'` passes; bijection gate, `go test ./...`, golangci-lint clean                                                       |
+| 4     | S32, two same-host start sessions racing, runs for real              | sonnet | `go test ./cmd/frit -run 'TestFeatures/S32:'` passes; bijection gate, `go test ./...`, golangci-lint clean                                                       |
 
 ## Phases
 
@@ -156,6 +158,7 @@ footer: |
 |     | ↳      | S17, S19, S26, S27, S28 and S30 drop `@pending` and pass as real godog scenarios, each asserting an observable fact on origin or a typed lease error — never a comment. All twelve rows in the two sections' new step file, `bdd_host_death_and_races_test.go`, reuse the shared `world` `bdd_lease_test.go` built, threading their own state through the existing `section[T]` mechanism rather than adding fields to `world` or standing up a second world type. |
 | 2   | ✅     | [The resume-path and window rows of host death and races run for real](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                 |
 |     | ↳      | S14, S15, S18 and S31 drop `@pending` and pass as real godog scenarios driven through the CLI (`frit claim`, `frit orphans`) rather than the lease API alone, each mirroring an existing claim/start unit test's fixture. A new `cliState` section carries the lane, bound session, persisted token and captured CLI output a verb-level row needs, alongside the shared `world`.                                                                                  |
+| 3   | 🔳     | [S29, the release-vs-loser's-read race, runs for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                 |
 <?/catalog?>
 
 ## Acceptance Criteria
