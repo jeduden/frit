@@ -1,7 +1,7 @@
 ---
 id: 2609021312
 title: The partition and clock scenarios run under godog
-status: "🔲"
+status: "✅"
 summary: >-
   The lease-protocol matrix's "Partitions" section, S20..S25, and its
   "Clocks" section, S33..S36, are declared in features/partitions
@@ -139,9 +139,11 @@ made here.
 
 ## Execution
 
-| Phase | Title                                                      | Tier   | Gate                                                                                                                                                         |
-| ----- | ---------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | The five lease-level partition and clock rows run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(20\|21\|25\|33\|34)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| Phase | Title                                                                          | Tier   | Gate                                                                                                                                                         |
+| ----- | ------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | The five lease-level partition and clock rows run for real                     | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(20\|21\|25\|33\|34):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| 2     | The three verb-level partition rows and the far-forward clock row run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(22\|23\|24\|35):'` passes with no SKIP; `go test ./...` and golangci-lint clean                                     |
+| 3     | The cross-host clock skew row runs for real, closing the matrix's ten          | sonnet | `go test ./cmd/frit -run 'TestFeatures/S36:'` passes with no SKIP; `go test ./...` and golangci-lint clean                                                   |
 
 ## Phases
 
@@ -164,25 +166,30 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                    |
-| --- | ------ | ------------------------------------------------------------------------ |
-| 1   | 🔲     | [The five lease-level partition and clock rows run for real](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [The five lease-level partition and clock rows run for real](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | S20, S21, S25, S33 and S34 are real Given/When/Then scenarios in features/partitions.feature and features/clocks.feature, none @pending, all bound in a new cmd/frit/bdd_partitions_and_clocks_test.go that appends its own registrar and reuses bdd_lease_test.go's vocabulary rather than redefining it. A partition Runner fails push, fetch and ls-remote; a second Runner shape runs the real push and fails only the client's own read of it, for the row where the push landed under an error. The observation window is a pure discovery.Window advanced on a clock each step chooses, never time.Now. Every step function carries its own unit test, including the two Runner wrappers.                                                    |
+| 2   | ✅     | [The three verb-level partition rows and the far-forward clock row run for real](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+|     | ↳      | S22, S23, S24 and S35 are real Given/When/Then scenarios, none @pending, all bound in the existing cmd/frit/bdd_partitions_and_clocks_test.go via a second registrar kept apart only for the file's own lint budget. S22 and S24 go through the real board verb against a second, breakable checkout — fetchRemote/staleFetch's own degrade, never a fake Runner. S23 drives observeHolds directly against a synthetic fleet and an explicit clock, no repository at all. S35 corrects Phase 1's own suggestion of an early-firing window — the pure discovery functions cannot produce one — and instead proves the takeover backoff through a real chain. Every new step function carries its own unit test.                                      |
+| 3   | ✅     | [The cross-host clock skew row runs for real, closing the matrix's ten](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+|     | ↳      | S36 is a real Given/When/Then scenario, no longer @pending, bound in a third registrar in the existing cmd/frit/bdd_partitions_and_clocks_test.go. pcState carries two new maps, hostWindows and hostClocks, keyed by host rather than the singular pair every earlier row in this file shares. Each host matures its own window independently, on a clock skewed years from the other's, through the same maturation loop S20's own observerWatchesTipGoStale already uses; the Then step reads each host's StaleHold only against its own recorded clock, so convergence is proven by construction, never asserted as prose. Every new step function carries its own unit test. All ten rows this plan opened — S20-S25, S33-S36 — pass together. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/partitions.feature` or
+- [x] No scenario in `features/partitions.feature` or
       `features/clocks.feature` carries `@pending`; `go test
       ./cmd/frit -run TestFeatures/S` reports S20..S25 and S33..S36 as
       PASS, none as SKIP
-- [ ] Every step is bound in
+- [x] Every step is bound in
       `cmd/frit/bdd_partitions_and_clocks_test.go` or reused from
       `bdd_lease_test.go`; `bdd_test.go` is untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a marker, a stored observation — never a comment
-- [ ] No scenario reads the wall clock into a decision: every window
+- [x] No scenario reads the wall clock into a decision: every window
       is observed on a time the step chose
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
