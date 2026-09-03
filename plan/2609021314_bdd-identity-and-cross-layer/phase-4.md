@@ -1,7 +1,7 @@
 ---
 n: 4
 title: "A reset window, a fenced release and a doc boundary: S62, S63, S65, S66 run real"
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert four more rows from `@pending` declarations into passing

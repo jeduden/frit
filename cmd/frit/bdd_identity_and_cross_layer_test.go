@@ -24,6 +24,7 @@ import (
 func init() {
 	registrars = append(registrars, (*world).registerIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerVerbLevelIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerObservationAndBoundaryIdentityAndCrossLayer)
 }
 
 // identityAndCrossLayerState is this section's own state beside the
@@ -132,6 +133,29 @@ func (w *world) registerVerbLevelIdentityAndCrossLayer(sc *godog.ScenarioContext
 		w.aTakeoverBoundToASessionAtANewEpochLandsOnPlan)
 	sc.Step(`^the lane runs start --go for plan (\d+)$`, w.theLaneRunsStartGoForPlan)
 	sc.Step(`^start refuses and names yield$`, w.startRefusesAndNamesYield)
+}
+
+// registerObservationAndBoundaryIdentityAndCrossLayer registers
+// Phase 4's own six steps: the window-reset row (S62), the
+// fenced-release row that proves liveness never rescues a lane a CAS
+// has already lost (S63), the reachable-but-empty herdr row (S65),
+// and the doc-boundary row that asserts a lane's marker and token
+// carry no host at all (S66) — split from
+// registerVerbLevelIdentityAndCrossLayer so neither trips
+// golangci-lint's funlen.
+func (w *world) registerObservationAndBoundaryIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^the holder pushes a raw commit on top of the held tip$`,
+		w.theHolderPushesARawCommitOnTopOfTheHeldTip)
+	sc.Step(`^the refusal names the window not yet matured$`, w.theRefusalNamesTheWindowNotYetMatured)
+
+	sc.Step(`^herdr confirms the lane's own session is live$`, w.herdrConfirmsTheLanesOwnSessionIsLive)
+
+	sc.Step(`^it takes over cleanly at the next epoch$`, w.itTakesOverCleanlyAtTheNextEpoch)
+
+	sc.Step(`^the marker's lane trailer is a bare path naming no host$`,
+		w.theMarkersLaneTrailerIsABarePathNamingNoHost)
+	sc.Step(`^the lane's token lives inside that path's git directory$`,
+		w.theLanesTokenLivesInsideThatPathsGitDirectory)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -1113,6 +1137,160 @@ func (w *world) startRefusesAndNamesYield() error {
 	return nil
 }
 
+// theHolderPushesARawCommitOnTopOfTheHeldTip advances origin's own
+// tip past the window's own held observation — S62's own Given: the
+// holder is still working, herdr just cannot be reached to say so,
+// and the tip moving is what a claimant's own gather must read as
+// progress, never silence. The push runs through a fresh worktree on
+// the stale holder's own clone, never a chdir into it, since that
+// directory already plays "another machine's own checkout" for
+// machineClaimsPlan.
+func (w *world) theHolderPushesARawCommitOnTopOfTheHeldTip() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.held == "" {
+		return fmt.Errorf("no held tip to push past; the held-plan step comes first")
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	lane := filepath.Join(w.t.TempDir(), "atlas-push")
+	git(w.t, repo, "worktree", "add", "-q", lane, claim.Branch(int64(w.planID)))
+	git(w.t, lane, "commit", "--allow-empty", "-q", "-m", "work: keep going")
+	if out, err := gitCapture(w.t, lane, "push", "-q", "origin", claim.Branch(int64(w.planID))); err != nil {
+		return fmt.Errorf("push a raw commit past the held tip: %s: %w", out, err)
+	}
+
+	return nil
+}
+
+// theRefusalNamesTheWindowNotYetMatured checks the last claim's own
+// output names notMaturedReason's own wording — the shape a claim
+// takes once Observe has reset the window on an advanced tip, never a
+// takeover or a live-session veto.
+func (w *world) theRefusalNamesTheWindowNotYetMatured() error {
+	out := section[identityAndCrossLayerState](w).out
+	if !strings.Contains(out, "not takeable until the window matures") {
+		return fmt.Errorf("the refusal does not name the window: %s", out)
+	}
+
+	return nil
+}
+
+// herdrConfirmsTheLanesOwnSessionIsLive installs a herdr fake naming
+// the exact session buildLiveLane's session-bound Given already
+// binds — "wOld:p1", the same session S77 already uses — as a live
+// agent. S63's own point is that fencing ignores this positive
+// answer once a takeover has moved the ref out from under the lane,
+// not that liveness goes unchecked.
+func (w *world) herdrConfirmsTheLanesOwnSessionIsLive() error {
+	withHerdr(w.t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"pane_id":      "wOld:p1",
+		"agent_session": map[string]any{
+			"value": "wOld:p1",
+		},
+	}))
+
+	return nil
+}
+
+// itTakesOverCleanlyAtTheNextEpoch checks the last claim's own output
+// claimed cleanly — S65's own point, that a herdr which answers but
+// names nobody lets the takeover's own worktree stand-up succeed,
+// unlike S61's unreachable fake — and that the branch it minted is a
+// plain takeover marker at the next epoch, a direct child of exactly
+// the stale tip the Given step observed.
+func (w *world) itTakesOverCleanlyAtTheNextEpoch() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, fmt.Sprintf("claimed plan %d", w.planID)) {
+		return fmt.Errorf("claim did not succeed cleanly: %s", st.out)
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	body, err := gitCapture(w.t, repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, fmt.Sprintf("plan %d: takeover", w.planID)) ||
+		!strings.Contains(body, "epoch:   2") {
+		return fmt.Errorf("the tip is not a clean epoch-2 takeover: %q", body)
+	}
+	parent, err := gitCapture(w.t, repo, "rev-parse", tip+"^")
+	if err != nil {
+		return fmt.Errorf("%s: %w", parent, err)
+	}
+	if parent != w.lease.Tip {
+		return fmt.Errorf("the takeover's parent is %s, want the observed stale tip %s", parent, w.lease.Tip)
+	}
+
+	return nil
+}
+
+// theMarkersLaneTrailerIsABarePathNamingNoHost reads the current
+// marker back and checks its lane: trailer is exactly the fixture's
+// own filesystem path — leaseMessage writes opts.Lane verbatim — and
+// that the path is a bare absolute path, never a host:path pair:
+// S66's whole boundary is that there is nowhere in the trailer a host
+// could be recorded.
+func (w *world) theMarkersLaneTrailerIsABarePathNamingNoHost() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to read the marker's trailer from; the token step comes first")
+	}
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, "lane:    "+st.lane) {
+		return fmt.Errorf("the marker's lane trailer does not read %q: %q", st.lane, body)
+	}
+	if !filepath.IsAbs(st.lane) {
+		return fmt.Errorf("the lane %q is not a bare filesystem path", st.lane)
+	}
+
+	return nil
+}
+
+// theLanesTokenLivesInsideThatPathsGitDirectory checks claim.TokenPath
+// resolves under the lane's own git directory, and that
+// claim.ReadToken there matches the lease's own persisted tip — S66's
+// other half: nothing about the token's location or its own file
+// needs a host either.
+func (w *world) theLanesTokenLivesInsideThatPathsGitDirectory() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to read the token from; the token step comes first")
+	}
+	path, err := claim.TokenPath(st.lane, int64(w.planID), gitwt.Exec)
+	if err != nil {
+		return fmt.Errorf("token path: %w", err)
+	}
+	gitDir, err := gitwt.GitDir(st.lane, gitwt.Exec)
+	if err != nil {
+		return fmt.Errorf("git dir: %w", err)
+	}
+	if !strings.HasPrefix(path, gitDir) {
+		return fmt.Errorf("the token path %q does not sit inside the lane's own git directory %q", path, gitDir)
+	}
+	if got := claim.ReadToken(st.lane, int64(w.planID), gitwt.Exec); got != w.lease.Tip {
+		return fmt.Errorf("the persisted token is %q, want the lease's own tip %q", got, w.lease.Tip)
+	}
+
+	return nil
+}
+
 // TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet: the two
 // steps that name a second machine by role — the claimant racing a
 // stale hold, the machine repurposing a branch by hand — refuse when
@@ -1339,4 +1517,44 @@ func TestPhase3IdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
 	st.out = "refused: plan 7 could not be resumed: deserted hold: its token cannot " +
 		"self-resume; run `frit yield 7` to retire this lane"
 	assert.NoError(t, w.startRefusesAndNamesYield())
+}
+
+// TestPhase4IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// Phase 4's own new steps refuse when the state an earlier step
+// records was never built, rather than reading a zero value as real.
+func TestPhase4IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.theHolderPushesARawCommitOnTopOfTheHeldTip()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no held tip")
+
+	err = w.theMarkersLaneTrailerIsABarePathNamingNoHost()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lane")
+
+	err = w.theLanesTokenLivesInsideThatPathsGitDirectory()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lane")
+}
+
+// TestPhase4IdentityAndCrossLayerReadBacksWantTheirExactShape: Phase
+// 4's own read-back steps refuse on the wrong shape rather than
+// passing on an unrelated success or a refusal for the wrong reason.
+func TestPhase4IdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+
+	st.out = "refused: plan 7 is held by a live agent session on box-a"
+	require.Error(t, w.theRefusalNamesTheWindowNotYetMatured(), "refused, but not for the window")
+	st.out = "refused: plan 7 already held (plan/7); not takeable until the window matures"
+	assert.NoError(t, w.theRefusalNamesTheWindowNotYetMatured())
+
+	w.planID = 7
+	st.out = "refused: plan 7 already held"
+	require.Error(t, w.itTakesOverCleanlyAtTheNextEpoch(), "a refusal is not a clean takeover")
+	st.out = "claimed plan 7"
+	err := w.itTakesOverCleanlyAtTheNextEpoch()
+	require.Error(t, err, "a claimed output with no machine introduced has nothing to read back")
+	assert.Contains(t, err.Error(), "no machine")
 }
