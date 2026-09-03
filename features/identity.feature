@@ -13,11 +13,20 @@ Feature: Identity anomalies
     Then start refuses, naming the live agent session
     And the holder's own lease is renewed, not seized
 
-  @S46 @pending
+  @S46
   Scenario: worktree path reused
+    Given "elsewhere" holds plan 7 with its lane's token persisted
+    When this machine runs claim for plan 7 from an unrelated directory
+    Then claim refuses: already held
+    And the plan 7 ref is unchanged
 
-  @S47 @pending
+  @S47
   Scenario: worktree debris fails the handoff
+    Given plan 7 is unclaimed
+    And the agent fails to start and its own teardown leaves debris behind
+    When this machine runs start --go for plan 7
+    Then start fails and a release marker sits on the branch
+    And the error names the worktree and pane left behind
 
   @S48
   Scenario: hostname changes

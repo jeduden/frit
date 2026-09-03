@@ -56,11 +56,22 @@ Feature: Cross-layer: herdr and frit disagree
   @S74 @pending
   Scenario: same plan id in two repos
 
-  @S76 @pending
+  @S76
   Scenario: pane gone before the window matures
+    Given a held lane holding plan 7 whose marker names "elsewhere" as holder and names no session
+    And herdr shows no agent on the lane
+    When this machine runs start --go for plan 7
+    Then the plan is resumed
+    And no takeover marker sits between the held tip and origin's tip
 
-  @S77 @pending
+  @S77
   Scenario: deserted lane on its own host
+    Given this machine holds plan 7 in a lane with its token persisted
+    And a takeover at a new epoch lands on plan 7
+    And herdr shows no agent on the lane
+    When the lane runs start --go for plan 7
+    Then start refuses and names yield
+    And it is refused and the takeover stands
 
   @S86
   Scenario: a live lane's own raw commits advance the branch past its persisted token
