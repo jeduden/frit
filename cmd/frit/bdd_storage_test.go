@@ -106,6 +106,10 @@ func (w *world) registerStorageAnomalies(sc *godog.ScenarioContext) {
 		w.branchIsNoLongerAnAncestorOfOriginsMain)
 	sc.Step(`^reap still reaps "([^"]+)"'s checkout, landed by its status glyph alone$`,
 		w.reapStillReapsCheckoutLandedByItsStatusGlyphAlone)
+	sc.Step(`^a person edits origin's URL to an equivalent mirror$`,
+		w.aPersonEditsOriginsURLToAnEquivalentMirror)
+	sc.Step(`^the renewal lands, unbroken by the URL edit$`, w.theRenewalLandsUnbrokenByTheURLEdit)
+	sc.Step(`^origin's tip carries "([^"]+)"'s renewal$`, w.originsTipCarriesRenewal)
 }
 
 // originOf finds the bare origin every machine in a storage scenario
@@ -706,6 +710,74 @@ func (w *world) reapStillReapsCheckoutLandedByItsStatusGlyphAlone(holder string)
 	return nil
 }
 
+// aPersonEditsOriginsURLToAnEquivalentMirror is S43's own edit: a
+// person mirror-clones origin as it stands, then repoints the holder's
+// own "origin" remote at the mirror — a URL edit to a remote carrying
+// the same content under a new address, the migration a bare set-url
+// performs. Coordination is the CAS token on the ref, not the URL, so
+// the holder must renew across the edit unbroken.
+func (w *world) aPersonEditsOriginsURLToAnEquivalentMirror() error {
+	origin, err := w.originOf(w.holder)
+	if err != nil {
+		return err
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	mirror := filepath.Join(w.t.TempDir(), "migrated-mirror.git")
+	out, err := gitCapture(w.t, filepath.Dir(mirror), "clone", "-q", "--mirror", origin, mirror)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	out, err = gitCapture(w.t, repo, "remote", "set-url", "origin", mirror)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	w.sw().origin = mirror
+
+	return nil
+}
+
+// theRenewalLandsUnbrokenByTheURLEdit checks the tracked renewal that
+// crossed the URL edit actually landed: casPush arbitrates on the ref's
+// tip, and the mirror carries it, so the force-with-lease matched and
+// the CAS succeeded. A landed renewal records its tip on this section;
+// no recorded tip means no renewal ran, so the step refuses rather than
+// reading a stale nil error as a win.
+func (w *world) theRenewalLandsUnbrokenByTheURLEdit() error {
+	if _, ok := w.sw().tips[w.holder]; !ok {
+		return fmt.Errorf("no renewal has landed yet; the renewal step comes first")
+	}
+	if w.err != nil {
+		return fmt.Errorf("the renewal did not land across the URL edit: %w", w.err)
+	}
+
+	return nil
+}
+
+// originsTipCarriesRenewal checks the renewal reached the repointed
+// origin, not the old one: origin's current tip for the plan, read off
+// the holder's own clone through the edited remote, equals the tip the
+// tracked renewal recorded. The edit changed the address, never the
+// coordinate.
+func (w *world) originsTipCarriesRenewal(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	want, ok := w.sw().tips[holder]
+	if !ok {
+		return fmt.Errorf("%q recorded no renewal tip; the renewal step comes first", holder)
+	}
+	got := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
+	if got != want {
+		return fmt.Errorf("origin's tip is %s, want the renewal's %s", got, want)
+	}
+
+	return nil
+}
+
 // TestSwLazilyInitializesItsMapsOncePerWorld: the section's maps are
 // built on first use and stay the same value for the rest of the
 // scenario, a fresh pair for another scenario's own world.
@@ -1296,4 +1368,71 @@ func TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneTearsDownTheLane(t *te
 
 	_, err := os.Stat(lane)
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestAPersonEditsOriginsURLToAnEquivalentMirrorRepointsToAMirrorCarryingTheTip:
+// the holder's origin remote points at a fresh mirror, and the mirror
+// carries the plan's work ref at the tip origin held when it was taken.
+func TestAPersonEditsOriginsURLToAnEquivalentMirrorRepointsToAMirrorCarryingTheTip(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 43
+	repo := claimableRepo(t, t.TempDir(), "atlas", 43, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 43), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+
+	require.NoError(t, w.aPersonEditsOriginsURLToAnEquivalentMirror())
+
+	mirror := w.sw().origin
+	require.NotEmpty(t, mirror)
+	url, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
+	require.NoError(t, err)
+	assert.Equal(t, mirror, url, "the holder's origin is repointed at the mirror")
+	tip, err := gitCapture(t, mirror, "rev-parse", w.branch())
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "the mirror carries the work ref at origin's tip")
+}
+
+// TestTheRenewalLandsUnbrokenByTheURLEditRefusesWithNoRenewalYet: with
+// no tracked renewal recorded, a nil error is not yet a landed renewal,
+// and a failed renewal never landed either.
+func TestTheRenewalLandsUnbrokenByTheURLEditRefusesWithNoRenewalYet(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+
+	require.Error(t, w.theRenewalLandsUnbrokenByTheURLEdit(), "no renewal ran yet")
+
+	w.sw().tips["box-a"] = "beat-sha"
+	assert.NoError(t, w.theRenewalLandsUnbrokenByTheURLEdit())
+
+	w.err = fmt.Errorf("push beat for plan 43: exit status 1")
+	require.Error(t, w.theRenewalLandsUnbrokenByTheURLEdit(), "a failed renewal did not land")
+}
+
+// TestOriginsTipCarriesRenewalMatchesTheRecordedTipAcrossTheEdit: the
+// full S43 path — acquire, edit origin's URL, renew — leaves origin's
+// tip equal to the renewal's recorded tip, read through the edited
+// remote; an unknown machine refuses.
+func TestOriginsTipCarriesRenewalMatchesTheRecordedTipAcrossTheEdit(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 43
+	repo := claimableRepo(t, t.TempDir(), "atlas", 43, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 43), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+
+	require.Error(t, w.originsTipCarriesRenewal("ghost"))
+
+	require.NoError(t, w.aPersonEditsOriginsURLToAnEquivalentMirror())
+	require.NoError(t, w.renewsItsLeaseAgain("box-a"))
+	require.NoError(t, w.theRenewalLandsUnbrokenByTheURLEdit())
+
+	require.NoError(t, w.originsTipCarriesRenewal("box-a"))
+	assert.NotEqual(t, lease.Tip, w.sw().tips["box-a"], "the renewal advanced the tip past the claim")
 }

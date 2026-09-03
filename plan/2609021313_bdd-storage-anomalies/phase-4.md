@@ -1,7 +1,7 @@
 ---
 n: 4
 title: S43 runs for real once its finding is settled
-status: "🔲"
+status: "✅"
 result: false
 ---
 S43 is the one storage row where the doc and the code disagreed. Its
