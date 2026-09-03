@@ -7,11 +7,20 @@ Feature: Lifecycle anomalies — claims and refs
   landed-evidence.feature. A scenario still tagged @pending is
   declared but not yet written.
 
-  @S50 @pending
+  @S50
   Scenario: plan file renamed after claim
+    Given "box-a" holds the lease for plan 7
+    When the plan file is renamed on main and pushed
+    And "box-b" acquires the lease for plan 7
+    Then "box-b" loses to the live lease
+    And origin carries exactly one refs/heads/plan/* ref, with no slug in its name
 
-  @S51 @pending
+  @S51
   Scenario: slug collision across plans
+    Given plans 7 and 8 share a title
+    When "box-a" acquires the lease for plan 7
+    And "box-a" acquires the lease for plan 8
+    Then origin holds refs/heads/plan/7 and refs/heads/plan/8, two refs, neither naming the shared title
 
   @S52 @pending
   Scenario: plan deleted while claimed
@@ -22,8 +31,14 @@ Feature: Lifecycle anomalies — claims and refs
   @S55 @pending
   Scenario: merge + branch auto-delete
 
-  @S56 @pending
+  @S56
   Scenario: local branch deleted by hand
+    Given "box-a" holds the lease for plan 7
+    When "box-a" deletes its local branch by hand
+    And "box-b" acquires the lease for plan 7
+    Then "box-b" loses to the live lease
+    When "box-a" comes back and renews its lease
+    Then the local branch is restored at the renewed tip
 
   @S57 @pending
   Scenario: plan re-opened after done
@@ -31,8 +46,19 @@ Feature: Lifecycle anomalies — claims and refs
   @S58 @pending
   Scenario: released before the PR merges
 
-  @S70 @pending
+  @S70
   Scenario: claim dated against an old base
+    Given a claimable plan 7
+    And origin's main moves past the clone's last fetch
+    When frit claims plan 7
+    Then the claim marker's base names origin's current main
 
-  @S75 @pending
+  @S75
   Scenario: default branch renamed
+    Given a clone of an origin whose default branch is "main"
+    When origin renames its default branch to "trunk"
+    And the clone re-reads origin's HEAD
+    Then DefaultRef answers "refs/remotes/origin/trunk"
+    When origin renames its default branch to "quay"
+    And the clone re-reads origin's HEAD
+    Then DefaultRef answers "refs/remotes/origin/quay"

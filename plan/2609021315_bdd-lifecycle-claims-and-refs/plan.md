@@ -1,7 +1,7 @@
 ---
 id: 2609021315
 title: The lifecycle claim-and-ref scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The claim-and-ref half of the lease-protocol matrix's "Lifecycle
   anomalies" section — S50, S51, S52, S53, S55, S56, S57, S58, S70 and
