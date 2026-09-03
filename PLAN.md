@@ -127,4 +127,5 @@ footer: |
 | 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
 | 2609031211 | 🔲     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
 | 2609031939 | 🔲     | sonnet | [board and start refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)            |
+| 2609031951 | 🔲     | sonnet | [A deserted top lane no longer stalls pick's candidate walk](plan/2609031951_deserted-lane-no-longer-stalls-pick/plan.md)              |
 <?/catalog?>
