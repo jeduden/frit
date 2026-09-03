@@ -59,5 +59,11 @@ Feature: Races
     Then the takeover is refused, naming a live agent session
     And "elsewhere"'s lease is renewed by a beat instead of seized
 
-  @S32 @pending
+  @S32
   Scenario: two same-host sessions race
+    Given "this host" is ready to start plan 7
+    When "this host" starts plan 7
+    Then the start succeeds, standing this host's own lane up
+    When the hold's takeover window has matured
+    And "this host" starts plan 7
+    Then the second start is refused, naming the lane the first stood up
