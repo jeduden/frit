@@ -74,9 +74,9 @@ graded a stale cache.
 1. Phase 1 (proving slice): add the Codecov upload to the test job in
    [.github/workflows/ci.yml](../../.github/workflows/ci.yml) over OIDC
    — `id-token: write` on that job, the action pinned by SHA,
-   `use_oidc: true`, the fork-PR guard — and a root `codecov.yml` that
-   validates against Codecov's schema. Prove the profile reaches
-   Codecov on a real run.
+   `use_oidc: true`, the fork-PR guard — a root `codecov.yml` that
+   validates against Codecov's schema, and a Codecov badge in the
+   README. Prove the profile reaches Codecov on a real run.
 2. Later, once uploads are confirmed flowing: add the
    `coverage.status.project` gate at `threshold: 0.5%` and a `patch`
    gate to `codecov.yml`, with `if_no_uploads`/`if_not_found: success`
@@ -123,6 +123,8 @@ footer: |
 - [ ] The upload step is skipped on fork pull requests and runs on
       pushes and same-repo pull requests
 - [ ] `codecov.yml` validates against Codecov's config validator
+- [ ] The README carries a Codecov coverage badge under its title,
+      linking to the project page, and `mdsmith check .` passes
 - [ ] `zizmor` reports no findings on the edited workflow
 - [ ] Codecov posts a `project` status that fails when coverage drops
       more than 0.5%, and a `patch` status on new code, both posting

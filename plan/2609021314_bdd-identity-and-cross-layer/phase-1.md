@@ -1,7 +1,7 @@
 ---
 n: 1
 title: "The herdr fake reaches a step: S48, S61, S64, S86 run real"
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert four rows from `@pending` declarations into passing scenarios:

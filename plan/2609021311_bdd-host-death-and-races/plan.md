@@ -1,7 +1,7 @@
 ---
 id: 2609021311
 title: The host-death and race scenarios run under godog
-status: "🔲"
+status: "✅"
 summary: >-
   The lease-protocol matrix's "Host death, suspension, zombies" section
   (S14..S19) and its "Races" section (S26..S32) are declared in
@@ -113,16 +113,23 @@ made here.
    `bdd_host_death_and_races_test.go`, the file registered, the
    pattern for a doc-by-argument row set by S19. Driven red by
    dropping `@pending`: strict mode fails the undefined steps.
-2. Later phases, shaped by Phase 1's handoff: the verb-level rows
-   S14, S15, S18, S31 and S32 over the resume path, the explicit-time
-   window and the herdr fake; then S29 over a runner wrapper that
+2. Phase 2, shaped by Phase 1's handoff: the four verb-level rows
+   whose fixture already exists almost verbatim as a unit test — S14,
+   S15, S18, S31 — over the resume path, the explicit-time window and
+   the herdr fake.
+3. Later phases: S32, over a stateful herdr fake no existing fixture
+   builds (a first `start` call's own worktree reflected as live to a
+   second, same-host call); then S29 over a runner wrapper that
    injects the release into the loser's read.
 
 ## Execution
 
-| Phase | Title                                                       | Tier   | Gate                                                                                                                                                             |
-| ----- | ----------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | The six lease-API rows of host death and races run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(17\|19\|26\|27\|28\|30)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| Phase | Title                                                                | Tier   | Gate                                                                                                                                                             |
+| ----- | -------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | The six lease-API rows of host death and races run for real          | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(17\|19\|26\|27\|28\|30)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| 2     | The resume-path and window rows of host death and races run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(14\|15\|18\|31):'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean         |
+| 3     | S29, the release-vs-loser's-read race, runs for real                 | sonnet | `go test ./cmd/frit -run 'TestFeatures/S29:'` passes; bijection gate, `go test ./...`, golangci-lint clean                                                       |
+| 4     | S32, two same-host start sessions racing, runs for real              | sonnet | `go test ./cmd/frit -run 'TestFeatures/S32:'` passes; bijection gate, `go test ./...`, golangci-lint clean                                                       |
 
 ## Phases
 
@@ -145,23 +152,30 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                     |
-| --- | ------ | ------------------------------------------------------------------------- |
-| 1   | 🔲     | [The six lease-API rows of host death and races run for real](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [The six lease-API rows of host death and races run for real](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                          |
+|     | ↳      | S17, S19, S26, S27, S28 and S30 drop `@pending` and pass as real godog scenarios, each asserting an observable fact on origin or a typed lease error — never a comment. All twelve rows in the two sections' new step file, `bdd_host_death_and_races_test.go`, reuse the shared `world` `bdd_lease_test.go` built, threading their own state through the existing `section[T]` mechanism rather than adding fields to `world` or standing up a second world type. |
+| 2   | ✅     | [The resume-path and window rows of host death and races run for real](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                 |
+|     | ↳      | S14, S15, S18 and S31 drop `@pending` and pass as real godog scenarios driven through the CLI (`frit claim`, `frit orphans`) rather than the lease API alone, each mirroring an existing claim/start unit test's fixture. A new `cliState` section carries the lane, bound session, persisted token and captured CLI output a verb-level row needs, alongside the shared `world`.                                                                                  |
+| 3   | ✅     | [S29, the release-vs-loser's-read race, runs for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                 |
+|     | ↳      | S29 drops `@pending` and passes as a real godog scenario. Its one new step, `claimsRacingARelease`, wraps `gitwt.Runner` for exactly one claimant's Acquire: the wrapper lies "absent" on that call's first `ls-remote`, letting Acquire attempt a real push against a ref its own read should have shown live, and releases the real holder's lease the instant that push fails for real — landing the race squarely inside `casPush`'s own reconciliation read.  |
+| 4   | ✅     | [S32, two same-host start sessions racing, runs for real](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                              |
+|     | ↳      | S32 drops `@pending` and passes as a real godog scenario driven through `frit start --go` twice, over a stateful herdr fake that turns a first call's own "worktree create" RPC into a real linked worktree and reflects it back as a live, session-less pane. The second call's own `startLiveLaneRefusal` reads that pane and refuses, naming the lane the first call stood up.                                                                                  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/host-death.feature` or
+- [x] No scenario in `features/host-death.feature` or
       `features/races.feature` carries `@pending`; `go test ./cmd/frit
       -run TestFeatures/S` reports S14..S19 and S26..S32 as PASS, none
       as SKIP
-- [ ] Every step is bound in
+- [x] Every step is bound in
       `cmd/frit/bdd_host_death_and_races_test.go` or reused from
       `bdd_lease_test.go`; `bdd_test.go` is untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a marker — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

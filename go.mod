@@ -8,7 +8,7 @@ require (
 	github.com/cucumber/godog v0.16.0
 	github.com/cucumber/messages/go/v34 v34.2.0
 	github.com/jeduden/mdsmith v0.55.1
-	github.com/mattn/go-runewidth v0.0.27
+	github.com/mattn/go-runewidth v0.0.28
 	github.com/stretchr/testify v1.12.0
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
