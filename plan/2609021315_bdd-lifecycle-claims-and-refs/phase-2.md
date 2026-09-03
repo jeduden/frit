@@ -1,35 +1,39 @@
 ---
 n: 2
 title: The scavenge-by-release-evidence rows run for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S53 (plan id reused) and S57 (plan re-opened after done) from
-`@pending` into passing scenarios, and S55 (merge + branch
-auto-delete) alongside them since it shares S53/S57's own fixture
-shape and Then step. S52 (plan deleted while claimed) and S58
-(released before the PR merges) are not this phase's; S52 needs its
-own fixture, named below, and S58 is doc-by-argument, per plan.md's
-own task split.
+`@pending` into passing scenarios. S55 (merge + branch auto-delete)
+joins them, since it shares S53's and S57's own fixture shape and Then
+step. S52 (plan deleted while claimed) and S58 (released before the
+PR merges) are not this phase's. S52 needs its own fixture, named
+below. S58 is doc-by-argument, per plan.md's own task split.
 
 **Assumes.** `claim.Released(repoDir, tip, planID, run)` reads a work
-ref's tip subject and reports whether it is a release marker — used
-today only by `release`'s own no-op check, never to drive a scavenge.
+ref's tip subject and reports whether it is a release marker. Today
+that is used only by `release`'s own no-op check, never to drive a
+scavenge.
+
 `claim.Scavenge(repoDir, opts, from, run)` does not itself read the
-tip's marker kind: it CASes on `from` against the remote's current
+tip's marker kind. It CASes on `from` against the remote's current
 tip, parks unlanded work, then deletes — the same mechanics whether
-`from` is a release marker, a landed tip, or anything else. Nothing in
-`cmd/frit/claim.go` or `release.go` calls `Scavenge` on a merely
-released ref today — only a landed one (by ancestry, in `mintClaim`,
-or by glyph, in `releaseUnheld`) is scavenged automatically. This
-phase drives `claim.Scavenge` directly against a released tip, the
-mechanism the matrix's own outcome column names, without adding the
-evidence-detection wiring itself — that wiring is out of this plan's
-scope, named in plan.md's Context and confirmed by phase 1's handoff.
+`from` is a release marker, a landed tip, or anything else.
+
+Nothing in `cmd/frit/claim.go` or `release.go` calls `Scavenge` on a
+merely released ref today. Only a landed one — by ancestry, in
+`mintClaim`, or by glyph, in `releaseUnheld` — is scavenged
+automatically. This phase drives `claim.Scavenge` directly against a
+released tip, the mechanism the matrix's own outcome column names.
+It does not add the evidence-detection wiring itself; that wiring is
+out of this plan's scope, named in plan.md's Context and confirmed by
+phase 1's handoff.
+
 `resumableRepo(t, root, name, id, title)` in
 [claim_test.go](../../cmd/frit/claim_test.go) already builds a plan
 whose work ref was never even minted — the fixture phase 1's handoff
-named as the nearest shape for S55, needing no scavenge at all since
+named as the nearest shape for S55. It needs no scavenge at all, since
 there is nothing on the ref to scavenge.
 
 **Value.** Two more rows executable, and a fixture pattern — build a
@@ -72,14 +76,14 @@ The scenarios, in the matrix's own terms:
   plan, never in the ref mechanics, which is exactly what the matrix
   says: both read "scavenge old ref by evidence; fresh acquire".
 
-**GREEN.** Extend `cmd/frit/bdd_lifecycle_test.go`: a shared Given that
-builds a released lease and records its tip in `lifecycleState`, a When
-for each row's own edit to the plan file, a shared step that drives
-`claim.Scavenge` directly against the recorded release tip — the
-evidence a future verb would still need to decide *when* to call this,
-which this phase does not add — and a shared Then that runs `frit
-claim` (reusing S70's own `fritClaimsPlan`) and checks the marker's
-epoch, reusing `ReadMarker` the way S70's base check already does.
+**GREEN.** Extend `cmd/frit/bdd_lifecycle_test.go`: a shared Given
+builds a released lease and records its tip in `lifecycleState`. A
+When for each row makes its own edit to the plan file. A shared step
+drives `claim.Scavenge` directly against the recorded release tip —
+the evidence a future verb would still need to decide *when* to call
+this, which this phase does not add. A shared Then runs `frit claim`
+(reusing S70's own `fritClaimsPlan`) and checks the marker's epoch,
+reusing `ReadMarker` the way S70's base check already does.
 S55 reuses that same Then directly over `resumableRepo`, with no
 scavenge step at all. Every step function ships with a unit test of
 its own, per CLAUDE.md.

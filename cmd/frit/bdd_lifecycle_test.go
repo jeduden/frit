@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ func init() {
 type lifecycleState struct {
 	root, repo    string
 	staleBase     string
+	releaseTip    string
 	origin, clone string
 	out, errOut   string
 	code          int
@@ -61,6 +63,16 @@ func (w *world) registerLifecycle(sc *godog.ScenarioContext) {
 	sc.Step(`^origin renames its default branch to "([^"]+)"$`, w.originRenamesItsDefaultBranchTo)
 	sc.Step(`^the clone re-reads origin's HEAD$`, w.theCloneReReadsOriginsHead)
 	sc.Step(`^DefaultRef answers "([^"]+)"$`, w.defaultRefAnswers)
+
+	sc.Step(`^plan (\d+) is done and its lease is released$`, w.planIsDoneAndItsLeaseIsReleased)
+	sc.Step(`^a different plan's file replaces it under the same id (\d+)$`,
+		w.aDifferentPlansFileReplacesItUnderTheSameID)
+	sc.Step(`^the plan file is marked done and then re-opened$`, w.thePlanFileIsMarkedDoneAndThenReopened)
+	sc.Step(`^the released ref is scavenged by evidence$`, w.theReleasedRefIsScavengedByEvidence)
+	sc.Step(`^origin carries no plan/(\d+) ref$`, w.originCarriesNoPlanRef)
+	sc.Step(`^frit claims plan (\d+) fresh at epoch (\d+)$`, w.fritClaimsPlanFreshAtEpoch)
+	sc.Step(`^plan (\d+) is merged into main with its branch already auto-deleted$`,
+		w.planIsMergedIntoMainWithItsBranchAlreadyAutoDeleted)
 }
 
 // acquiresTheLeaseForPlan drives claim.Acquire directly for a named
@@ -398,6 +410,162 @@ func (w *world) defaultRefAnswers(want string) error {
 	return nil
 }
 
+// planIsDoneAndItsLeaseIsReleased builds a claimable plan, acquires
+// its lease and releases it — S53's and S57's shared Given. The
+// released tip is recorded so the scavenge step has exactly what
+// claim.Scavenge needs to CAS against, the same shape
+// TestClaimReacquiresAReleasedLease builds before reacquiring without
+// ever scavenging.
+func (w *world) planIsDoneAndItsLeaseIsReleased(planID int) error {
+	isolate(w.t)
+	w.holder = "box-a"
+	w.planID = planID
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	st := section[lifecycleState](w)
+	st.root, st.repo = root, repo
+	opts := leaseFor(w.holder, planID)
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	released, err := claim.Release(repo, opts, lease.Tip, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	st.releaseTip = released.Tip
+
+	return nil
+}
+
+// aDifferentPlansFileReplacesItUnderTheSameID drops the plan's own
+// file and commits a fresh one under the same id — S53's own When,
+// the id-reuse the lease protocol calls forbidden in practice (minute
+// ids) but the scavenge mechanics must still answer for if it ever
+// happens by hand.
+func (w *world) aDifferentPlansFileReplacesItUnderTheSameID(planID int) error {
+	st := section[lifecycleState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no plan set up; the done-and-released step comes first")
+	}
+	matches, err := planFileMatches(st.repo, planID)
+	if err != nil {
+		return err
+	}
+	if len(matches) != 1 {
+		return fmt.Errorf("expected one plan file for plan %d, found %d", planID, len(matches))
+	}
+	if err := os.Remove(matches[0]); err != nil {
+		return err
+	}
+	commitPlan(w.t, st.repo, planID, "🔲", "Different shader work", nil, "")
+	git(w.t, st.repo, "push", "-q", "origin", "main")
+
+	return nil
+}
+
+// thePlanFileIsMarkedDoneAndThenReopened flips the plan's own file to
+// ✅ and back to 🔲 in place — S57's own When, the same file
+// throughout, unlike S53's replacement.
+func (w *world) thePlanFileIsMarkedDoneAndThenReopened() error {
+	st := section[lifecycleState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no plan set up; the done-and-released step comes first")
+	}
+	commitPlan(w.t, st.repo, w.planID, "✅", "Shader unit", nil, "")
+	commitPlan(w.t, st.repo, w.planID, "🔲", "Shader unit", nil, "")
+	git(w.t, st.repo, "push", "-q", "origin", "main")
+
+	return nil
+}
+
+// theReleasedRefIsScavengedByEvidence drives claim.Scavenge directly
+// against the tip the done-and-released step recorded — the mechanism
+// the matrix's own outcome column names for S53 and S57, without the
+// evidence-detection wiring that would decide on its own to call it;
+// that wiring is out of this plan's scope.
+func (w *world) theReleasedRefIsScavengedByEvidence() error {
+	st := section[lifecycleState](w)
+	if st.repo == "" || st.releaseTip == "" {
+		return fmt.Errorf("no released lease to scavenge; the done-and-released step comes first")
+	}
+	_, err := claim.Scavenge(st.repo, leaseFor("scavenger", w.planID), st.releaseTip, gitwt.Exec)
+
+	return err
+}
+
+// originCarriesNoPlanRef checks a plan's own work ref is entirely
+// gone from origin — the scavenge's delete, not merely a release
+// marker left standing on a ref that still exists.
+func (w *world) originCarriesNoPlanRef(planID int) error {
+	st := section[lifecycleState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no repo set up yet")
+	}
+	branch := "refs/heads/" + claim.Branch(int64(planID))
+	out, err := gitCapture(w.t, st.repo, "ls-remote", "origin", branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	if out != "" {
+		return fmt.Errorf("origin still carries %s: %s", branch, out)
+	}
+
+	return nil
+}
+
+// fritClaimsPlanFreshAtEpoch runs `frit claim`, reusing S70's own
+// driver, and checks the fresh claim marker's epoch — 1 whenever the
+// ref it lands on was scavenged away entirely first, never a
+// continuation of an epoch a still-standing ref would carry. Holder is
+// left blank reading the marker back: fetchedMarker never consults it,
+// only the plan id and the tip already sitting locally.
+func (w *world) fritClaimsPlanFreshAtEpoch(planID, epoch int) error {
+	if err := w.fritClaimsPlan(planID); err != nil {
+		return err
+	}
+	st := section[lifecycleState](w)
+	if st.code != 0 {
+		return fmt.Errorf("claim exited %d: %s", st.code, st.errOut)
+	}
+	if !strings.Contains(st.out, fmt.Sprintf("claimed plan %d", planID)) {
+		return fmt.Errorf("claim did not report success: %s", st.out)
+	}
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", "refs/heads/"+claim.Branch(int64(planID)))
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	m, ok := claim.ReadMarker(st.repo, leaseFor("", planID), tip, gitwt.Exec)
+	if !ok {
+		return fmt.Errorf("no lease marker readable at %s", tip)
+	}
+	if m.Kind != "claim" {
+		return fmt.Errorf("the fresh claim's tip is a %q marker, want claim", m.Kind)
+	}
+	if m.Epoch != epoch {
+		return fmt.Errorf("the fresh claim's epoch is %d, want %d", m.Epoch, epoch)
+	}
+
+	return nil
+}
+
+// planIsMergedIntoMainWithItsBranchAlreadyAutoDeleted builds a plan
+// merged into main whose own lease branch was never even minted on
+// origin — S55's own Given, a GitHub-style merge-and-auto-delete leaves
+// exactly the shape resumableRepo already builds: 🔳 on main, no
+// plan/<id> ref anywhere, nothing live to lose to and nothing to
+// scavenge.
+func (w *world) planIsMergedIntoMainWithItsBranchAlreadyAutoDeleted(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	root := w.t.TempDir()
+	repo := resumableRepo(w.t, root, "atlas", planID, "Shader unit")
+	st := section[lifecycleState](w)
+	st.root, st.repo = root, repo
+
+	return nil
+}
+
 // planFileMatches globs a plan's own markdown file by id, the shape
 // S27's fixture and S50's own rename step both need.
 func planFileMatches(repo string, planID int) ([]string, error) {
@@ -502,4 +670,56 @@ func TestOriginRenamesItsDefaultBranchToRefusesWithNoOriginYet(t *testing.T) {
 func TestTheCloneReReadsOriginsHeadRefusesWithNoCloneYet(t *testing.T) {
 	w := newWorld(t)
 	require.Error(t, w.theCloneReReadsOriginsHead())
+}
+
+// TestADifferentPlansFileReplacesItUnderTheSameIDRefusesWithNoPlanYet:
+// the id-reuse step needs the plan the done-and-released step already
+// built.
+func TestADifferentPlansFileReplacesItUnderTheSameIDRefusesWithNoPlanYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.aDifferentPlansFileReplacesItUnderTheSameID(7))
+}
+
+// TestThePlanFileIsMarkedDoneAndThenReopenedRefusesWithNoPlanYet: the
+// re-open step needs the plan the done-and-released step already
+// built.
+func TestThePlanFileIsMarkedDoneAndThenReopenedRefusesWithNoPlanYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.thePlanFileIsMarkedDoneAndThenReopened())
+}
+
+// TestTheReleasedRefIsScavengedByEvidenceRefusesWithNoReleaseYet: the
+// scavenge step needs the released tip the done-and-released step
+// already recorded.
+func TestTheReleasedRefIsScavengedByEvidenceRefusesWithNoReleaseYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theReleasedRefIsScavengedByEvidence())
+}
+
+// TestOriginCarriesNoPlanRefRefusesWithNoRepoYet: the ref-gone check
+// needs a repo some earlier step already built.
+func TestOriginCarriesNoPlanRefRefusesWithNoRepoYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.originCarriesNoPlanRef(7))
+}
+
+// TestFritClaimsPlanFreshAtEpochRefusesWithNoRootYet: the fresh-claim
+// check needs the root some earlier step already built, the same
+// guard fritClaimsPlan itself carries.
+func TestFritClaimsPlanFreshAtEpochRefusesWithNoRootYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.fritClaimsPlanFreshAtEpoch(7, 1))
+}
+
+// TestPlanIsDoneAndItsLeaseIsReleasedBuildsAReleasedTip: the shared
+// Given actually releases the lease it acquires, so the scavenge step
+// has a release marker's tip to CAS against, not a live hold's.
+func TestPlanIsDoneAndItsLeaseIsReleasedBuildsAReleasedTip(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.planIsDoneAndItsLeaseIsReleased(7))
+
+	st := section[lifecycleState](w)
+	require.NotEmpty(t, st.releaseTip)
+	assert.True(t, claim.Released(st.repo, st.releaseTip, 7, gitwt.Exec))
 }
