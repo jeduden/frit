@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The six raw-git rows of storage anomalies run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Six storage rows need only raw git against origin and the lease API:
