@@ -158,26 +158,46 @@ func (w *world) holdsTheLease(holder string, planID int) error {
 	return nil
 }
 
-func (w *world) commitsUnpushedWork(holder string) error {
+// commitWorkFileOnLane commits one work file on a machine's hold
+// branch and returns the new tip, leaving the checkout back on main.
+// The two work-commit steps share it: the lease world's own leaves the
+// commit unpushed (commitsUnpushedWork), the process-death variant
+// pushes it (pushesAWorkCommit).
+func (w *world) commitWorkFileOnLane(holder, content, message string) (string, error) {
 	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return "", err
+	}
+	git(w.t, repo, "checkout", "-q", claim.Branch(int64(w.planID)))
+	writeFile(w.t, repo, "w.txt", content)
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m", message)
+	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", tip, err)
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+
+	return tip, nil
+}
+
+func (w *world) commitsUnpushedWork(holder string) error {
+	tip, err := w.commitWorkFileOnLane(holder, "wip\n", "unlanded work")
 	if err != nil {
 		return err
 	}
-	git(w.t, repo, "checkout", "-q", claim.Branch(int64(w.planID)))
-	writeFile(w.t, repo, "w.txt", "wip\n")
-	git(w.t, repo, "add", "-A")
-	git(w.t, repo, "commit", "-q", "-m", "unlanded work")
-	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
-	if err != nil {
-		return fmt.Errorf("%s: %w", tip, err)
-	}
-	git(w.t, repo, "checkout", "-q", "main")
 	w.local = tip
 
 	return nil
 }
 
-func (w *world) takesTheLeaseOver(holder string) error {
+// takeoverFromTip stands a second machine up as a fresh clone of the
+// holder's origin and takes the lease over from a given tip, recording
+// the taker and the resulting lease. Both takeover steps share it: the
+// lease world's own CASes from the tip its acquire recorded
+// (takesTheLeaseOver), the process-death variant from origin's current
+// tip, read fresh (takesOverTheCurrentLease).
+func (w *world) takeoverFromTip(holder, from string) error {
 	if holder == w.holder {
 		return fmt.Errorf("%q already holds the lease; a takeover comes from another machine", holder)
 	}
@@ -186,13 +206,17 @@ func (w *world) takesTheLeaseOver(holder string) error {
 		return err
 	}
 
-	taken, err := claim.Takeover(second, leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
+	taken, err := claim.Takeover(second, leaseFor(holder, w.planID), from, gitwt.Exec)
 	if err != nil {
 		return err
 	}
 	w.taker, w.taken = holder, taken
 
 	return nil
+}
+
+func (w *world) takesTheLeaseOver(holder string) error {
+	return w.takeoverFromTip(holder, w.lease.Tip)
 }
 
 func (w *world) comesBackAndRenews(holder string) error {
@@ -297,16 +321,28 @@ func (w *world) originHoldsTheTakeover() error {
 	return w.originTipIs(w.holder, w.taken.Tip)
 }
 
+// cloneOriginOf clones the origin repo points at into dst and stamps
+// the second machine's own git identity, so a fresh clone can move the
+// same plan's work ref. cDir is the existing directory git runs the
+// clone from — dst itself when it already exists, its parent when the
+// clone is what creates it. Both clone helpers share it: cloneAgain
+// drops the clone in its own temp dir, cloneRepoIntoRoot nests it
+// under a fresh root a --root walk can name.
+func cloneOriginOf(t *testing.T, repo, cDir, dst string) {
+	t.Helper()
+	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
+	require.NoError(t, err, origin)
+	git(t, cDir, "clone", "-q", origin, dst)
+	git(t, dst, "config", "user.email", "t2@example.com")
+	git(t, dst, "config", "user.name", "frit-test-2")
+}
+
 // cloneAgain makes a second working clone of the origin repo points
 // at, so a second machine can move the same plan's work ref.
 func cloneAgain(t *testing.T, repo string) string {
 	t.Helper()
-	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
-	require.NoError(t, err, origin)
 	dst := t.TempDir()
-	git(t, dst, "clone", "-q", origin, dst)
-	git(t, dst, "config", "user.email", "t2@example.com")
-	git(t, dst, "config", "user.name", "frit-test-2")
+	cloneOriginOf(t, repo, dst, dst)
 
 	return dst
 }
