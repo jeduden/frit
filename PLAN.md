@@ -24,6 +24,7 @@ empty: |
 
 | ID         | Model  | Title                                                                                                            |
 | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------- |
+| 2609021316 | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                     |
 | 2609021554 | sonnet | [A fleet gather reports its progress and its status](plan/2609021554_gather-reports-progress-and-status/plan.md) |
 <?/catalog?>
 
@@ -121,7 +122,7 @@ footer: |
 | 2609021313 | ✅     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
 | 2609021314 | ✅     | sonnet | [The identity and cross-layer scenarios run under godog](plan/2609021314_bdd-identity-and-cross-layer/plan.md)                         |
 | 2609021315 | ✅     | sonnet | [The lifecycle claim-and-ref scenarios run under godog](plan/2609021315_bdd-lifecycle-claims-and-refs/plan.md)                         |
-| 2609021316 | 🔲     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
+| 2609021316 | 🔳     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
 | 2609021554 | 🔳     | sonnet | [A fleet gather reports its progress and its status](plan/2609021554_gather-reports-progress-and-status/plan.md)                       |
 | 2609022153 | ✅     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
 | 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
