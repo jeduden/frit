@@ -49,8 +49,13 @@ Feature: Storage anomalies
     When "box-b" acquires the lease on the new remote
     Then "box-b" acquired at epoch 1 on the new remote
 
-  @S42 @pending
+  @S42
   Scenario: two remotes, split coordination
+    Given "box-a" holds the lease for plan 42
+    When a person adds a second git remote to "box-a"'s clone
+    And "box-a" renews its lease again
+    Then the renewal lands on the configured remote alone
+    And the second remote carries no work ref
 
   @S43
   Scenario: origin URL edited mid-lifecycle
@@ -60,8 +65,12 @@ Feature: Storage anomalies
     Then the renewal lands, unbroken by the URL edit
     And origin's tip carries "box-a"'s renewal
 
-  @S44 @pending
+  @S44
   Scenario: fork-based flow
+    Given "box-a" has a checkout of a fork whose origin is not the configured coordination remote for plan 44
+    When "box-a" acquires the lease from a checkout of the fork
+    Then the lease lands on the configured coordination remote
+    And the fork's own origin carries no work ref for the plan
 
   @S67
   Scenario: `fetch --prune` races a read
