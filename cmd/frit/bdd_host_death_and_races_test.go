@@ -67,7 +67,7 @@ type cliState struct {
 }
 
 func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
-	sc.Step(`^"([^"]+)" claims plan (\d+)$`, w.attemptsClaim)
+	sc.Step(`^"([^"]+)" races to claim plan (\d+)$`, w.attemptsClaim)
 	sc.Step(`^"([^"]+)" retries plan (\d+)$`, w.attemptsClaim)
 	sc.Step(`^"([^"]+)"'s claim loses, naming "([^"]+)" at epoch (\d+)$`, w.claimLosesNaming)
 	sc.Step(`^"([^"]+)"'s retry acquires at epoch (\d+)$`, w.retryAcquiresAtEpoch)

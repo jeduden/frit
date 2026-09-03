@@ -7,8 +7,8 @@ Feature: Races
   @S26
   Scenario: N claimants, one plan
     Given "box-a" holds the lease for plan 7
-    When "box-b" claims plan 7
-    And "box-c" claims plan 7
+    When "box-b" races to claim plan 7
+    And "box-c" races to claim plan 7
     Then "box-b"'s claim loses, naming "box-a" at epoch 1
     And "box-c"'s claim loses, naming "box-a" at epoch 1
     And origin carries one work ref for plan 7
@@ -17,14 +17,14 @@ Feature: Races
   Scenario: rename between two claimants
     Given "box-a" holds the lease for plan 7
     And "box-b" knows the plan file by a new name
-    When "box-b" claims plan 7
+    When "box-b" races to claim plan 7
     Then "box-b"'s claim loses, naming "box-a" at epoch 1
     And origin carries one work ref for plan 7
 
   @S28
   Scenario: human deletes ref mid-claim
     Given "box-a" holds the lease for plan 7
-    And "box-b" claims plan 7
+    And "box-b" races to claim plan 7
     And "box-b"'s claim loses, naming "box-a" at epoch 1
     When a human deletes the work ref on origin
     And "box-b" retries plan 7
