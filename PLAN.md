@@ -118,7 +118,7 @@ footer: |
 | 2609021310 | ✅     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
 | 2609021311 | ✅     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
 | 2609021312 | ✅     | sonnet | [The partition and clock scenarios run under godog](plan/2609021312_bdd-partitions-and-clocks/plan.md)                                 |
-| 2609021313 | 🔲     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
+| 2609021313 | ✅     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
 | 2609021314 | ✅     | sonnet | [The identity and cross-layer scenarios run under godog](plan/2609021314_bdd-identity-and-cross-layer/plan.md)                         |
 | 2609021315 | ✅     | sonnet | [The lifecycle claim-and-ref scenarios run under godog](plan/2609021315_bdd-lifecycle-claims-and-refs/plan.md)                         |
 | 2609021316 | 🔲     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
@@ -126,4 +126,6 @@ footer: |
 | 2609022153 | 🔲     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
 | 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
 | 2609031211 | 🔲     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
+| 2609031939 | 🔲     | sonnet | [reports and refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)                |
+| 2609031951 | 🔲     | sonnet | [A deserted top lane no longer stalls pick's candidate walk](plan/2609031951_deserted-lane-no-longer-stalls-pick/plan.md)              |
 <?/catalog?>
