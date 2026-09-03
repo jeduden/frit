@@ -52,8 +52,13 @@ Feature: Storage anomalies
   @S42 @pending
   Scenario: two remotes, split coordination
 
-  @S43 @pending
+  @S43
   Scenario: origin URL edited mid-lifecycle
+    Given "box-a" holds the lease for plan 43
+    When a person edits origin's URL to an equivalent mirror
+    And "box-a" renews its lease again
+    Then the renewal lands, unbroken by the URL edit
+    And origin's tip carries "box-a"'s renewal
 
   @S44 @pending
   Scenario: fork-based flow
