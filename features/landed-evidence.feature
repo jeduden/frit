@@ -17,8 +17,11 @@ Feature: Lifecycle anomalies — landed evidence
     Then origin's work ref for the plan is gone
     And nothing is parked
 
-  @S59 @pending
+  @S59
   Scenario: status flipped ✅ early by hand
+    Given a repository with plan 59 hand-flipped to ✅ and plan 60 depending on it
+    When ready runs
+    Then plan 60 is listed as ready
 
   @S79
   Scenario: scavenge deletes a branch a worktree still stands on
