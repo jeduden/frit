@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,11 +160,15 @@ func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
 		"the local draft branch is untouched, not clobbered")
 }
 
-// TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane: the same
-// live-but-unbound lane guard start --go meets, reached through pick's
-// own claim-and-stand-up path. The refusal is surfaced, not skipped —
-// pick --go only retries a lost race, and a live lane is not one.
-func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
+// TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable: the
+// live-lane pre-flight (#126) is a skip in pick --go's own walk, not a
+// stall — with no other candidate underneath it, the walk advances
+// past the busy top pick to the same empty answer
+// TestPickGoAdvancesPastALiveHold gives for a lost race, not a
+// refusal. The #126 wording itself stays reserved for an operator's
+// explicit `start <id>`, pinned separately by
+// TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane.
+func TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo, lease, runner, rec := liveLeaseFixture(t, root)
@@ -171,13 +178,113 @@ func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
 	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "refused")
-	assert.Contains(t, out.String(), "plan/7", "the reason names the live lane")
+	assert.NotContains(t, out.String(), "refused",
+		"pick's own walk is not the operator staring at a named refusal")
+	assert.Contains(t, out.String(), "nothing startable",
+		"the live lane advances past the only candidate, same as a lost race")
 	assert.False(t, rec.verb("worktree", "create"),
-		"a live lane is refused before a takeover ever runs")
+		"a live lane is skipped before a takeover ever runs")
 	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
+}
+
+// freshDispatchAfterLiveLaneQuery layers startHerdr's worktree-create
+// and pane-current answers onto a live-lane fixture's runner, so a
+// candidate the live-lane pre-flight skips can still reach a genuine
+// fresh acquire on the next one — the fixture's own runner only
+// scripts the agent.list query the pre-flight reads, and returns
+// nothing for the verbs a real dispatch needs.
+func freshDispatchAfterLiveLaneQuery(inner herdr.Runner) herdr.Runner {
+	return func(args ...string) ([]byte, error) {
+		out, err := inner(args...)
+		if err != nil || out != nil {
+			return out, err
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+
+		return out, err
+	}
+}
+
+// TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate: the same
+// live-lane pre-flight, but with a free next candidate underneath the
+// busy top pick — the walk starts the next ready plan instead of
+// halting on the one a live herdr pane already sits on (observed live
+// on 2026-09-03: a startable fleet stalled behind exactly this).
+func TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lease, runner, rec := liveLeaseFixture(t, root)
+	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
+	withHerdr(t, freshDispatchAfterLiveLaneQuery(runner))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "start", "plan-8"),
+		"the live top lane is skipped for the next ready candidate")
+	assert.False(t, rec.verb("agent", "start", "plan-7"),
+		"the busy lane is never taken over")
+	assert.Contains(t, out.String(), "started plan 8")
+	assert.NotContains(t, out.String(), "refused")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "the busy lane's lease is untouched")
+}
+
+// TestPickGoCarriesAProblemFromTheLiveLaneCheckOfASkippedCandidate: with
+// no other candidate underneath the busy top pick, the walk's own
+// live-lane pre-flight on it can still surface a problem of its own —
+// here an unread configured host — even though the candidate itself is
+// only skipped, not refused into the report. That problem must still
+// reach the operator on the "nothing startable" answer, the same as any
+// other problem a bare pick already carries, not be dropped along with
+// the refusal doc the skip never renders.
+func TestPickGoCarriesAProblemFromTheLiveLaneCheckOfASkippedCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, _, runner, _ := liveLeaseFixture(t, root)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	// "box" resolves to nothing reachable, so the live-lane read's own
+	// fan-out reports it unreachable — the ordinary path a real
+	// unread host takes, not a forced cache failure.
+	code := run([]string{"pick", "--go", "--hosts", "box", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "nothing startable")
+	assert.Contains(t, errb.String(), "box",
+		"the unread host from the skipped candidate's own live-lane "+
+			"check still reaches the operator")
+}
+
+// TestCarriedProblemCountMatchesWhatCarryProblemsKeeps: the count
+// carriedProblemCount returns must equal how many of the same problems
+// carryProblems would actually attach to a doc under the same all flag
+// — the deterministic prefix pc.start relies on to tell a skipped
+// candidate's own extra problems apart from the gather's own.
+func TestCarriedProblemCountMatchesWhatCarryProblemsKeeps(t *testing.T) {
+	problems := []fleet.Problem{
+		{Repo: "a", Err: errors.New("boom")},
+		{Repo: "b", Err: errors.New("notes"), NotPlan: true},
+		{Repo: "c", Err: errors.New("thud")},
+	}
+
+	assert.Equal(t, 2, carriedProblemCount(problems, false),
+		"a NotPlan problem is held back unless all is set")
+	assert.Equal(t, 3, carriedProblemCount(problems, true),
+		"all set keeps every problem, NotPlan included")
+	assert.Equal(t, 0, carriedProblemCount(nil, false),
+		"no problems means nothing carried")
 }
 
 // TestPickGoDoesNotReattachAHeldLane: the from-outside resume is an

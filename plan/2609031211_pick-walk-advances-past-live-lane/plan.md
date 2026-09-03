@@ -1,7 +1,7 @@
 ---
 id: 2609031211
 title: A live top lane no longer stalls pick's candidate walk
-status: "🔲"
+status: "✅"
 summary: >-
   pick --go ranks the startable plans and walks them, meaning to skip a
   candidate it cannot claim right now and start the next — "a live hold
@@ -140,28 +140,30 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                           |
-| --- | ------ | ------------------------------------------------------------------------------- |
-| 1   | 🔲     | [pick --go's walk advances past a live top lane, at the verb level](phase-1.md) |
-| 2   | 🔲     | [S88 runs for real under godog](phase-2.md)                                     |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                      |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [pick --go's walk advances past a live top lane, at the verb level](phase-1.md)                                                                                                                                                                                                                            |
+|     | ↳      | `buildStart`'s live-lane pre-flight (#126) now returns its refusal with `lost` equal to `!reattach`: a skip in `pick --go`'s walk, an unchanged surfaced refusal for explicit `start <id>`. A live top lane with a free next candidate no longer stalls the fleet.                                         |
+| 2   | ✅     | [S88 runs for real under godog](phase-2.md)                                                                                                                                                                                                                                                                |
+|     | ↳      | Matrix row S88, "a live top lane in pick's walk", is documented in the lease protocol's "Cross-layer" section and runs for real as a `@S88` godog scenario in `features/cross-layer.feature`, bound in `cmd/frit/bdd_identity_and_cross_layer_test.go`. The bijection gate and the whole suite stay green. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `pick --go`, run against a fleet whose top-ranked candidate has
+- [x] `pick --go`, run against a fleet whose top-ranked candidate has
       a live herdr pane on its hold branch and at least one lower ready
       plan held by nobody, starts the lower plan and does not refuse on
       the busy one
-- [ ] `pick --go` against a fleet whose only candidate is such a live
+- [x] `pick --go` against a fleet whose only candidate is such a live
       lane reports `nothing startable`, not a refusal
-- [ ] An explicit `start <id>` on a lane with a live herdr pane still
+- [x] An explicit `start <id>` on a lane with a live herdr pane still
       renders the #126 refusal naming the pane and its branch
-- [ ] Matrix row S88 is documented in the "Cross-layer" section of
+- [x] Matrix row S88 is documented in the "Cross-layer" section of
       [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md),
       and a `@S88` scenario in
       [features/cross-layer.feature](../../features/cross-layer.feature)
       runs for real, not `@pending`
-- [ ] `go test ./cmd/frit -run 'TestFeatures/S88:'` reports S88 PASS,
+- [x] `go test ./cmd/frit -run 'TestFeatures/S88:'` reports S88 PASS,
       not SKIP; `go test ./internal/scenario` stays green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

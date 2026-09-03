@@ -470,6 +470,7 @@ PR #79 cite the fetch-before-read row by the old number.
 | S76 | pane gone before the window matures                                       | no live session, window not matured; resolved 2026-09-01 (plan 2609011836): `start` finds the lane by its marker's `lane:` trailer and resumes on its token; no token, no shortcut (VETO, RESUME)    |
 | S77 | deserted lane on its own host                                             | the dead host sees local commits ahead of origin; `start` rebuilds its pane on the lane's token, refusing an unpushed suffix (plan 2609011836) so yield parks it first (RESUME, YIELD)               |
 | S86 | a live lane's own raw commits advance the branch past its persisted token | ownToken re-anchors: a tip descending from the token under the same epoch and holder is the lane's own advance, so release/renew/resume succeed unaided; a new-epoch takeover fences (RESUME, FENCE) |
+| S88 | a live top lane in pick's walk                                            | `pick --go` treats the live-lane pre-flight refusal (#126) as a candidate to skip: it advances to the next ready plan; an explicit `start <id>` meets the refusal (plan 2609031211)                  |
 
 ### Liveness traps, from the blind liveness attack
 

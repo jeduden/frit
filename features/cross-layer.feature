@@ -106,3 +106,11 @@ Feature: Cross-layer: herdr and frit disagree
     When a takeover at a new epoch lands on plan 7
     And the lane runs release for plan 7
     Then it is refused and the takeover stands
+
+  @S88
+  Scenario: a live top lane in pick's walk
+    Given plan 7's hold branch already carries a live herdr pane
+    And plan 8 is ready and held by nobody
+    When pick --go runs
+    Then plan 8 is the one started
+    And plan 7 is not refused on

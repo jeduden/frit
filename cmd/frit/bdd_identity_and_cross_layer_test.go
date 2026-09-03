@@ -27,6 +27,7 @@ func init() {
 	registrars = append(registrars, (*world).registerVerbLevelIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerObservationAndBoundaryIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerRaceAndMultiRepoIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerPickWalkIdentityAndCrossLayer)
 }
 
 // raceResult is one contender's own captured run — a claim or a start
@@ -192,6 +193,18 @@ func (w *world) registerRaceAndMultiRepoIdentityAndCrossLayer(sc *godog.Scenario
 		w.thisMachineClaimsPlanInTwoRepos)
 	sc.Step(`^both are claimed with no collision, and the lanes and panes carry the repo$`,
 		w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo)
+}
+
+// registerPickWalkIdentityAndCrossLayer is S88's own five steps, split
+// out so neither this file's other registrars nor this one trips
+// golangci-lint's funlen.
+func (w *world) registerPickWalkIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^plan (\d+)'s hold branch already carries a live herdr pane$`,
+		w.plansHoldBranchAlreadyCarriesALiveHerdrPane)
+	sc.Step(`^plan (\d+) is ready and held by nobody$`, w.planIsReadyAndHeldByNobody)
+	sc.Step(`^pick --go runs$`, w.pickGoRuns)
+	sc.Step(`^plan (\d+) is the one started$`, w.planIsTheOneStarted)
+	sc.Step(`^plan (\d+) is not refused on$`, w.planIsNotRefusedOn)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -1492,6 +1505,92 @@ func (w *world) bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo() e
 	return nil
 }
 
+// plansHoldBranchAlreadyCarriesALiveHerdrPane is S88's own Given: a
+// matured, session-less hold — fair game for every earlier takeover
+// guard — with a herdr pane already sitting live on that exact
+// branch in a clone outside root, the live-but-unbound lane the
+// takeover veto cannot see (issue #126). It reuses liveLeaseFixture,
+// the same fixture the unit-level pin in cmd/frit/pick_test.go
+// builds, and layers freshDispatchAfterLiveLaneQuery's worktree
+// create / pane current answers on top so a real fresh dispatch onto
+// the plan the walk advances to can still run. liveLeaseFixture only
+// ever mints plan 7's lease, so any other id is refused here rather
+// than silently answered with plan 7's lease instead.
+func (w *world) plansHoldBranchAlreadyCarriesALiveHerdrPane(planID int) error {
+	if planID != 7 {
+		return fmt.Errorf(
+			"liveLeaseFixture only ever mints plan 7's live lane; got plan %d",
+			planID)
+	}
+	isolate(w.t)
+	w.planID = planID
+	root := w.t.TempDir()
+	repo, lease, runner, rec := liveLeaseFixture(w.t, root)
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.held, st.rec = root, repo, lease.Tip, rec
+	withHerdr(w.t, freshDispatchAfterLiveLaneQuery(runner))
+
+	return nil
+}
+
+// planIsReadyAndHeldByNobody adds S88's own second candidate to the
+// fleet the live-lane step built: a plain ready plan, ranked below
+// the live one by id, that pick --go's walk should reach once it
+// skips the busy top pick.
+func (w *world) planIsReadyAndHeldByNobody(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.repo == "" {
+		return fmt.Errorf(
+			"no repo to add plan %d to; the live-lane step comes first", planID)
+	}
+	commitPlan(w.t, st.repo, planID, "🔲", fmt.Sprintf("Plan %d unit", planID), nil, "")
+
+	return nil
+}
+
+// pickGoRuns is S88's own When: `pick --go`, run for real against the
+// fleet the Given steps built, capturing its report the way every
+// other driver step in this section does.
+func (w *world) pickGoRuns() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to run pick --go from; the fleet-building steps come first")
+	}
+	var out, errb strings.Builder
+	code := run([]string{"pick", "--go", "--root", st.root}, &out, &errb)
+	st.out, st.errOut, st.code = out.String(), errb.String(), code
+
+	return nil
+}
+
+// planIsTheOneStarted checks pick --go's own output names planID as
+// started — the scenario's own identity assertion, so a walk that
+// started some other plan, or nothing at all, cannot pass it.
+func (w *world) planIsTheOneStarted(planID int) error {
+	out := section[identityAndCrossLayerState](w).out
+	want := fmt.Sprintf("started plan %d", planID)
+	if !strings.Contains(out, want) {
+		return fmt.Errorf("expected %q in pick --go's output, got: %s", want, out)
+	}
+
+	return nil
+}
+
+// planIsNotRefusedOn checks pick --go's own output carries no refusal
+// at all: the live top lane this scenario names is a candidate the
+// walk skips, never one it stalls and reports a refusal on. planID
+// names which lane the scenario means, read for its place in the
+// error only — a refusal anywhere in the output fails this Then, the
+// same "no refused at all" shape the unit-level pin asserts.
+func (w *world) planIsNotRefusedOn(planID int) error {
+	out := section[identityAndCrossLayerState](w).out
+	if strings.Contains(out, "refused") {
+		return fmt.Errorf("pick --go refused rather than skipping plan %d: %s", planID, out)
+	}
+
+	return nil
+}
+
 // TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet: the two
 // steps that name a second machine by role — the claimant racing a
 // stale hold, the machine repurposing a branch by hand — refuse when
@@ -1865,4 +1964,45 @@ func TestPhase5MultiRepoReadBackWantsItsExactShape(t *testing.T) {
 		{"worktree", "create", "--label", "forge plan 7"},
 	}
 	assert.NoError(t, w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo())
+}
+
+// TestPickWalkIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// S88's own new steps refuse when the state an earlier step records
+// was never built, or when given a plan id its fixture cannot mint,
+// rather than reading a zero value as real.
+func TestPickWalkIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.plansHoldBranchAlreadyCarriesALiveHerdrPane(12)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plan 7")
+
+	err = w.planIsReadyAndHeldByNobody(8)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no repo")
+
+	err = w.pickGoRuns()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+}
+
+// TestPickWalkIdentityAndCrossLayerReadBacksWantTheirExactShape:
+// planIsTheOneStarted and planIsNotRefusedOn read pick --go's own
+// captured output, so a walk that started the wrong plan, or stalled
+// and refused, must not pass either Then.
+func TestPickWalkIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+
+	st.out = "started plan 7"
+	require.Error(t, w.planIsTheOneStarted(8), "the wrong plan started")
+	st.out = "refused: plan 7 already sits on a live lane"
+	require.Error(t, w.planIsTheOneStarted(8), "a refusal is not a start")
+	st.out = "started plan 8"
+	assert.NoError(t, w.planIsTheOneStarted(8))
+
+	st.out = "refused: plan 7 already sits on a live lane"
+	require.Error(t, w.planIsNotRefusedOn(7))
+	st.out = "started plan 8"
+	assert.NoError(t, w.planIsNotRefusedOn(7))
 }

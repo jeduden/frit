@@ -1621,8 +1621,15 @@ func readyView(doc *report.PickDoc) *report.ReadyDoc {
 // claim loses its race is skipped for the next — the retry the skill
 // used to spell out by hand — so a live hold on the top pick does not
 // stall the fleet. When nothing is startable, or every candidate loses
-// its race, it prints the same empty answer a bare pick gives.
+// its race, it prints the same empty answer a bare pick gives. A
+// skipped candidate's own doc still carries whatever problems its
+// pre-flight ran into beyond the gather's own — an unread host, an
+// unreachable herdr — so those ride along into whichever doc the walk
+// ends up rendering, rather than vanishing with the doc a skip never
+// renders.
 func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
+	base := carriedProblemCount(res.Problems, c.All)
+	var skipped []report.Problem
 	for _, plan := range discovery.Candidates(res.Plans) {
 		doc, lost, err := buildStart(
 			c, rt, res, plan, pc.Phase, "", false, true, false)
@@ -1630,21 +1637,48 @@ func (pc *pickCmd) start(c *cli, rt *runtime, res fleet.Result) error {
 			return err
 		}
 		if lost {
+			if len(doc.Problems) > base {
+				skipped = append(skipped, doc.Problems[base:]...)
+			}
 			continue
 		}
+
+		doc.Problems = append(doc.Problems, skipped...)
 
 		return renderStart(c, rt, doc)
 	}
 
-	return pc.emptyStart(c, rt, res)
+	return pc.emptyStart(c, rt, res, skipped)
+}
+
+// carriedProblemCount is how many of a gather's own problems
+// carryProblems keeps for the given all flag — the deterministic prefix
+// every buildStart doc's own Problems starts with, so a skipped
+// candidate's extra problems (its own live-lane read) can be told apart
+// from that shared prefix without re-adding it when they ride into
+// whichever doc the walk ends up rendering.
+func carriedProblemCount(problems []fleet.Problem, all bool) int {
+	n := 0
+	for _, p := range problems {
+		if !p.NotPlan || all {
+			n++
+		}
+	}
+
+	return n
 }
 
 // emptyStart prints the ranked-list report with no candidate — the same
 // "nothing startable" answer a bare pick gives — for when pick --go
-// finds nothing to start or loses every race.
-func (pc *pickCmd) emptyStart(c *cli, rt *runtime, res fleet.Result) error {
+// finds nothing to start or loses every race. skipped carries the
+// problems the walk's own skipped candidates ran into beyond the
+// gather's own, along the way.
+func (pc *pickCmd) emptyStart(
+	c *cli, rt *runtime, res fleet.Result, skipped []report.Problem,
+) error {
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
+	doc.Problems = append(doc.Problems, skipped...)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)

@@ -1,7 +1,7 @@
 ---
 n: 1
 title: pick --go's walk advances past a live top lane, at the verb level
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `pick --go` treat a live-lane pre-flight refusal as a candidate

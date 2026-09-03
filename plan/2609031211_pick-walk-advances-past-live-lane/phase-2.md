@@ -1,7 +1,7 @@
 ---
 n: 2
 title: S88 runs for real under godog
-status: "🔲"
+status: "✅"
 result: false
 ---
 Document the guarantee Phase 1 built as matrix row S88. Write it as a
