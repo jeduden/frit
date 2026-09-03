@@ -183,15 +183,28 @@ func (w *world) herdrIsUnreachable() error {
 	return nil
 }
 
+// refuseOwnMachine guards a step that names a second machine by
+// role — the claimant racing a stale hold, the machine repurposing a
+// branch by hand — against naming the very machine already holding
+// the plan: bdd_lease_test.go's own takeover step carries the same
+// guard, since a scenario's stale holder can never play the second
+// machine's role against its own hold.
+func (w *world) refuseOwnMachine(holder string, planID int, action string) error {
+	if holder == w.holder {
+		return fmt.Errorf("%q already holds plan %d; %s", holder, planID, action)
+	}
+
+	return nil
+}
+
 // machineClaimsPlan runs `claim` for holder against the repository the
 // stale hold lives in. holder must be a machine other than the one
 // already holding the plan — the same role guard bdd_lease_test.go's
 // own takeover step carries — since this row is about a second machine
 // racing a stale hold, not the holder claiming its own.
 func (w *world) machineClaimsPlan(holder string, planID int) error {
-	if holder == w.holder {
-		return fmt.Errorf("%q already holds plan %d; a claim over a stale hold comes from another machine",
-			holder, planID)
+	if err := w.refuseOwnMachine(holder, planID, "a claim over a stale hold comes from another machine"); err != nil {
+		return err
 	}
 	repo, err := w.cloneOf(w.holder)
 	if err != nil {
@@ -284,6 +297,15 @@ func (w *world) theVetoNeverFired() error {
 // written by that renewal, matches exactly the tip origin holds. S64
 // and S86 share it, since both start from the same live lane.
 func (w *world) thisMachineHoldsPlanInALaneWithItsTokenPersisted(planID int) error {
+	return w.buildLiveLane(planID, "")
+}
+
+// buildLiveLane is thisMachineHoldsPlanInALaneWithItsTokenPersisted
+// and thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted's
+// shared fixture: mint a lease into a real worktree under this
+// machine's own hostname, bound to session (empty for S64 and S86's
+// own unbound fixture), and renew it from inside.
+func (w *world) buildLiveLane(planID int, session string) error {
 	isolate(w.t)
 	w.planID = planID
 	w.holder = hostname()
@@ -294,6 +316,7 @@ func (w *world) thisMachineHoldsPlanInALaneWithItsTokenPersisted(planID int) err
 	lane := filepath.Join(w.t.TempDir(), "atlas-lane")
 	opts := leaseFor(w.holder, planID)
 	opts.Lane = lane
+	opts.Session = session
 	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
 	if err != nil {
 		return err
@@ -384,6 +407,16 @@ func (w *world) itIsResumedAndTheBeatsParentIsTheRawTip() error {
 // tip origin holds right now — the resumed lane's own beat — as a
 // foreign move, exactly as a genuine takeover after a renewal would.
 func (w *world) aTakeoverAtANewEpochLandsOnPlan(planID int) error {
+	return w.landTakeover(planID, "")
+}
+
+// landTakeover is aTakeoverAtANewEpochLandsOnPlan and
+// aTakeoverBoundToASessionAtANewEpochLandsOnPlan's shared move: take
+// the lease over from whatever tip origin holds right now — the
+// resumed lane's own beat — as a foreign move, exactly as a genuine
+// takeover after a renewal would, bound to session (empty for S86's
+// own unbound fixture).
+func (w *world) landTakeover(planID int, session string) error {
 	st := section[identityAndCrossLayerState](w)
 	if st.repo == "" {
 		return fmt.Errorf("no repo to take the lease over on; the token step comes first")
@@ -392,7 +425,9 @@ func (w *world) aTakeoverAtANewEpochLandsOnPlan(planID int) error {
 	if from == "" {
 		return fmt.Errorf("origin carries no work ref for plan %d to take over", planID)
 	}
-	taken, err := claim.Takeover(st.repo, leaseFor("elsewhere", planID), from, gitwt.Exec)
+	opts := leaseFor("elsewhere", planID)
+	opts.Session = session
+	taken, err := claim.Takeover(st.repo, opts, from, gitwt.Exec)
 	if err != nil {
 		return err
 	}
@@ -451,8 +486,8 @@ func (w *world) originsWorkRefIsDeletedAndRepurposedBy(planID int, holder string
 	if st.repo == "" {
 		return fmt.Errorf("no repo whose work ref to repurpose; the token step comes first")
 	}
-	if holder == w.holder {
-		return fmt.Errorf("%q already holds plan %d; a repurpose comes from another machine", holder, planID)
+	if err := w.refuseOwnMachine(holder, planID, "a repurpose comes from another machine"); err != nil {
+		return err
 	}
 	if out, err := gitCapture(w.t, st.repo, "push", "origin", "--delete", claim.Branch(int64(planID))); err != nil {
 		return fmt.Errorf("delete origin's work ref: %s: %w", out, err)
@@ -530,11 +565,33 @@ func (w *world) theLanesClaimReportsThePlanAlreadyHeldNeverResumed() error {
 // identity convention, that the token proves the lease and the holder
 // trailer is only ever reporting.
 func (w *world) aHeldLaneHoldingPlanWhoseMarkerNamesAsHolder(planID int, holder string) error {
+	return w.buildHeldLane(planID, holder, "wOld:p1")
+}
+
+// buildHeldLane is aHeldLaneHoldingPlanWhoseMarkerNamesAsHolder and
+// aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession's
+// shared fixture: a held lane for holder, bound to session (empty for
+// S76's own "no session at all"), with its token persisted.
+//
+// heldLaneOwnedBy (start_test.go), the fixture underneath it, mints
+// its lease for plan 7 outright rather than taking a plan id of its
+// own — every row in this file's own two features happens to say
+// "plan 7", so planID is accepted here only to drive w.planID and the
+// Then steps that read it back. A row for any other plan id would
+// silently get plan 7's lease instead, so that mismatch is refused
+// here rather than surfacing later as an opaque git error against a
+// ref that heldLaneOwnedBy never created.
+func (w *world) buildHeldLane(planID int, holder, session string) error {
+	if planID != 7 {
+		return fmt.Errorf(
+			"buildHeldLane's own fixture, heldLaneOwnedBy, only ever mints plan 7's lease; got plan %d",
+			planID)
+	}
 	isolate(w.t)
 	w.planID = planID
 	w.holder = holder
 	root := w.t.TempDir()
-	repo, lane, held := heldLaneOwnedBy(w.t, root, holder, "wOld:p1")
+	repo, lane, held := heldLaneOwnedBy(w.t, root, holder, session)
 	w.clones[holder] = repo
 	st := section[identityAndCrossLayerState](w)
 	st.root, st.repo, st.lane, st.held = root, repo, lane, held
@@ -672,15 +729,10 @@ func (w *world) theHoldersOwnLeaseIsRenewedNotSeized() error {
 // machine-id or a reused path leaves: an equal holder string with
 // nothing behind it. S49's own fixture, S48's photographic negative.
 func (w *world) aHeldLaneNamingThisHostWithNoToken(planID int) error {
-	isolate(w.t)
-	w.planID = planID
-	w.holder = hostname()
-	root := w.t.TempDir()
-	repo, lane, held := heldLaneOwnedBy(w.t, root, w.holder, "")
-	dropToken(w.t, lane)
-	w.clones[w.holder] = repo
-	st := section[identityAndCrossLayerState](w)
-	st.root, st.repo, st.lane, st.held = root, repo, lane, held
+	if err := w.buildHeldLane(planID, hostname(), ""); err != nil {
+		return err
+	}
+	dropToken(w.t, section[identityAndCrossLayerState](w).lane)
 
 	return nil
 }
@@ -757,16 +809,15 @@ func (w *world) thisMachineClaimsPlan(planID int) error {
 // behind it.
 func (w *world) theLeaseIsReleasedNotLeftStanding() error {
 	st := section[identityAndCrossLayerState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no repo to check for a release marker; the unclaimed-plan step comes first")
+	}
 	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
 	if err != nil {
 		return fmt.Errorf("%s: %w", tip, err)
 	}
-	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", tip)
-	if err != nil {
-		return fmt.Errorf("%s: %w", body, err)
-	}
-	if !strings.Contains(body, fmt.Sprintf("plan %d: release", w.planID)) {
-		return fmt.Errorf("the branch tip is not a release marker: %q", body)
+	if !claim.Released(st.repo, tip, int64(w.planID), gitwt.Exec) {
+		return fmt.Errorf("the branch tip %s is not a release marker for plan %d", tip, w.planID)
 	}
 
 	return nil
@@ -774,12 +825,12 @@ func (w *world) theLeaseIsReleasedNotLeftStanding() error {
 
 // herdrBecomesReachable installs a fully working herdr handshake in
 // place of whatever fake an earlier step left, the same fixture a
-// fresh stand-up uses everywhere else in this file.
+// fresh stand-up uses everywhere else in this file — exactly
+// herdrShowsNoAgentOnTheLane's own fixture, reused rather than
+// reinstalled, since a working handshake naming no agent on any given
+// lane is the same runner either step needs.
 func (w *world) herdrBecomesReachable() error {
-	runner, _ := startHerdr()
-	withHerdr(w.t, runner)
-
-	return nil
+	return w.herdrShowsNoAgentOnTheLane()
 }
 
 // itClaimsCleanAtTheNextEpoch checks the second claim in S60's own
@@ -839,12 +890,12 @@ func (w *world) startFailsAndAReleaseMarkerSitsOnTheBranch() error {
 	if st.code == 0 {
 		return fmt.Errorf("start did not fail: %s", st.out)
 	}
-	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", w.branch())
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
 	if err != nil {
-		return fmt.Errorf("%s: %w", body, err)
+		return fmt.Errorf("%s: %w", tip, err)
 	}
-	if !strings.Contains(body, fmt.Sprintf("plan %d: release", w.planID)) {
-		return fmt.Errorf("the branch tip is not a release marker: %q", body)
+	if !claim.Released(st.repo, tip, int64(w.planID), gitwt.Exec) {
+		return fmt.Errorf("the branch tip %s is not a release marker for plan %d", tip, w.planID)
 	}
 
 	return nil
@@ -886,7 +937,16 @@ func (w *world) theWorktreeItStoodUpIsTornDown() error {
 // holder with its token persisted — S46's Given — but never chdirs
 // into it: the row's own point is that a directory this run happens
 // to be in gets no shortcut from a lease it never carried.
+//
+// heldLaneOwnedBy mints for plan 7 outright regardless of planID —
+// see buildHeldLane's own note — so a planID other than 7 is refused
+// here rather than silently building the wrong plan's lease.
 func (w *world) holdsPlanWithItsLanesTokenPersisted(holder string, planID int) error {
+	if planID != 7 {
+		return fmt.Errorf(
+			"holdsPlanWithItsLanesTokenPersisted's own fixture, heldLaneOwnedBy, "+
+				"only ever mints plan 7's lease; got plan %d", planID)
+	}
 	isolate(w.t)
 	w.planID = planID
 	w.holder = holder
@@ -992,16 +1052,7 @@ func (w *world) theErrorNamesTheWorktreeAndPaneLeftBehind() error {
 // Given, the sharpest reading of "pane gone": there is no session for
 // herdr to confirm dead, only a checkout for it to confirm unattended.
 func (w *world) aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession(planID int, holder string) error {
-	isolate(w.t)
-	w.planID = planID
-	w.holder = holder
-	root := w.t.TempDir()
-	repo, lane, held := heldLaneOwnedBy(w.t, root, holder, "")
-	w.clones[holder] = repo
-	st := section[identityAndCrossLayerState](w)
-	st.root, st.repo, st.lane, st.held = root, repo, lane, held
-
-	return nil
+	return w.buildHeldLane(planID, holder, "")
 }
 
 // thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted
@@ -1012,31 +1063,7 @@ func (w *world) aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession(pl
 // gone before desertedRefusal will ever fire, and an unbound marker
 // gives it nothing to confirm.
 func (w *world) thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted(planID int) error {
-	isolate(w.t)
-	w.planID = planID
-	w.holder = hostname()
-	root := w.t.TempDir()
-	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
-	w.clones[w.holder] = repo
-
-	lane := filepath.Join(w.t.TempDir(), "atlas-lane")
-	opts := leaseFor(w.holder, planID)
-	opts.Lane = lane
-	opts.Session = "wOld:p1"
-	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
-	if err != nil {
-		return err
-	}
-	git(w.t, repo, "worktree", "add", "-q", lane, claim.Branch(int64(planID)))
-	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
-	if err != nil {
-		return err
-	}
-	w.lease = renewed
-	st := section[identityAndCrossLayerState](w)
-	st.root, st.repo, st.lane = root, repo, lane
-
-	return nil
+	return w.buildLiveLane(planID, "wOld:p1")
 }
 
 // aTakeoverBoundToASessionAtANewEpochLandsOnPlan takes the lease over
@@ -1046,23 +1073,7 @@ func (w *world) thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted(
 // all would give herdr nothing to confirm gone, and desertedRefusal
 // would never fire.
 func (w *world) aTakeoverBoundToASessionAtANewEpochLandsOnPlan(planID int) error {
-	st := section[identityAndCrossLayerState](w)
-	if st.repo == "" {
-		return fmt.Errorf("no repo to take the lease over on; the token step comes first")
-	}
-	from := claim.RemoteTip(st.repo, "origin", int64(planID), gitwt.Exec)
-	if from == "" {
-		return fmt.Errorf("origin carries no work ref for plan %d to take over", planID)
-	}
-	opts := leaseFor("elsewhere", planID)
-	opts.Session = "wGhost:p1"
-	taken, err := claim.Takeover(st.repo, opts, from, gitwt.Exec)
-	if err != nil {
-		return err
-	}
-	st.takeover = taken.Tip
-
-	return nil
+	return w.landTakeover(planID, "wGhost:p1")
 }
 
 // theLaneRunsStartGoForPlan runs `start --go` with the calling
@@ -1186,6 +1197,40 @@ func TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) 
 	err = w.theWorktreeItStoodUpIsTornDown()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no herdr calls")
+}
+
+// TestMoreIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition: two
+// more assertion steps that read state an earlier step recorded, split
+// from TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition so
+// neither function trips golangci-lint's funlen.
+func TestMoreIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.theLeaseIsReleasedNotLeftStanding()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no repo")
+
+	err = w.takeoverAtEpoch2SitsOnTheStaleTip()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no machine")
+}
+
+// TestIdentityAndCrossLayerHeldLaneFixturesRefuseAnUnsupportedPlanID:
+// buildHeldLane and holdsPlanWithItsLanesTokenPersisted both sit on
+// heldLaneOwnedBy (start_test.go), which mints its lease for plan 7
+// outright regardless of the planID it is given — a row for any other
+// plan id must be refused here, not silently answered with plan 7's
+// lease instead.
+func TestIdentityAndCrossLayerHeldLaneFixturesRefuseAnUnsupportedPlanID(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.buildHeldLane(12, "elsewhere", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plan 7")
+
+	err = w.holdsPlanWithItsLanesTokenPersisted("elsewhere", 12)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plan 7")
 }
 
 // TestPhase3IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
