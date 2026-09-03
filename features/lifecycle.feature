@@ -25,11 +25,18 @@ Feature: Lifecycle anomalies — claims and refs
   @S52 @pending
   Scenario: plan deleted while claimed
 
-  @S53 @pending
+  @S53
   Scenario: plan id reused
+    Given plan 7 is done and its lease is released
+    When a different plan's file replaces it under the same id 7
+    And the released ref is scavenged by evidence
+    Then origin carries no plan/7 ref
+    And frit claims plan 7 fresh at epoch 1
 
-  @S55 @pending
+  @S55
   Scenario: merge + branch auto-delete
+    Given plan 7 is merged into main with its branch already auto-deleted
+    Then frit claims plan 7 fresh at epoch 1
 
   @S56
   Scenario: local branch deleted by hand
@@ -40,8 +47,13 @@ Feature: Lifecycle anomalies — claims and refs
     When "box-a" comes back and renews its lease
     Then the local branch is restored at the renewed tip
 
-  @S57 @pending
+  @S57
   Scenario: plan re-opened after done
+    Given plan 7 is done and its lease is released
+    When the plan file is marked done and then re-opened
+    And the released ref is scavenged by evidence
+    Then origin carries no plan/7 ref
+    And frit claims plan 7 fresh at epoch 1
 
   @S58 @pending
   Scenario: released before the PR merges

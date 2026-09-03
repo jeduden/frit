@@ -115,16 +115,22 @@ assumed: no code names "plan-gone" evidence for S52, and the gather's
    S70, S75 — written and passing in `bdd_lifecycle_test.go`, the file
    registered, the section's world fixed. Driven red by dropping
    `@pending`: strict mode fails the undefined steps.
-2. Later phases, shaped by Phase 1's handoff: the scavenge rows S52,
-   S53, S55, S57 over `Scavenge`, `Released`, `resumableRepo`,
-   `landedLeaseRepo` and `landedDeletedClone`; then the
-   doc-by-argument row S58 over `Release` and a second `Acquire`.
+2. Phase 2, shaped by Phase 1's handoff: S53 and S55 and S57, the
+   three rows a released or absent ref and a fresh reacquire settle,
+   over `Scavenge`, `Released` and `resumableRepo`.
+3. Phase 3: S52, plan deleted while claimed — its own fixture, shaped
+   by Phase 2's handoff.
+4. Phase 4: S58, the doc-by-argument row, over `Release` and a second
+   `Acquire`.
 
 ## Execution
 
 | Phase | Title                                                       | Tier   | Gate                                                                                                                                                         |
 | ----- | ----------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1     | The five drivable lifecycle claim-and-ref rows run for real | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(50\|51\|56\|70\|75)_'` passes with no SKIP; the bijection gate stays green; `go test ./...` and golangci-lint clean |
+| 2     | The scavenge-by-release-evidence rows run for real          | sonnet | `go test ./cmd/frit -run 'TestFeatures/S(53\|55\|57)_'` passes with no SKIP; `go test ./...` and golangci-lint clean                                        |
+| 3     | Plan deleted while claimed runs for real                    | sonnet | `go test ./cmd/frit -run 'TestFeatures/S52_'` passes with no SKIP; `go test ./...` and golangci-lint clean                                                  |
+| 4     | Released before the PR merges runs for real                 | sonnet | `go test ./cmd/frit -run 'TestFeatures/S58_'` passes with no SKIP; every row in the half is PASS; `go test ./...` and golangci-lint clean                    |
 
 ## Phases
 
