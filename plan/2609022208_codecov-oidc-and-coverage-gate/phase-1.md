@@ -6,8 +6,9 @@ result: false
 ---
 Upload the coverage profile CI already builds to Codecov, using the
 GitHub Actions OIDC identity rather than a stored token. Add a root
-`codecov.yml` that Codecov accepts. This phase proves the profile
-reaches Codecov end to end; the coverage gate itself is phase 2.
+`codecov.yml` that Codecov accepts, and a Codecov badge to the README.
+This phase proves the profile reaches Codecov end to end; the coverage
+gate itself is phase 2.
 
 **Assumes.** [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
 already runs `go test ./... -coverpkg=./... -coverprofile=cover.out` in
@@ -36,6 +37,12 @@ the checks the change must satisfy, run before and after.
   block; the `coverage.status` gate is phase 2. Keep it minimal — frit
   is a single-language Go tree with no vendored code, so no `ignore:`,
   flag or component stanzas.
+- Add a Codecov badge to [README.md](../../README.md), on its own line
+  directly under the `# frit` title: a linked
+  `https://codecov.io/gh/jeduden/frit/graph/badge.svg` image pointing
+  at the project page, in the markdown Codecov's settings page gives.
+  Confirm the exact owner/repo slug against the Codecov project rather
+  than assuming it.
 
 **Gate.** Three checks, none of which needs the number to move:
 
