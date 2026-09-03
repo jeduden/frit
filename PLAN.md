@@ -126,4 +126,5 @@ footer: |
 | 2609021554 | 🔳     | sonnet | [A fleet gather reports its progress and its status](plan/2609021554_gather-reports-progress-and-status/plan.md)                       |
 | 2609022153 | 🔲     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
 | 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
+| 2609031211 | 🔲     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
 <?/catalog?>
