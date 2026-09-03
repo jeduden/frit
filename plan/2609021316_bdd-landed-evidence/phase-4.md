@@ -1,7 +1,7 @@
 ---
 n: 4
 title: S59 runs for real, and the doctor gap is recorded
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S59, the plan's last row, from `@pending` into a passing
