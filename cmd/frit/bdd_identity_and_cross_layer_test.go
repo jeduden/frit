@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,17 @@ func init() {
 	registrars = append(registrars, (*world).registerIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerVerbLevelIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerObservationAndBoundaryIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerRaceAndMultiRepoIdentityAndCrossLayer)
+}
+
+// raceResult is one contender's own captured run — a claim or a start
+// invocation's exit code and output — kept in a pair on
+// identityAndCrossLayerState rather than its single out/errOut/code,
+// since S72's two racing verbs and S74's two repositories both need
+// their results read back side by side.
+type raceResult struct {
+	out  string
+	code int
 }
 
 // identityAndCrossLayerState is this section's own state beside the
@@ -48,6 +60,13 @@ type identityAndCrossLayerState struct {
 	// what was dispatched — S45 and S73 — rather than reading the
 	// verb's own text output alone.
 	rec *herdrCalls
+	// repoA and repoB are S74's own two repositories sharing one plan
+	// id, kept as a pair since the section's single repo field cannot
+	// hold both.
+	repoA, repoB string
+	// raceA and raceB are S72's two contending verbs' own captured
+	// results, and S74's two repositories' own claims.
+	raceA, raceB raceResult
 }
 
 func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
@@ -156,6 +175,23 @@ func (w *world) registerObservationAndBoundaryIdentityAndCrossLayer(sc *godog.Sc
 		w.theMarkersLaneTrailerIsABarePathNamingNoHost)
 	sc.Step(`^the lane's token lives inside that path's git directory$`,
 		w.theLanesTokenLivesInsideThatPathsGitDirectory)
+}
+
+// registerRaceAndMultiRepoIdentityAndCrossLayer registers Phase 5's
+// own five steps: a genuine two-goroutine contention for one plan's
+// lease (S72) and two repositories sharing one plan id (S74) — split
+// from registerObservationAndBoundaryIdentityAndCrossLayer so neither
+// trips golangci-lint's funlen.
+func (w *world) registerRaceAndMultiRepoIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^claim and start both race to mint plan (\d+)$`, w.claimAndStartBothRaceToMintPlan)
+	sc.Step(`^one wins and the loser's refusal names the winning lane$`,
+		w.oneWinsAndTheLosersRefusalNamesTheWinningLane)
+
+	sc.Step(`^plan (\d+) is unclaimed in "([^"]+)" and in "([^"]+)"$`, w.planIsUnclaimedInTwoRepos)
+	sc.Step(`^this machine claims plan (\d+) in "([^"]+)" and in "([^"]+)"$`,
+		w.thisMachineClaimsPlanInTwoRepos)
+	sc.Step(`^both are claimed with no collision, and the lanes and panes carry the repo$`,
+		w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -1291,6 +1327,171 @@ func (w *world) theLanesTokenLivesInsideThatPathsGitDirectory() error {
 	return nil
 }
 
+// claimAndStartBothRaceToMintPlan runs `claim` and `start --go`
+// concurrently against the Given step's own unclaimed plan, each from
+// its own clone of the same origin — a genuine two-goroutine
+// contention over one push, not two runs in sequence, so the
+// git-level force-with-lease CAS is what actually decides the winner.
+// Neither goroutine calls t.Chdir: both would race the same
+// process-wide directory, so each passes --root instead, exactly as
+// every other step in this file already does. The herdr fake both
+// share must actually answer, since standUpClaimWorktree means the
+// winner — whichever verb it is — still stands its own worktree up
+// behind the lease; a fake that errors would make that failure read
+// as "refused" too, and the row could not tell the two apart.
+func (w *world) claimAndStartBothRaceToMintPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to race from; the unclaimed-plan step comes first")
+	}
+	runner, _ := startHerdr()
+	withHerdr(w.t, runner)
+
+	root2, _ := cloneRepoIntoRoot(w.t, st.repo)
+
+	var wg sync.WaitGroup
+	ready := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-ready
+		var out, errb strings.Builder
+		code := run([]string{"claim", strconv.Itoa(planID), "--root", st.root}, &out, &errb)
+		st.raceA = raceResult{out: out.String(), code: code}
+	}()
+	go func() {
+		defer wg.Done()
+		<-ready
+		var out, errb strings.Builder
+		code := run([]string{
+			"start", strconv.Itoa(planID), "--phase", "3", "--go", "--root", root2,
+		}, &out, &errb)
+		st.raceB = raceResult{out: out.String(), code: code}
+	}()
+	close(ready)
+	wg.Wait()
+
+	return nil
+}
+
+// oneWinsAndTheLosersRefusalNamesTheWinningLane checks the race's own
+// two results: exactly one of claim and start actually minted the
+// lease, and the other's refusal names this host as the plan's own
+// holder — the only lane a race confined to one host could have
+// produced, read off the marker the loser's own lost-race error
+// carries rather than guessed from timing.
+func (w *world) oneWinsAndTheLosersRefusalNamesTheWinningLane() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.raceA.out == "" && st.raceB.out == "" {
+		return fmt.Errorf("no race results to read; the race step comes first")
+	}
+	claimWon := !strings.Contains(st.raceA.out, "refused:")
+	startWon := !strings.Contains(st.raceB.out, "refused:")
+	if claimWon == startWon {
+		return fmt.Errorf(
+			"want exactly one winner; claim: %q, start: %q", st.raceA.out, st.raceB.out)
+	}
+	loser := st.raceA.out
+	if claimWon {
+		loser = st.raceB.out
+	}
+	if !strings.Contains(loser, "refused: plan") {
+		return fmt.Errorf("the loser's own output does not refuse: %s", loser)
+	}
+	if !strings.Contains(loser, hostname()) {
+		return fmt.Errorf(
+			"the loser's refusal does not name this host as the winning lane's holder: %s", loser)
+	}
+
+	return nil
+}
+
+// planIsUnclaimedInTwoRepos is planIsUnclaimed's sibling for S74:
+// two repositories under one root, each carrying plan 7 unclaimed,
+// each titled with its own repository's name so a later claim can
+// select by that name rather than the bare id — a bare numeric
+// selector two repositories in one root both answer to is refused as
+// ambiguous by discovery.Resolve, a different, correct refusal this
+// row is not about.
+func (w *world) planIsUnclaimedInTwoRepos(planID int, repoA, repoB string) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	a := claimableRepo(w.t, root, repoA, planID, repoA+" plan")
+	b := claimableRepo(w.t, root, repoB, planID, repoB+" plan")
+	w.clones[w.holder] = a
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repoA, st.repoB = root, a, b
+
+	return nil
+}
+
+// thisMachineClaimsPlanInTwoRepos claims plan 7 in each of S74's own
+// two repositories, by each one's own name rather than the bare id,
+// installing the reachable herdr fake first so both worktrees stand
+// up and its recorder can be read back for each pane's own label.
+func (w *world) thisMachineClaimsPlanInTwoRepos(planID int, repoA, repoB string) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to claim from; the two-repo unclaimed-plan step comes first")
+	}
+	runner, rec := startHerdr()
+	withHerdr(w.t, runner)
+	st.rec = rec
+
+	var outA, errA strings.Builder
+	codeA := run([]string{"claim", repoA, "--root", st.root}, &outA, &errA)
+	st.raceA = raceResult{out: outA.String(), code: codeA}
+
+	var outB, errB strings.Builder
+	codeB := run([]string{"claim", repoB, "--root", st.root}, &outB, &errB)
+	st.raceB = raceResult{out: outB.String(), code: codeB}
+
+	return nil
+}
+
+// bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo checks
+// S74's own two claims: neither refused despite sharing one plan id,
+// each one's own worktree line names its own repository, and herdr's
+// own recorder shows a distinct worktree-create label per repository
+// — the observable behind "lanes key host:repo:id, not host:id
+// alone" and "pane names carry the repo".
+func (w *world) bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.repoA == "" || st.repoB == "" {
+		return fmt.Errorf("no two-repo fixture; the two-repo claim step comes first")
+	}
+	if strings.Contains(st.raceA.out, "refused") {
+		return fmt.Errorf("the first repo's claim was refused: %s", st.raceA.out)
+	}
+	if strings.Contains(st.raceB.out, "refused") {
+		return fmt.Errorf("the second repo's claim was refused: %s", st.raceB.out)
+	}
+
+	nameA, nameB := filepath.Base(st.repoA), filepath.Base(st.repoB)
+	if !strings.Contains(st.raceA.out, nameA+"-") {
+		return fmt.Errorf("the first repo's own worktree does not carry its own repo name: %s", st.raceA.out)
+	}
+	if !strings.Contains(st.raceB.out, nameB+"-") {
+		return fmt.Errorf("the second repo's own worktree does not carry its own repo name: %s", st.raceB.out)
+	}
+
+	if st.rec == nil || st.rec.count("worktree", "create") != 2 {
+		return fmt.Errorf("want 2 worktree-create calls to herdr")
+	}
+	labelA := nameA + " plan " + strconv.Itoa(w.planID)
+	if !st.rec.hasArg(labelA) {
+		return fmt.Errorf("no pane names the first repo: want a label %q", labelA)
+	}
+	labelB := nameB + " plan " + strconv.Itoa(w.planID)
+	if !st.rec.hasArg(labelB) {
+		return fmt.Errorf("no pane names the second repo: want a label %q", labelB)
+	}
+
+	return nil
+}
+
 // TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet: the two
 // steps that name a second machine by role — the claimant racing a
 // stale hold, the machine repurposing a branch by hand — refuse when
@@ -1557,4 +1758,111 @@ func TestPhase4IdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
 	err := w.itTakesOverCleanlyAtTheNextEpoch()
 	require.Error(t, err, "a claimed output with no machine introduced has nothing to read back")
 	assert.Contains(t, err.Error(), "no machine")
+}
+
+// TestPhase5IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// Phase 5's own new steps refuse when the state an earlier step
+// records was never built, rather than reading a zero value as real.
+func TestPhase5IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.claimAndStartBothRaceToMintPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.oneWinsAndTheLosersRefusalNamesTheWinningLane()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no race results")
+
+	err = w.thisMachineClaimsPlanInTwoRepos(7, "atlas", "forge")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no two-repo fixture")
+}
+
+// TestPhase5RaceReadBackWantsItsExactShape:
+// oneWinsAndTheLosersRefusalNamesTheWinningLane refuses unless exactly
+// one of the race's two results actually refused, and that refusal
+// names this host, rather than passing on two winners, two losers, or
+// a loser whose refusal names some other machine.
+func TestPhase5RaceReadBackWantsItsExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+
+	st.raceA = raceResult{out: "claimed plan 7"}
+	st.raceB = raceResult{out: "started plan 7"}
+	require.Error(t, w.oneWinsAndTheLosersRefusalNamesTheWinningLane(), "both won")
+
+	st.raceA = raceResult{out: "refused: plan 7 already held on this host"}
+	st.raceB = raceResult{out: "refused: plan 7 already held on this host"}
+	require.Error(t, w.oneWinsAndTheLosersRefusalNamesTheWinningLane(), "both lost")
+
+	st.raceA = raceResult{out: "claimed plan 7"}
+	st.raceB = raceResult{out: "internal error: refused: access denied"}
+	err := w.oneWinsAndTheLosersRefusalNamesTheWinningLane()
+	require.Error(t, err, "the loser's refusal is not shaped like the ordinary one")
+	assert.Contains(t, err.Error(), "does not refuse")
+
+	st.raceA = raceResult{out: "claimed plan 7"}
+	st.raceB = raceResult{out: "refused: plan 7 lost the race to another machine (elsewhere)"}
+	err = w.oneWinsAndTheLosersRefusalNamesTheWinningLane()
+	require.Error(t, err, "the refusal names a different machine, not this host")
+	assert.Contains(t, err.Error(), "does not name this host")
+
+	st.raceA = raceResult{out: "claimed plan 7\n  branch: plan/7\n"}
+	st.raceB = raceResult{out: "refused: plan 7 already held on this host (" + hostname() + ")"}
+	assert.NoError(t, w.oneWinsAndTheLosersRefusalNamesTheWinningLane())
+}
+
+// TestPhase5MultiRepoReadBackWantsItsExactShape:
+// bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo refuses
+// on either claim's own refusal, a worktree line missing its own
+// repository's name, or a herdr recorder whose panes do not tell the
+// two repositories apart, rather than passing on a coincidence.
+func TestPhase5MultiRepoReadBackWantsItsExactShape(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 7
+	st := section[identityAndCrossLayerState](w)
+	st.repoA, st.repoB = "/root/atlas", "/root/forge"
+
+	st.raceA = raceResult{out: "refused: plan 7 already held"}
+	st.raceB = raceResult{out: "claimed plan 7\n  worktree: /root/forge-plan\n"}
+	require.Error(t, w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo(),
+		"the first repo's claim was refused")
+
+	st.raceA = raceResult{out: "claimed plan 7\n  worktree: /root/atlas-plan\n"}
+	st.raceB = raceResult{out: "refused: plan 7 already held"}
+	require.Error(t, w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo(),
+		"the second repo's claim was refused")
+
+	st.raceB = raceResult{out: "claimed plan 7\n  worktree: /root/no-repo-name\n"}
+	err := w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo()
+	require.Error(t, err, "the second repo's own worktree names nothing")
+	assert.Contains(t, err.Error(), "does not carry")
+
+	st.raceB = raceResult{out: "claimed plan 7\n  worktree: /root/forge-plan\n"}
+	err = w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo()
+	require.Error(t, err, "no herdr recorder at all")
+	assert.Contains(t, err.Error(), "worktree-create")
+
+	st.rec = &herdrCalls{}
+	require.Error(t, w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo(),
+		"no worktree-create calls recorded")
+
+	st.rec.calls = [][]string{
+		{"worktree", "create", "--label", "atlas plan 7"},
+		{"worktree", "create", "--label", "atlas plan 7"},
+	}
+	err = w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo()
+	require.Error(t, err, "neither pane names the second repo")
+	assert.Contains(t, err.Error(), "no pane names")
+
+	st.rec.calls = [][]string{
+		{"worktree", "create", "--label", "atlas plan 7"},
+		{"worktree", "create", "--label", "forge plan 7"},
+	}
+	assert.NoError(t, w.bothAreClaimedWithNoCollisionAndTheLanesAndPanesCarryTheRepo())
 }

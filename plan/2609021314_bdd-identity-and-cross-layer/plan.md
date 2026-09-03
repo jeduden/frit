@@ -1,7 +1,7 @@
 ---
 id: 2609021314
 title: The identity and cross-layer scenarios run under godog
-status: "🔳"
+status: "✅"
 summary: >-
   The lease-protocol matrix's "Identity anomalies" section (S45..S49,
   S66) and its "Cross-layer: herdr and frit disagree" section (S60..S65,
@@ -177,22 +177,23 @@ footer: |
 | 4   | ✅     | [A reset window, a fenced release and a doc boundary: S62, S63, S65, S66 run real](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 |     | ↳      | S62, S63, S65 and S66 drop `@pending` and run as real scenarios: a stale hold's own holder pushing while herdr is unreachable resets the observation window, so a claimant over it waits again rather than taking over; a lane whose session herdr swears is live is still fenced out once a foreign takeover has moved the ref, proving liveness only ever vetoes an incoming takeover and never rescues a lane a CAS has already lost; a herdr that answers but names nobody lets a stale hold's takeover complete cleanly, unlike an unreachable herdr's own failed stand-up; and a lane's marker and token, read back after the fact, carry no host anywhere — the documented boundary an NFS-shared clone runs into. All sixteen rows this plan has landed so far stay green together.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 5   | 🔳     | [A genuine two-process race and two repos sharing one id: S72, S74 run real](phase-5.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|     | ↳      | S72 and S74 drop `@pending` and run as real scenarios, closing the plan. Two goroutines, each from its own clone of the same origin, race `claim` and `start --go` for one unclaimed plan; the server-side force-with-lease CAS decides exactly one winner, and the loser's own refusal names this host as the plan's holder, the only lane a race confined to one host could produce. Two repositories sharing one plan id claim independently with no collision, each worktree path and each herdr pane label carrying its own repository's name — the fleet's real key proven to be host, repository and id together, not the id alone. All eighteen rows the plan set out to convert now run for real, together.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/identity.feature` or
+- [x] No scenario in `features/identity.feature` or
       `features/cross-layer.feature` carries `@pending`; `go test
       ./cmd/frit -run TestFeatures/S` reports S45..S49, S66, S60..S65,
       S72..S74, S76, S77 and S86 as PASS, none as SKIP
-- [ ] Every step is bound in
+- [x] Every step is bound in
       `cmd/frit/bdd_identity_and_cross_layer_test.go` or reused from
       `bdd_lease_test.go`; `bdd_test.go` is untouched
-- [ ] At least one scenario installs the herdr fake through `withHerdr`
+- [x] At least one scenario installs the herdr fake through `withHerdr`
       from a step, and the real runner is back before the next scenario
-- [ ] Each scenario asserts an observable — a verb's result, a marker's
+- [x] Each scenario asserts an observable — a verb's result, a marker's
       trailer, a refusal naming a lane, origin's refs — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
