@@ -44,5 +44,8 @@ Feature: Identity anomalies
     Then start refuses: already held, not takeable until the window matures
     And the plan is not resumed
 
-  @S66 @pending
+  @S66
   Scenario: NFS-shared clone across hosts
+    Given this machine holds plan 7 in a lane with its token persisted
+    Then the marker's lane trailer is a bare path naming no host
+    And the lane's token lives inside that path's git directory

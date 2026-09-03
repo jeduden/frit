@@ -25,11 +25,23 @@ Feature: Cross-layer: herdr and frit disagree
     And a takeover at epoch 2 sits on the stale tip
     And the veto never fired
 
-  @S62 @pending
+  @S62
   Scenario: host unreachable, agents pushing
+    Given "elsewhere" holds plan 7 bound to a session
+    And the window has matured for plan 7
+    And herdr is unreachable
+    And the holder pushes a raw commit on top of the held tip
+    When "box-b" claims plan 7 over the stale hold
+    Then claim refuses: already held
+    And the refusal names the window not yet matured
 
-  @S63 @pending
+  @S63
   Scenario: pane alive, lease released
+    Given this machine holds plan 7 in a lane bound to a session, with its token persisted
+    And herdr confirms the lane's own session is live
+    And a takeover bound to a session at a new epoch lands on plan 7
+    When the lane runs release for plan 7
+    Then it is refused and the takeover stands
 
   @S64
   Scenario: branch repurposed by hand
@@ -38,8 +50,14 @@ Feature: Cross-layer: herdr and frit disagree
     Then the lane's release is refused and origin's tip is untouched
     And the lane's claim reports the plan already held, never resumed
 
-  @S65 @pending
+  @S65
   Scenario: herdr restarts, loses panes
+    Given "elsewhere" holds plan 7 bound to a session
+    And the window has matured for plan 7
+    And herdr shows no agent on the lane
+    When "box-b" claims plan 7 over the stale hold
+    Then it takes over cleanly at the next epoch
+    And the veto never fired
 
   @S72 @pending
   Scenario: claim and start race on one host
