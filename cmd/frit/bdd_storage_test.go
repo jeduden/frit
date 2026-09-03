@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,18 @@ type storageState struct {
 	backup   string
 	tips     map[string]string
 	acquired map[string]claim.Lease
+	// lsRemoteCalls is S67's own count: how many ls-remote calls the
+	// last raced renewal made to resolve its CAS.
+	lsRemoteCalls int
+	// reapRoot, reapLane and reapBranchTip are S68's own fixture: the
+	// --root a stranded checkout stands under, the checkout's own
+	// worktree path, and its branch's tip before the merge — the value
+	// an ancestry check needs after the force-push moves main. reapFreshSHA
+	// is the orphan commit a person's force-push lands on origin's main.
+	reapRoot      string
+	reapLane      string
+	reapBranchTip string
+	reapFreshSHA  string
 }
 
 // sw fetches this scenario's section state, lazily initialized on
@@ -81,6 +94,18 @@ func (w *world) registerStorageAnomalies(sc *godog.ScenarioContext) {
 	sc.Step(`^a person runs "git gc --prune=now" on origin$`, w.aPersonRunsGitGCPruneNowOnOrigin)
 	sc.Step(`^"([^"]+)" acquires the lease again$`, w.acquiresTheLeaseAgain)
 	sc.Step(`^orphans lists both tips as rescued for "([^"]+)"'s lane$`, w.orphansListsBothTipsAsRescued)
+	sc.Step(`^"([^"]+)" renews its lease while a person's "fetch --prune" races it$`,
+		w.renewsWhileAPersonsFetchPruneRacesIt)
+	sc.Step(`^the renewal read origin exactly once to classify the loss$`,
+		w.theRenewalReadOriginExactlyOnceToClassifyTheLoss)
+	sc.Step(`^"([^"]+)" has a checkout whose branch lands plan (\d+) on origin's main$`,
+		w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain)
+	sc.Step(`^a person force-pushes origin's main to a fresh commit, same content, no merge$`,
+		w.aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge)
+	sc.Step(`^"([^"]+)"'s branch is no longer an ancestor of origin's main$`,
+		w.branchIsNoLongerAnAncestorOfOriginsMain)
+	sc.Step(`^reap still reaps "([^"]+)"'s checkout, landed by its status glyph alone$`,
+		w.reapStillReapsCheckoutLandedByItsStatusGlyphAlone)
 }
 
 // originOf finds the bare origin every machine in a storage scenario
@@ -519,6 +544,168 @@ func (w *world) orphansListsBothTipsAsRescued(holder string) error {
 	return fmt.Errorf("orphans lists no rescued entry for plan %d", w.planID)
 }
 
+// renewsWhileAPersonsFetchPruneRacesIt is S67's own anomaly: a real
+// git fetch --prune runs against holder's own clone right as the
+// renewal's push fires, and every ls-remote the renewal itself makes
+// is counted. casPush arbitrates on an explicit --force-with-lease
+// value, never the local remote-tracking ref a prune could touch, so
+// the race changes nothing about what the decision reads or how many
+// times it reads it.
+func (w *world) renewsWhileAPersonsFetchPruneRacesIt(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	raced := false
+	count := 0
+	run := func(dir string, args ...string) ([]byte, error) {
+		if !raced && len(args) > 0 && args[0] == "push" {
+			raced = true
+			if out, ferr := gitwt.Exec(dir, "fetch", "-q", "--prune", "origin"); ferr != nil {
+				return out, fmt.Errorf("racing fetch --prune: %w", ferr)
+			}
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			count++
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	_, w.err = claim.Renew(repo, leaseFor(holder, w.planID), w.lease.Tip, run)
+	w.sw().lsRemoteCalls = count
+
+	return nil
+}
+
+// theRenewalReadOriginExactlyOnceToClassifyTheLoss checks the raced
+// renewal above resolved its lost CAS with exactly one ls-remote —
+// never a stale local guess, never a second, redundant read.
+func (w *world) theRenewalReadOriginExactlyOnceToClassifyTheLoss() error {
+	got := w.sw().lsRemoteCalls
+	if got != 1 {
+		return fmt.Errorf("the renewal made %d ls-remote calls to classify, want exactly 1", got)
+	}
+
+	return nil
+}
+
+// hasACheckoutWhoseBranchLandsPlanOnOriginsMain is S68's own setup: a
+// worktree lane on the plan's own branch, merged into main by an
+// ordinary merge — so ancestry holds — with the plan marked done on
+// main and main pushed to a fresh bare origin outside the fleet root.
+// It builds its own repository rather than reusing claimableRepo: S68
+// is about a checkout's own branch and the default branch, never the
+// lease work ref every other storage step touches.
+func (w *world) hasACheckoutWhoseBranchLandsPlanOnOriginsMain(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = holder
+	root := w.t.TempDir()
+	repo := initRepo(w.t, root, "atlas")
+	branch := claim.Branch(int64(planID))
+	lane := strandedCheckout(w.t, root, repo, holder+"-lane", branch)
+	tip, err := gitCapture(w.t, repo, "rev-parse", branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	git(w.t, repo, "merge", "-q", "--no-ff", "-m", fmt.Sprintf("land plan %d", planID), branch)
+	landPlan(w.t, repo, int64(planID), "shader-unit", "✅")
+	addOrigin(w.t, repo)
+
+	s := w.sw()
+	s.reapRoot = root
+	s.reapLane = lane
+	s.reapBranchTip = tip
+	w.clones[holder] = repo
+
+	return nil
+}
+
+// aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge is
+// S68's own anomaly: origin's default branch is rewritten to an
+// orphan commit carrying main's exact current tree, so the ancestry
+// an earlier merge built is gone while the plan file's own content —
+// its status glyph among it — is unchanged.
+func (w *world) aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	tree, err := gitCapture(w.t, repo, "rev-parse", "main^{tree}")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tree, err)
+	}
+	fresh, err := gitCapture(w.t, repo, "commit-tree", tree, "-m", "rewrite history")
+	if err != nil {
+		return fmt.Errorf("%s: %w", fresh, err)
+	}
+	out, err := gitCapture(w.t, repo, "push", "-q", "-f", "origin", fresh+":main")
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	w.sw().reapFreshSHA = fresh
+
+	return nil
+}
+
+// branchIsNoLongerAnAncestorOfOriginsMain checks the rewrite actually
+// broke ancestry: holder's own branch tip, recorded before the merge,
+// is no longer a parent of the fresh commit a person force-pushed to
+// origin's main.
+func (w *world) branchIsNoLongerAnAncestorOfOriginsMain(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never had this checkout; %q did", holder, w.holder)
+	}
+	s := w.sw()
+	if s.reapFreshSHA == "" {
+		return fmt.Errorf("no rewrite yet; the force-push step comes first")
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	if _, err := gitCapture(w.t, repo, "merge-base", "--is-ancestor", s.reapBranchTip, s.reapFreshSHA); err == nil {
+		return fmt.Errorf("%q's branch is still an ancestor of the rewritten default branch", holder)
+	}
+
+	return nil
+}
+
+// reapStillReapsCheckoutLandedByItsStatusGlyphAlone runs reap for
+// real and checks holder's stranded lane is torn down — the fleet
+// walk's own status glyph, read off origin's rewritten default
+// branch, not the ancestry the force-push erased.
+func (w *world) reapStillReapsCheckoutLandedByItsStatusGlyphAlone(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never had this checkout; %q did", holder, w.holder)
+	}
+	s := w.sw()
+	if s.reapFreshSHA == "" {
+		return fmt.Errorf("no rewrite yet; the force-push step comes first")
+	}
+
+	var doc report.ReapDoc
+	stderr := emit(w.t, &doc, "reap", "--go", "--root", s.reapRoot)
+	if stderr != "" {
+		return fmt.Errorf("reap reported stderr: %s", stderr)
+	}
+	reaped := 0
+	for _, r := range doc.Repos {
+		reaped += len(r.Reaped)
+	}
+	if reaped != 1 {
+		return fmt.Errorf("reap tore down %d lanes, want exactly 1", reaped)
+	}
+	if _, err := os.Stat(s.reapLane); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%q's checkout is still on disk after reap", holder)
+	}
+
+	return nil
+}
+
 // TestSwLazilyInitializesItsMapsOncePerWorld: the section's maps are
 // built on first use and stay the same value for the rest of the
 // scenario, a fresh pair for another scenario's own world.
@@ -940,4 +1127,173 @@ func TestOrphansListsBothTipsAsRescuedFindsTwoRescueRefsThroughTheVerb(t *testin
 	}
 
 	require.NoError(t, w.orphansListsBothTipsAsRescued("box-a"))
+}
+
+// TestRenewsWhileAPersonsFetchPruneRacesItRefusesAMachineThatNeverHeldTheLease:
+// only the holder renews its own lease.
+func TestRenewsWhileAPersonsFetchPruneRacesItRefusesAMachineThatNeverHeldTheLease(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+
+	require.Error(t, w.renewsWhileAPersonsFetchPruneRacesIt("box-b"))
+}
+
+// TestRenewsWhileAPersonsFetchPruneRacesItCountsOneLsRemoteOnALoss: a
+// renewal that loses its CAS to a rival takeover is still fenced
+// correctly with the race running, and resolves the loss with
+// exactly one ls-remote.
+func TestRenewsWhileAPersonsFetchPruneRacesItCountsOneLsRemoteOnALoss(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 67
+	repo := claimableRepo(t, t.TempDir(), "atlas", 67, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 67), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+	taker := cloneAgain(t, repo)
+	_, err = claim.Takeover(taker, leaseFor("box-b", 67), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	require.NoError(t, w.renewsWhileAPersonsFetchPruneRacesIt("box-a"))
+
+	var fenced *claim.FenceError
+	require.ErrorAs(t, w.err, &fenced)
+	assert.Equal(t, "box-b", fenced.Marker.Holder)
+	assert.Equal(t, 1, w.sw().lsRemoteCalls)
+}
+
+// TestTheRenewalReadOriginExactlyOnceToClassifyTheLossFailsOnTheWrongCount:
+// zero or more than one read is not the promise this step checks.
+func TestTheRenewalReadOriginExactlyOnceToClassifyTheLossFailsOnTheWrongCount(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theRenewalReadOriginExactlyOnceToClassifyTheLoss(), "no renewal ran yet")
+
+	w.sw().lsRemoteCalls = 1
+	assert.NoError(t, w.theRenewalReadOriginExactlyOnceToClassifyTheLoss())
+}
+
+// TestHasACheckoutWhoseBranchLandsPlanOnOriginsMainMergesAndMarksDone:
+// the fixture leaves a real merge behind, the plan done on main, and
+// main pushed to a bare origin.
+func TestHasACheckoutWhoseBranchLandsPlanOnOriginsMainMergesAndMarksDone(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+
+	repo, err := w.cloneOf("box-a")
+	require.NoError(t, err)
+	s := w.sw()
+	require.NotEmpty(t, s.reapRoot)
+	require.NotEmpty(t, s.reapBranchTip)
+	_, err = os.Stat(s.reapLane)
+	require.NoError(t, err, "the checkout stands")
+	_, err = gitCapture(t, repo, "merge-base", "--is-ancestor", s.reapBranchTip, "main")
+	require.NoError(t, err, "the branch is an ancestor of main before any rewrite")
+	body, err := gitCapture(t, repo, "show", "main:plan/68_shader-unit.md")
+	require.NoError(t, err)
+	assert.Contains(t, body, `status: "✅"`)
+	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
+	require.NoError(t, err)
+	assert.NotEmpty(t, origin)
+}
+
+// TestAPersonForcePushesOriginsMainToAFreshCommitSameContentNoMergeRefusesWithNoCheckoutYet:
+// the step needs a clone to discover origin through.
+func TestAPersonForcePushesOriginsMainToAFreshCommitSameContentNoMergeRefusesWithNoCheckoutYet(t *testing.T) {
+	w := newWorld(t)
+
+	require.Error(t, w.aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge())
+}
+
+// TestAPersonForcePushesOriginsMainToAFreshCommitSameContentNoMergeBreaksAncestryKeepsContent:
+// the rewritten main lands on origin carrying the same tree, but as a
+// parentless commit no earlier branch is an ancestor of.
+func TestAPersonForcePushesOriginsMainToAFreshCommitSameContentNoMergeBreaksAncestryKeepsContent(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+	repo, err := w.cloneOf("box-a")
+	require.NoError(t, err)
+	oldTree, err := gitCapture(t, repo, "rev-parse", "main^{tree}")
+	require.NoError(t, err)
+
+	require.NoError(t, w.aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge())
+
+	fresh := w.sw().reapFreshSHA
+	require.NotEmpty(t, fresh)
+	freshTree, err := gitCapture(t, repo, "rev-parse", fresh+"^{tree}")
+	require.NoError(t, err)
+	assert.Equal(t, oldTree, freshTree, "the rewrite carries the same content")
+	remote, err := gitCapture(t, repo, "ls-remote", "origin", "main")
+	require.NoError(t, err)
+	assert.Contains(t, remote, fresh, "origin's main is the rewritten commit")
+}
+
+// TestBranchIsNoLongerAnAncestorOfOriginsMainRefusesAMachineThatNeverHadThisCheckout:
+// only the machine the checkout step introduced is checked.
+func TestBranchIsNoLongerAnAncestorOfOriginsMainRefusesAMachineThatNeverHadThisCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+
+	require.Error(t, w.branchIsNoLongerAnAncestorOfOriginsMain("box-b"))
+}
+
+// TestBranchIsNoLongerAnAncestorOfOriginsMainRefusesWithNoRewriteYet:
+// the ancestor check needs the force-push's own fresh SHA to compare
+// against.
+func TestBranchIsNoLongerAnAncestorOfOriginsMainRefusesWithNoRewriteYet(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+
+	require.Error(t, w.branchIsNoLongerAnAncestorOfOriginsMain("box-a"))
+}
+
+// TestBranchIsNoLongerAnAncestorOfOriginsMainPassesAfterTheRewrite:
+// once the rewrite has run, the check the row is named for holds.
+func TestBranchIsNoLongerAnAncestorOfOriginsMainPassesAfterTheRewrite(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+	require.NoError(t, w.aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge())
+
+	require.NoError(t, w.branchIsNoLongerAnAncestorOfOriginsMain("box-a"))
+}
+
+// TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneRefusesAMachineThatNeverHadThisCheckout:
+// only the machine the checkout step introduced is checked.
+func TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneRefusesAMachineThatNeverHadThisCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+
+	require.Error(t, w.reapStillReapsCheckoutLandedByItsStatusGlyphAlone("box-b"))
+}
+
+// TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneRefusesWithNoRewriteYet:
+// reap is never run before the anomaly it is meant to survive.
+func TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneRefusesWithNoRewriteYet(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+
+	require.Error(t, w.reapStillReapsCheckoutLandedByItsStatusGlyphAlone("box-a"))
+}
+
+// TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneTearsDownTheLane:
+// the checkout is gone from disk once reap runs against the rewritten
+// origin, landed by its status glyph alone.
+func TestReapStillReapsCheckoutLandedByItsStatusGlyphAloneTearsDownTheLane(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutWhoseBranchLandsPlanOnOriginsMain("box-a", 68))
+	require.NoError(t, w.aPersonForcePushesOriginsMainToAFreshCommitSameContentNoMerge())
+	lane := w.sw().reapLane
+
+	require.NoError(t, w.reapStillReapsCheckoutLandedByItsStatusGlyphAlone("box-a"))
+
+	_, err := os.Stat(lane)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }

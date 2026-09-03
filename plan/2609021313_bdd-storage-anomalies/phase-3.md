@@ -1,7 +1,7 @@
 ---
 n: 3
 title: The two CAS/TRUST rows S67 and S68 run for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Two storage rows are neither raw-CAS-on-the-work-ref (phase 1) nor
