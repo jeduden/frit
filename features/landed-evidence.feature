@@ -30,8 +30,11 @@ Feature: Lifecycle anomalies — landed evidence
     And origin's work ref for the plan is gone
     And "box-a"'s local work ref still resolves at its tip
 
-  @S80 @pending
+  @S80
   Scenario: local default branch lags its own fetched remote-tracking ref
+    Given a repository whose origin's main has advanced past the local clone's own main
+    When board runs
+    Then the report names the local default branch lagging
 
   @S81
   Scenario: unstaffed hold, holder alive on another machine
@@ -75,5 +78,10 @@ Feature: Lifecycle anomalies — landed evidence
     Then DefaultRef for "box-a" answers refs/remotes/origin/main, not refs/heads/main
     And the work reads landed for "box-a"
 
-  @S87 @pending
+  @S87
   Scenario: read verb reads landed evidence off a checkout unfetched since a PR merged
+    Given a checkout unfetched since its plan's lease was deleted upstream
+    When board runs with the default fetch
+    Then the plan reads as landed, off the board
+    When board runs with --no-fetch
+    Then the plan reads as held, off the stale local view
