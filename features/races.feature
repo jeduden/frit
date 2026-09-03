@@ -33,8 +33,14 @@ Feature: Races
     When "box-a" comes back and renews its lease
     Then the renewal is fenced, naming "box-b"
 
-  @S29 @pending
+  @S29
   Scenario: release races a loser's read
+    Given "box-a" holds the lease for plan 7
+    When "box-b" claims plan 7, racing "box-a"'s release into the read
+    Then "box-b"'s claim loses, naming "box-a" at epoch 1
+    When "box-b" retries plan 7
+    Then "box-b"'s retry acquires at epoch 2
+    And origin carries one work ref for plan 7
 
   @S30
   Scenario: zombie vs new claimant on one branch
