@@ -116,7 +116,7 @@ footer: |
 | 2609021114 | ✅     | sonnet | [Scavenge and Yield stop reading an unreadable remote as gone](plan/2609021114_scavenge-yield-honest-remote-read/plan.md)              |
 | 2609021115 | ✅     | opus   | [casPush and park share their push-then-classify skeleton](plan/2609021115_park-caspush-shared-skeleton/plan.md)                       |
 | 2609021310 | ✅     | sonnet | [The process-death scenarios run under godog](plan/2609021310_bdd-process-death/plan.md)                                               |
-| 2609021311 | 🔲     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
+| 2609021311 | ✅     | sonnet | [The host-death and race scenarios run under godog](plan/2609021311_bdd-host-death-and-races/plan.md)                                  |
 | 2609021312 | ✅     | sonnet | [The partition and clock scenarios run under godog](plan/2609021312_bdd-partitions-and-clocks/plan.md)                                 |
 | 2609021313 | 🔲     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
 | 2609021314 | 🔲     | sonnet | [The identity and cross-layer scenarios run under godog](plan/2609021314_bdd-identity-and-cross-layer/plan.md)                         |
