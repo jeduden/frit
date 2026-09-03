@@ -112,9 +112,10 @@ assembles.
 
 ## Execution
 
-| Phase | Title                                | Tier   | Gate                                                                                                                             |
-| ----- | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | The plan-handoff skill in the bundle | sonnet | built `frit skills --via "go run ./cmd/frit"` lays plan-handoff into `.claude/skills`; `mdsmith check .` clean, token budget met |
+| Phase | Title                                                | Tier   | Gate                                                                                                                             |
+| ----- | ---------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | The plan-handoff skill in the bundle                 | sonnet | built `frit skills --via "go run ./cmd/frit"` lays plan-handoff into `.claude/skills`; `mdsmith check .` clean, token budget met |
+| 2     | Resume surfaces a single-file plan's Handoff heading | sonnet | `go test ./internal/planmeta/...`; full `go test ./...` and lint clean                                                           |
 
 ## Phases
 
@@ -141,6 +142,7 @@ footer: |
 | --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [The plan-handoff skill in the bundle](phase-1.md)                                                                                                                                                                                                                                |
 |     | ↳      | plan-handoff joined the bundle — internal/skills/assets/plan-handoff and its dogfooded .claude/skills copy — teaching the split close: a `## Handoff` heading for a single-file plan, a phase-N.result.md for a directory plan, either way riding the commit that lands the work. |
+| 2   | 🔳     | [Resume surfaces a single-file plan's Handoff heading](phase-2.md)                                                                                                                                                                                                                |
 <?/catalog?>
 
 ## Acceptance Criteria
