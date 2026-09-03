@@ -10,6 +10,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,6 +78,9 @@ func (w *world) registerStorageAnomalies(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)" renews its lease again$`, w.renewsItsLeaseAgain)
 	sc.Step(`^origin is restored from the backup$`, w.originIsRestoredFromTheBackup)
 	sc.Step(`^"([^"]+)" re-reads origin's tip and renews from it$`, w.reReadsOriginsTipAndRenewsFromIt)
+	sc.Step(`^a person runs "git gc --prune=now" on origin$`, w.aPersonRunsGitGCPruneNowOnOrigin)
+	sc.Step(`^"([^"]+)" acquires the lease again$`, w.acquiresTheLeaseAgain)
+	sc.Step(`^orphans lists both tips as rescued for "([^"]+)"'s lane$`, w.orphansListsBothTipsAsRescued)
 }
 
 // originOf finds the bare origin every machine in a storage scenario
@@ -435,6 +439,86 @@ func (w *world) reReadsOriginsTipAndRenewsFromIt(holder string) error {
 	return nil
 }
 
+// aPersonRunsGitGCPruneNowOnOrigin is S40's own anomaly: a remote GC,
+// run for real against the bare origin, immediately eligible to
+// collect anything no ref reaches — the marker chain a scavenge just
+// deleted the work ref for, and everything the rescue ref does not
+// keep alive.
+func (w *world) aPersonRunsGitGCPruneNowOnOrigin() error {
+	origin, err := w.originOf(w.holder)
+	if err != nil {
+		return err
+	}
+	out, err := gitCapture(w.t, origin, "gc", "--prune=now", "--quiet")
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+
+	return nil
+}
+
+// acquiresTheLeaseAgain is S78's own second cycle: a fresh claim on
+// the very plan a scavenge just deleted the ref for, so a second
+// scavenge later parks a second, different tip from the same lane. It
+// refuses unless the ref is actually gone — a caller that skipped the
+// scavenge step would otherwise land a takeover, not the fresh
+// epoch-1 claim this row's shape depends on.
+func (w *world) acquiresTheLeaseAgain(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	if tip := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec); tip != "" {
+		return fmt.Errorf("origin still carries the work ref at %s; the scavenge step comes first", tip)
+	}
+	lease, err := claim.Acquire(repo, leaseFor(holder, w.planID), gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	w.lease = lease
+
+	return nil
+}
+
+// orphansListsBothTipsAsRescued checks S78's own promise from both
+// ends: the primitive, claim.RescueRefs, must carry exactly two
+// distinct refs for the plan, and the verb an operator actually runs,
+// frit orphans, must report the same plan with the same count.
+func (w *world) orphansListsBothTipsAsRescued(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	refs := claim.RescueRefs(repo, "origin", int64(w.planID), gitwt.Exec)
+	if len(refs) != 2 {
+		return fmt.Errorf("origin carries %d rescue refs for plan %d, want 2: %v", len(refs), w.planID, refs)
+	}
+
+	var doc report.OrphansDoc
+	stderr := emit(w.t, &doc, "orphans", "--root", filepath.Dir(repo))
+	if stderr != "" {
+		return fmt.Errorf("orphans reported stderr: %s", stderr)
+	}
+	for _, r := range doc.Repos {
+		for _, rescued := range r.Rescued {
+			if rescued.PlanID != int64(w.planID) {
+				continue
+			}
+			if len(rescued.Refs) != 2 {
+				return fmt.Errorf("orphans lists %d rescue refs for plan %d, want 2: %v",
+					len(rescued.Refs), w.planID, rescued.Refs)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("orphans lists no rescued entry for plan %d", w.planID)
+}
+
 // TestSwLazilyInitializesItsMapsOncePerWorld: the section's maps are
 // built on first use and stay the same value for the rest of the
 // scenario, a fresh pair for another scenario's own world.
@@ -727,4 +811,133 @@ func TestReReadsOriginsTipAndRenewsFromItRefusesAMachineThatNeverHeldTheLease(t 
 	w.holder = "box-a"
 
 	require.Error(t, w.reReadsOriginsTipAndRenewsFromIt("box-b"))
+}
+
+// TestAPersonRunsGitGCPruneNowOnOriginRunsAgainstTheBareOrigin: the gc
+// runs against the bare origin itself, not any clone, and leaves it
+// readable with its refs intact.
+func TestAPersonRunsGitGCPruneNowOnOriginRunsAgainstTheBareOrigin(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 40
+	repo := claimableRepo(t, t.TempDir(), "atlas", 40, "Shader unit")
+	_, err := claim.Acquire(repo, leaseFor("box-a", 40), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.clones["box-a"] = repo
+
+	require.NoError(t, w.aPersonRunsGitGCPruneNowOnOrigin())
+
+	origin, err := w.originOf("box-a")
+	require.NoError(t, err)
+	main, err := gitCapture(t, origin, "rev-parse", "main")
+	require.NoError(t, err)
+	assert.NotEmpty(t, main, "origin survives the gc with its refs intact")
+}
+
+// TestAPersonRunsGitGCPruneNowOnOriginRefusesWithNoOriginYet: the step
+// needs a clone to discover the bare origin through.
+func TestAPersonRunsGitGCPruneNowOnOriginRefusesWithNoOriginYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.aPersonRunsGitGCPruneNowOnOrigin())
+}
+
+// TestAcquiresTheLeaseAgainRefusesAMachineThatNeverHeldTheLease: only
+// the holder re-claims its own plan.
+func TestAcquiresTheLeaseAgainRefusesAMachineThatNeverHeldTheLease(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+
+	require.Error(t, w.acquiresTheLeaseAgain("box-b"))
+}
+
+// TestAcquiresTheLeaseAgainRefusesWhileOriginStillCarriesTheRef: a
+// caller that skipped the scavenge step must not silently land a
+// takeover instead of the fresh claim this row's shape depends on.
+func TestAcquiresTheLeaseAgainRefusesWhileOriginStillCarriesTheRef(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 78
+	repo := claimableRepo(t, t.TempDir(), "atlas", 78, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 78), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+
+	require.Error(t, w.acquiresTheLeaseAgain("box-a"))
+}
+
+// TestAcquiresTheLeaseAgainLandsAFreshEpochOneClaimOnceTheRefIsGone:
+// once the ref is truly gone, the second cycle acquires exactly as a
+// first claim would — epoch 1, not a takeover of anything.
+func TestAcquiresTheLeaseAgainLandsAFreshEpochOneClaimOnceTheRefIsGone(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 78
+	repo := claimableRepo(t, t.TempDir(), "atlas", 78, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 78), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+	require.NoError(t, w.theRefIsScavenged(), "a bare claim marker carries no unlanded work to park")
+
+	require.NoError(t, w.acquiresTheLeaseAgain("box-a"))
+
+	assert.Equal(t, 1, w.lease.Epoch)
+}
+
+// TestOrphansListsBothTipsAsRescuedRefusesAnUnknownMachine: the check
+// reads the machine's own clone to find origin.
+func TestOrphansListsBothTipsAsRescuedRefusesAnUnknownMachine(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.orphansListsBothTipsAsRescued("box-a"))
+}
+
+// TestOrphansListsBothTipsAsRescuedRefusesWithOnlyOneParked: the row's
+// own point is two tips landing side by side; a single park is not
+// yet the promise this check makes.
+func TestOrphansListsBothTipsAsRescuedRefusesWithOnlyOneParked(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 78
+	repo := claimableRepo(t, t.TempDir(), "atlas", 78, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 78), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+	out, err := gitCapture(t, repo, "push", "-q", "origin",
+		lease.Tip+":refs/frit/rescue/78/box-a-"+lease.Tip)
+	require.NoError(t, err, out)
+
+	err = w.orphansListsBothTipsAsRescued("box-a")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "want 2")
+}
+
+// TestOrphansListsBothTipsAsRescuedFindsTwoRescueRefsThroughTheVerb:
+// two distinct rescue refs for the same plan, counted both by the
+// primitive, claim.RescueRefs, and by the orphans verb reading the
+// same fleet root.
+func TestOrphansListsBothTipsAsRescuedFindsTwoRescueRefsThroughTheVerb(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 78
+	repo := claimableRepo(t, t.TempDir(), "atlas", 78, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 78), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+	tip2, err := gitCapture(t, repo, "commit-tree", lease.Tip+"^{tree}", "-p", lease.Tip, "-m", "second")
+	require.NoError(t, err)
+	for _, tip := range []string{lease.Tip, tip2} {
+		out, err := gitCapture(t, repo, "push", "-q", "origin", tip+":refs/frit/rescue/78/box-a-"+tip)
+		require.NoError(t, err, out)
+	}
+
+	require.NoError(t, w.orphansListsBothTipsAsRescued("box-a"))
 }

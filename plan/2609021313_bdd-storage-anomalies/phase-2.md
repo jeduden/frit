@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The two park rows of storage anomalies run for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Two storage rows share one shape: a scavenge that parks unlanded work
