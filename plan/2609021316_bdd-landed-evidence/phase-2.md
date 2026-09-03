@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The verb-level reap rows of landed evidence run for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S79, S81 and S82 from `@pending` into passing scenarios. All
@@ -33,14 +33,15 @@ three rows need, the way `internal/claim/lease_test.go`'s
   and parks the tip. `checkedOut` in
   [lease.go](../../internal/claim/lease.go) is the guard; `Scavenge`
   consults it before every local `update-ref -d`.
-- `TestReapRefusesAFreshUnstaffedHold` in reap_test.go is S81's own
-  shape: an unstaffed hold neither stale nor confirmed dead refuses,
-  naming "held by a live lease" and the not-matured span.
-  `holdRefusal` in [reap.go](../../cmd/frit/reap.go) gives that
-  wording to a live lease exactly the same way whether the evidence
-  is a fresh claim or a herdr-confirmed live session, so S81's own
-  Given — the holder positively alive elsewhere — exercises the same
-  path with a stronger fixture, not a different one.
+- `TestReapRefusesAFreshUnstaffedHold` in reap_test.go is the sibling
+  shape, over a hold with no bound session at all: neither stale nor
+  confirmed dead, it refuses naming "held by a live lease" and the
+  not-matured span. `holdRefusal` in
+  [reap.go](../../cmd/frit/reap.go) gives that same wording once
+  `Dead` reads false, whatever made it false. S81's own Given binds a
+  session and answers for it directly, so the row exercises the
+  positive-liveness path on its own terms rather than borrowing the
+  no-session one.
 - `TestReapSquashMergedBranchIsReapedEvenNotAnAncestor` and
   `TestReapRefusesTheTeardownWhenTheParkIsRefused` are S82's own
   shape: a squash-landed plan's stranded branch carries a commit the
@@ -58,7 +59,7 @@ fails the build.
 **RED.** Drop `@pending` from S79, S81 and S82 in
 [landed-evidence.feature](../../features/landed-evidence.feature) and
 write each one's Given/When/Then. Run `go test ./cmd/frit -run
-'TestFeatures/S(79|81|82)_'`: strict mode reports the new steps
+'TestFeatures/S(79|81|82):'`: strict mode reports the new steps
 undefined and the subtests fail. That is the red — commit it.
 
 The scenarios, in the matrix's own terms:
@@ -76,11 +77,12 @@ The scenarios, in the matrix's own terms:
   verbatim from S54's Then steps rather than a third copy.
 - S81, unstaffed hold, holder alive on another machine. Given
   "box-a" holds the lease for plan 81 bound to a session, and a
-  herdr fake confirms that exact session alive and working — the
-  positive-liveness shape, not merely an unmatured window — when a
-  fleet-wide `reap --go` runs over "box-a"'s own root, then the hold
-  is refused naming "held by a live lease", and the hold still
-  resolves on origin exactly where it was.
+  herdr fake confirms that exact session alive and working — without
+  it, the same bound-but-unanswered session reads as confirmed gone
+  and the hold is dropped instead — when a fleet-wide `reap --go`
+  runs over "box-a"'s own root, then the hold is refused naming
+  "held by a live lease", and the hold still resolves on origin
+  exactly where it was.
 - S82, reaped squash-landed branch carries a follow-up commit. Given
   a repository with a stranded, landed checkout on plan 82's branch —
   `strandedCheckout` plus `landPlan`'s own ✅ glyph plus `addOrigin` —
@@ -114,29 +116,27 @@ catches a scavenge that silently changed what "gone" or "still
 resolves" means between the two rows.
 
 S81's fixture must show a herdr answer that names the bound session.
-An empty herdr response is not enough. `TestReapRefusesAFreshUnstaffedHold`
-leaves that claim unproven today: a live-but-anonymous herdr result
-and a genuinely empty one both currently produce the same refusal
-text. S81 pins the observable that exists — the refusal itself, and
-the survival of the hold. The wording may still fail to distinguish
-"confirmed alive" from "fresh, unmatured". If so, that gap is a
-finding for the handoff, not a fix made here.
+An empty herdr response is not enough — proven, not assumed: run the
+same Given through an empty herdr fake instead and the hold reads as
+abandoned and gets dropped, not refused. A session bound at Acquire
+that no herdr answer can find is read as confirmed gone, the same
+evidence `deadHold`'s own mismatched session already relies on. Only
+a herdr answer that actually names the bound session alive turns that
+same hold into S81's own refusal.
 
 S82's Then must check the rescue ref actually carries the stranded
 checkout's own tip, not merely that some rescue ref exists — a rescue
 parked from the wrong tip would still pass a looser check. A scenario
 that only passes by weakening an assertion is a finding, not a green.
 
-**Gate.** `go test ./cmd/frit -run 'TestFeatures/S(79|81|82)_'` passes
+**Gate.** `go test ./cmd/frit -run 'TestFeatures/S(79|81|82):'` passes
 with all three reported PASS and none SKIP. `go test ./cmd/frit -run
 TestFeatures` (every section landed so far) stays green. `go test
 ./...` and `go tool -modfile=tools/go.mod golangci-lint run` are
 clean.
 
-Write the handoff to `phase-2.result.md`. Say whether S81 exposed the
-finding named above — the refusal text not distinguishing confirmed-
-alive from merely-fresh — and, if so, that it is recorded, not fixed.
-Say what S80 and S87 need from `Gather`, the `--fetch` flag and
+Write the handoff to `phase-2.result.md`. Say what S80 and S87 need
+from `Gather`, the `--fetch` flag and
 `landedDeletedClone`, and what a CLI-level `reap --go` Given/When
 pattern this phase establishes those two rows can or cannot reuse
 (they run over `board`/`ready`, not `reap`, so likely not the same
