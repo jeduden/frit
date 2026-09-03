@@ -1,7 +1,7 @@
 ---
 id: 2609021316
 title: The landed-evidence scenarios run under godog
-status: "🔲"
+status: "🔳"
 summary: >-
   The lease-protocol matrix's landed-evidence half of "Lifecycle
   anomalies" — S54, S59, S79..S85, S87 — is declared in
