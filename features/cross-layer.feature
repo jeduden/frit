@@ -4,8 +4,16 @@ Feature: Cross-layer: herdr and frit disagree
   and frit disagree" section, one per row, tagged with its S-id. A
   scenario still tagged @pending is declared but not yet written.
 
-  @S60 @pending
+  @S60
   Scenario: herdr down at claim time
+    Given plan 7 is unclaimed
+    And herdr is unreachable
+    When this machine claims plan 7
+    Then the claim is refused: worktree not stood up
+    And the lease is released, not left standing
+    When herdr becomes reachable
+    And this machine claims plan 7
+    Then it claims clean at the next epoch
 
   @S61
   Scenario: herdr down at observation
@@ -36,8 +44,14 @@ Feature: Cross-layer: herdr and frit disagree
   @S72 @pending
   Scenario: claim and start race on one host
 
-  @S73 @pending
+  @S73
   Scenario: prompt fails after agent start
+    Given plan 7 is unclaimed
+    And the agent starts but its prompt fails
+    When this machine runs start --go for plan 7
+    Then start fails and a release marker sits on the branch
+    And the agent was started before the failure
+    And the worktree it stood up is torn down
 
   @S74 @pending
   Scenario: same plan id in two repos

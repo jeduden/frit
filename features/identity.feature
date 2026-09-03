@@ -4,8 +4,14 @@ Feature: Identity anomalies
   section, one per row, tagged with its S-id. A scenario still
   tagged @pending is declared but not yet written.
 
-  @S45 @pending
+  @S45
   Scenario: two agents, one plan, one host
+    Given "elsewhere" holds plan 7 bound to a session
+    And the window has matured for plan 7
+    And herdr confirms the session is live
+    When this machine runs start --go for plan 7
+    Then start refuses, naming the live agent session
+    And the holder's own lease is renewed, not seized
 
   @S46 @pending
   Scenario: worktree path reused
@@ -21,8 +27,13 @@ Feature: Identity anomalies
     Then the plan is resumed
     And no takeover marker sits between the held tip and origin's tip
 
-  @S49 @pending
+  @S49
   Scenario: hostname collides
+    Given a held lane holding plan 7 whose marker names this host as holder but whose checkout carries no token
+    And herdr shows no agent on the lane
+    When this machine runs start --go for plan 7
+    Then start refuses: already held, not takeable until the window matures
+    And the plan is not resumed
 
   @S66 @pending
   Scenario: NFS-shared clone across hosts
