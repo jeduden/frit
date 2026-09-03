@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The five drivable lifecycle claim-and-ref rows run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the five drivable lifecycle rows — S50, S51, S56, S70, S75 —
