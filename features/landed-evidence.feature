@@ -20,17 +20,33 @@ Feature: Lifecycle anomalies — landed evidence
   @S59 @pending
   Scenario: status flipped ✅ early by hand
 
-  @S79 @pending
+  @S79
   Scenario: scavenge deletes a branch a worktree still stands on
+    Given "box-a" holds the lease for plan 79
+    And "box-a" pushes work on the lane
+    And a worktree stands on "box-a"'s branch
+    When "box-a" scavenges at the observed tip
+    Then the work is parked to a rescue ref
+    And origin's work ref for the plan is gone
+    And "box-a"'s local work ref still resolves at its tip
 
   @S80 @pending
   Scenario: local default branch lags its own fetched remote-tracking ref
 
-  @S81 @pending
+  @S81
   Scenario: unstaffed hold, holder alive on another machine
+    Given "box-a" holds the lease for plan 81 bound to a session
+    And a herdr fake confirms "box-a"'s bound session alive
+    When a fleet-wide reap --go runs
+    Then the hold is refused naming a live lease
+    And the hold still resolves on origin
 
-  @S82 @pending
+  @S82
   Scenario: reaped squash-landed branch carries a follow-up commit
+    Given a stranded, landed checkout on plan 82's branch
+    When a fleet-wide reap --go runs
+    Then the branch is reaped
+    And the checkout's own commit is parked to the plan's rescue ref
 
   @S83
   Scenario: origin unreadable while scavenge classifies the ref
