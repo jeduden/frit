@@ -1,7 +1,7 @@
 ---
 id: 2609022153
 title: A plan-handoff skill closes a phase in one command
-status: "🔲"
+status: "🔳"
 summary: >-
   Closing a phase is pure agent discipline today: plan-phase reminds
   the executor to record a handoff, but frit produces nothing and
