@@ -13,8 +13,13 @@ Feature: Identity anomalies
   @S47 @pending
   Scenario: worktree debris fails the handoff
 
-  @S48 @pending
+  @S48
   Scenario: hostname changes
+    Given a held lane holding plan 7 whose marker names "elsewhere" as holder and whose checkout carries the token
+    And herdr shows no agent on the lane
+    When this machine runs start --go for plan 7
+    Then the plan is resumed
+    And no takeover marker sits between the held tip and origin's tip
 
   @S49 @pending
   Scenario: hostname collides

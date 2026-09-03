@@ -7,8 +7,15 @@ Feature: Cross-layer: herdr and frit disagree
   @S60 @pending
   Scenario: herdr down at claim time
 
-  @S61 @pending
+  @S61
   Scenario: herdr down at observation
+    Given "elsewhere" holds plan 7 bound to a session
+    And the window has matured for plan 7
+    And herdr is unreachable
+    When "box-b" claims plan 7 over the stale hold
+    Then the claim is refused: worktree not stood up
+    And a takeover at epoch 2 sits on the stale tip
+    And the veto never fired
 
   @S62 @pending
   Scenario: host unreachable, agents pushing
@@ -16,8 +23,12 @@ Feature: Cross-layer: herdr and frit disagree
   @S63 @pending
   Scenario: pane alive, lease released
 
-  @S64 @pending
+  @S64
   Scenario: branch repurposed by hand
+    Given this machine holds plan 7 in a lane with its token persisted
+    When origin's work ref for plan 7 is deleted and repurposed by "elsewhere"
+    Then the lane's release is refused and origin's tip is untouched
+    And the lane's claim reports the plan already held, never resumed
 
   @S65 @pending
   Scenario: herdr restarts, loses panes
@@ -37,5 +48,12 @@ Feature: Cross-layer: herdr and frit disagree
   @S77 @pending
   Scenario: deserted lane on its own host
 
-  @S86 @pending
+  @S86
   Scenario: a live lane's own raw commits advance the branch past its persisted token
+    Given this machine holds plan 7 in a lane with its token persisted
+    And two raw commits are pushed on top of the lane
+    When the lane runs claim for plan 7
+    Then it is resumed and the beat's parent is the raw tip
+    When a takeover at a new epoch lands on plan 7
+    And the lane runs release for plan 7
+    Then it is refused and the takeover stands
