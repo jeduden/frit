@@ -11,6 +11,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/repocfg"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,11 @@ type storageState struct {
 	backup   string
 	tips     map[string]string
 	acquired map[string]claim.Lease
+	// second is S42's own fixture: a second bare git remote added to the
+	// holder's clone — a mirror or backup an operator wires up — that
+	// coordination must never consult. The row asserts it carries no
+	// work ref.
+	second string
 	// lsRemoteCalls is S67's own count: how many ls-remote calls the
 	// last raced renewal made to resolve its CAS.
 	lsRemoteCalls int
@@ -110,6 +116,16 @@ func (w *world) registerStorageAnomalies(sc *godog.ScenarioContext) {
 		w.aPersonEditsOriginsURLToAnEquivalentMirror)
 	sc.Step(`^the renewal lands, unbroken by the URL edit$`, w.theRenewalLandsUnbrokenByTheURLEdit)
 	sc.Step(`^origin's tip carries "([^"]+)"'s renewal$`, w.originsTipCarriesRenewal)
+	sc.Step(`^a person adds a second git remote to "([^"]+)"'s clone$`,
+		w.aPersonAddsASecondGitRemoteToClone)
+	sc.Step(`^the renewal lands on the configured remote alone$`, w.theRenewalLandsOnTheConfiguredRemoteAlone)
+	sc.Step(`^the second remote carries no work ref$`, w.theSecondRemoteCarriesNoWorkRef)
+	sc.Step(
+		`^"([^"]+)" has a checkout of a fork whose origin is not the configured coordination remote for plan (\d+)$`,
+		w.hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote)
+	sc.Step(`^"([^"]+)" acquires the lease from a checkout of the fork$`, w.acquiresTheLeaseFromACheckoutOfTheFork)
+	sc.Step(`^the lease lands on the configured coordination remote$`, w.theLeaseLandsOnTheConfiguredCoordinationRemote)
+	sc.Step(`^the fork's own origin carries no work ref for the plan$`, w.theForksOwnOriginCarriesNoWorkRefForThePlan)
 }
 
 // originOf finds the bare origin every machine in a storage scenario
@@ -778,6 +794,199 @@ func (w *world) originsTipCarriesRenewal(holder string) error {
 	return nil
 }
 
+// aPersonAddsASecondGitRemoteToClone is S42's own setup: a person
+// wires a second git remote — a mirror or a backup — onto holder's
+// clone, a fresh bare repository carrying main and no work ref.
+// Coordination is the one remote `.frit.yml` declares, read through
+// repocfg; a second remote is never consulted, so adding one cannot
+// split the arbitration key.
+func (w *world) aPersonAddsASecondGitRemoteToClone(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	second := filepath.Join(w.t.TempDir(), "second-remote.git")
+	out, err := gitCapture(w.t, repo, "init", "-q", "--bare", "-b", "main", second)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	out, err = gitCapture(w.t, repo, "remote", "add", "backup", second)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	out, err = gitCapture(w.t, repo, "push", "-q", "backup", "main:main")
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	w.sw().second = second
+
+	return nil
+}
+
+// theRenewalLandsOnTheConfiguredRemoteAlone checks the tracked renewal
+// that crossed the second-remote addition landed on the remote
+// `.frit.yml` declares, read through repocfg — origin by default. A
+// landed renewal records its tip on this section; the configured
+// remote's own tip for the plan must equal it, proving the CAS reached
+// the arbitration key and not the mirror.
+func (w *world) theRenewalLandsOnTheConfiguredRemoteAlone() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	if w.err != nil {
+		return fmt.Errorf("the renewal did not land: %w", w.err)
+	}
+	want, ok := w.sw().tips[w.holder]
+	if !ok {
+		return fmt.Errorf("no renewal has landed yet; the renewal step comes first")
+	}
+	cfg, err := repocfg.Load(repo)
+	if err != nil {
+		return fmt.Errorf("reading the configured remote: %w", err)
+	}
+	got := claim.RemoteTip(repo, cfg.Remote, int64(w.planID), gitwt.Exec)
+	if got != want {
+		return fmt.Errorf("the configured remote %q holds tip %s, want the renewal's %s",
+			cfg.Remote, got, want)
+	}
+
+	return nil
+}
+
+// theSecondRemoteCarriesNoWorkRef checks the second remote a person
+// added carries no ref for the plan: coordination never touched it, so
+// only the configured remote holds the work ref.
+func (w *world) theSecondRemoteCarriesNoWorkRef() error {
+	s := w.sw()
+	if s.second == "" {
+		return fmt.Errorf("no second remote yet; the add step comes first")
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	out, err := gitCapture(w.t, repo, "ls-remote", s.second, w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	if out != "" {
+		return fmt.Errorf("the second remote carries the work ref: %s", out)
+	}
+
+	return nil
+}
+
+// hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote is S44's own
+// setup: a shared coordination remote the fleet arbitrates through, a
+// fork taken of it, and holder's own checkout cloned from the fork —
+// so the checkout's `origin` is the fork, never the coordination
+// remote. The coordination remote is wired on under a second name and
+// declared as `remote:` in the checkout's `.frit.yml`, the way a
+// fork-based flow points frit at the upstream it coordinates through.
+func (w *world) hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = holder
+	// The shared coordination remote, seeded with main and the plan.
+	seed := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
+	coord, err := gitCapture(w.t, seed, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return fmt.Errorf("%s: %w", coord, err)
+	}
+	// A fork is a copy of the upstream; the checkout's own origin.
+	fork := filepath.Join(w.t.TempDir(), "fork.git")
+	out, err := gitCapture(w.t, filepath.Dir(fork), "clone", "-q", "--bare", coord, fork)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	dst := w.t.TempDir()
+	git(w.t, dst, "clone", "-q", fork, dst)
+	git(w.t, dst, "config", "user.email", "t3@example.com")
+	git(w.t, dst, "config", "user.name", "frit-test-3")
+	git(w.t, dst, "remote", "add", "fleet", coord)
+	git(w.t, dst, "fetch", "-q", "fleet")
+	writeFile(w.t, dst, repocfg.FileName, "remote: fleet\n")
+	w.clones[holder] = dst
+
+	return nil
+}
+
+// acquiresTheLeaseFromACheckoutOfTheFork is S44's own acquisition: the
+// lease is pushed to the remote repocfg reads from the checkout's
+// `.frit.yml`, dated against that remote's own main — never the fork's
+// origin. A landed lease records its tip on this section.
+func (w *world) acquiresTheLeaseFromACheckoutOfTheFork(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never had this checkout; %q did", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	cfg, err := repocfg.Load(repo)
+	if err != nil {
+		return fmt.Errorf("reading the configured remote: %w", err)
+	}
+	opts := leaseFor(holder, w.planID)
+	opts.Remote = cfg.Remote
+	opts.Base = cfg.Remote + "/main"
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	w.err = err
+	if err != nil {
+		return err
+	}
+	w.lease = lease
+	w.sw().tips[holder] = lease.Tip
+
+	return nil
+}
+
+// theLeaseLandsOnTheConfiguredCoordinationRemote checks the lease
+// reached the remote `.frit.yml` declares, read through repocfg — the
+// shared upstream, not the fork's origin. The configured remote's tip
+// for the plan must equal the lease this section recorded.
+func (w *world) theLeaseLandsOnTheConfiguredCoordinationRemote() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	want, ok := w.sw().tips[w.holder]
+	if !ok {
+		return fmt.Errorf("no lease has landed yet; the acquire step comes first")
+	}
+	cfg, err := repocfg.Load(repo)
+	if err != nil {
+		return fmt.Errorf("reading the configured remote: %w", err)
+	}
+	got := claim.RemoteTip(repo, cfg.Remote, int64(w.planID), gitwt.Exec)
+	if got != want {
+		return fmt.Errorf("the configured remote %q holds tip %s, want the lease's %s",
+			cfg.Remote, got, want)
+	}
+
+	return nil
+}
+
+// theForksOwnOriginCarriesNoWorkRefForThePlan checks the fork's own
+// origin never became the coordination point: it carries no ref for
+// the plan, because the lease landed on the configured remote alone.
+func (w *world) theForksOwnOriginCarriesNoWorkRefForThePlan() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	out, err := gitCapture(w.t, repo, "ls-remote", "origin", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	if out != "" {
+		return fmt.Errorf("the fork's origin carries the work ref: %s", out)
+	}
+
+	return nil
+}
+
 // TestSwLazilyInitializesItsMapsOncePerWorld: the section's maps are
 // built on first use and stay the same value for the rest of the
 // scenario, a fresh pair for another scenario's own world.
@@ -1435,4 +1644,153 @@ func TestOriginsTipCarriesRenewalMatchesTheRecordedTipAcrossTheEdit(t *testing.T
 
 	require.NoError(t, w.originsTipCarriesRenewal("box-a"))
 	assert.NotEqual(t, lease.Tip, w.sw().tips["box-a"], "the renewal advanced the tip past the claim")
+}
+
+// TestAPersonAddsASecondGitRemoteToCloneWiresABackupThatIsNotOrigin:
+// the step adds a "backup" remote at a URL distinct from origin,
+// carrying main and no work ref, and records it on the section.
+func TestAPersonAddsASecondGitRemoteToCloneWiresABackupThatIsNotOrigin(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 42
+	repo := claimableRepo(t, t.TempDir(), "atlas", 42, "Shader unit")
+	_, err := claim.Acquire(repo, leaseFor("box-a", 42), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.clones["box-a"] = repo
+
+	require.NoError(t, w.aPersonAddsASecondGitRemoteToClone("box-a"))
+
+	second := w.sw().second
+	require.NotEmpty(t, second)
+	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
+	require.NoError(t, err)
+	assert.NotEqual(t, origin, second, "the second remote is a distinct URL")
+	main, err := gitCapture(t, repo, "ls-remote", second, "refs/heads/main")
+	require.NoError(t, err)
+	assert.NotEmpty(t, main, "the second remote carries main")
+	work, err := gitCapture(t, repo, "ls-remote", second, w.branch())
+	require.NoError(t, err)
+	assert.Empty(t, work, "the second remote carries no work ref")
+
+	_, err = w.cloneOf("ghost")
+	require.Error(t, err)
+}
+
+// TestTheRenewalLandsOnTheConfiguredRemoteAloneReadsRepocfgAndTheTip:
+// the check refuses before a renewal is recorded, refuses on a stale
+// error, and passes once a tracked renewal's tip sits on the remote
+// repocfg names.
+func TestTheRenewalLandsOnTheConfiguredRemoteAloneReadsRepocfgAndTheTip(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 42
+	repo := claimableRepo(t, t.TempDir(), "atlas", 42, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 42), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+
+	require.Error(t, w.theRenewalLandsOnTheConfiguredRemoteAlone(), "no renewal recorded yet")
+
+	require.NoError(t, w.aPersonAddsASecondGitRemoteToClone("box-a"))
+	require.NoError(t, w.renewsItsLeaseAgain("box-a"))
+	require.NoError(t, w.theRenewalLandsOnTheConfiguredRemoteAlone())
+
+	w.err = fmt.Errorf("some later failure")
+	require.Error(t, w.theRenewalLandsOnTheConfiguredRemoteAlone(), "a stale error is not a landed renewal")
+}
+
+// TestTheSecondRemoteCarriesNoWorkRefRefusesAStrayWorkRef: the check
+// refuses before a second remote exists, passes when it carries only
+// main, and catches a work ref pushed onto it.
+func TestTheSecondRemoteCarriesNoWorkRefRefusesAStrayWorkRef(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.planID = 42
+	repo := claimableRepo(t, t.TempDir(), "atlas", 42, "Shader unit")
+	lease, err := claim.Acquire(repo, leaseFor("box-a", 42), gitwt.Exec)
+	require.NoError(t, err)
+	w.holder = "box-a"
+	w.lease = lease
+	w.clones["box-a"] = repo
+
+	require.Error(t, w.theSecondRemoteCarriesNoWorkRef(), "no second remote yet")
+
+	require.NoError(t, w.aPersonAddsASecondGitRemoteToClone("box-a"))
+	require.NoError(t, w.theSecondRemoteCarriesNoWorkRef())
+
+	out, err := gitCapture(t, repo, "push", "-q", "backup", lease.Tip+":"+w.branch())
+	require.NoError(t, err, out)
+	require.Error(t, w.theSecondRemoteCarriesNoWorkRef(), "a stray work ref on the second remote is caught")
+}
+
+// TestHasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemoteWiresTwoRemotes:
+// the fixture leaves holder's checkout with origin at the fork and a
+// "fleet" remote at the shared coordination remote that `.frit.yml`
+// declares — two distinct URLs, the fork never the configured one.
+func TestHasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemoteWiresTwoRemotes(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote("box-a", 44))
+
+	repo, err := w.cloneOf("box-a")
+	require.NoError(t, err)
+	cfg, err := repocfg.Load(repo)
+	require.NoError(t, err)
+	assert.Equal(t, "fleet", cfg.Remote, "the checkout coordinates through the declared remote")
+	origin, err := gitCapture(t, repo, "config", "--get", "remote.origin.url")
+	require.NoError(t, err)
+	fleet, err := gitCapture(t, repo, "config", "--get", "remote.fleet.url")
+	require.NoError(t, err)
+	assert.NotEqual(t, origin, fleet, "the fork's origin is not the coordination remote")
+}
+
+// TestAcquiresTheLeaseFromACheckoutOfTheForkLandsOnTheConfiguredRemote:
+// the acquire pushes to the remote repocfg reads, refusing a machine
+// that never held this checkout, and records the landed tip.
+func TestAcquiresTheLeaseFromACheckoutOfTheForkLandsOnTheConfiguredRemote(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote("box-a", 44))
+
+	require.Error(t, w.acquiresTheLeaseFromACheckoutOfTheFork("box-b"))
+
+	require.NoError(t, w.acquiresTheLeaseFromACheckoutOfTheFork("box-a"))
+
+	repo, err := w.cloneOf("box-a")
+	require.NoError(t, err)
+	assert.Equal(t, w.lease.Tip, w.sw().tips["box-a"], "the landed tip is recorded")
+	fleetTip := claim.RemoteTip(repo, "fleet", 44, gitwt.Exec)
+	assert.Equal(t, w.lease.Tip, fleetTip, "the lease landed on the configured remote")
+}
+
+// TestTheLeaseLandsOnTheConfiguredCoordinationRemoteMatchesTheRecordedTip:
+// the check refuses before an acquisition, and passes once the lease's
+// recorded tip sits on the remote repocfg names.
+func TestTheLeaseLandsOnTheConfiguredCoordinationRemoteMatchesTheRecordedTip(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote("box-a", 44))
+
+	require.Error(t, w.theLeaseLandsOnTheConfiguredCoordinationRemote(), "no acquisition yet")
+
+	require.NoError(t, w.acquiresTheLeaseFromACheckoutOfTheFork("box-a"))
+	require.NoError(t, w.theLeaseLandsOnTheConfiguredCoordinationRemote())
+}
+
+// TestTheForksOwnOriginCarriesNoWorkRefForThePlanCatchesARefOnTheFork:
+// after the full S44 path the fork's origin is empty of the work ref;
+// a ref pushed straight onto the fork is caught.
+func TestTheForksOwnOriginCarriesNoWorkRefForThePlanCatchesARefOnTheFork(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.hasACheckoutOfAForkWhoseOriginIsNotTheConfiguredRemote("box-a", 44))
+	require.NoError(t, w.acquiresTheLeaseFromACheckoutOfTheFork("box-a"))
+
+	require.NoError(t, w.theForksOwnOriginCarriesNoWorkRefForThePlan())
+
+	repo, err := w.cloneOf("box-a")
+	require.NoError(t, err)
+	out, err := gitCapture(t, repo, "push", "-q", "origin", w.lease.Tip+":"+w.branch())
+	require.NoError(t, err, out)
+	require.Error(t, w.theForksOwnOriginCarriesNoWorkRefForThePlan(), "a work ref on the fork's origin is caught")
 }

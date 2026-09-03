@@ -1,7 +1,7 @@
 ---
 n: 5
 title: The two doc-by-argument rows S42 and S44 run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 S42 and S44 are the last two storage rows. They are the only ones the
