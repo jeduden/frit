@@ -1,7 +1,7 @@
 ---
 n: 3
 title: Plan deleted while claimed runs for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S52 (plan deleted while claimed) from `@pending` into a
@@ -11,20 +11,20 @@ phase 4's own.
 
 **Assumes.** `claim.Scavenge` and `claim.ParkUnlanded` are already
 proven, by phase 2 and by `TestScavengeParksUnlandedWorkThenDeletes`
-in [lease_test.go](../../internal/claim/lease_test.go), to park
-unlanded work to a rescue ref before deleting, regardless of which
-evidence prompted the call — the CAS never inspects the marker kind,
-only that the observed tip still matches the remote's current one.
-What S52 needs is not a new mechanism but a new Given: a lease that is
-still live (never released) whose plan file is deleted from main while
-the lease stands, and unlanded work committed onto the lease branch so
+in [lease_test.go](../../internal/claim/lease_test.go). Both park
+unlanded work to a rescue ref before deleting. The evidence prompting
+the call does not matter: the CAS never inspects the marker kind, only
+that the observed tip still matches the remote's current one. What
+S52 needs is not a new mechanism but a new Given: a lease still live
+(never released), whose plan file is deleted from main while the
+lease stands, with unlanded work committed onto the lease branch so
 there is something for the park to rescue. As phase 1 and phase 2 both
 confirmed, no code in this repository names "plan-gone" evidence
-today — nothing decides on its own that a deleted plan file should
-trigger a scavenge, or waits out the matrix's own "after a window"
-half of S52's outcome. This phase drives `claim.Scavenge` directly
-against the live tip, the same way phase 2 drove it directly against a
-released tip, and states plainly in its own handoff that the
+today. Nothing decides on its own that a deleted plan file should
+trigger a scavenge, and nothing waits out the matrix's own "after a
+window" half of S52's outcome. This phase drives `claim.Scavenge`
+directly against the live tip, the same way phase 2 drove it directly
+against a released tip. Its own handoff states plainly that the
 evidence-detection wiring remains out of scope, exactly as plan.md's
 Context already names it.
 
@@ -82,7 +82,7 @@ commit it, with this phase file itself at `status: "🔳"`.
   from the delete alone.
 
 Every new step function ships with a dedicated unit test of its own,
-per CLAUDE.md, following the file's own pattern: a refusal when an
+per CLAUDE.md. Each follows the file's own pattern: a refusal when an
 earlier step in the chain was skipped.
 
 **Guard the edges.** The rescue-ref Then must read `ls-remote` back

@@ -35,6 +35,8 @@ type lifecycleState struct {
 	root, repo    string
 	staleBase     string
 	releaseTip    string
+	unlandedTip   string
+	rescue        string
 	origin, clone string
 	out, errOut   string
 	code          int
@@ -73,6 +75,11 @@ func (w *world) registerLifecycle(sc *godog.ScenarioContext) {
 	sc.Step(`^frit claims plan (\d+) fresh at epoch (\d+)$`, w.fritClaimsPlanFreshAtEpoch)
 	sc.Step(`^plan (\d+) is merged into main with its branch already auto-deleted$`,
 		w.planIsMergedIntoMainWithItsBranchAlreadyAutoDeleted)
+
+	sc.Step(`^plan (\d+) is claimed and carries unlanded work$`, w.planIsClaimedAndCarriesUnlandedWork)
+	sc.Step(`^the plan file is deleted from main and pushed$`, w.thePlanFileIsDeletedFromMainAndPushed)
+	sc.Step(`^the ref is scavenged by evidence$`, w.theRefIsScavengedByEvidence)
+	sc.Step(`^the rescue ref carries the unlanded work$`, w.theRescueRefCarriesTheUnlandedWork)
 }
 
 // acquiresTheLeaseForPlan drives claim.Acquire directly for a named
@@ -566,6 +573,114 @@ func (w *world) planIsMergedIntoMainWithItsBranchAlreadyAutoDeleted(planID int) 
 	return nil
 }
 
+// planIsClaimedAndCarriesUnlandedWork builds a claimable plan, acquires
+// its lease and pushes one unlanded commit onto the work ref — S52's
+// own Given, the same shape TestScavengeParksUnlandedWorkThenDeletes
+// builds in internal/claim's own tests, written locally since that
+// package's own workOn helper is unexported. Unlike
+// planIsDoneAndItsLeaseIsReleased, the lease is never released: S52's
+// point is a plan abandoned mid-claim, not one closed out cleanly.
+func (w *world) planIsClaimedAndCarriesUnlandedWork(planID int) error {
+	isolate(w.t)
+	w.holder = "box-a"
+	w.planID = planID
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	st := section[lifecycleState](w)
+	st.root, st.repo = root, repo
+	opts := leaseFor(w.holder, planID)
+	if _, err := claim.Acquire(repo, opts, gitwt.Exec); err != nil {
+		return err
+	}
+
+	branch := claim.Branch(int64(planID))
+	git(w.t, repo, "checkout", "-q", branch)
+	writeFile(w.t, repo, "w.txt", "wip\n")
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m", "unlanded work")
+	git(w.t, repo, "push", "-q", "origin", branch)
+	git(w.t, repo, "checkout", "-q", "main")
+	tip, err := gitCapture(w.t, repo, "rev-parse", "refs/heads/"+branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	st.unlandedTip = tip
+
+	return nil
+}
+
+// thePlanFileIsDeletedFromMainAndPushed removes the plan's own
+// markdown file from main and pushes the delete — S52's own When, the
+// "plan-gone" fact the matrix names as this row's evidence. No code in
+// this repository reads that fact today; this step only makes it true
+// on disk, so the next step can drive the scavenge it would eventually
+// justify directly, without the missing detection wiring.
+func (w *world) thePlanFileIsDeletedFromMainAndPushed() error {
+	st := section[lifecycleState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no plan set up; the claimed-and-carries-work step comes first")
+	}
+	matches, err := planFileMatches(st.repo, w.planID)
+	if err != nil {
+		return err
+	}
+	if len(matches) != 1 {
+		return fmt.Errorf("expected one plan file for plan %d, found %d", w.planID, len(matches))
+	}
+	if err := os.Remove(matches[0]); err != nil {
+		return err
+	}
+	git(w.t, st.repo, "add", "-A")
+	git(w.t, st.repo, "commit", "-q", "-m", "delete plan file")
+	git(w.t, st.repo, "push", "-q", "origin", "main")
+
+	return nil
+}
+
+// theRefIsScavengedByEvidence drives claim.Scavenge directly against
+// the unlanded tip S52's own Given recorded — the mechanism the
+// matrix's own outcome column names for a plan gone while claimed,
+// distinct step text from theReleasedRefIsScavengedByEvidence since
+// this tip was never released, only abandoned; the underlying call is
+// the same one phase 2 already proved.
+func (w *world) theRefIsScavengedByEvidence() error {
+	st := section[lifecycleState](w)
+	if st.repo == "" || st.unlandedTip == "" {
+		return fmt.Errorf("no claimed lease to scavenge; the claimed-and-carries-work step comes first")
+	}
+	sc, err := claim.Scavenge(st.repo, leaseFor("scavenger", w.planID), st.unlandedTip, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	st.rescue = sc.Rescue
+
+	return nil
+}
+
+// theRescueRefCarriesTheUnlandedWork checks the matrix's own "PARK
+// first" directly: the rescue ref the scavenge step recorded is not
+// merely non-empty, but origin's own copy of it actually carries the
+// tip that was parked.
+func (w *world) theRescueRefCarriesTheUnlandedWork() error {
+	st := section[lifecycleState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no repo set up yet")
+	}
+	if st.rescue == "" {
+		return fmt.Errorf("no rescue ref was recorded; the scavenge step comes first")
+	}
+	out, err := gitCapture(w.t, st.repo, "ls-remote", "origin", st.rescue)
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	if !strings.Contains(out, st.unlandedTip) {
+		return fmt.Errorf("rescue ref %s is %q, want it to carry the parked tip %s",
+			st.rescue, out, st.unlandedTip)
+	}
+
+	return nil
+}
+
 // planFileMatches globs a plan's own markdown file by id, the shape
 // S27's fixture and S50's own rename step both need.
 func planFileMatches(repo string, planID int) ([]string, error) {
@@ -709,6 +824,50 @@ func TestOriginCarriesNoPlanRefRefusesWithNoRepoYet(t *testing.T) {
 func TestFritClaimsPlanFreshAtEpochRefusesWithNoRootYet(t *testing.T) {
 	w := newWorld(t)
 	require.Error(t, w.fritClaimsPlanFreshAtEpoch(7, 1))
+}
+
+// TestThePlanFileIsDeletedFromMainAndPushedRefusesWithNoPlanYet: the
+// delete step needs the plan the claimed-and-carries-work step already
+// built.
+func TestThePlanFileIsDeletedFromMainAndPushedRefusesWithNoPlanYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.thePlanFileIsDeletedFromMainAndPushed())
+}
+
+// TestTheRefIsScavengedByEvidenceRefusesWithNoClaimYet: the scavenge
+// step needs the unlanded tip the claimed-and-carries-work step
+// already recorded.
+func TestTheRefIsScavengedByEvidenceRefusesWithNoClaimYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theRefIsScavengedByEvidence())
+}
+
+// TestTheRescueRefCarriesTheUnlandedWorkRefusesWithNoRescueYet: the
+// rescue-ref check needs the ref the scavenge step already recorded,
+// not merely a repo.
+func TestTheRescueRefCarriesTheUnlandedWorkRefusesWithNoRescueYet(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theRescueRefCarriesTheUnlandedWork())
+
+	st := section[lifecycleState](w)
+	st.repo = t.TempDir()
+	require.Error(t, w.theRescueRefCarriesTheUnlandedWork(),
+		"a repo alone, with no rescue ref recorded, still refuses")
+}
+
+// TestPlanIsClaimedAndCarriesUnlandedWorkBuildsAnUnlandedTip: the
+// Given actually pushes real work onto the lease, so the scavenge step
+// has something to park, and the lease it acquires is never released —
+// S52's own point, a plan abandoned mid-claim rather than closed out.
+func TestPlanIsClaimedAndCarriesUnlandedWorkBuildsAnUnlandedTip(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.planIsClaimedAndCarriesUnlandedWork(7))
+
+	st := section[lifecycleState](w)
+	require.NotEmpty(t, st.unlandedTip)
+	assert.False(t, claim.Released(st.repo, st.unlandedTip, 7, gitwt.Exec),
+		"the lease this Given builds is live, never released")
 }
 
 // TestPlanIsDoneAndItsLeaseIsReleasedBuildsAReleasedTip: the shared
