@@ -31,8 +31,13 @@ Feature: Storage anomalies
     When "box-a" comes back and renews its lease
     Then the renewal is fenced, naming "box-b"
 
-  @S40 @pending
+  @S40
   Scenario: remote GC reaps deleted markers
+    Given "box-a" holds the lease for plan 40
+    And "box-a" pushes a work commit on the lane
+    When the ref is scavenged
+    And a person runs "git gc --prune=now" on origin
+    Then the pushed work is parked to a rescue ref, not lost
 
   @S41
   Scenario: remote rewritten or migrated
@@ -79,5 +84,14 @@ Feature: Storage anomalies
     When "box-a" renews its lease again
     Then the renewal is a plain win
 
-  @S78 @pending
+  @S78
   Scenario: two parks from one lane, different tips
+    Given "box-a" holds the lease for plan 78
+    And "box-a" pushes a work commit on the lane
+    When the ref is scavenged
+    Then the pushed work is parked to a rescue ref, not lost
+    When "box-a" acquires the lease again
+    And "box-a" pushes a work commit on the lane
+    And the ref is scavenged
+    Then the pushed work is parked to a rescue ref, not lost
+    And orphans lists both tips as rescued for "box-a"'s lane
