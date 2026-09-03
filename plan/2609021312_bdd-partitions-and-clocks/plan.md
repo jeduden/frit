@@ -89,14 +89,21 @@ exist, or split `url` from `pushurl` for the asymmetric row.
   or backward-stepping commit clock changes no decision: the window
   resets on tip change and matures on the observer's own elapsed
   time; `%ct` on the markers is what misleads).
-- Verb-level, over a hand-built runtime or a dead remote URL: S22
-  (the board carries the observed-at age and mutates no ref), S23
-  (`observeHolds` with explicit times voids every window whose gap
-  exceeded S_max, so no takeover fires on heal), S24 (fetch fails but
-  push works: classification degrades to unknown and says so, and the
-  CAS still decides), S35 (an observer clock stepped far forward fires
-  early; the live holder's renewal wins the CAS; the takeover count
-  backs the threshold off).
+- Verb-level, over a dead remote URL: S22 (the board carries the
+  observed-at age and mutates no ref), S23 (`observeHolds` called
+  directly with explicit times voids every window whose gap exceeded
+  S_max, so no takeover fires on heal), S24 (a failed fetch degrades
+  to a Problem and never corrupts what the board already knows a
+  renewal landed elsewhere).
+- Lease API plus an explicit clock, drivable without any of the
+  above: S35. Phase 2's own research found the pure discovery
+  functions cannot make a window mature "early" from a single clock
+  jump — any gap that size just voids it, same as a partition. The
+  row instead reuses S20's own maturation loop for an ordinary
+  takeover, then proves `claim.TakeoverCount`'s backoff through a
+  real chain: the same span that reads stale under the bare takeover
+  window does not once one takeover marker has backed the threshold
+  off.
 - Resolved by argument, asserted as an observable: S36 (two hosts
   whose clocks differ by years each observe the same tip; each
   window's span is on its own clock and both converge on the

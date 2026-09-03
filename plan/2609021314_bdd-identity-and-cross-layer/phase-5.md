@@ -1,7 +1,7 @@
 ---
 n: 5
 title: "A genuine two-process race and two repos sharing one id: S72, S74 run real"
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert the plan's last two rows into passing scenarios: S72 and S74.

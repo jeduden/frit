@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The six lease-API rows of host death and races run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the six rows the lease API alone can drive — S17, S19, S26,
