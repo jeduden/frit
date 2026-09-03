@@ -28,9 +28,10 @@ teardown while a pane is live, S89 fails `go test ./...`.
 
 **RED.** Add row S89 to the "Cross-layer: herdr and frit disagree"
 table in the matrix, in id order after S88 — scenario "bound session
-gone, pane still attends", outcome and mechanism naming that board
-reports the lane attended, not dead, and the refusal names the pane and
-leads with resume, since a live pane outranks the gone bound session.
+gone, pane still attends", outcome and mechanism naming that the survey
+reports — board and the discovery render behind `ready` — show the lane
+attended, not dead, and the refusal names the pane and leads with
+resume, since a live pane outranks the gone bound session.
 Add the `@S89` scenario to
 [features/cross-layer.feature](../../features/cross-layer.feature) with
 its Given/When/Then, not `@pending`. Run `go test ./cmd/frit -run
@@ -39,12 +40,13 @@ the subtest fails. `go test ./internal/scenario` is green once the row
 and the tag match. Commit the red.
 
 The scenario, in the matrix's terms. Given a held lane whose bound
-session herdr confirms gone, and a live idle pane herdr shows on that
-lane's branch: when `frit board --json` reports it, the lane is not
-marked dead and the live pane is visible. And when an explicit `frit
-start <id>` refuses it, the refusal names the pane and does not lead
-with `frit yield`. The observables are two documents, the board and
-the start, read through `--json` per the JSON Contract. Each assertion
+session herdr confirms gone, and a live *working* pane herdr shows on
+that lane's branch: when `frit board --json` reports it, the lane is
+not marked dead and the live pane is visible; when `frit ready --json`
+lists it, it is not marked dead there either; and when an explicit
+`frit start <id>` refuses it, the refusal names the pane and does not
+lead with `frit yield`. The observables are the board, ready and start
+documents, read through `--json` per the JSON Contract. Each assertion
 branches on a field.
 
 **GREEN.** Bind the scenario's steps in
