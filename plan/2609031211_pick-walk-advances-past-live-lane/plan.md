@@ -140,10 +140,11 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                           |
-| --- | ------ | ------------------------------------------------------------------------------- |
-| 1   | 🔲     | [pick --go's walk advances past a live top lane, at the verb level](phase-1.md) |
-| 2   | 🔲     | [S88 runs for real under godog](phase-2.md)                                     |
+| #   | Status | Phase                                                                                                                                                                                                                                                              |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [pick --go's walk advances past a live top lane, at the verb level](phase-1.md)                                                                                                                                                                                    |
+|     | ↳      | `buildStart`'s live-lane pre-flight (#126) now returns its refusal with `lost` equal to `!reattach`: a skip in `pick --go`'s walk, an unchanged surfaced refusal for explicit `start <id>`. A live top lane with a free next candidate no longer stalls the fleet. |
+| 2   | 🔲     | [S88 runs for real under godog](phase-2.md)                                                                                                                                                                                                                        |
 <?/catalog?>
 
 ## Acceptance Criteria

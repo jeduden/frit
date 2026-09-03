@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,6 +187,29 @@ func TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable(t *testing.T) {
 	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
 }
 
+// freshDispatchAfterLiveLaneQuery layers startHerdr's worktree-create
+// and pane-current answers onto a live-lane fixture's runner, so a
+// candidate the live-lane pre-flight skips can still reach a genuine
+// fresh acquire on the next one — the fixture's own runner only
+// scripts the agent.list query the pre-flight reads, and returns
+// nothing for the verbs a real dispatch needs.
+func freshDispatchAfterLiveLaneQuery(inner herdr.Runner) herdr.Runner {
+	return func(args ...string) ([]byte, error) {
+		out, err := inner(args...)
+		if err != nil || out != nil {
+			return out, err
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+
+		return out, err
+	}
+}
+
 // TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate: the same
 // live-lane pre-flight, but with a free next candidate underneath the
 // busy top pick — the walk starts the next ready plan instead of
@@ -196,7 +220,7 @@ func TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate(t *testing.T) {
 	root := t.TempDir()
 	repo, lease, runner, rec := liveLeaseFixture(t, root)
 	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
-	withHerdr(t, runner)
+	withHerdr(t, freshDispatchAfterLiveLaneQuery(runner))
 	var out, errb bytes.Buffer
 
 	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
