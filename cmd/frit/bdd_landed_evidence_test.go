@@ -37,9 +37,10 @@ func init() {
 // lease-API world's bare clone pair, so those rows record the root a
 // Given built and the repo, worktree path and branch its Then steps
 // read back. session is the herdr session a Given binds a lease to.
-// out and errb capture the last CLI run this section drove. board is
-// the last `board --json` decode a read-verb row's own When left
-// behind, for its Then to read straight off. rebuild, when set,
+// out and errb capture the last CLI run this section drove. board and
+// ready are the last `board`/`ready --json` decode a read-verb row's
+// own When left behind, for its Then to read straight off. rebuild,
+// when set,
 // replaces root with a fresh fixture on every read-verb When: a fetch
 // mutates a clone's refs on disk for good, so a scenario reading the
 // same repository twice under different flags needs an independent
@@ -58,6 +59,7 @@ type landedEvidenceState struct {
 	out     bytes.Buffer
 	errb    bytes.Buffer
 	board   report.BoardDoc
+	ready   report.ReadyDoc
 	rebuild func() string
 }
 
@@ -102,6 +104,10 @@ func (w *world) registerLandedEvidence(sc *godog.ScenarioContext) {
 	sc.Step(`^board runs with --no-fetch$`, w.boardRunsWithNoFetch)
 	sc.Step(`^the plan reads as landed, off the board$`, w.thePlanReadsAsLandedOffTheBoard)
 	sc.Step(`^the plan reads as held, off the stale local view$`, w.thePlanReadsAsHeldOffTheStaleLocalView)
+	sc.Step(`^a repository with plan (\d+) hand-flipped to ✅ and plan (\d+) depending on it$`,
+		w.aRepositoryWithPlanHandFlippedAndPlanDependingOnIt)
+	sc.Step(`^ready runs$`, w.readyRuns)
+	sc.Step(`^plan (\d+) is listed as ready$`, w.planIsListedAsReady)
 }
 
 // tipObserved is the tip a row's evidence is judged against: this
@@ -725,6 +731,48 @@ func (w *world) thePlanReadsAsHeldOffTheStaleLocalView() error {
 	return nil
 }
 
+// aRepositoryWithPlanHandFlippedAndPlanDependingOnIt is S59's own
+// Given: upstream is written done directly by commitPlan — no lease
+// ever acquired, no branch ever merged — and dependent names it in
+// its own depends-on, the shape discovery.Ready's doneByRepo reads
+// purely off the file's own status.
+func (w *world) aRepositoryWithPlanHandFlippedAndPlanDependingOnIt(upstream, dependent int) error {
+	isolate(w.t)
+	root := w.t.TempDir()
+	repo := initRepo(w.t, root, "atlas")
+	commitPlan(w.t, repo, upstream, "✅", "Shader unit", nil, "")
+	commitPlan(w.t, repo, dependent, "🔲", "Depends on shader", []int{upstream}, "")
+
+	le := section[landedEvidenceState](w)
+	le.root = root
+
+	return nil
+}
+
+// readyRuns drives `ready --json` over the fleet root a Given built.
+func (w *world) readyRuns() error {
+	le := section[landedEvidenceState](w)
+	if le.root == "" {
+		return fmt.Errorf("no fleet root recorded for this scenario")
+	}
+	emit(w.t, &le.ready, "ready", "--root", le.root)
+
+	return nil
+}
+
+// planIsListedAsReady confirms a specific plan id is among ready's own
+// list, not merely that the list is non-empty.
+func (w *world) planIsListedAsReady(id int) error {
+	le := section[landedEvidenceState](w)
+	for _, p := range le.ready.Plans {
+		if p.ID == int64(id) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("plan %d is not listed as ready; got %+v", id, le.ready.Plans)
+}
+
 // TestTipObservedPrefersItsOwnPushOverTheLeaseTip: a row that pushed
 // real work is judged against that tip, not the claim marker Acquire
 // left behind; a row that never pushed (S83) falls back to it.
@@ -1134,4 +1182,44 @@ func TestThePlanReadsAsHeldOffTheStaleLocalViewWantsBothPresenceAndHeld(t *testi
 
 	section[landedEvidenceState](w).board.Plans = []report.BoardPlan{{ID: 87, Held: true}}
 	require.NoError(t, w.thePlanReadsAsHeldOffTheStaleLocalView())
+}
+
+// TestARepositoryWithPlanHandFlippedAndPlanDependingOnItBuildsBothPlans
+// pins S59's own Given: upstream must read done with no lease and no
+// merge behind it — commitPlan alone — and the dependent must genuinely
+// name it, or the row could pass for an unrelated reason.
+func TestARepositoryWithPlanHandFlippedAndPlanDependingOnItBuildsBothPlans(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.aRepositoryWithPlanHandFlippedAndPlanDependingOnIt(59, 60))
+
+	le := section[landedEvidenceState](w)
+	require.NotEmpty(t, le.root)
+	repo := filepath.Join(le.root, "atlas")
+	tip, err := gitCapture(t, repo, "rev-parse", "--verify", "--quiet", "refs/heads/plan/59")
+	assert.Error(t, err, "plan 59 must carry no lease branch: %s", tip)
+	assert.False(t, branchExists(t, repo, "plan/60"), "plan 60 must carry no lease branch either")
+}
+
+// TestReadyRunsRefusesWithNoRoot pins the same guard every other
+// read-verb When in this section carries.
+func TestReadyRunsRefusesWithNoRoot(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.readyRuns())
+}
+
+// TestPlanIsListedAsReadyWantsTheSpecificID: the Then step must reject
+// an empty ready list and a list carrying only unrelated ids — a
+// scenario passing on either would prove nothing about S59's own
+// dependent.
+func TestPlanIsListedAsReadyWantsTheSpecificID(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.planIsListedAsReady(60), "an empty ready list names nobody")
+
+	section[landedEvidenceState](w).ready.Plans = []report.PlanCard{{ID: 61}}
+	require.Error(t, w.planIsListedAsReady(60), "a different plan being ready does not name 60")
+
+	section[landedEvidenceState](w).ready.Plans = append(
+		section[landedEvidenceState](w).ready.Plans, report.PlanCard{ID: 60})
+	require.NoError(t, w.planIsListedAsReady(60))
 }

@@ -1,7 +1,7 @@
 ---
 id: 2609021316
 title: The landed-evidence scenarios run under godog
-status: "🔳"
+status: "✅"
 summary: >-
   The lease-protocol matrix's landed-evidence half of "Lifecycle
   anomalies" — S54, S59, S79..S85, S87 — is declared in
@@ -161,20 +161,21 @@ footer: |
 |     | ↳      | S79, S81 and S82 drop `@pending` and run for real in `cmd/frit/bdd_landed_evidence_test.go`. S79 reuses phase 1's own push, scavenge and both Then steps verbatim, adding only a Given that links a second worktree onto the plan's branch and a Then confirming the scavenge still parked a rescue — proving `claim.Scavenge`'s `checkedOut` guard through this section's own vocabulary rather than only at the lease-API level. S81 and S82 are CLI-level: a shared "a fleet-wide `reap --go` runs" When drives the real binary over a fleet root each Given builds, mirroring `bdd_host_death_and_races_test.go`'s own CLI pattern. S81 pins that a session-bound hold reads as confirmed gone with no matching herdr answer, and only a herdr answer naming that exact session alive turns the same hold into a live-lease refusal — proven both ways, not assumed. S82 reuses `strandedCheckout`, `landPlan` and `addOrigin` and checks the rescue ref carries the checkout's own tip, not merely that some rescue ref exists. |
 | 3   | ✅     | [The Gather rows of landed evidence run for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 |     | ↳      | S80 and S87 drop `@pending` and run for real. S80 builds a repository whose origin's main has advanced past a clone's own local main, and confirms `board`'s own report names `laggingDefaultBranch`'s exact wording, not merely any problem. S87 reuses `landedDeletedClone` as-is and reads the same repository shape twice, once under the default `--fetch` and once under `--no-fetch`, confirming the flag alone moves the plan between landed-and-off-the-board and held-off-the-stale-view. A `rebuild` recipe on `landedEvidenceState`, called fresh on every board read, keeps the two reads independent — a fetch mutates a clone's refs on disk for good, so S87's second read would otherwise find the first read's own already-refreshed view instead of the stale one the row exists to prove.                                                                                                                                                                                                                        |
-| 4   | 🔳     | [S59 runs for real, and the doctor gap is recorded](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 4   | ✅     | [S59 runs for real, and the doctor gap is recorded](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+|     | ↳      | S59 drops `@pending` and runs for real: a plan hand-flipped to ✅ through `commitPlan` alone — no lease, no merge — already unblocks a dependent naming it, confirmed against `frit ready`'s own `discovery.Ready`. `internal/doctor` still carries no early-✅ check, exactly as phases 2 and 3 already found; this phase is the first to turn that fact into an executable scenario rather than a claim. Every row the plan's Goal names — S54, S59, S79..S85, S87 — is now PASS under godog, none `@pending`, closing the plan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/landed-evidence.feature` carries
+- [x] No scenario in `features/landed-evidence.feature` carries
       `@pending`; `go test ./cmd/frit -run TestFeatures/S` reports
       S54, S59, S79..S85 and S87 as PASS, none as SKIP
-- [ ] Every step is bound in `cmd/frit/bdd_landed_evidence_test.go`
+- [x] Every step is bound in `cmd/frit/bdd_landed_evidence_test.go`
       or reused from `bdd_lease_test.go`; `bdd_test.go` and
       `features/lifecycle.feature` are untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a rescue ref, a reported problem — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently; S59's missing `doctor` check is one
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
