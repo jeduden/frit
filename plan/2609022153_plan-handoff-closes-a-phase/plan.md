@@ -137,18 +137,19 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                              |
-| --- | ------ | -------------------------------------------------- |
-| 1   | 🔲     | [The plan-handoff skill in the bundle](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                             |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [The plan-handoff skill in the bundle](phase-1.md)                                                                                                                                                                                                                                |
+|     | ↳      | plan-handoff joined the bundle — internal/skills/assets/plan-handoff and its dogfooded .claude/skills copy — teaching the split close: a `## Handoff` heading for a single-file plan, a phase-N.result.md for a directory plan, either way riding the commit that lands the work. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `/plan-handoff` records the handoff in the plan's shape: a `##
+- [x] `/plan-handoff` records the handoff in the plan's shape: a `##
       Handoff` heading in a single-file plan's `plan.md`, a separate
       `phase-N.result.md` in a directory plan — each inside the commit
       that lands the phase's work
-- [ ] The built `frit skills --via "go run ./cmd/frit"` lays
+- [x] The built `frit skills --via "go run ./cmd/frit"` lays
       `plan-handoff` into `.claude/skills`, and the skill passes the
       `skill` kind's 650-token budget
 - [ ] `frit phase` on a single-file plan surfaces the prior phase's
@@ -157,5 +158,5 @@ footer: |
 - [ ] `frit doctor` reports a phase recorded done whose handoff is
       missing in its plan's shape, and comes back clean once the
       existing drift is fixed
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

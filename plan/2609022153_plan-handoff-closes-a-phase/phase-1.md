@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The plan-handoff skill in the bundle
-status: "🔲"
+status: "✅"
 result: false
 ---
 Add a `plan-handoff` skill to the bundle and regenerate frit's own

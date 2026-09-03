@@ -96,14 +96,15 @@ suite of Claude Code planning skills into a repository's
 `.claude/skills`. A repo frit indexes then carries the workflow an
 agent loads to work its plans. The suite is `plan-pick` (find, claim,
 start the next lane), `plan-phase` (execute one phase test-first),
-`plan-new` (author a plan per `plan/proto.md`), `plan-sync` (reconcile
-statuses against `drift` evidence), `plan-tidy` (read `orphans`/`stale`,
-act with `yield`/`release`/`reap`, never raw git), and `plan-drive`
-(survey with `board`/`who`, drive a lane up the `open`→`nudge`→`start`
-ladder). The first five work a plan; `plan-drive` orchestrates from
-outside. Health verbs fold into the skill owning that shape: `doctor`'s
-checks are what `plan-new` shapes a plan to satisfy, so its call lives
-there.
+`plan-handoff` (close a phase: write its handoff, flip its status,
+cue a clean session start), `plan-new` (author a plan per
+`plan/proto.md`), `plan-sync` (reconcile statuses against `drift`
+evidence), `plan-tidy` (read `orphans`/`stale`, act with
+`yield`/`release`/`reap`, never raw git), and `plan-drive` (survey with
+`board`/`who`, drive a lane up the `open`→`nudge`→`start` ladder). The
+first six work a plan; `plan-drive` orchestrates from outside. Health
+verbs fold into the skill owning that shape: `doctor`'s checks are what
+`plan-new` shapes a plan to satisfy, so its call lives there.
 
 The skills are embedded in the binary from
 [internal/skills](../internal/skills), so a shipped frit needs no
