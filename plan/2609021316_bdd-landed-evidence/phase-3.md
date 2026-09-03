@@ -1,7 +1,7 @@
 ---
 n: 3
 title: The Gather rows of landed evidence run for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S80 and S87 from `@pending` into passing scenarios. Both are

@@ -11,6 +11,7 @@ import (
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,13 @@ func init() {
 // lease-API world's bare clone pair, so those rows record the root a
 // Given built and the repo, worktree path and branch its Then steps
 // read back. session is the herdr session a Given binds a lease to.
-// out and errb capture the last CLI run this section drove.
+// out and errb capture the last CLI run this section drove. board is
+// the last `board --json` decode a read-verb row's own When left
+// behind, for its Then to read straight off. rebuild, when set,
+// replaces root with a fresh fixture on every read-verb When: a fetch
+// mutates a clone's refs on disk for good, so a scenario reading the
+// same repository twice under different flags needs an independent
+// clone each time, never the first run's own already-fetched one.
 type landedEvidenceState struct {
 	tip     string
 	runner  gitwt.Runner
@@ -50,6 +57,8 @@ type landedEvidenceState struct {
 	session string
 	out     bytes.Buffer
 	errb    bytes.Buffer
+	board   report.BoardDoc
+	rebuild func() string
 }
 
 // registerLandedEvidence binds the section's step texts to the world. A
@@ -83,6 +92,16 @@ func (w *world) registerLandedEvidence(sc *godog.ScenarioContext) {
 	sc.Step(`^the branch is reaped$`, w.theBranchIsReaped)
 	sc.Step(`^the checkout's own commit is parked to the plan's rescue ref$`,
 		w.theCheckoutsCommitIsParkedToTheRescueRef)
+	sc.Step(`^a repository whose origin's main has advanced past the local clone's own main$`,
+		w.aRepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain)
+	sc.Step(`^board runs$`, w.boardRunsWithTheDefaultFetch)
+	sc.Step(`^the report names the local default branch lagging$`, w.theReportNamesTheLocalDefaultBranchLagging)
+	sc.Step(`^a checkout unfetched since its plan's lease was deleted upstream$`,
+		w.aCheckoutUnfetchedSinceItsPlansLeaseWasDeletedUpstream)
+	sc.Step(`^board runs with the default fetch$`, w.boardRunsWithTheDefaultFetch)
+	sc.Step(`^board runs with --no-fetch$`, w.boardRunsWithNoFetch)
+	sc.Step(`^the plan reads as landed, off the board$`, w.thePlanReadsAsLandedOffTheBoard)
+	sc.Step(`^the plan reads as held, off the stale local view$`, w.thePlanReadsAsHeldOffTheStaleLocalView)
 }
 
 // tipObserved is the tip a row's evidence is judged against: this
@@ -580,6 +599,132 @@ func (w *world) theCheckoutsCommitIsParkedToTheRescueRef() error {
 	return nil
 }
 
+// aRepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain is
+// S80's own Given: a second clone commits and pushes ahead of the
+// first, so the first clone's own local main is a strict ancestor of
+// whatever a later fetch brings in — no pre-fetch needed here, since
+// `board`'s own default `--fetch` both refreshes and compares in the
+// one run its When drives.
+func (w *world) aRepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain() error {
+	isolate(w.t)
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", 80, "Shader unit")
+	second := cloneAgain(w.t, repo)
+	writeFile(w.t, second, "extra.txt", "more\n")
+	git(w.t, second, "add", "-A")
+	git(w.t, second, "commit", "-q", "-m", "landed on origin")
+	git(w.t, second, "push", "-q", "origin", "main")
+
+	le := section[landedEvidenceState](w)
+	le.root, le.repo = root, repo
+
+	return nil
+}
+
+// boardFleetRoot returns the root this run reads: a Given's own
+// rebuild recipe, called fresh, when one was recorded — S87's own
+// need, since a fetch mutates a clone's refs on disk for good — else
+// the root a Given built once and this scenario reads as-is.
+func boardFleetRoot(le *landedEvidenceState) (string, error) {
+	if le.rebuild != nil {
+		le.root = le.rebuild()
+	}
+	if le.root == "" {
+		return "", fmt.Errorf("no fleet root recorded for this scenario")
+	}
+
+	return le.root, nil
+}
+
+// boardRunsWithTheDefaultFetch drives `board --json` over this run's
+// own fleet root, decoding straight into this section's own board
+// field so a Then can read it back without a second run.
+func (w *world) boardRunsWithTheDefaultFetch() error {
+	le := section[landedEvidenceState](w)
+	root, err := boardFleetRoot(le)
+	if err != nil {
+		return err
+	}
+	emit(w.t, &le.board, "board", "--root", root)
+
+	return nil
+}
+
+// boardRunsWithNoFetch is boardRunsWithTheDefaultFetch's own
+// counterpart, S87's second half: the same repository shape, read
+// without refreshing its remote-tracking view first.
+func (w *world) boardRunsWithNoFetch() error {
+	le := section[landedEvidenceState](w)
+	root, err := boardFleetRoot(le)
+	if err != nil {
+		return err
+	}
+	emit(w.t, &le.board, "board", "--no-fetch", "--root", root)
+
+	return nil
+}
+
+// theReportNamesTheLocalDefaultBranchLagging confirms the board
+// carries `laggingDefaultBranch`'s own wording, not merely any
+// problem — a repository with an unrelated fault must not pass this
+// row.
+func (w *world) theReportNamesTheLocalDefaultBranchLagging() error {
+	le := section[landedEvidenceState](w)
+	for _, p := range le.board.Problems {
+		if strings.Contains(p.Message, "commit(s) behind fetched") {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no problem names the local default branch lagging; got %+v", le.board.Problems)
+}
+
+// aCheckoutUnfetchedSinceItsPlansLeaseWasDeletedUpstream is S87's own
+// Given, reusing landedDeletedClone as it stands rather than a second
+// copy of its shape. It records a rebuild recipe rather than a single
+// root: the scenario reads the same repository shape twice, once
+// under each flag, and a fetch a first read runs would otherwise
+// leave the second read no longer stale to find.
+func (w *world) aCheckoutUnfetchedSinceItsPlansLeaseWasDeletedUpstream() error {
+	isolate(w.t)
+	w.planID = 87
+	le := section[landedEvidenceState](w)
+	le.rebuild = func() string {
+		return landedDeletedClone(w.t, "atlas", w.planID)
+	}
+
+	return nil
+}
+
+// thePlanReadsAsLandedOffTheBoard confirms a fresh-fetched board no
+// longer lists the plan at all — landed evidence, not merely "not
+// held".
+func (w *world) thePlanReadsAsLandedOffTheBoard() error {
+	le := section[landedEvidenceState](w)
+	if p := boardPlanByID(le.board, int64(w.planID)); p != nil {
+		return fmt.Errorf("plan %d is still on the board; it should read as landed", w.planID)
+	}
+
+	return nil
+}
+
+// thePlanReadsAsHeldOffTheStaleLocalView confirms the same plan, read
+// off the same repository without a fetch, is still outstanding and
+// still reads as held off the stale remote-tracking copy.
+func (w *world) thePlanReadsAsHeldOffTheStaleLocalView() error {
+	le := section[landedEvidenceState](w)
+	p := boardPlanByID(le.board, int64(w.planID))
+	if p == nil {
+		return fmt.Errorf("plan %d is off the board; --no-fetch should still read it stale and held", w.planID)
+	}
+	if !p.Held {
+		return fmt.Errorf("plan %d reads as not held; want the stale remote-tracking lease branch read as held",
+			w.planID)
+	}
+
+	return nil
+}
+
 // TestTipObservedPrefersItsOwnPushOverTheLeaseTip: a row that pushed
 // real work is judged against that tip, not the claim marker Acquire
 // left behind; a row that never pushed (S83) falls back to it.
@@ -884,4 +1029,109 @@ func TestHerdrFakeConfirmsBoundSessionAliveIsLoadBearing(t *testing.T) {
 	require.NoError(t, w2.herdrFakeConfirmsBoundSessionAlive("box-a"))
 	require.NoError(t, w2.aFleetWideReapGoRuns())
 	require.NoError(t, w2.theHoldIsRefusedNamingALiveLease())
+}
+
+// TestARepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain
+// pins S80's own Given: the first clone's local main must genuinely
+// lag whatever a later fetch would bring in, or the row could pass on
+// an already-current repository.
+func TestARepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain(t *testing.T) {
+	w := newWorld(t)
+
+	require.NoError(t, w.aRepositoryWhoseOriginsMainHasAdvancedPastTheLocalClonesOwnMain())
+
+	le := section[landedEvidenceState](w)
+	require.NotEmpty(t, le.root)
+	require.NotEmpty(t, le.repo)
+	origin, err := gitCapture(t, le.repo, "ls-remote", "origin", "refs/heads/main")
+	require.NoError(t, err)
+	local, err := gitCapture(t, le.repo, "rev-parse", "refs/heads/main")
+	require.NoError(t, err)
+	assert.NotContains(t, origin, local,
+		"origin's main must have moved past the local clone's own main")
+}
+
+// TestBoardFleetRootRefusesWithNoRootAndNoRebuild pins the same guard
+// the reap-side aFleetWideReapGoRuns carries: a scenario whose Given
+// never recorded a fleet root, and never recorded a rebuild recipe
+// either, must fail loudly rather than reading whatever directory
+// happens to be current.
+func TestBoardFleetRootRefusesWithNoRootAndNoRebuild(t *testing.T) {
+	_, err := boardFleetRoot(&landedEvidenceState{})
+	require.Error(t, err)
+}
+
+// TestBoardFleetRootRebuildsFreshEveryCall pins the fact this section
+// leans on twice in one S87 scenario: a recorded rebuild recipe is
+// called again on every read, never memoized, so two reads in the same
+// scenario get two independent roots rather than the first read's own
+// already-fetched one.
+func TestBoardFleetRootRebuildsFreshEveryCall(t *testing.T) {
+	calls := 0
+	le := &landedEvidenceState{rebuild: func() string {
+		calls++
+
+		return fmt.Sprintf("root-%d", calls)
+	}}
+
+	first, err := boardFleetRoot(le)
+	require.NoError(t, err)
+	second, err := boardFleetRoot(le)
+	require.NoError(t, err)
+
+	assert.Equal(t, "root-1", first)
+	assert.Equal(t, "root-2", second)
+	assert.Equal(t, 2, calls)
+}
+
+// TestTheReportNamesTheLocalDefaultBranchLaggingWantsTheWording: the
+// Then step must reject an empty problem list and one whose only
+// problem is unrelated — a scenario passing on either would prove
+// nothing about S80's own claim.
+func TestTheReportNamesTheLocalDefaultBranchLaggingWantsTheWording(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theReportNamesTheLocalDefaultBranchLagging(), "no problems at all names nothing")
+
+	le := section[landedEvidenceState](w)
+	le.board.Problems = []report.Problem{
+		{Repo: "atlas", Message: "could not fetch origin; remote-tracking view may be stale"},
+	}
+	require.Error(t, w.theReportNamesTheLocalDefaultBranchLagging(), "an unrelated problem does not name the lag")
+
+	le.board.Problems = append(le.board.Problems, report.Problem{
+		Repo: "atlas",
+		Message: "local default branch is 1 commit(s) behind fetched " +
+			"refs/remotes/origin/main; fetch ran, merge did not",
+	})
+	require.NoError(t, w.theReportNamesTheLocalDefaultBranchLagging())
+}
+
+// TestThePlanReadsAsLandedOffTheBoardWantsItAbsent confirms the Then
+// step fails when the plan is still listed, whatever its other
+// fields say — landed means off the board entirely.
+func TestThePlanReadsAsLandedOffTheBoardWantsItAbsent(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 87
+	section[landedEvidenceState](w).board.Plans = []report.BoardPlan{{ID: 87, Held: false}}
+
+	require.Error(t, w.thePlanReadsAsLandedOffTheBoard())
+
+	section[landedEvidenceState](w).board.Plans = nil
+	require.NoError(t, w.thePlanReadsAsLandedOffTheBoard())
+}
+
+// TestThePlanReadsAsHeldOffTheStaleLocalViewWantsBothPresenceAndHeld
+// confirms the Then step rejects a plan missing from the board and one
+// present but not held — either would leave S87's own "stale local
+// view" claim unproven.
+func TestThePlanReadsAsHeldOffTheStaleLocalViewWantsBothPresenceAndHeld(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 87
+	require.Error(t, w.thePlanReadsAsHeldOffTheStaleLocalView(), "the plan is off the board entirely")
+
+	section[landedEvidenceState](w).board.Plans = []report.BoardPlan{{ID: 87, Held: false}}
+	require.Error(t, w.thePlanReadsAsHeldOffTheStaleLocalView(), "the plan is present but not held")
+
+	section[landedEvidenceState](w).board.Plans = []report.BoardPlan{{ID: 87, Held: true}}
+	require.NoError(t, w.thePlanReadsAsHeldOffTheStaleLocalView())
 }
