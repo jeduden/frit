@@ -1,7 +1,7 @@
 ---
 n: 2
 title: "Reachable without a new fixture: S45, S49, S60, S73 run real"
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert four more rows from `@pending` declarations into passing

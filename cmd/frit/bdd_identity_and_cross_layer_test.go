@@ -42,6 +42,10 @@ type identityAndCrossLayerState struct {
 	out      string
 	errOut   string
 	code     int
+	// rec is the herdr calls a run recorded, for a row that must prove
+	// what was dispatched — S45 and S73 — rather than reading the
+	// verb's own text output alone.
+	rec *herdrCalls
 }
 
 func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
@@ -76,6 +80,28 @@ func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
 	sc.Step(`^the plan is resumed$`, w.thePlanIsResumed)
 	sc.Step(`^no takeover marker sits between the held tip and origin's tip$`,
 		w.noTakeoverMarkerSitsBetweenTheHeldTipAndOriginsTip)
+
+	sc.Step(`^herdr confirms the session is live$`, w.herdrConfirmsTheSessionIsLive)
+	sc.Step(`^start refuses, naming the live agent session$`, w.startRefusesNamingTheLiveAgentSession)
+	sc.Step(`^the holder's own lease is renewed, not seized$`, w.theHoldersOwnLeaseIsRenewedNotSeized)
+
+	sc.Step(`^a held lane holding plan (\d+) whose marker names this host as holder but whose checkout `+
+		`carries no token$`, w.aHeldLaneNamingThisHostWithNoToken)
+	sc.Step(`^start refuses: already held, not takeable until the window matures$`,
+		w.startRefusesAlreadyHeldNotTakeable)
+	sc.Step(`^the plan is not resumed$`, w.thePlanIsNotResumed)
+
+	sc.Step(`^plan (\d+) is unclaimed$`, w.planIsUnclaimed)
+	sc.Step(`^this machine claims plan (\d+)$`, w.thisMachineClaimsPlan)
+	sc.Step(`^the lease is released, not left standing$`, w.theLeaseIsReleasedNotLeftStanding)
+	sc.Step(`^herdr becomes reachable$`, w.herdrBecomesReachable)
+	sc.Step(`^it claims clean at the next epoch$`, w.itClaimsCleanAtTheNextEpoch)
+
+	sc.Step(`^the agent starts but its prompt fails$`, w.theAgentStartsButItsPromptFails)
+	sc.Step(`^start fails and a release marker sits on the branch$`,
+		w.startFailsAndAReleaseMarkerSitsOnTheBranch)
+	sc.Step(`^the agent was started before the failure$`, w.theAgentWasStartedBeforeTheFailure)
+	sc.Step(`^the worktree it stood up is torn down$`, w.theWorktreeItStoodUpIsTornDown)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -85,7 +111,8 @@ func (w *world) holdsPlanBoundToASession(holder string, planID int) error {
 	isolate(w.t)
 	w.planID = planID
 	w.holder = holder
-	repo := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
 	w.clones[holder] = repo
 
 	opts := leaseFor(holder, planID)
@@ -95,7 +122,8 @@ func (w *world) holdsPlanBoundToASession(holder string, planID int) error {
 		return err
 	}
 	w.lease = lease
-	section[identityAndCrossLayerState](w).held = lease.Tip
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.held = root, lease.Tip
 
 	return nil
 }
@@ -542,6 +570,288 @@ func (w *world) noTakeoverMarkerSitsBetweenTheHeldTipAndOriginsTip() error {
 	return nil
 }
 
+// herdrConfirmsTheSessionIsLive installs a herdr fake naming the Given
+// step's own session as a live agent — the positive answer
+// herdr.SessionLive needs to veto a takeover, whatever the caller's own
+// cwd happens to be.
+func (w *world) herdrConfirmsTheSessionIsLive() error {
+	withHerdr(w.t, herdrReturning(map[string]any{
+		"agent":        "claude",
+		"agent_status": "working",
+		"pane_id":      "wS:p9",
+		"agent_session": map[string]any{
+			"value": "wS:p9",
+		},
+	}))
+
+	return nil
+}
+
+// startRefusesNamingTheLiveAgentSession checks the last run's own
+// output refuses and names the live-session veto's own wording, so a
+// refusal for an unrelated reason does not pass this Then by accident.
+func (w *world) startRefusesNamingTheLiveAgentSession() error {
+	out := section[identityAndCrossLayerState](w).out
+	if !strings.Contains(out, "refused") {
+		return fmt.Errorf("start did not refuse: %s", out)
+	}
+	if !strings.Contains(out, "live agent session") {
+		return fmt.Errorf("the refusal does not name the live agent session: %s", out)
+	}
+
+	return nil
+}
+
+// theHoldersOwnLeaseIsRenewedNotSeized reads origin's tip after a
+// vetoed takeover and checks it is a beat CASed straight from the
+// holder's own held tip, naming the holder — a renewal, never a
+// takeover marker bumping the epoch.
+func (w *world) theHoldersOwnLeaseIsRenewedNotSeized() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	tip, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	body, err := gitCapture(w.t, repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, fmt.Sprintf("plan %d: beat", w.planID)) {
+		return fmt.Errorf("origin's tip is not a beat: %q", body)
+	}
+	if !strings.Contains(body, "holder:  "+w.holder) {
+		return fmt.Errorf("the beat does not renew %q's own lease: %q", w.holder, body)
+	}
+	parent, err := gitCapture(w.t, repo, "rev-parse", tip+"^")
+	if err != nil {
+		return fmt.Errorf("%s: %w", parent, err)
+	}
+	if parent != w.lease.Tip {
+		return fmt.Errorf("the beat's parent is %s, want the held tip %s", parent, w.lease.Tip)
+	}
+
+	return nil
+}
+
+// aHeldLaneNamingThisHostWithNoToken builds a held lane whose marker
+// names this very host as holder, exactly as a hostname change would,
+// but strips the token its own renewal persisted — the shape a cloned
+// machine-id or a reused path leaves: an equal holder string with
+// nothing behind it. S49's own fixture, S48's photographic negative.
+func (w *world) aHeldLaneNamingThisHostWithNoToken(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(w.t, root, w.holder, "")
+	dropToken(w.t, lane)
+	w.clones[w.holder] = repo
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.lane, st.held = root, repo, lane, held
+
+	return nil
+}
+
+// startRefusesAlreadyHeldNotTakeable checks the last run's own output
+// refuses on the ordinary already-held door — never a resume, since an
+// equal holder string with no token proves nothing — and that origin's
+// tip sits exactly where the Given step left it.
+func (w *world) startRefusesAlreadyHeldNotTakeable() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, "refused") {
+		return fmt.Errorf("start did not refuse: %s", st.out)
+	}
+	if !strings.Contains(st.out, "already held") {
+		return fmt.Errorf("the refusal does not say already held: %s", st.out)
+	}
+	if !strings.Contains(st.out, "not takeable until the window matures") {
+		return fmt.Errorf("the refusal does not name the window: %s", st.out)
+	}
+	if got := remoteWorkTip(w.t, st.repo); got != st.held {
+		return fmt.Errorf("origin's tip is %s, want the untouched hold %s", got, st.held)
+	}
+
+	return nil
+}
+
+// thePlanIsNotResumed checks the last run's own output never claims
+// the one shape a proven token produces — the mirror of
+// thePlanIsResumed, for the row where the token is exactly what is
+// missing.
+func (w *world) thePlanIsNotResumed() error {
+	if strings.Contains(section[identityAndCrossLayerState](w).out, "resumed plan") {
+		return fmt.Errorf("the run resumed a lease it could not prove: %s",
+			section[identityAndCrossLayerState](w).out)
+	}
+
+	return nil
+}
+
+// planIsUnclaimed builds a fresh, wholly unheld plan — S60 and S73's
+// shared Given, since both rows turn on herdr trouble during a lane's
+// very first stand-up, never on a prior hold.
+func (w *world) planIsUnclaimed(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.clones[w.holder] = repo
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo = root, repo
+
+	return nil
+}
+
+// thisMachineClaimsPlan runs `claim` against the unclaimed plan's own
+// repository — S60's own When, run twice across the scenario as herdr
+// goes from unreachable to answering.
+func (w *world) thisMachineClaimsPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to claim from; the unclaimed-plan step comes first")
+	}
+	var out, errb strings.Builder
+	code := run([]string{"claim", strconv.Itoa(planID), "--root", st.root}, &out, &errb)
+	st.out, st.errOut, st.code = out.String(), errb.String(), code
+
+	return nil
+}
+
+// theLeaseIsReleasedNotLeftStanding checks the branch a failed
+// stand-up leaves behind: the ref still exists, its tip a release
+// marker, never a delete and never a claim left standing with no lane
+// behind it.
+func (w *world) theLeaseIsReleasedNotLeftStanding() error {
+	st := section[identityAndCrossLayerState](w)
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, fmt.Sprintf("plan %d: release", w.planID)) {
+		return fmt.Errorf("the branch tip is not a release marker: %q", body)
+	}
+
+	return nil
+}
+
+// herdrBecomesReachable installs a fully working herdr handshake in
+// place of whatever fake an earlier step left, the same fixture a
+// fresh stand-up uses everywhere else in this file.
+func (w *world) herdrBecomesReachable() error {
+	runner, _ := startHerdr()
+	withHerdr(w.t, runner)
+
+	return nil
+}
+
+// itClaimsCleanAtTheNextEpoch checks the second claim in S60's own
+// scenario actually claimed, at the epoch right after the released
+// attempt — no takeover window waited, since a release ends a hold
+// rather than merely abandoning it.
+func (w *world) itClaimsCleanAtTheNextEpoch() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, fmt.Sprintf("claimed plan %d", w.planID)) {
+		return fmt.Errorf("claim did not succeed cleanly: %s", st.out)
+	}
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, "epoch:   2") {
+		return fmt.Errorf("the claim is not at the next epoch: %q", body)
+	}
+
+	return nil
+}
+
+// theAgentStartsButItsPromptFails installs a herdr fake that answers
+// worktree.create and agent.start normally — the agent really starts —
+// but fails the prompt call after it, recording every call so the
+// Then steps can prove the agent was dispatched before the failure.
+func (w *world) theAgentStartsButItsPromptFails() error {
+	rec := &herdrCalls{}
+	withHerdr(w.t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "prompt" {
+			return nil, errors.New("agent target pane wZ:p1 refused the prompt")
+		}
+
+		return nil, nil
+	})
+	section[identityAndCrossLayerState](w).rec = rec
+
+	return nil
+}
+
+// startFailsAndAReleaseMarkerSitsOnTheBranch checks the run exited
+// non-zero and that the branch it minted a claim on carries a release
+// marker at its tip — the failed handoff's own unwind, never a claim
+// left standing over a dead pane.
+func (w *world) startFailsAndAReleaseMarkerSitsOnTheBranch() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.code == 0 {
+		return fmt.Errorf("start did not fail: %s", st.out)
+	}
+	body, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.Contains(body, fmt.Sprintf("plan %d: release", w.planID)) {
+		return fmt.Errorf("the branch tip is not a release marker: %q", body)
+	}
+
+	return nil
+}
+
+// theAgentWasStartedBeforeTheFailure reads the recorded herdr calls
+// back and refuses unless agent.start actually ran — the row's own
+// point, that the agent was dispatched before its prompt failed, not
+// merely that the run exited non-zero.
+func (w *world) theAgentWasStartedBeforeTheFailure() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.rec == nil {
+		return fmt.Errorf("no herdr calls recorded; the prompt-fails step comes first")
+	}
+	if !st.rec.verb("agent", "start") {
+		return fmt.Errorf("the agent was never started")
+	}
+
+	return nil
+}
+
+// theWorktreeItStoodUpIsTornDown reads the recorded herdr calls back
+// and refuses unless the failed handoff's own unwind removed the
+// worktree it stood up — the abort is atomic, not a freed claim left
+// over a live checkout.
+func (w *world) theWorktreeItStoodUpIsTornDown() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.rec == nil {
+		return fmt.Errorf("no herdr calls recorded; the prompt-fails step comes first")
+	}
+	if !st.rec.verb("worktree", "remove") {
+		return fmt.Errorf("the worktree stood up for the lane was never torn down")
+	}
+
+	return nil
+}
+
 // TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet: the two
 // steps that name a second machine by role — the claimant racing a
 // stale hold, the machine repurposing a branch by hand — refuse when
@@ -555,6 +865,18 @@ func TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet(t *testing.T) {
 	require.Error(t, w.machineClaimsPlan("elsewhere", 7), "the stale holder cannot claim its own hold")
 	require.Error(t, w.originsWorkRefIsDeletedAndRepurposedBy(7, "elsewhere"),
 		"the current holder cannot repurpose its own branch")
+}
+
+// TestTheHoldersOwnLeaseIsRenewedNotSeizedRefusesAMachineTheScenarioNeverMet:
+// the renewal read-back names the holder the Given step introduced, so a
+// scenario that never set one up finds no clone to read from.
+func TestTheHoldersOwnLeaseIsRenewedNotSeizedRefusesAMachineTheScenarioNeverMet(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "elsewhere"
+
+	err := w.theHoldersOwnLeaseIsRenewedNotSeized()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no machine")
 }
 
 // TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition: every
@@ -602,6 +924,18 @@ func TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) 
 	err = w.itIsRefusedAndTheTakeoverStands()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not refuse")
+
+	err = w.thisMachineClaimsPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.theAgentWasStartedBeforeTheFailure()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no herdr calls")
+
+	err = w.theWorktreeItStoodUpIsTornDown()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no herdr calls")
 }
 
 // TestIdentityAndCrossLayerReadBacksWantTheirExactShape: each
@@ -631,4 +965,27 @@ func TestIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
 	require.Error(t, w.thePlanIsResumed())
 	st.out = "resumed plan 7 — Shader unit"
 	assert.NoError(t, w.thePlanIsResumed())
+
+	st.out = "started plan 7"
+	require.Error(t, w.startRefusesNamingTheLiveAgentSession(), "no refusal at all")
+	st.out = "refused: plan 7 already held"
+	require.Error(t, w.startRefusesNamingTheLiveAgentSession(), "refused, but not for a live session")
+	st.out = "refused: plan 7 is held by a live agent session on box-a"
+	assert.NoError(t, w.startRefusesNamingTheLiveAgentSession())
+
+	st.out = "resumed plan 7 — Shader unit"
+	require.Error(t, w.startRefusesAlreadyHeldNotTakeable(), "no refusal at all")
+	st.out = "refused: plan 7 is held by a live agent session on box-a"
+	require.Error(t, w.startRefusesAlreadyHeldNotTakeable(), "refused, but not on the already-held door")
+
+	st.out = "refused: plan 7 already held"
+	assert.NoError(t, w.thePlanIsNotResumed(), "a bare refusal never claims a resume")
+	st.out = "resumed plan 7 — Shader unit"
+	require.Error(t, w.thePlanIsNotResumed(), "a resume is exactly what this row refuses")
+
+	st.out = "refused: plan 7 already held"
+	require.Error(t, w.itClaimsCleanAtTheNextEpoch(), "a refusal is not a clean claim")
+
+	st.code = 0
+	require.Error(t, w.startFailsAndAReleaseMarkerSitsOnTheBranch(), "an exit code of 0 is not a failure")
 }
