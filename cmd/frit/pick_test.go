@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -235,6 +237,54 @@ func TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate(t *testing.T) {
 	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Equal(t, lease.Tip, tip, "the busy lane's lease is untouched")
+}
+
+// TestPickGoCarriesAProblemFromTheLiveLaneCheckOfASkippedCandidate: with
+// no other candidate underneath the busy top pick, the walk's own
+// live-lane pre-flight on it can still surface a problem of its own —
+// here an unread configured host — even though the candidate itself is
+// only skipped, not refused into the report. That problem must still
+// reach the operator on the "nothing startable" answer, the same as any
+// other problem a bare pick already carries, not be dropped along with
+// the refusal doc the skip never renders.
+func TestPickGoCarriesAProblemFromTheLiveLaneCheckOfASkippedCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, _, runner, _ := liveLeaseFixture(t, root)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	// "box" resolves to nothing reachable, so the live-lane read's own
+	// fan-out reports it unreachable — the ordinary path a real
+	// unread host takes, not a forced cache failure.
+	code := run([]string{"pick", "--go", "--hosts", "box", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "nothing startable")
+	assert.Contains(t, errb.String(), "box",
+		"the unread host from the skipped candidate's own live-lane "+
+			"check still reaches the operator")
+}
+
+// TestCarriedProblemCountMatchesWhatCarryProblemsKeeps: the count
+// carriedProblemCount returns must equal how many of the same problems
+// carryProblems would actually attach to a doc under the same all flag
+// — the deterministic prefix pc.start relies on to tell a skipped
+// candidate's own extra problems apart from the gather's own.
+func TestCarriedProblemCountMatchesWhatCarryProblemsKeeps(t *testing.T) {
+	problems := []fleet.Problem{
+		{Repo: "a", Err: errors.New("boom")},
+		{Repo: "b", Err: errors.New("notes"), NotPlan: true},
+		{Repo: "c", Err: errors.New("thud")},
+	}
+
+	assert.Equal(t, 2, carriedProblemCount(problems, false),
+		"a NotPlan problem is held back unless all is set")
+	assert.Equal(t, 3, carriedProblemCount(problems, true),
+		"all set keeps every problem, NotPlan included")
+	assert.Equal(t, 0, carriedProblemCount(nil, false),
+		"no problems means nothing carried")
 }
 
 // TestPickGoDoesNotReattachAHeldLane: the from-outside resume is an

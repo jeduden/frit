@@ -97,3 +97,17 @@ Phase 2 owns writing these three steps, the `@S88` scenario in
 [features/cross-layer.feature](../../features/cross-layer.feature), and
 the matrix row in
 [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md).
+
+**Addendum, post-landing.** `/code-review --fix` found a real gap in
+this phase's own change: a skipped candidate's live-lane refusal doc
+can carry problems beyond the gather's own — an unread configured
+host, an unreachable herdr — and `pc.start`'s `continue` on `lost`
+dropped the whole doc, taking those problems with it. Neither the
+eventual success doc nor `nothing startable` picked them back up, so
+an operator running with `--hosts` configured could lose a real
+warning silently. Fixed in `cmd/frit/main.go`: `pc.start` now carries
+forward each skipped candidate's own problems, past the deterministic
+prefix `carriedProblemCount` isolates, into whichever doc the walk
+ends up rendering. `TestPickGoCarriesAProblemFromTheLiveLaneCheckOfA
+SkippedCandidate` and `TestCarriedProblemCountMatchesWhatCarryProblems
+Keeps` pin it, in `cmd/frit/pick_test.go`.

@@ -76,14 +76,16 @@ func startResolved(
 // under doGo, runs start's claim-and-stand-up path. It refuses an
 // unstartable plan, an ambiguous repository, and a fresh acquire onto
 // a lane herdr already shows live (#126) — the refusal doc reads the
-// same for both verbs, so they cannot drift on what "startable" means,
-// but the bool differs. The bool is true when execution lost the
-// claim's race, or when the live-lane pre-flight refused a fresh
-// acquire under reattach false: the two refusals pick --go's walk
-// retries past rather than reports. Under reattach true — an explicit
-// `start <id>`, where the caller named this exact lane — the live-lane
-// refusal still returns false, so the caller sees it rather than
-// silently moving on.
+// same for both verbs, so they cannot drift on what "startable" means.
+// The returned bool, discarded by startResolved and read by pick --go's
+// walk, is true in exactly two cases: execution lost the claim's race,
+// or the live-lane pre-flight refused a fresh acquire under reattach
+// false — the two refusals pick --go's walk skips past rather than
+// reports. The unstartable-plan and ambiguous-repository refusals above
+// always report false, so pick --go's walk never skips them. Under
+// reattach true — an explicit `start <id>`, where the caller named this
+// exact lane — the live-lane refusal too returns false, so the caller
+// sees it rather than silently moving on.
 //
 // reattach is whether a held lane may be resumed from outside it, off
 // its hold's own marker (#122): true for an explicit `start <id>`,
