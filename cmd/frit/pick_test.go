@@ -157,11 +157,15 @@ func TestPickGoRefusesADivergingLocalBranch(t *testing.T) {
 		"the local draft branch is untouched, not clobbered")
 }
 
-// TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane: the same
-// live-but-unbound lane guard start --go meets, reached through pick's
-// own claim-and-stand-up path. The refusal is surfaced, not skipped —
-// pick --go only retries a lost race, and a live lane is not one.
-func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
+// TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable: the
+// live-lane pre-flight (#126) is a skip in pick --go's own walk, not a
+// stall — with no other candidate underneath it, the walk advances
+// past the busy top pick to the same empty answer
+// TestPickGoAdvancesPastALiveHold gives for a lost race, not a
+// refusal. The #126 wording itself stays reserved for an operator's
+// explicit `start <id>`, pinned separately by
+// TestStartGoRefusesWhenALiveAgentAlreadyHoldsTheLane.
+func TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo, lease, runner, rec := liveLeaseFixture(t, root)
@@ -171,13 +175,42 @@ func TestPickGoRefusesWhenALiveAgentAlreadyHoldsTheTopLane(t *testing.T) {
 	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "refused")
-	assert.Contains(t, out.String(), "plan/7", "the reason names the live lane")
+	assert.NotContains(t, out.String(), "refused",
+		"pick's own walk is not the operator staring at a named refusal")
+	assert.Contains(t, out.String(), "nothing startable",
+		"the live lane advances past the only candidate, same as a lost race")
 	assert.False(t, rec.verb("worktree", "create"),
-		"a live lane is refused before a takeover ever runs")
+		"a live lane is skipped before a takeover ever runs")
 	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Equal(t, lease.Tip, tip, "nothing was taken over")
+}
+
+// TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate: the same
+// live-lane pre-flight, but with a free next candidate underneath the
+// busy top pick — the walk starts the next ready plan instead of
+// halting on the one a live herdr pane already sits on (observed live
+// on 2026-09-03: a startable fleet stalled behind exactly this).
+func TestPickGoAdvancesPastALiveTopLaneToTheNextCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lease, runner, rec := liveLeaseFixture(t, root)
+	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "start", "plan-8"),
+		"the live top lane is skipped for the next ready candidate")
+	assert.False(t, rec.verb("agent", "start", "plan-7"),
+		"the busy lane is never taken over")
+	assert.Contains(t, out.String(), "started plan 8")
+	assert.NotContains(t, out.String(), "refused")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, lease.Tip, tip, "the busy lane's lease is untouched")
 }
 
 // TestPickGoDoesNotReattachAHeldLane: the from-outside resume is an

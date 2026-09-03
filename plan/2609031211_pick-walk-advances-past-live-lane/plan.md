@@ -1,7 +1,7 @@
 ---
 id: 2609031211
 title: A live top lane no longer stalls pick's candidate walk
-status: "🔲"
+status: "🔳"
 summary: >-
   pick --go ranks the startable plans and walks them, meaning to skip a
   candidate it cannot claim right now and start the next — "a live hold
