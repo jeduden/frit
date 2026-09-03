@@ -23,6 +23,7 @@ import (
 // file, so a section adds a file and never a line to bdd_test.go.
 func init() {
 	registrars = append(registrars, (*world).registerIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerVerbLevelIdentityAndCrossLayer)
 }
 
 // identityAndCrossLayerState is this section's own state beside the
@@ -80,7 +81,14 @@ func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
 	sc.Step(`^the plan is resumed$`, w.thePlanIsResumed)
 	sc.Step(`^no takeover marker sits between the held tip and origin's tip$`,
 		w.noTakeoverMarkerSitsBetweenTheHeldTipAndOriginsTip)
+}
 
+// registerVerbLevelIdentityAndCrossLayer registers the rows that run
+// over start, claim, release and yield rather than the lease API
+// directly — Phase 2 and Phase 3's own steps, split from
+// registerIdentityAndCrossLayer's Phase 1 rows so neither function
+// trips golangci-lint's funlen.
+func (w *world) registerVerbLevelIdentityAndCrossLayer(sc *godog.ScenarioContext) {
 	sc.Step(`^herdr confirms the session is live$`, w.herdrConfirmsTheSessionIsLive)
 	sc.Step(`^start refuses, naming the live agent session$`, w.startRefusesNamingTheLiveAgentSession)
 	sc.Step(`^the holder's own lease is renewed, not seized$`, w.theHoldersOwnLeaseIsRenewedNotSeized)
@@ -102,6 +110,28 @@ func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
 		w.startFailsAndAReleaseMarkerSitsOnTheBranch)
 	sc.Step(`^the agent was started before the failure$`, w.theAgentWasStartedBeforeTheFailure)
 	sc.Step(`^the worktree it stood up is torn down$`, w.theWorktreeItStoodUpIsTornDown)
+
+	sc.Step(`^"([^"]+)" holds plan (\d+) with its lane's token persisted$`,
+		w.holdsPlanWithItsLanesTokenPersisted)
+	sc.Step(`^this machine runs claim for plan (\d+) from an unrelated directory$`,
+		w.thisMachineRunsClaimForPlanFromAnUnrelatedDirectory)
+	sc.Step(`^claim refuses: already held$`, w.claimRefusesAlreadyHeld)
+	sc.Step(`^the plan (\d+) ref is unchanged$`, w.thePlanRefIsUnchanged)
+
+	sc.Step(`^the agent fails to start and its own teardown leaves debris behind$`,
+		w.theAgentFailsToStartAndItsOwnTeardownLeavesDebrisBehind)
+	sc.Step(`^the error names the worktree and pane left behind$`,
+		w.theErrorNamesTheWorktreeAndPaneLeftBehind)
+
+	sc.Step(`^a held lane holding plan (\d+) whose marker names "([^"]+)" as holder and names no session$`,
+		w.aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession)
+
+	sc.Step(`^this machine holds plan (\d+) in a lane bound to a session, with its token persisted$`,
+		w.thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted)
+	sc.Step(`^a takeover bound to a session at a new epoch lands on plan (\d+)$`,
+		w.aTakeoverBoundToASessionAtANewEpochLandsOnPlan)
+	sc.Step(`^the lane runs start --go for plan (\d+)$`, w.theLaneRunsStartGoForPlan)
+	sc.Step(`^start refuses and names yield$`, w.startRefusesAndNamesYield)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -852,6 +882,226 @@ func (w *world) theWorktreeItStoodUpIsTornDown() error {
 	return nil
 }
 
+// holdsPlanWithItsLanesTokenPersisted builds a real, held lane for
+// holder with its token persisted — S46's Given — but never chdirs
+// into it: the row's own point is that a directory this run happens
+// to be in gets no shortcut from a lease it never carried.
+func (w *world) holdsPlanWithItsLanesTokenPersisted(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = holder
+	root := w.t.TempDir()
+	repo, _, held := heldLaneOwnedBy(w.t, root, holder, "")
+	w.clones[holder] = repo
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.held = root, repo, held
+
+	return nil
+}
+
+// thisMachineRunsClaimForPlanFromAnUnrelatedDirectory runs `claim`
+// with the calling directory deliberately not the plan's own lane —
+// S46's When, mirroring TestResumeIgnoresATokenFromAnotherLane: a
+// fresh temp directory carries no token for any plan, the shape a
+// reused worktree path or a cloned lane leaves once its own token is
+// gone.
+func (w *world) thisMachineRunsClaimForPlanFromAnUnrelatedDirectory(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to claim from; the held-lane step comes first")
+	}
+	w.t.Chdir(w.t.TempDir())
+	var out, errb strings.Builder
+	code := run([]string{"claim", strconv.Itoa(planID), "--root", st.root}, &out, &errb)
+	st.out, st.errOut, st.code = out.String(), errb.String(), code
+
+	return nil
+}
+
+// claimRefusesAlreadyHeld checks the last claim's own output took the
+// ordinary already-held door, never a resume it had no token to earn.
+func (w *world) claimRefusesAlreadyHeld() error {
+	out := section[identityAndCrossLayerState](w).out
+	if !strings.Contains(out, "refused") {
+		return fmt.Errorf("claim did not refuse: %s", out)
+	}
+	if !strings.Contains(out, "already held") {
+		return fmt.Errorf("claim's refusal does not name an already-held plan: %s", out)
+	}
+
+	return nil
+}
+
+// thePlanRefIsUnchanged reads origin's tip fresh and checks it still
+// sits exactly where the Given step's own held lane left it: a claim
+// with no token to prove pushes nothing.
+func (w *world) thePlanRefIsUnchanged(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.held == "" {
+		return fmt.Errorf("plan %d carries no held tip to compare against; the held-lane step comes first", planID)
+	}
+	tip := claim.RemoteTip(st.repo, "origin", int64(planID), gitwt.Exec)
+	if tip != st.held {
+		return fmt.Errorf("origin's ref moved to %s, want it left at %s", tip, st.held)
+	}
+
+	return nil
+}
+
+// theAgentFailsToStartAndItsOwnTeardownLeavesDebrisBehind installs a
+// herdr fake whose worktree stands up, whose agent start then fails —
+// S47's own failed handoff — and whose own unwind's worktree.remove
+// fails too, so the abort cannot clean up after itself and must name
+// what it left behind instead.
+func (w *world) theAgentFailsToStartAndItsOwnTeardownLeavesDebrisBehind() error {
+	withHerdr(w.t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			return nil, errors.New(
+				"agent target pane wZ:p1 is not an available shell")
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+			return nil, errors.New("workspace busy")
+		}
+
+		return nil, nil
+	})
+
+	return nil
+}
+
+// theErrorNamesTheWorktreeAndPaneLeftBehind checks the last run's own
+// stderr names both the worktree and the pane a failed teardown could
+// not clean up, so `frit orphans` has something to find.
+func (w *world) theErrorNamesTheWorktreeAndPaneLeftBehind() error {
+	errOut := section[identityAndCrossLayerState](w).errOut
+	if !strings.Contains(errOut, "atlas-shader-unit") {
+		return fmt.Errorf("the error does not name the worktree left behind: %s", errOut)
+	}
+	if !strings.Contains(errOut, "wZ:p1") {
+		return fmt.Errorf("the error does not name the pane left behind: %s", errOut)
+	}
+
+	return nil
+}
+
+// aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession builds
+// a held lane whose marker never bound a session at all — S76's
+// Given, the sharpest reading of "pane gone": there is no session for
+// herdr to confirm dead, only a checkout for it to confirm unattended.
+func (w *world) aHeldLaneHoldingPlanWhoseMarkerNamesAsHolderAndNamesNoSession(planID int, holder string) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = holder
+	root := w.t.TempDir()
+	repo, lane, held := heldLaneOwnedBy(w.t, root, holder, "")
+	w.clones[holder] = repo
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.lane, st.held = root, repo, lane, held
+
+	return nil
+}
+
+// thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted
+// mints and renews a lease exactly as
+// thisMachineHoldsPlanInALaneWithItsTokenPersisted does, but bound to
+// a session — S77's own Given, distinct from S64 and S86's unbound
+// fixture: deadSession needs a session herdr can positively confirm
+// gone before desertedRefusal will ever fire, and an unbound marker
+// gives it nothing to confirm.
+func (w *world) thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.clones[w.holder] = repo
+
+	lane := filepath.Join(w.t.TempDir(), "atlas-lane")
+	opts := leaseFor(w.holder, planID)
+	opts.Lane = lane
+	opts.Session = "wOld:p1"
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	git(w.t, repo, "worktree", "add", "-q", lane, claim.Branch(int64(planID)))
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	w.lease = renewed
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.lane = root, repo, lane
+
+	return nil
+}
+
+// aTakeoverBoundToASessionAtANewEpochLandsOnPlan takes the lease over
+// exactly as aTakeoverAtANewEpochLandsOnPlan does, but binds the
+// takeover to a session — S77's own Given: deadSession reads the
+// marker at the *current* tip, so a takeover minted with no session at
+// all would give herdr nothing to confirm gone, and desertedRefusal
+// would never fire.
+func (w *world) aTakeoverBoundToASessionAtANewEpochLandsOnPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.repo == "" {
+		return fmt.Errorf("no repo to take the lease over on; the token step comes first")
+	}
+	from := claim.RemoteTip(st.repo, "origin", int64(planID), gitwt.Exec)
+	if from == "" {
+		return fmt.Errorf("origin carries no work ref for plan %d to take over", planID)
+	}
+	opts := leaseFor("elsewhere", planID)
+	opts.Session = "wGhost:p1"
+	taken, err := claim.Takeover(st.repo, opts, from, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	st.takeover = taken.Tip
+
+	return nil
+}
+
+// theLaneRunsStartGoForPlan runs `start --go` with the calling
+// directory standing in the lane a prior step stood up — S77's own
+// vantage point, the same one a dead host's own dead pane would find
+// itself starting from.
+func (w *world) theLaneRunsStartGoForPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to run start from; the token step comes first")
+	}
+	w.t.Chdir(st.lane)
+	var out, errb strings.Builder
+	code := run([]string{"start", strconv.Itoa(planID), "--phase", "3", "--go",
+		"--root", st.root}, &out, &errb)
+	st.out, st.errOut, st.code = out.String(), errb.String(), code
+
+	return nil
+}
+
+// startRefusesAndNamesYield checks the last start's own output refused
+// and named `yield`, never reporting a started plan: self-resume
+// cannot recover a lane whose token a foreign takeover has already
+// superseded.
+func (w *world) startRefusesAndNamesYield() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, "refused") {
+		return fmt.Errorf("start did not refuse: %s", st.out)
+	}
+	if !strings.Contains(st.out, fmt.Sprintf("yield %d", w.planID)) {
+		return fmt.Errorf("the refusal does not name yield: %s", st.out)
+	}
+	if strings.Contains(st.out, "started plan") {
+		return fmt.Errorf("start reported success over a deserted lane: %s", st.out)
+	}
+
+	return nil
+}
+
 // TestIdentityAndCrossLayerStepsRefuseAMachineTheyNeverMet: the two
 // steps that name a second machine by role — the claimant racing a
 // stale hold, the machine repurposing a branch by hand — refuse when
@@ -938,6 +1188,30 @@ func TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) 
 	assert.Contains(t, err.Error(), "no herdr calls")
 }
 
+// TestPhase3IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// Phase 3's own four new steps, split from
+// TestIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition so
+// neither function trips golangci-lint's funlen.
+func TestPhase3IdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.thisMachineRunsClaimForPlanFromAnUnrelatedDirectory(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.thePlanRefIsUnchanged(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no held tip")
+
+	err = w.theLaneRunsStartGoForPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lane")
+
+	err = w.aTakeoverBoundToASessionAtANewEpochLandsOnPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no repo")
+}
+
 // TestIdentityAndCrossLayerReadBacksWantTheirExactShape: each
 // assertion step that reads the last verb's own captured output
 // refuses on the wrong shape rather than passing on an unrelated
@@ -988,4 +1262,36 @@ func TestIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
 
 	st.code = 0
 	require.Error(t, w.startFailsAndAReleaseMarkerSitsOnTheBranch(), "an exit code of 0 is not a failure")
+}
+
+// TestPhase3IdentityAndCrossLayerReadBacksWantTheirExactShape: Phase
+// 3's own three new read-back steps, split from
+// TestIdentityAndCrossLayerReadBacksWantTheirExactShape so neither
+// function trips golangci-lint's funlen.
+func TestPhase3IdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+
+	st.out = "claimed plan 7"
+	require.Error(t, w.claimRefusesAlreadyHeld(), "no refusal at all")
+	st.out = "refused: plan 7 is held by a live agent session on box-a"
+	require.Error(t, w.claimRefusesAlreadyHeld(), "refused, but not on the already-held door")
+	st.out = "refused: plan 7 already held (plan/7); not takeable until the window matures"
+	assert.NoError(t, w.claimRefusesAlreadyHeld())
+
+	st.errOut = "workspace busy"
+	require.Error(t, w.theErrorNamesTheWorktreeAndPaneLeftBehind(), "names neither the worktree nor the pane")
+	st.errOut = "left behind: atlas-shader-unit"
+	require.Error(t, w.theErrorNamesTheWorktreeAndPaneLeftBehind(), "names the worktree but not the pane")
+	st.errOut = "left behind: atlas-shader-unit, wZ:p1"
+	assert.NoError(t, w.theErrorNamesTheWorktreeAndPaneLeftBehind())
+
+	w.planID = 7
+	st.out = "started plan 7"
+	require.Error(t, w.startRefusesAndNamesYield(), "no refusal at all")
+	st.out = "refused: plan 7 already held"
+	require.Error(t, w.startRefusesAndNamesYield(), "refused, but does not name yield")
+	st.out = "refused: plan 7 could not be resumed: deserted hold: its token cannot " +
+		"self-resume; run `frit yield 7` to retire this lane"
+	assert.NoError(t, w.startRefusesAndNamesYield())
 }

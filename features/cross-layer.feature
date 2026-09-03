@@ -66,8 +66,8 @@ Feature: Cross-layer: herdr and frit disagree
 
   @S77
   Scenario: deserted lane on its own host
-    Given this machine holds plan 7 in a lane with its token persisted
-    And a takeover at a new epoch lands on plan 7
+    Given this machine holds plan 7 in a lane bound to a session, with its token persisted
+    And a takeover bound to a session at a new epoch lands on plan 7
     And herdr shows no agent on the lane
     When the lane runs start --go for plan 7
     Then start refuses and names yield

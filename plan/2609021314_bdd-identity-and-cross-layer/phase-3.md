@@ -1,7 +1,7 @@
 ---
 n: 3
 title: "The resume-from-outside path and yield reach a step: S46, S47, S76, S77 run real"
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert four more rows from `@pending` declarations into passing
