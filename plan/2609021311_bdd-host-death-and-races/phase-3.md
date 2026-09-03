@@ -1,7 +1,7 @@
 ---
 n: 3
 title: S29, the release-vs-loser's-read race, runs for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S29 from `@pending` into a passing scenario. It is the one

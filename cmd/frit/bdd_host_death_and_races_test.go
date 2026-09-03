@@ -102,6 +102,8 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	sc.Step(`^origin's orphan report lists plan (\d+) as neither stale nor deserted$`,
 		w.originsOrphanReportListsNeither)
 	sc.Step(`^"([^"]+)"'s lease is renewed by a beat instead of seized$`, w.leaseIsRenewedByABeatInsteadOfSeized)
+	sc.Step(`^"([^"]+)" claims plan (\d+), racing "([^"]+)"'s release into the read$`,
+		w.claimsRacingARelease)
 }
 
 // attemptsClaim is a fresh claimant's Acquire: the first time a holder
@@ -131,6 +133,78 @@ func (w *world) attemptsClaim(holder string, planID int) error {
 	rs.attempts[holder] = raceAttempt{lease: lease, err: err}
 
 	return nil
+}
+
+// claimsRacingARelease is S29's own claim attempt: a fresh claimant
+// whose Acquire is wrapped so its very first ls-remote read lies
+// "absent" — the shape a claimant started long enough ago that the
+// ref genuinely looked absent then reads as, its push arriving only
+// now. Its push therefore attempts a real CAS against holder's real,
+// still-live claim, and fails for real. The instant that push fails,
+// the wrapper releases holder's lease for real, so casPush's own
+// reconciliation read — the loser's read S29 names — finds a release
+// marker racing in, not the live claim the push actually lost to.
+func (w *world) claimsRacingARelease(holder string, planID int, releaser string) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, ok := w.clones[holder]
+	if !ok {
+		var err error
+		repo, err = w.cloneAs(w.holder, holder)
+		if err != nil {
+			return err
+		}
+	}
+	releaserRepo, err := w.cloneOf(releaser)
+	if err != nil {
+		return err
+	}
+	if releaser != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", releaser, w.holder)
+	}
+
+	rs := section[racesState](w)
+	if rs.attempts == nil {
+		rs.attempts = map[string]raceAttempt{}
+	}
+	run := racingReleaseRunner(releaserRepo, leaseFor(releaser, planID), w.lease.Tip)
+	lease, err := claim.Acquire(repo, leaseFor(holder, planID), run)
+	rs.attempts[holder] = raceAttempt{lease: lease, err: err}
+
+	return nil
+}
+
+// racingReleaseRunner wraps gitwt.Exec for one claimant's Acquire: its
+// first ls-remote read (Acquire's own tip check) answers absent, so a
+// live ref is read as free and Acquire attempts a real push instead of
+// refusing straight off that read. Every other call — the rev-parses,
+// the mint, the push itself, and the reconciliation ls-remote that
+// follows a lost CAS — runs for real. The instant the push fails, the
+// releasing holder's lease is released for real, before control
+// returns to the caller's own reconciliation read, so that read finds
+// the just-injected release, not the live claim the push actually lost
+// to. It fires at most once: a second push in the same scenario (the
+// eventual retry) is never raced.
+func racingReleaseRunner(
+	releaserRepo string, releaserOpts claim.LeaseOptions, from string,
+) gitwt.Runner {
+	firstLsRemote := true
+	released := false
+
+	return func(dir string, args ...string) ([]byte, error) {
+		if firstLsRemote && len(args) > 0 && args[0] == "ls-remote" {
+			firstLsRemote = false
+			return nil, nil
+		}
+		out, err := gitwt.Exec(dir, args...)
+		if err != nil && !released && len(args) > 0 && args[0] == "push" {
+			released = true
+			_, _ = claim.Release(releaserRepo, releaserOpts, from, gitwt.Exec)
+		}
+
+		return out, err
+	}
 }
 
 // attemptOf reads back one holder's claim attempt, refusing a holder
