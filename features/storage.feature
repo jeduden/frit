@@ -58,11 +58,20 @@ Feature: Storage anomalies
   @S44 @pending
   Scenario: fork-based flow
 
-  @S67 @pending
+  @S67
   Scenario: `fetch --prune` races a read
+    Given "box-a" holds the lease for plan 67
+    And "box-b" takes the lease over
+    When "box-a" renews its lease while a person's "fetch --prune" races it
+    Then the renewal is fenced, naming "box-b"
+    And the renewal read origin exactly once to classify the loss
 
-  @S68 @pending
+  @S68
   Scenario: default branch force-pushed
+    Given "box-a" has a checkout whose branch lands plan 68 on origin's main
+    When a person force-pushes origin's main to a fresh commit, same content, no merge
+    Then "box-a"'s branch is no longer an ancestor of origin's main
+    And reap still reaps "box-a"'s checkout, landed by its status glyph alone
 
   @S69
   Scenario: marker body forged
