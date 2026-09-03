@@ -1,45 +1,52 @@
 ---
 id: 2609031939
-title: board and start refusals stop calling an attended lane dead
+title: reports and refusals stop calling an attended lane dead
 status: "🔲"
 summary: >-
   frit reports two facts about a held lane from herdr and lets them
-  contradict each other. board's `dead` marks a lane whose bound
-  session herdr confirms gone; board's `agent`/`agent_status` marks a
-  live pane herdr found on that same lane. When a lane's original
-  session rotated away but a live pane still attends it — idle between
-  phases — board prints `dead: true` beside `agent: claude,
-  agent_status: idle`, and start's "deserted hold" refusal points at
-  `frit yield`, a teardown, though a pane is open. A reader concludes
-  the lane is gone and reaches for the teardown. This plan makes the
-  `dead` render and the deserted refusals answer to the live pane:
-  board does not call an attended lane dead, and a refusal for a lane a
-  pane attends names that pane and leads with resume, not yield. Two
-  reproduction scenarios pin each, and a cross-layer matrix row, S89,
-  runs the state end-to-end under godog.
+  contradict each other. A `dead` field marks a lane whose bound
+  session herdr confirms gone; `agent`/`agent_status` marks a live pane
+  herdr found on that same lane. When a lane's original session rotated
+  away but a live pane still works or idles on it, board prints `dead:
+  true` beside `agent: claude, agent_status: working`, `ready` and
+  `pick` carry the same `dead: true` with no agent beside it, and
+  start's "deserted hold" refusal points at `frit yield`, a teardown,
+  though a pane is open. A reader concludes the lane is gone and
+  reaches for the teardown. This plan makes the `dead` render — board,
+  and the discovery report `cardOf` behind `ready`, `pick` and `find` —
+  and the deserted refusals answer to the live pane: no survey report
+  calls an attended lane dead, and a refusal for a lane a pane attends
+  names that pane and leads with resume, not yield. Reproduction
+  scenarios pin each on the observed working-agent case, and a
+  cross-layer matrix row, S89, runs the state end-to-end under godog.
 model: sonnet
 depends-on: [2609031211]
 ---
-# board and start refusals stop calling an attended lane dead
+# reports and refusals stop calling an attended lane dead
 
 ## Goal
 
-board and start report a held lane a live pane attends as attended,
-not dead. board's `dead` render is false while herdr shows a live pane
-on the lane. A start refusal for such a lane names the pane and leads
-with resume, not a `frit yield` teardown. So a reader never mistakes a
-lane idling between phases for one that is gone.
+Every frit survey report and refusal treats a held lane a live pane
+attends as attended, not dead. The `dead` field renders false — in
+board, and in `ready`, `pick` and `find` through their shared
+discovery render — while herdr shows a live pane on the lane, whether
+that pane is working or idle. A start refusal for such a lane names the
+pane and leads with resume, not a `frit yield` teardown. So a reader
+never mistakes a lane an agent is actively working, or idling between
+phases, for one that is gone.
 
 ## Context
 
 **The contradiction, observed.** On 2026-09-03 `frit board --json`
 reported plan 2609021313 with `dead: true` beside `agent: claude,
-agent_status: idle`, and `frit pick`/`frit start` refused it with
-"deserted hold: its branch carries an unparked suffix; run `frit yield
-2609021313` to park it first". The pane was open the whole time; the
-agent was merely idle between phases. Read together, `dead: true` and a
-live idle agent are a flat contradiction, and "dead" plus a
-teardown-shaped remedy win the impression: the lane looks gone.
+agent_status: working` — and `dead: true` in `frit ready --json` too —
+while `frit pick`/`frit start` refused it with "deserted hold: its
+branch carries an unparked suffix; run `frit yield 2609021313` to park
+it first". The pane was open the whole time. The agent was actively
+working — it went on to finish the plan and land it — and idle between
+phases at other moments. Read together, `dead: true` and a live working
+agent are a flat contradiction. "dead" plus a teardown-shaped remedy
+win the impression: the lane looks gone.
 
 **Why both fields are "true" at once.** They answer different
 questions, both to herdr. board's
@@ -53,10 +60,22 @@ session rotated away while a live pane still sits on its branch is
 is not, because `dead`'s plain meaning to a reader is "nobody is here",
 which the live pane disproves.
 
-**Where the render and the refusals decide.** board renders
-`p.Dead` straight through
-([board.go](../../internal/report/board.go)), never reconciled with
-the agent it prints beside it.
+**Where the render and the refusals decide.** Two render paths carry a
+`dead` field straight from `p.Dead`, neither reconciled with a live
+pane. board, through [board.go](../../internal/report/board.go), takes
+the live pane's `agent`/`agent_status` and prints it beside a `dead`
+that ignores it. The discovery report, through `cardOf` in
+[discovery.go](../../internal/report/discovery.go), backs `ready`,
+`pick` **and** `find` from one site, and its card does not carry the
+agent at all — so that render has no live-pane fact to consult, and
+closing it means plumbing the fact into `cardOf`, not just gating a
+copy. Reconciling at `cardOf` closes all three discovery reports at
+once, `find` included. [orphans.go](../../internal/report/orphans.go)
+is left out of scope on purpose. It says "dead" twice — a
+`StaleHold.Dead` field and the membership-based `Deserted` category.
+Listing a bound-session-gone lane for cleanup is a defensible thing for
+a teardown verb to do. Reconciling it is a separate question from the
+survey reports a person reads to decide.
 [`desertedRefusal`](../../cmd/frit/start.go) and
 [`parkFirstRefusal`](../../cmd/frit/start.go) fire on `plan.Held &&
 plan.Dead && !plan.Stale` and never ask whether a pane attends the
@@ -64,8 +83,9 @@ lane — though [`liveLaneFor`](../../cmd/frit/dispatch.go), which finds
 exactly that pane and carries its `PaneID`, already runs a few checks
 later in `buildStart` and is what
 [`liveLaneRefusal`](../../cmd/frit/start.go) uses to name a pane. The
-fact needed to tell "gone" from "idle" is in hand at both sites; the
-messages just do not consult it.
+fact needed to tell "gone" from "working or idle" is in hand at the
+refusal sites, and one herdr read from filling it at the render sites;
+the messages just do not consult it.
 
 **Two Deads, kept apart.** `discovery.Plan.Dead` is a decision input
 the takeover and refusal logic reads; the lease protocol still needs
@@ -102,11 +122,14 @@ walk-advance behavior is 2609031211's, not this plan's.
 
 ## Tasks
 
-1. Phase 1 (proving slice): board stops rendering `dead: true` for a
-   held lane whose bound session is gone but a live pane attends it.
-   Reproduce the contradiction at the board level first, then reconcile
-   the render with `liveLaneFor`, deciding the field shape against the
-   JSON Contract.
+1. Phase 1 (proving slice): the `dead` render — board, and `cardOf`
+   in discovery.go behind `ready`, `pick` and `find` — stops reporting
+   `dead: true` for a held lane whose bound session is gone but a live
+   pane attends it, whether that pane is working or idle. Reproduce the
+   contradiction on the observed working-agent case first, then
+   reconcile board's render and `cardOf` with the live pane — plumbing
+   the fact into the discovery card, which does not yet carry it —
+   deciding the field shape against the JSON Contract.
 2. Phase 2: the deserted refusals name the live pane and lead with
    resume, not yield, when a pane attends the lane. Reproduce the
    teardown-first wording for an explicit `start <id>` first, then fold
@@ -117,11 +140,11 @@ walk-advance behavior is 2609031211's, not this plan's.
 
 ## Execution
 
-| Phase | Title                                                    | Tier   | Gate                                                                                                                                                   |
-| ----- | -------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | board does not call an attended lane dead                | sonnet | New unit test: board over a held lane with a gone bound session and a live idle pane does not render it dead; `go test ./...` and lint clean           |
-| 2     | the deserted refusals name the pane and lead with resume | sonnet | New unit test: an explicit `start <id>` on a lane a live pane attends names the pane and does not lead with `frit yield`; suite and lint clean         |
-| 3     | S89 runs the attended-lane state end-to-end under godog  | sonnet | `TestFeatures/S89:` passes with no SKIP; `go test ./internal/scenario` bijection stays green; `go test ./...` and lint clean; `mdsmith check .` passes |
+| Phase | Title                                                    | Tier   | Gate                                                                                                                                                           |
+| ----- | -------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | no survey report calls an attended lane dead             | sonnet | New unit tests: board and the discovery render (ready/pick/find) do not mark a held lane, bound session gone, live working pane, as dead; suite and lint clean |
+| 2     | the deserted refusals name the pane and lead with resume | sonnet | New unit test: an explicit `start <id>` on a lane a live pane attends names the pane and does not lead with `frit yield`; suite and lint clean                 |
+| 3     | S89 runs the attended-lane state end-to-end under godog  | sonnet | `TestFeatures/S89:` passes with no SKIP; `go test ./internal/scenario` bijection stays green; `go test ./...` and lint clean; `mdsmith check .` passes         |
 
 ## Phases
 
@@ -146,20 +169,25 @@ footer: |
 
 | #   | Status | Phase                                                                  |
 | --- | ------ | ---------------------------------------------------------------------- |
-| 1   | 🔲     | [board does not call an attended lane dead](phase-1.md)                |
+| 1   | 🔲     | [no report calls an attended lane dead](phase-1.md)                    |
 | 2   | 🔲     | [the deserted refusals name the pane and lead with resume](phase-2.md) |
 | 3   | 🔲     | [S89 runs the attended-lane state end-to-end under godog](phase-3.md)  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit board --json` over a held lane whose bound session herdr
-      confirms gone but whose branch a live pane attends does not report
-      that lane as `dead: true`; the live pane is still visible in
-      `agent`/`agent_status`
+- [ ] `frit board --json`, `frit ready --json`, `frit pick --json` and
+      `frit find --json` over a held lane whose bound session herdr
+      confirms gone but whose branch a live pane attends do not report
+      that lane as `dead: true`, whether the pane is working or idle;
+      board's `agent`/`agent_status` still shows the live pane
 - [ ] The JSON Contract holds: every documented key is present, and the
       chosen render for the attended-lane case is deliberate, not a
-      dropped or nulled field
+      dropped or nulled field; where the discovery card did not carry
+      the live-pane fact, it is plumbed into `cardOf` rather than
+      guessed
+- [ ] `frit orphans` is deliberately unchanged: its `Deserted` category
+      still lists a bound-session-gone lane, a separate cleanup concern
 - [ ] An explicit `start <id>` refusal for a lane a live pane attends
       names that pane and leads with resuming it, not with `frit yield`
 - [ ] A lane with no live pane still reads and refuses exactly as before

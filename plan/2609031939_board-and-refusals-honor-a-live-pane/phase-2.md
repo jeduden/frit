@@ -30,11 +30,17 @@ the fallback for when the work must actually be set aside.
 [cmd/frit/start_test.go](../../cmd/frit/start_test.go). Build the
 deserted-hold fixture the existing refusal tests use — held, bound
 session gone, unmatured window, an unparked suffix on its own lane —
-but with herdr showing a live idle pane on the branch (the
+but with herdr showing a live *working* pane on the branch (the
 `liveLeaseFixture` + `withHerdr` shape). Run an explicit `start <id>`.
 Assert the refusal names the pane (its `PaneID`) and does not lead with
 `frit yield`. This fails today: the refusal is the fixed "deserted
 hold … run `frit yield`" string, pane or no pane. Commit the red.
+
+The refusal gates on `plan.Held && plan.Dead && !plan.Stale` and never
+reads `agent_status`. A live pane is a live pane whether it works or
+idles, so the working case is representative. Add an idle-pane case as
+a cheap guard that the reconciliation stays status-agnostic. Then no
+future change can accidentally key the refusal on `agent_status`.
 
 **GREEN.** Fold the live-pane read into `desertedRefusal` and
 `parkFirstRefusal` (or a shared helper Phase 1 introduced). When a pane
