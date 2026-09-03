@@ -1,7 +1,7 @@
 ---
 n: 2
 title: Resume surfaces a single-file plan's Handoff heading
-status: "🔳"
+status: "✅"
 result: false
 ---
 Task 2. `resume.go`'s `resumeFromLedger` builds every single-file

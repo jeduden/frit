@@ -176,9 +176,11 @@ func readPhaseState(dir, n string) (phaseState, error) {
 // resumeFromLedger builds a bundle from a plan's own `phases:` ledger
 // and `## Phase N` sections — the path a plan with no phase-N.md
 // files takes, unchanged from how next already reads it. It carries
-// no handoff, notes or result path: those are a phase-file plan's own
-// convention, and a ledger plan keeps writing its handoff into
-// plan.md the way plan-phase already does.
+// no notes or result path: those are a phase-file plan's own
+// convention. Its handoff comes from plan.md's own top-level `##
+// Handoff` heading, the same marker a directory plan's result file
+// carries, written and overwritten there by plan-handoff on every
+// phase close.
 func resumeFromLedger(planBody []byte) (Bundle, error) {
 	plan, err := Parse(planBody)
 	if err != nil {
@@ -189,13 +191,16 @@ func resumeFromLedger(planBody []byte) (Bundle, error) {
 		return Bundle{}, nil
 	}
 
+	handoffIn, _ := handoffOf(planBody)
+
 	return Bundle{
-		N:        phase.N,
-		Title:    phase.Title,
-		Spec:     phase.Body,
-		Tier:     phase.Tier,
-		Gate:     phase.Gate,
-		HasPhase: true,
+		N:         phase.N,
+		Title:     phase.Title,
+		Spec:      phase.Body,
+		Tier:      phase.Tier,
+		Gate:      phase.Gate,
+		HandoffIn: handoffIn,
+		HasPhase:  true,
 	}, nil
 }
 

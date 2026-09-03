@@ -2340,8 +2340,9 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 // handoff, any in-progress notes already parked, and the result file
 // to write. Each of the optional pieces is printed only when the
 // bundle actually carries one, so a plan resumed from its plan.md
-// ledger — which carries no handoff, notes or result path of its
-// own — prints just the phase line and its spec.
+// ledger — which carries no notes or result path of its own, though
+// its top-level `## Handoff` heading does surface — prints just the
+// phase line, its spec, and that handoff when one is present.
 func printPhase(out io.Writer, doc *report.PhaseDoc) {
 	p := doc.Plan
 	if !doc.HasPhase {

@@ -142,7 +142,8 @@ footer: |
 | --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [The plan-handoff skill in the bundle](phase-1.md)                                                                                                                                                                                                                                |
 |     | ↳      | plan-handoff joined the bundle — internal/skills/assets/plan-handoff and its dogfooded .claude/skills copy — teaching the split close: a `## Handoff` heading for a single-file plan, a phase-N.result.md for a directory plan, either way riding the commit that lands the work. |
-| 2   | 🔳     | [Resume surfaces a single-file plan's Handoff heading](phase-2.md)                                                                                                                                                                                                                |
+| 2   | ✅     | [Resume surfaces a single-file plan's Handoff heading](phase-2.md)                                                                                                                                                                                                                |
+|     | ↳      | resumeFromLedger now calls handoffOf(planBody) and carries a single-file plan's top-level `## Handoff` heading as the open phase's HandoffIn, the same field a directory plan's result file already filled — frit phase surfaces it identically either way.                       |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -154,7 +155,7 @@ footer: |
 - [x] The built `frit skills --via "go run ./cmd/frit"` lays
       `plan-handoff` into `.claude/skills`, and the skill passes the
       `skill` kind's 650-token budget
-- [ ] `frit phase` on a single-file plan surfaces the prior phase's
+- [x] `frit phase` on a single-file plan surfaces the prior phase's
       `## Handoff` as its inherited handoff, the way it already does for
       a directory plan's result file
 - [ ] `frit doctor` reports a phase recorded done whose handoff is
