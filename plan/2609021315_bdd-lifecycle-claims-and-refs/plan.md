@@ -1,7 +1,7 @@
 ---
 id: 2609021315
 title: The lifecycle claim-and-ref scenarios run under godog
-status: "🔳"
+status: "✅"
 summary: >-
   The claim-and-ref half of the lease-protocol matrix's "Lifecycle
   anomalies" section — S50, S51, S52, S53, S55, S56, S57, S58, S70 and
@@ -161,20 +161,21 @@ footer: |
 |     | ↳      | S53, S55 and S57 drop `@pending` and run as real scenarios in `cmd/frit/bdd_lifecycle_test.go`: a plan id reused after the old plan's lease released has its old ref scavenged by evidence before a fresh claim mints epoch 1, the same shape a plan re-opened after being marked done gets, and a plan merged with its branch already auto-deleted has nothing to scavenge and claims fresh straight away. All three share one Then, reading the fresh claim's marker epoch off `ReadMarker` rather than trusting the CLI's own "claimed" wording alone. `go test ./...` and golangci-lint stay clean, and the whole `TestFeatures` suite — every section landed so far — still runs with no ambiguous step.                                                                                                                                                                                                                                                                    |
 | 3   | ✅     | [Plan deleted while claimed runs for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 |     | ↳      | S52 drops `@pending` and runs as a real scenario in `cmd/frit/bdd_lifecycle_test.go`: a lease still live (never released), carrying real work pushed onto its own ref, whose plan file is deleted from main while the lease stands, has that ref scavenged directly by `claim.Scavenge` — the unlanded work parked to a rescue ref before the ref is deleted from origin. The Then checks the park half of the matrix's own outcome directly: `ls-remote` on the recorded rescue ref must carry the tip that was parked, not merely a non-empty ref name. `go test ./...` and golangci-lint stay clean, and the whole `TestFeatures` suite — every section landed so far — still runs with no ambiguous step.                                                                                                                                                                                                                                                                    |
-| 4   | 🔳     | [Released before the PR merges runs for real](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 4   | ✅     | [Released before the PR merges runs for real](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+|     | ↳      | S58 drops `@pending` and runs as a real scenario in `cmd/frit/bdd_lifecycle_test.go`: after `planIsDoneAndItsLeaseIsReleased` (S53's and S57's own Given, now also registering its repo under `w.clones`), a second named machine's own `acquiresTheLeaseForPlan` reacquires the released lease at epoch 2, and two Then steps check the matrix's own doc-by-argument observable directly — the marker reads the new holder's own name, not the old one, and origin's tip matches that claim. `go test ./...` and golangci-lint stay clean, and the whole `TestFeatures` suite now reports every row of this half — S50, S51, S52, S53, S55, S56, S57, S58, S70, S75 — as PASS, none SKIP. This is the plan's last phase.                                                                                                                                                                                                                                                        |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/lifecycle.feature` carries `@pending`;
+- [x] No scenario in `features/lifecycle.feature` carries `@pending`;
       `go test ./cmd/frit -run TestFeatures/S` reports S50, S51, S52,
       S53, S55, S56, S57, S58, S70 and S75 as PASS, none as SKIP
-- [ ] Every step is bound in `cmd/frit/bdd_lifecycle_test.go`;
+- [x] Every step is bound in `cmd/frit/bdd_lifecycle_test.go`;
       `bdd_test.go`, `bdd_lease_test.go` and
       `features/landed-evidence.feature` are untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a marker — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

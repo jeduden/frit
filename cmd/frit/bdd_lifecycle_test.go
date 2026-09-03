@@ -80,6 +80,9 @@ func (w *world) registerLifecycle(sc *godog.ScenarioContext) {
 	sc.Step(`^the plan file is deleted from main and pushed$`, w.thePlanFileIsDeletedFromMainAndPushed)
 	sc.Step(`^the ref is scavenged by evidence$`, w.theRefIsScavengedByEvidence)
 	sc.Step(`^the rescue ref carries the unlanded work$`, w.theRescueRefCarriesTheUnlandedWork)
+
+	sc.Step(`^"([^"]+)"'s claim succeeds at epoch (\d+)$`, w.claimSucceedsAtEpoch)
+	sc.Step(`^origin's tip is "([^"]+)"'s claim$`, w.originsTipIsTheClaim)
 }
 
 // acquiresTheLeaseForPlan drives claim.Acquire directly for a named
@@ -87,8 +90,9 @@ func (w *world) registerLifecycle(sc *godog.ScenarioContext) {
 // same repository, a second plan id acquired alongside the first, as
 // S51 needs — else a fresh clone of the holder's origin, the shape a
 // second claimant's own machine takes everywhere else in this file.
-// The result rides on w.err, the one field every Then step in this
-// section reads back.
+// The result rides on w.err and, on success, w.lease — the two fields
+// this section's own Then steps read back, w.lease shared with
+// bdd_lease_test.go's own steps the same way.
 func (w *world) acquiresTheLeaseForPlan(holder string, planID int) error {
 	repo, ok := w.clones[holder]
 	if !ok {
@@ -98,8 +102,11 @@ func (w *world) acquiresTheLeaseForPlan(holder string, planID int) error {
 			return err
 		}
 	}
-	_, err := claim.Acquire(repo, leaseFor(holder, planID), gitwt.Exec)
+	lease, err := claim.Acquire(repo, leaseFor(holder, planID), gitwt.Exec)
 	w.err = err
+	if err == nil {
+		w.lease = lease
+	}
 
 	return nil
 }
@@ -418,17 +425,19 @@ func (w *world) defaultRefAnswers(want string) error {
 }
 
 // planIsDoneAndItsLeaseIsReleased builds a claimable plan, acquires
-// its lease and releases it — S53's and S57's shared Given. The
+// its lease and releases it — S53's, S57's and S58's shared Given. The
 // released tip is recorded so the scavenge step has exactly what
 // claim.Scavenge needs to CAS against, the same shape
 // TestClaimReacquiresAReleasedLease builds before reacquiring without
-// ever scavenging.
+// ever scavenging. The repo is registered under w.clones[w.holder] too,
+// so S58's own second machine can clone from it via acquiresTheLeaseForPlan.
 func (w *world) planIsDoneAndItsLeaseIsReleased(planID int) error {
 	isolate(w.t)
 	w.holder = "box-a"
 	w.planID = planID
 	root := w.t.TempDir()
 	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.clones[w.holder] = repo
 	st := section[lifecycleState](w)
 	st.root, st.repo = root, repo
 	opts := leaseFor(w.holder, planID)
@@ -681,6 +690,43 @@ func (w *world) theRescueRefCarriesTheUnlandedWork() error {
 	return nil
 }
 
+// claimSucceedsAtEpoch checks S58's own doc-by-argument observable: a
+// named holder's acquire — driven by the shared acquiresTheLeaseForPlan
+// step — succeeded, landed at the expected epoch, and minted a claim
+// marker naming that same holder, never the released lease's old one.
+func (w *world) claimSucceedsAtEpoch(holder string, epoch int) error {
+	if w.err != nil {
+		return fmt.Errorf("%q's claim failed: %w", holder, w.err)
+	}
+	if w.lease.Epoch != epoch {
+		return fmt.Errorf("%q's claim landed at epoch %d, want %d", holder, w.lease.Epoch, epoch)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	m, ok := claim.ReadMarker(repo, leaseFor(holder, w.planID), w.lease.Tip, gitwt.Exec)
+	if !ok {
+		return fmt.Errorf("no lease marker readable at %s", w.lease.Tip)
+	}
+	if m.Kind != "claim" {
+		return fmt.Errorf("%q's tip is a %q marker, want claim", holder, m.Kind)
+	}
+	if m.Holder != holder {
+		return fmt.Errorf("the marker names %q as holder, want %q", m.Holder, holder)
+	}
+
+	return nil
+}
+
+// originsTipIsTheClaim is a thin wrapper over originTipIs,
+// bdd_lease_test.go's own shared helper: origin's remote tip for the
+// plan matches the named holder's own claim, the fact S58's outcome
+// column calls "origin's tip is that claim".
+func (w *world) originsTipIsTheClaim(holder string) error {
+	return w.originTipIs(holder, w.lease.Tip)
+}
+
 // planFileMatches globs a plan's own markdown file by id, the shape
 // S27's fixture and S50's own rename step both need.
 func planFileMatches(repo string, planID int) ([]string, error) {
@@ -868,6 +914,47 @@ func TestPlanIsClaimedAndCarriesUnlandedWorkBuildsAnUnlandedTip(t *testing.T) {
 	require.NotEmpty(t, st.unlandedTip)
 	assert.False(t, claim.Released(st.repo, st.unlandedTip, 7, gitwt.Exec),
 		"the lease this Given builds is live, never released")
+}
+
+// TestClaimSucceedsAtEpochRefusesAFailedClaim: a prior acquire error
+// is read back and reported, not papered over by checking the epoch
+// anyway.
+func TestClaimSucceedsAtEpochRefusesAFailedClaim(t *testing.T) {
+	w := newWorld(t)
+	w.err = fmt.Errorf("held elsewhere")
+	require.Error(t, w.claimSucceedsAtEpoch("box-b", 2))
+}
+
+// TestClaimSucceedsAtEpochRefusesTheWrongEpoch: a claim that landed on
+// an epoch other than the one the scenario named fails this check,
+// even though the acquire itself reported no error.
+func TestClaimSucceedsAtEpochRefusesTheWrongEpoch(t *testing.T) {
+	w := newWorld(t)
+	w.lease = claim.Lease{Epoch: 1}
+	require.Error(t, w.claimSucceedsAtEpoch("box-b", 2))
+}
+
+// TestOriginsTipIsTheClaimRefusesAnUnknownHolder: the wrapper over
+// originTipIs still refuses a holder the scenario never introduced,
+// the same way originTipIs itself does.
+func TestOriginsTipIsTheClaimRefusesAnUnknownHolder(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.originsTipIsTheClaim("ghost"))
+}
+
+// TestClaimSucceedsAtEpochAndOriginsTipIsTheClaimPassTogether: S58's
+// own chain end to end — a released lease, a second named machine's
+// acquire, and both new Then steps — without godog's own layer, so a
+// failure here points straight at the step functions rather than at
+// step-text matching.
+func TestClaimSucceedsAtEpochAndOriginsTipIsTheClaimPassTogether(t *testing.T) {
+	w := newWorld(t)
+	require.NoError(t, w.planIsDoneAndItsLeaseIsReleased(7))
+
+	require.NoError(t, w.acquiresTheLeaseForPlan("box-b", 7))
+
+	require.NoError(t, w.claimSucceedsAtEpoch("box-b", 2))
+	require.NoError(t, w.originsTipIsTheClaim("box-b"))
 }
 
 // TestPlanIsDoneAndItsLeaseIsReleasedBuildsAReleasedTip: the shared

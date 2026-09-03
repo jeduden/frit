@@ -1,7 +1,7 @@
 ---
 n: 4
 title: Released before the PR merges runs for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S58 (released before the PR merges) from `@pending` into a
