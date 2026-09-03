@@ -16,6 +16,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,6 +105,12 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)"'s lease is renewed by a beat instead of seized$`, w.leaseIsRenewedByABeatInsteadOfSeized)
 	sc.Step(`^"([^"]+)" claims plan (\d+), racing "([^"]+)"'s release into the read$`,
 		w.claimsRacingARelease)
+	sc.Step(`^"this host" is ready to start plan (\d+)$`, w.thisHostIsReadyToStartPlan)
+	sc.Step(`^"([^"]+)" starts plan (\d+)$`, w.thisHostStartsPlan)
+	sc.Step(`^the start succeeds, standing this host's own lane up$`,
+		w.theStartSucceedsStandingLaneUp)
+	sc.Step(`^the second start is refused, naming the lane the first stood up$`,
+		w.theSecondStartIsRefusedNamingTheLane)
 }
 
 // attemptsClaim is a fresh claimant's Acquire: the first time a holder
@@ -911,6 +918,160 @@ func (w *world) leaseIsRenewedByABeatInsteadOfSeized(holder string) error {
 	if parent != w.lease.Tip {
 		return fmt.Errorf(
 			"the beat's parent is %s, want the original tip %s", parent, w.lease.Tip)
+	}
+
+	return nil
+}
+
+// thisHostIsReadyToStartPlan is S32's setup: a fresh, unheld plan this
+// host is about to start twice in a row. The stateful herdr fake
+// installed here — not the standing `startHerdr()` default — is what
+// lets the second call see the first's own freshly created worktree
+// as live; it is installed once, at setup, so both start calls in the
+// scenario share it.
+func (w *world) thisHostIsReadyToStartPlan(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = "this host"
+	repo := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
+	w.clones["this host"] = repo
+
+	runner, _ := liveLaneHerdr(w.t, repo, claim.Branch(int64(planID)))
+	withHerdr(w.t, runner)
+	section[cliState](w).herdrSet = true
+
+	return nil
+}
+
+// flagValue reads the value following a named flag in a herdr call's
+// args, "" and false when the flag is absent or carries no value.
+func flagValue(args []string, flag string) (string, bool) {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+
+	return "", false
+}
+
+// liveLaneHerdr fakes a herdr that remembers nothing live until it
+// answers a "worktree create" call: it parses the "--path" argument
+// frit itself supplied, and — since herdr's own RPC is what stands the
+// real checkout up in production, never frit's git — actually adds a
+// real linked worktree there off repo, on the plan's own branch. A
+// linked worktree, not an independent clone, matters: RepoName reads
+// worktree entry zero, which for a linked worktree is the main
+// checkout's own path, exactly as a real herdr-created lane would
+// resolve; an independent clone would name itself instead and never
+// match the plan's repository. Every "agent list" call from then on
+// reflects one live pane at that same path; before it, none. The pane
+// carries no bound session — the shape a fresh, not-yet-bound lease
+// leaves, which the session-based veto cannot see at all, so only
+// this pane-list read stands between the second call and the first's
+// own lane (#126).
+func liveLaneHerdr(t *testing.T, repo, branch string) (herdr.Runner, *herdrCalls) {
+	t.Helper()
+	rec := &herdrCalls{}
+	var cwd string
+
+	return func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			path, ok := flagValue(args, "--path")
+			if !ok {
+				return nil, fmt.Errorf("worktree create carried no --path: %v", args)
+			}
+			cwd = path
+			git(t, repo, "worktree", "add", "-q", cwd, branch)
+
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			if cwd == "" {
+				return []byte(`{"result":{"agents":[]}}`), nil
+			}
+			body, err := json.Marshal(map[string]any{
+				"result": map[string]any{"agents": []map[string]any{{
+					"agent": "claude", "agent_status": "working",
+					"pane_id": "wZ:p1", "cwd": cwd,
+				}}},
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return body, nil
+		}
+
+		return nil, nil
+	}, rec
+}
+
+// thisHostStartsPlan runs `frit start --go` for real, capturing its
+// report — S32's own claim-and-stand-up path, never mocked at the
+// lease-API level, since the live-lane refusal it proves lives in
+// buildStart, not in internal/claim. The tip is read back from origin
+// afterward, since a CLI-driven start never populates w.lease itself,
+// and the maturing step between two calls needs it to seed the window
+// against the real ref rather than an empty one.
+func (w *world) thisHostStartsPlan(holder string, planID int) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	cs := section[cliState](w)
+	cs.out.Reset()
+	cs.errb.Reset()
+	run([]string{
+		"start", strconv.Itoa(planID), "--phase", "3", "--go",
+		"--root", filepath.Dir(repo),
+	}, &cs.out, &cs.errb)
+	if tip := claim.RemoteTip(repo, "origin", int64(planID), gitwt.Exec); tip != "" {
+		w.lease.Tip = tip
+	}
+
+	return nil
+}
+
+// theStartSucceedsStandingLaneUp checks the first start's own report:
+// a fresh escalation actually ran, not a refusal.
+func (w *world) theStartSucceedsStandingLaneUp() error {
+	got := section[cliState](w).out.String()
+	if !strings.Contains(got, "started plan") {
+		return fmt.Errorf("expected a started escalation, got: %s", got)
+	}
+
+	return nil
+}
+
+// theSecondStartIsRefusedNamingTheLane is S32's own refusal:
+// startLiveLaneRefusal's wording, distinct from the ordinary "already
+// held" claimRefusal gives an unmatured hold — this fires only past
+// that check, once herdr's own pane list shows the first call's lane
+// still live.
+func (w *world) theSecondStartIsRefusedNamingTheLane() error {
+	got := section[cliState](w).out.String()
+	if !strings.Contains(got, "refused") {
+		return fmt.Errorf("expected a refusal, got: %s", got)
+	}
+	if !strings.Contains(got, "already sits on lane") {
+		return fmt.Errorf("the refusal does not name a live lane: %s", got)
+	}
+	branch := claim.Branch(int64(w.planID))
+	if !strings.Contains(got, branch) {
+		return fmt.Errorf("the refusal does not name the plan's own branch %q: %s", branch, got)
 	}
 
 	return nil

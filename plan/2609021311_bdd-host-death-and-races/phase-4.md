@@ -1,7 +1,7 @@
 ---
 n: 4
 title: S32, two same-host start sessions racing, runs for real
-status: "🔳"
+status: "✅"
 result: false
 ---
 Convert S32 from `@pending` into a passing scenario. It is the one row

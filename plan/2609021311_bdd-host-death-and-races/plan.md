@@ -1,7 +1,7 @@
 ---
 id: 2609021311
 title: The host-death and race scenarios run under godog
-status: "🔳"
+status: "✅"
 summary: >-
   The lease-protocol matrix's "Host death, suspension, zombies" section
   (S14..S19) and its "Races" section (S26..S32) are declared in
@@ -160,20 +160,22 @@ footer: |
 |     | ↳      | S14, S15, S18 and S31 drop `@pending` and pass as real godog scenarios driven through the CLI (`frit claim`, `frit orphans`) rather than the lease API alone, each mirroring an existing claim/start unit test's fixture. A new `cliState` section carries the lane, bound session, persisted token and captured CLI output a verb-level row needs, alongside the shared `world`.                                                                                  |
 | 3   | ✅     | [S29, the release-vs-loser's-read race, runs for real](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                 |
 |     | ↳      | S29 drops `@pending` and passes as a real godog scenario. Its one new step, `claimsRacingARelease`, wraps `gitwt.Runner` for exactly one claimant's Acquire: the wrapper lies "absent" on that call's first `ls-remote`, letting Acquire attempt a real push against a ref its own read should have shown live, and releases the real holder's lease the instant that push fails for real — landing the race squarely inside `casPush`'s own reconciliation read.  |
+| 4   | ✅     | [S32, two same-host start sessions racing, runs for real](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                              |
+|     | ↳      | S32 drops `@pending` and passes as a real godog scenario driven through `frit start --go` twice, over a stateful herdr fake that turns a first call's own "worktree create" RPC into a real linked worktree and reflects it back as a live, session-less pane. The second call's own `startLiveLaneRefusal` reads that pane and refuses, naming the lane the first call stood up.                                                                                  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] No scenario in `features/host-death.feature` or
+- [x] No scenario in `features/host-death.feature` or
       `features/races.feature` carries `@pending`; `go test ./cmd/frit
       -run TestFeatures/S` reports S14..S19 and S26..S32 as PASS, none
       as SKIP
-- [ ] Every step is bound in
+- [x] Every step is bound in
       `cmd/frit/bdd_host_death_and_races_test.go` or reused from
       `bdd_lease_test.go`; `bdd_test.go` is untouched
-- [ ] Each scenario asserts an observable — a verb's result, origin's
+- [x] Each scenario asserts an observable — a verb's result, origin's
       refs, a marker — never a comment
-- [ ] A finding a row exposes is recorded in the handoff with its row
+- [x] A finding a row exposes is recorded in the handoff with its row
       id, not fixed silently
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
