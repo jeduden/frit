@@ -67,12 +67,32 @@ func (w *world) tipObserved() string {
 	return w.lease.Tip
 }
 
+// landedEvidenceRunner is the Runner every read in this section goes
+// through: the real gitwt.Exec, or the failing one S83 swapped in —
+// so a step composed after "origin becomes unreadable" reads through
+// the same fault the scavenge step already does, rather than quietly
+// bypassing it with a hardcoded gitwt.Exec.
+func (w *world) landedEvidenceRunner() gitwt.Runner {
+	if run := section[landedEvidenceState](w).runner; run != nil {
+		return run
+	}
+
+	return gitwt.Exec
+}
+
+// squashLandContent is the content both the pushed work commit and its
+// later squash-merge carry — the same literal on both sides is what
+// makes claim.WorkLanded's merge-tree content check a no-op, and this
+// section's own squashMergesOntoTheDefaultBranch shares it rather than
+// hardcoding a second copy that could drift from pushesWorkOnTheLane's.
+const squashLandContent = "wip\n"
+
 // pushesWorkOnTheLane commits one work file on a holder's lane and
 // pushes it for real — the shape S54, S84 and S85 all squash-merge
 // against, as opposed to bdd_lease_test.go's own commitsUnpushedWork,
 // which deliberately leaves the commit local.
 func (w *world) pushesWorkOnTheLane(holder string) error {
-	tip, err := w.commitWorkFileOnLane(holder, "wip\n", "unlanded work")
+	tip, err := w.commitWorkFileOnLane(holder, squashLandContent, "unlanded work")
 	if err != nil {
 		return err
 	}
@@ -102,18 +122,25 @@ func (w *world) clonesTheRepository(holder string) error {
 // squashLandOnMain in internal/claim/lease_test.go, which cmd/frit
 // cannot import: a fresh commit on the default branch carrying the same
 // content the lane pushed, with no ancestry to the lane's own commits —
-// the shape a squash-merge PR leaves behind.
+// the shape a squash-merge PR leaves behind. holder's clone is fresh
+// off origin (clonesTheRepository), so its local main already matches
+// origin/main without a fetch — checkout alone is enough, exactly as
+// squashLandOnMain's own fixture does it.
+//
+// The guard refuses on this section's own pushed tip, not
+// tipObserved()'s lease-tip fallback: every acquired lease carries a
+// tip, so guarding on the fallback would never actually catch a
+// squash-merge run before any push.
 func (w *world) squashMergesOntoTheDefaultBranch(holder string) error {
-	if w.tipObserved() == "" {
+	if section[landedEvidenceState](w).tip == "" {
 		return fmt.Errorf("nothing has been pushed on the lane yet; the push step comes first")
 	}
 	repo, err := w.cloneOf(holder)
 	if err != nil {
 		return err
 	}
-	git(w.t, repo, "fetch", "-q", "origin", "main")
-	git(w.t, repo, "checkout", "-q", "-B", "main", "origin/main")
-	writeFile(w.t, repo, "w.txt", "wip\n")
+	git(w.t, repo, "checkout", "-q", "main")
+	writeFile(w.t, repo, "w.txt", squashLandContent)
 	git(w.t, repo, "add", "-A")
 	git(w.t, repo, "commit", "-q", "-m", fmt.Sprintf("squash-merge plan %d", w.planID))
 	git(w.t, repo, "push", "-q", "origin", "main")
@@ -124,7 +151,11 @@ func (w *world) squashMergesOntoTheDefaultBranch(holder string) error {
 // failingLsRemote wraps a Runner so every ls-remote call reports a
 // read fault while every other git command still runs for real — the
 // unreadable-origin shape S83 needs, guarded so a scenario cannot pass
-// merely because every git call failed.
+// merely because every git call failed. Deliberately narrower than
+// bdd_partitions_and_clocks_test.go's own partitionRunner, which also
+// cuts push and fetch: S83 pins that "gone" is only ever a remote's
+// answer to the one read a scavenge classifies a ref by, so widening
+// the cut to every network call would no longer isolate that read.
 func failingLsRemote(run gitwt.Runner) gitwt.Runner {
 	return func(dir string, args ...string) ([]byte, error) {
 		if len(args) > 0 && args[0] == "ls-remote" {
@@ -196,15 +227,18 @@ func (w *world) nothingIsParked() error {
 }
 
 // theScavengeFailsNamingTheRead confirms the last scavenge run
-// returned an error whose text names the read it could not complete —
+// returned an error whose text names the specific read it could not
+// complete — the plan's own work ref, read from origin — not merely
+// any error whose text happens to contain the word "read".
 // "gone" is only ever a remote's answer, never a fold of "unreadable".
 func (w *world) theScavengeFailsNamingTheRead() error {
 	le := section[landedEvidenceState](w)
 	if le.scavErr == nil {
 		return fmt.Errorf("expected the scavenge to fail naming the read; it reported no error")
 	}
-	if !strings.Contains(le.scavErr.Error(), "read") {
-		return fmt.Errorf("the error %q does not name the read", le.scavErr)
+	want := fmt.Sprintf("read %s from origin", w.branch())
+	if !strings.Contains(le.scavErr.Error(), want) {
+		return fmt.Errorf("the error %q does not name the read (%q)", le.scavErr, want)
 	}
 
 	return nil
@@ -284,36 +318,29 @@ func (w *world) theWorkReadsLandedFor(holder string) error {
 	if err != nil {
 		return err
 	}
-	base := gitobj.DefaultRef(repo, gitwt.Exec)
+	run := w.landedEvidenceRunner()
+	base := gitobj.DefaultRef(repo, run)
 	if base == "" {
 		return fmt.Errorf("DefaultRef found no default branch for %q", holder)
 	}
 	tip := w.tipObserved()
-	if !claim.WorkLanded(repo, int64(w.planID), base, tip, gitwt.Exec) {
+	if !claim.WorkLanded(repo, int64(w.planID), base, tip, run) {
 		return fmt.Errorf("WorkLanded(%s, %s) reported unlanded, want landed", base, tip)
 	}
 
 	return nil
 }
 
-// aScavengeByParksNothing runs claim.Scavenge from holder's own clone
-// and confirms it parked no rescue ref — the squash-landed content
-// needed no rescue, evidence a scavenge reaches on its own without any
-// Runner substitution.
+// aScavengeByParksNothing runs a scavenge from holder's own clone and
+// confirms it parked no rescue ref — composed from the same two steps
+// S54 chains explicitly, so the two rows can never silently diverge on
+// what "a clean scavenge" actually checks.
 func (w *world) aScavengeByParksNothing(holder string) error {
-	repo, err := w.cloneOf(holder)
-	if err != nil {
+	if err := w.scavengesAtTheObservedTip(holder); err != nil {
 		return err
-	}
-	sc, err := claim.Scavenge(repo, leaseFor(holder, w.planID), w.tipObserved(), gitwt.Exec)
-	if err != nil {
-		return err
-	}
-	if sc.Rescue != "" {
-		return fmt.Errorf("expected nothing parked, got rescue ref %s", sc.Rescue)
 	}
 
-	return nil
+	return w.nothingIsParked()
 }
 
 // defaultRefAnswersOriginMain confirms gitobj.DefaultRef reaches
@@ -328,7 +355,7 @@ func (w *world) defaultRefAnswersOriginMain(holder string) error {
 	if out, err := gitCapture(w.t, repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
 		return fmt.Errorf("%q has refs/remotes/origin/HEAD set to %s; the scenario needs it unset", holder, out)
 	}
-	if got := gitobj.DefaultRef(repo, gitwt.Exec); got != "refs/remotes/origin/main" {
+	if got := gitobj.DefaultRef(repo, w.landedEvidenceRunner()); got != "refs/remotes/origin/main" {
 		return fmt.Errorf("DefaultRef answered %q, want refs/remotes/origin/main", got)
 	}
 
@@ -403,6 +430,42 @@ func TestSquashMergesRefusesBeforeAnyPush(t *testing.T) {
 	assert.Contains(t, err.Error(), "nothing has been pushed")
 }
 
+// TestRefreshRemoteTrackingFetchesOriginMainWithoutTouchingLocalMain:
+// S84 and S85 both depend on a holder's local main staying exactly
+// where it was while origin's own advances — refreshRemoteTracking
+// exists to fetch that fresh view without ever merging or pulling it
+// in, so this pins that a fetch alone moves refs/remotes/origin/main
+// and never refs/heads/main.
+func TestRefreshRemoteTrackingFetchesOriginMainWithoutTouchingLocalMain(t *testing.T) {
+	isolate(t)
+	w := newWorld(t)
+	w.holder = "box-a"
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	w.clones["box-a"] = repo
+
+	before, err := gitCapture(t, repo, "rev-parse", "refs/heads/main")
+	require.NoError(t, err)
+
+	// A second clone advances origin's main behind box-a's back.
+	second := cloneAgain(t, repo)
+	writeFile(t, second, "w.txt", "wip\n")
+	git(t, second, "add", "-A")
+	git(t, second, "commit", "-q", "-m", "advance main")
+	git(t, second, "push", "-q", "origin", "main")
+
+	got, err := w.refreshRemoteTracking("box-a")
+	require.NoError(t, err)
+	assert.Equal(t, repo, got)
+
+	local, err := gitCapture(t, repo, "rev-parse", "refs/heads/main")
+	require.NoError(t, err)
+	assert.Equal(t, before, local, "refreshRemoteTracking must never move local main")
+
+	remote, err := gitCapture(t, repo, "rev-parse", "refs/remotes/origin/main")
+	require.NoError(t, err)
+	assert.NotEqual(t, before, remote, "the fetch must bring origin's advance in")
+}
+
 // TestNothingIsParkedReportsAFailedScavenge: the Then step that checks
 // no rescue ref was parked must not silently pass over a scavenge that
 // itself failed — a nil Scavenged and a nil error look the same as "no
@@ -418,15 +481,20 @@ func TestNothingIsParkedReportsAFailedScavenge(t *testing.T) {
 
 // TestTheScavengeFailsNamingTheReadWantsAnActualFailure: the Then step
 // pinning S83's fault must not pass on a scavenge that quietly
-// succeeded, and must reject an error that never names the read at
-// all — either would let a scenario pass without proving the fault
+// succeeded, must reject an error that never names the read at all,
+// and must reject an error that merely contains the word "read" for
+// some unrelated reason — none of the three would prove the fault
 // this row exists to pin.
 func TestTheScavengeFailsNamingTheReadWantsAnActualFailure(t *testing.T) {
 	w := newWorld(t)
+	w.planID = 7
 	require.Error(t, w.theScavengeFailsNamingTheRead(), "no error at all is not the fault")
 
 	section[landedEvidenceState](w).scavErr = fmt.Errorf("plan 7 is held: the work ref carries a live lease")
 	require.Error(t, w.theScavengeFailsNamingTheRead(), "an error that never names the read is not this fault")
+
+	section[landedEvidenceState](w).scavErr = fmt.Errorf("could not read the plan's status file")
+	require.Error(t, w.theScavengeFailsNamingTheRead(), "an unrelated read is not this fault")
 
 	section[landedEvidenceState](w).scavErr = fmt.Errorf("read refs/heads/plan/7 from origin for plan 7: boom")
 	require.NoError(t, w.theScavengeFailsNamingTheRead())
