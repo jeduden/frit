@@ -122,7 +122,11 @@ func (w *world) losesToTheLiveLease(holder string) error {
 	if !errors.As(w.err, &held) {
 		return fmt.Errorf("%q's acquire was expected to lose, got %v", holder, w.err)
 	}
-	if held.Known && held.Marker.Holder != w.holder {
+	if !held.Known {
+		return fmt.Errorf("%q's acquire lost, but the winning marker could not be read to confirm it was %q",
+			holder, w.holder)
+	}
+	if held.Marker.Holder != w.holder {
 		return fmt.Errorf("%q's acquire lost to %q, want %q", holder, held.Marker.Holder, w.holder)
 	}
 
@@ -505,9 +509,20 @@ func (w *world) theReleasedRefIsScavengedByEvidence() error {
 	if st.repo == "" || st.releaseTip == "" {
 		return fmt.Errorf("no released lease to scavenge; the done-and-released step comes first")
 	}
-	_, err := claim.Scavenge(st.repo, leaseFor("scavenger", w.planID), st.releaseTip, gitwt.Exec)
+	_, err := w.scavengeTip(st.releaseTip)
 
 	return err
+}
+
+// scavengeTip drives claim.Scavenge against a tip a Given in this
+// section already recorded — the one call
+// theReleasedRefIsScavengedByEvidence and theRefIsScavengedByEvidence
+// share; each keeps its own guard, since they read different fields
+// and report different missing-fixture errors.
+func (w *world) scavengeTip(tip string) (claim.Scavenged, error) {
+	st := section[lifecycleState](w)
+
+	return claim.Scavenge(st.repo, leaseFor("scavenger", w.planID), tip, gitwt.Exec)
 }
 
 // originCarriesNoPlanRef checks a plan's own work ref is entirely
@@ -657,7 +672,7 @@ func (w *world) theRefIsScavengedByEvidence() error {
 	if st.repo == "" || st.unlandedTip == "" {
 		return fmt.Errorf("no claimed lease to scavenge; the claimed-and-carries-work step comes first")
 	}
-	sc, err := claim.Scavenge(st.repo, leaseFor("scavenger", w.planID), st.unlandedTip, gitwt.Exec)
+	sc, err := w.scavengeTip(st.unlandedTip)
 	if err != nil {
 		return err
 	}
@@ -682,8 +697,12 @@ func (w *world) theRescueRefCarriesTheUnlandedWork() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", out, err)
 	}
-	if !strings.Contains(out, st.unlandedTip) {
-		return fmt.Errorf("rescue ref %s is %q, want it to carry the parked tip %s",
+	// The sha column, not the ref name, is what a rescue could get
+	// wrong: rescueRef already embeds the tip in the ref's own name, so
+	// checking the ls-remote line as a whole would pass even if the
+	// ref pointed at some other object.
+	if fields := strings.Fields(out); len(fields) == 0 || fields[0] != st.unlandedTip {
+		return fmt.Errorf("rescue ref %s points at %q, want it to carry the parked tip %s",
 			st.rescue, out, st.unlandedTip)
 	}
 
