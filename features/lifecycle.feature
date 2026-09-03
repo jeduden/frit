@@ -22,8 +22,13 @@ Feature: Lifecycle anomalies — claims and refs
     And "box-a" acquires the lease for plan 8
     Then origin holds refs/heads/plan/7 and refs/heads/plan/8, two refs, neither naming the shared title
 
-  @S52 @pending
+  @S52
   Scenario: plan deleted while claimed
+    Given plan 7 is claimed and carries unlanded work
+    When the plan file is deleted from main and pushed
+    And the ref is scavenged by evidence
+    Then origin carries no plan/7 ref
+    And the rescue ref carries the unlanded work
 
   @S53
   Scenario: plan id reused
