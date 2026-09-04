@@ -118,12 +118,13 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                         |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                             |
-|     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json. |
-| 2   | 🔲     | [the terminal progress is transient, with a closing status line](phase-2.md)                                                                                                                                                                                  |
-| 3   | 🔲     | [the gather status joins the report model, in table and JSON](phase-3.md)                                                                                                                                                                                     |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                            |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                                                                                |
+|     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json.                                                    |
+| 2   | ✅     | [the terminal progress is transient, with a closing status line](phase-2.md)                                                                                                                                                                                                                                     |
+|     | ↳      | The terminal progress line is transient: Repo redraws it in place with \r + ANSI erase-to-end-of-line, and Done clears it before writing a newline-terminated closing status. DiscardReporter and progressFor's terminal gate are unchanged, so a pipe, a file, a test buffer or a --json run still see nothing. |
+| 3   | 🔲     | [the gather status joins the report model, in table and JSON](phase-3.md)                                                                                                                                                                                                                                        |
 <?/catalog?>
 
 ## Acceptance Criteria
