@@ -91,9 +91,11 @@ knows, and re-derives nothing.
 
 ## Execution
 
-| Phase | Title                                                 | Tier   | Gate                                                                                                                    |
-| ----- | ----------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| 1     | A required reporter and a returned status on `Gather` | sonnet | new red tests in internal/fleet pass green; the built `frit` prints per-repository progress to stderr with stdout clean |
+| Phase | Title                                                  | Tier   | Gate                                                                                                                                             |
+| ----- | ------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | A required reporter and a returned status on `Gather`  | sonnet | new red tests in internal/fleet pass green; the built `frit` prints per-repository progress to stderr with stdout clean                          |
+| 2     | The terminal progress is transient, plus a status line | sonnet | new `progress` tests pass — a redrawn line, a cleared close, a final status line; built `frit` shows one redrawing line with stdout clean        |
+| 3     | The gather status joins the report model               | sonnet | new tests pass — a verb's `--json` and table both surface the gather status, every key present, `Schema` unchanged; built `frit --json` shows it |
 
 ## Phases
 
@@ -120,6 +122,8 @@ footer: |
 | --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                             |
 |     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json. |
+| 2   | 🔲     | [the terminal progress is transient, with a closing status line](phase-2.md)                                                                                                                                                                                  |
+| 3   | 🔲     | [the gather status joins the report model, in table and JSON](phase-3.md)                                                                                                                                                                                     |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -135,5 +139,13 @@ footer: |
 - [x] Running the built `frit` against a multi-repository root prints
       per-repository progress to stderr while it walks, and stdout
       still carries only the command's own output
+- [ ] On a terminal, the progress is transient: the walk redraws a
+      single line in place as it advances, then clears it and prints one
+      closing status line, so a fast walk leaves one line behind
+- [ ] The gather status joins the report model, so `frit <verb> --json`
+      and the table both surface the counts — discovered, read, fetched,
+      problems — with every key present and `Schema` unchanged
+- [ ] A partial walk, where a fault stepped over a repository, renders
+      the reduced counts (`Read < Discovered`) in both renderings
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
