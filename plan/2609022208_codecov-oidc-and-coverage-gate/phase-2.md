@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The project status can only drop 0.5%
-status: "🔲"
+status: "✅"
 result: false
 ---
 Turn the confirmed upload into the gate. `codecov.yml` grows the
