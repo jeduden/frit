@@ -112,6 +112,26 @@ func TestProgressWidthZeroImposesNoLimit(t *testing.T) {
 	}
 }
 
+// TestProgressDoneRendersFromGatherStatusLine asserts the closing line
+// is drawn from the one report.Gather.StatusLine the report footer uses,
+// so the terminal's stderr close and the stdout footer cannot render the
+// same coverage two different ways.
+func TestProgressDoneRendersFromGatherStatusLine(t *testing.T) {
+	var buf bytes.Buffer
+	s := fleet.Summary{
+		Discovered: 3, Read: 2, Fetched: 1, Problems: 1,
+		Elapsed: 2 * time.Millisecond,
+	}
+	newProgress(&buf, 0).Done(s)
+
+	want := gatherOf(s).StatusLine()
+	visible := strings.TrimPrefix(strings.TrimRight(buf.String(), "\n"), clearLine)
+	if visible != want {
+		t.Fatalf("Done must render coverage from the one StatusLine model:\n got %q\nwant %q",
+			visible, want)
+	}
+}
+
 // TestProgressStartFoldsIntoTransientShape asserts Start does not by
 // itself scroll the terminal with a standalone newline-terminated line
 // ahead of the redrawn Repo lines.

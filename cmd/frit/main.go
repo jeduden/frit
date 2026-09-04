@@ -1270,15 +1270,23 @@ func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, err
 
 // gatherStatus projects the fleet walk's Summary — populated on every
 // Result by construction — into the report model, so a gathering verb
-// carries how much of the fleet its answer reflects. Elapsed is
-// rendered in milliseconds to match the report block's fixed shape.
+// carries how much of the fleet its answer reflects.
 func gatherStatus(res fleet.Result) report.Gather {
+	return gatherOf(res.Summary)
+}
+
+// gatherOf projects a walk's Summary into the report model. It is the
+// one conversion, so the terminal's closing progress line and every
+// verb's report draw the coverage from a single shape rather than
+// re-tallying it apart. Elapsed is rendered in milliseconds to match
+// the report block's fixed shape.
+func gatherOf(s fleet.Summary) report.Gather {
 	return report.Gather{
-		Discovered: res.Summary.Discovered,
-		Read:       res.Summary.Read,
-		Fetched:    res.Summary.Fetched,
-		Problems:   res.Summary.Problems,
-		ElapsedMS:  res.Summary.Elapsed.Milliseconds(),
+		Discovered: s.Discovered,
+		Read:       s.Read,
+		Fetched:    s.Fetched,
+		Problems:   s.Problems,
+		ElapsedMS:  s.Elapsed.Milliseconds(),
 	}
 }
 
