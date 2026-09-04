@@ -41,15 +41,29 @@ PR's own Codecov check appearing and reading correctly once pushed.
   changing branch protection** — it is a shared repository setting,
   not a file this plan's tree can gate red/green.
 
-**Gate.** Three checks:
+**Discovered: no status posts pre-merge on a first integration.**
+`main` has never carried a Codecov report — this plan is what starts
+one. Codecov's own PR comment on #154 states outright: "Once you
+merge this PR into your default branch, you're all set!" No
+`project`/`patch` status or check-run appears on #154's commits.
+`gh api repos/jeduden/frit/commits/<sha>/status` stays `total_count:
+0`. Requiring the check now, before it has ever posted, would make
+GitHub wait on a context that cannot appear on this PR's own commits.
+That would deadlock the merge that is supposed to create the
+baseline. So the gate below splits into a same-PR half (config
+validates, no Go/lint regression) and a post-merge half (the check
+posts for real, then goes into `required_status_checks.contexts`).
+
+**Gate.** Four checks; the last two happen after PR #154 merges:
 
 1. `codecov.yml` validates: `curl -X POST --data-binary @codecov.yml
    https://codecov.io/validate` returns the parsed config.
-2. On PR #154, Codecov posts both `codecov/project` and
-   `codecov/patch` checks (or their configured names), and the
-   `project` check's baseline is the PR's base commit — not
-   `if_not_found: success` firing because no baseline was found.
-3. `main`'s branch protection lists the Codecov check under
+2. `go test ./...`, `golangci-lint`, and `mdsmith check .` stay green
+   — this change touches no Go.
+3. On the first push to `main` after merge (or the next same-repo PR),
+   Codecov posts both `project` and `patch` checks with a real
+   baseline — not `if_not_found: success` firing for lack of one.
+4. `main`'s branch protection then lists the Codecov check under
    `required_status_checks.contexts` — confirmed with the user first.
 
 Then the full `go test ./...` and lint stay green — this change
