@@ -52,6 +52,7 @@ func TestGoldenShapes(t *testing.T) {
 		{"open", goldenOpen()},
 		{"open-nolane", goldenOpenNoLane()},
 		{"nudge", goldenNudge()},
+		{"message", goldenMessage()},
 		{"claim", goldenClaim()},
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
@@ -346,6 +347,17 @@ func goldenNudge() *NudgeDoc {
 	doc := NewNudge("/fleet", "atlas", 2608161810,
 		"The dispatch ladder", "2", "opus",
 		"/plan-phase 2608161810 2", false)
+	doc.SetTarget("wC:p1")
+
+	return doc
+}
+
+// goldenMessage pins the dry-run shape: the operator's own text
+// carried whole, and the live lane it would land in — working or
+// idle, so it carries no busy refusal the way nudge's shape would.
+func goldenMessage() *MessageDoc {
+	doc := NewMessage("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "are you in a PR?", false)
 	doc.SetTarget("wC:p1")
 
 	return doc

@@ -332,3 +332,110 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 		"would send %s → %s  (%s)\nrun again with --go to send\n",
 		doc.Prompt, doc.Target, modelLabel(doc.Tier))
 }
+
+type messageCmd struct {
+	Selector string `arg:"" help:"Plan id or slug."`
+	Text     string `arg:"" help:"Text to send to the lane's live agent."`
+	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
+}
+
+// Run sends the operator's own text to a plan's live lane through
+// herdr — the rung that resolves what git alone cannot: whether a held
+// lane's work is pushed and sitting in an open PR, or genuinely
+// deserted. Unlike nudge, it is not gated on idle — a working agent is
+// exactly who a supervisor needs to ask "are you in a PR?" — so the one
+// refusal nudge carries for busy lanes has no counterpart here. It is
+// dry-run by default: without --go it prints the text and the target
+// and sends nothing.
+func (m *messageCmd) Run(c *cli, rt *runtime) error {
+	res, err := gatherFleet(c, rt)
+	if err != nil {
+		return err
+	}
+	plan, err := resolveSelector(rt, m.Selector, res.Plans, true)
+	if err != nil {
+		return err
+	}
+
+	doc := report.NewMessage(c.Root, plan.Repo, plan.ID, plan.Title,
+		m.Text, m.Go)
+	carryProblems(doc, res.Problems, c.All)
+
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+	switch {
+	case herdrErr != nil:
+		// A socket frit could not reach is not "nobody is working it": it
+		// is presence unknown, so refuse on that rather than on an absent
+		// lane frit never actually looked for.
+		doc.AddProblem("herdr", herdrErr)
+		doc.Refuse("herdr unreachable")
+	case presenceUnknown(herdrErr, hostProbs):
+		// herdrErr is nil here, so a configured host went unread — no live
+		// read and no cache. A lane may be live behind the gap, so refuse
+		// on unread presence the way open withholds its action, not on an
+		// absent lane.
+		doc.Refuse("presence unknown: a configured host went unread")
+	default:
+		if err := messageSend(rt, m, doc, plan, lane, found); err != nil {
+			return err
+		}
+	}
+
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	printMessage(rt.stdout, doc)
+	printProblems(rt.stderr, doc.Problems)
+
+	return nil
+}
+
+// messageSend applies message's own rule to the lane it found: refuse a
+// plan with no live lane, and otherwise send only when --go was given.
+// Unlike nudgeSend, a working lane is not refused — that is the one
+// divergence from nudge the whole verb exists for. A send that fails is
+// surfaced rather than reported as done.
+func messageSend(
+	rt *runtime, m *messageCmd, doc *report.MessageDoc,
+	plan discovery.Plan, lane herdr.Lane, found bool,
+) error {
+	if !found {
+		doc.Refuse(fmt.Sprintf("no live lane for plan %d", plan.ID))
+		return nil
+	}
+
+	doc.SetTarget(lane.Pane.PaneID)
+	if m.Go {
+		if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID, m.Text); err != nil {
+			return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+		}
+		doc.MarkSent()
+	}
+
+	return nil
+}
+
+// printMessage reports the text and its fate: refused, sent, or — the
+// default — held back for a --go that was not given. The text is
+// always shown, because seeing exactly what would go is the point of
+// the dry run.
+func printMessage(out io.Writer, doc *report.MessageDoc) {
+	if doc.Refused != "" {
+		verb := "would refuse"
+		if doc.Go {
+			verb = "refused"
+		}
+		_, _ = fmt.Fprintf(out, "%s: %s\n  %q\n", verb, doc.Refused, doc.Text)
+		return
+	}
+	if doc.Sent {
+		_, _ = fmt.Fprintf(out, "sent %q → %s\n", doc.Text, doc.Target)
+		return
+	}
+	_, _ = fmt.Fprintf(out,
+		"would send %q → %s\nrun again with --go to send\n",
+		doc.Text, doc.Target)
+}

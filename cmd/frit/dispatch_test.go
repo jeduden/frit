@@ -648,3 +648,136 @@ func TestNudgeTierComesFromThePlan(t *testing.T) {
 	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
 	assert.Equal(t, "wC:p1", doc.Target)
 }
+
+// workingLane is idleLane's busy counterpart, so a test can prove
+// message reaches a lane nudge would refuse.
+func workingLane(repo string) map[string]any {
+	return map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "busy",
+	}
+}
+
+// TestMessageReachesAWorkingLane is the Phase 1 gate's leading case:
+// message carries the operator's own words to a lane nudge would
+// refuse for being busy — the whole point of asking "are you in a
+// PR?" of an agent still working.
+func TestMessageReachesAWorkingLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "are you in a PR?",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"), "dry-run sends nothing")
+	assert.NotContains(t, out.String(), "refus",
+		"message does not refuse a working lane the way nudge would")
+	assert.Contains(t, out.String(), "are you in a PR?",
+		"the operator's text is shown")
+	assert.Contains(t, out.String(), "wC:p1", "the target pane is printed")
+}
+
+// TestMessageGoSendsTheTextToAWorkingLane: with --go, the operator's
+// exact text is prompted into the working lane, whole.
+func TestMessageGoSendsTheTextToAWorkingLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "are you in a PR?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t,
+		rec.verb("agent", "prompt", "wC:p1", "are you in a PR?"),
+		"the exact text is sent whole to the pane")
+	assert.False(t, rec.verb("agent", "read"), "message never reads a reply")
+	assert.Contains(t, out.String(), "sent")
+}
+
+// TestMessageReachesAnIdleLane: both live statuses are covered, not
+// only the working one message exists for.
+func TestMessageReachesAnIdleLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "prompt", "wC:p1", "status?"))
+	assert.Contains(t, out.String(), "sent")
+}
+
+// TestMessageRefusesWhenNoLiveLane: message is into an existing lane,
+// so a plan nobody is working is refused rather than started.
+func TestMessageRefusesWhenNoLiveLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // no panes
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"))
+	assert.Contains(t, out.String(), "no live lane")
+}
+
+// TestMessageSaysPresenceUnknownWhenAHostIsUnread: a configured host
+// that went unread is presence unknown, not an absent lane — message
+// refuses on that, mirroring nudge, rather than claiming nobody works
+// the plan.
+func TestMessageSaysPresenceUnknownWhenAHostIsUnread(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // local socket, no panes
+	withHerdr(t, runner)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "status?", "--go",
+		"--hosts", "box", "--root", root)
+
+	assert.Contains(t, doc.Refused, "presence unknown")
+	assert.NotContains(t, doc.Refused, "no live lane",
+		"an unread host is not an absent lane frit looked for")
+	assert.False(t, rec.verb("agent", "prompt"),
+		"nothing is sent when presence is unknown")
+	require.NotEmpty(t, doc.Problems, "the unread host travels in the report")
+}
+
+// TestMessageEmitsJSON pins the fields a consumer keys on: the text
+// carried whole, the target pane, and go/sent apart from each other.
+func TestMessageEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, _ := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "are you in a PR?", "--root", root)
+
+	assert.Equal(t, "message", doc.Command)
+	assert.Equal(t, "are you in a PR?", doc.Text)
+	assert.Equal(t, "wC:p1", doc.Target)
+	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
+}

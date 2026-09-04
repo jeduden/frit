@@ -1,7 +1,7 @@
 ---
 id: 2609032048
 title: frit can message a lane's agent, so an ambiguous lane asks
-status: "🔲"
+status: "🔳"
 summary: >-
   Git alone cannot tell a deserted, unlanded lane apart from one whose
   work is pushed and sitting in an open PR while its agent finishes the
@@ -133,11 +133,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                              |
-| --- | ------ | ------------------------------------------------------------------ |
-| 1   | 🔲     | [frit message sends an operator's text to a live lane](phase-1.md) |
-| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)          |
-| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)         |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                            |
+|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change. |
+| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                     |
+| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                    |
 <?/catalog?>
 
 ## Acceptance Criteria
