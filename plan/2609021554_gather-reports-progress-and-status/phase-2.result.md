@@ -20,10 +20,12 @@ terminal line rather than scrolling past it:
   folded into the same redraw shape as `Repo` rather than a
   standalone newline-terminated line ahead of it.
 - `Repo` redraws the line in place with `[i/total] name`.
-- `Done` clears the line and writes the closing status
-  ("gathered R/D repositories, P problem(s), in E"), this time
+- `Done` clears the line and writes the closing status, this time
   terminated by `\n` so the command's own output starts clean on the
-  next line.
+  next line. (Follow-up: the close now renders through
+  `report.Gather.StatusLine`, the one renderer Phase 3's report footer
+  also uses, so the terminal close and the report cannot show the same
+  coverage two different ways.)
 
 `DiscardReporter` and `progressFor`'s terminal gate are untouched — a
 pipe, a file, a test buffer, and a `--json` run still get no writes at

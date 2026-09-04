@@ -89,9 +89,10 @@ func (p *progress) Repo(name string, index, total int) {
 }
 
 // Done clears the transient line and writes the closing status,
-// terminated by a newline so the command's own output starts clean.
+// terminated by a newline so the command's own output starts clean. The
+// status is rendered from report.Gather.StatusLine, the one renderer a
+// verb's report footer also uses, so the terminal's close and the
+// report cannot show the same coverage two different ways.
 func (p *progress) Done(s fleet.Summary) {
-	_, _ = fmt.Fprintf(p.out,
-		"%sgathered %d/%d repositories, %d problem(s), in %s\n",
-		clearLine, s.Read, s.Discovered, s.Problems, s.Elapsed.Round(1e6))
+	_, _ = fmt.Fprintf(p.out, "%s%s\n", clearLine, gatherOf(s).StatusLine())
 }
