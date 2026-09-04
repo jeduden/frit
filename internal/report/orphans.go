@@ -15,6 +15,7 @@ import (
 // the document says both, one with empty lists and one in Problems.
 type OrphansDoc struct {
 	header
+	gathered
 	Root     string       `json:"root"`
 	Repos    []OrphanRepo `json:"repos"`
 	Problems []Problem    `json:"problems"`

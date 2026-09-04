@@ -1,6 +1,13 @@
 {
   "schema": 1,
   "command": "start",
+  "gather": {
+    "discovered": 0,
+    "read": 0,
+    "fetched": 0,
+    "problems": 0,
+    "elapsed_ms": 0
+  },
   "root": "/fleet",
   "plan": {
     "repo": "atlas",

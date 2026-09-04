@@ -430,11 +430,19 @@ func TestWidthFlagOverridesDetection(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	// The gather status is a caption printed after the table, not one of
+	// its fitted rows, so --width bounds the table lines and the closing
+	// status line stands apart from that check.
+	var table []string
 	for _, line := range lines {
+		if strings.HasPrefix(line, "gathered ") {
+			continue
+		}
+		table = append(table, line)
 		assert.LessOrEqual(t, textw.Width(line), 50,
 			"--width fits the table though stdout is not a terminal")
 	}
-	assert.Contains(t, lines[len(lines)-1], "…")
+	assert.Contains(t, table[len(table)-1], "…")
 }
 
 func TestSelectBoardColumns(t *testing.T) {

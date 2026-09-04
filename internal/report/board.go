@@ -15,6 +15,7 @@ import (
 // the same as no agent, and the board says so instead of guessing.
 type BoardDoc struct {
 	header
+	gathered
 	Root     string      `json:"root"`
 	Presence bool        `json:"presence"`
 	Plans    []BoardPlan `json:"plans"`

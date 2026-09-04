@@ -1,6 +1,13 @@
 {
   "schema": 1,
   "command": "show",
+  "gather": {
+    "discovered": 0,
+    "read": 0,
+    "fetched": 0,
+    "problems": 0,
+    "elapsed_ms": 0
+  },
   "root": "/fleet",
   "source": "default-branch",
   "goal": "Turn a board into a seeded prompt.",

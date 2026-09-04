@@ -66,6 +66,7 @@ const (
 // no agent, so the document carries a focus and nothing more.
 type OpenDoc struct {
 	header
+	gathered
 	Root    string       `json:"root"`
 	Plan    DispatchPlan `json:"plan"`
 	Focused bool         `json:"focused"`
@@ -205,6 +206,7 @@ func (d *OpenDoc) AddProblem(repo string, err error) {
 // hands over.
 type NudgeDoc struct {
 	header
+	gathered
 	Root string       `json:"root"`
 	Plan DispatchPlan `json:"plan"`
 	// Phase is the phase the command names; Prompt is the whole composed
@@ -328,6 +330,7 @@ func (d *MessageDoc) AddProblem(repo string, err error) {
 // held, blocked or lost to another machine, why nothing was minted.
 type ClaimDoc struct {
 	header
+	gathered
 	Root string       `json:"root"`
 	Plan DispatchPlan `json:"plan"`
 	// Branch is the hold branch the claim mints, reported even on a
@@ -428,6 +431,7 @@ func (d *ClaimDoc) AddProblem(repo string, err error) {
 // yield is for the fenced, not an alias for release.
 type YieldDoc struct {
 	header
+	gathered
 	Root   string       `json:"root"`
 	Plan   DispatchPlan `json:"plan"`
 	Branch string       `json:"branch"`
@@ -487,6 +491,7 @@ func (d *YieldDoc) AddProblem(repo string, err error) {
 // landed is scavenged rather than released.
 type ReleaseDoc struct {
 	header
+	gathered
 	Root   string       `json:"root"`
 	Plan   DispatchPlan `json:"plan"`
 	Branch string       `json:"branch"`
@@ -583,6 +588,7 @@ func startNextAction(handoff string, id int64) string {
 // to herdr — and no reply is ever read back.
 type StartDoc struct {
 	header
+	gathered
 	Root string       `json:"root"`
 	Plan DispatchPlan `json:"plan"`
 	// Phase and Tier come from the plan; Kind is the agent herdr starts.

@@ -70,10 +70,12 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 		doc.SetHoldKind(holdKindFor(rt, plan, coord, coordOK))
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printOpen(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -276,10 +278,12 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 		}
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printNudge(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

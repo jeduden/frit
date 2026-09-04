@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/textw"
 	"golang.org/x/term"
 )
 
@@ -22,7 +23,7 @@ func progressFor(c *cli, rt *runtime) fleet.Reporter {
 		return fleet.DiscardReporter{}
 	}
 
-	return newProgress(rt.stderr)
+	return newProgress(rt.stderr, terminalWidth(rt.stderr))
 }
 
 // isTerminalWriter reports whether w is an interactive terminal — a nil
@@ -34,39 +35,64 @@ func isTerminalWriter(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// clearLine returns to the start of the current line and erases it, so
+// the next write redraws in place rather than appending a new line.
+const clearLine = "\r\x1b[K"
+
 // progress renders a fleet gather's progress to a writer — stderr in
 // production, so a slow walk over many repositories reports which one
 // it is on rather than hanging in silence, while stdout stays reserved
 // for the command's own table or JSON.
 //
-// This first cut prints one plain line per repository. Making the line
-// transient on a terminal and adding a closing status line is a later
-// phase; the reporter seam is here so that refinement changes only this
-// file.
+// The line is transient: each Repo redraws it in place, and Done clears
+// it and writes a single closing status line, so a fast walk leaves one
+// line behind and a slow one still shows live progress.
 type progress struct {
-	out io.Writer
+	out   io.Writer
+	width int
 }
 
 // newProgress builds the reporter the gather emits into, writing to
 // out. It is the one production wiring of fleet.Reporter, so every verb
-// that gathers the fleet reports progress by construction.
-func newProgress(out io.Writer) *progress {
-	return &progress{out: out}
+// that gathers the fleet reports progress by construction. width is the
+// terminal's column count, so the transient line can be capped to fit
+// on one row; a zero width — a pipe, a file, a test buffer — imposes no
+// limit.
+func newProgress(out io.Writer, width int) *progress {
+	return &progress{out: out, width: width}
 }
 
-// Start names how many repositories the walk will cover.
+// transient redraws the current line in place: it returns to the start
+// and clears it, then writes s capped to the terminal width — no
+// trailing newline, so the next transient call overwrites it. Capping
+// to the width keeps s on one row, so clearLine's erase-to-end-of-line,
+// which reaches only the cursor's own row, always clears the whole
+// line; an unbounded s could wrap and strand its first row.
+func (p *progress) transient(s string) {
+	if p.width > 0 {
+		s = textw.Truncate(s, p.width)
+	}
+	_, _ = fmt.Fprintf(p.out, "%s%s", clearLine, s)
+}
+
+// Start folds into the transient shape: it opens the line without a
+// trailing newline, so it is redrawn rather than scrolled by the first
+// Repo.
 func (p *progress) Start(repos int) {
-	_, _ = fmt.Fprintf(p.out, "gathering %d repositories\n", repos)
+	p.transient(fmt.Sprintf("gathering %d repositories", repos))
 }
 
-// Repo names the repository the walk is reading now.
+// Repo redraws the transient line in place with the repository the walk
+// is reading now.
 func (p *progress) Repo(name string, index, total int) {
-	_, _ = fmt.Fprintf(p.out, "  [%d/%d] %s\n", index, total, name)
+	p.transient(fmt.Sprintf("[%d/%d] %s", index, total, name))
 }
 
-// Done reports what the walk covered once it closes.
+// Done clears the transient line and writes the closing status,
+// terminated by a newline so the command's own output starts clean. The
+// status is rendered from report.Gather.StatusLine, the one renderer a
+// verb's report footer also uses, so the terminal's close and the
+// report cannot show the same coverage two different ways.
 func (p *progress) Done(s fleet.Summary) {
-	_, _ = fmt.Fprintf(p.out,
-		"gathered %d/%d repositories, %d problem(s), in %s\n",
-		s.Read, s.Discovered, s.Problems, s.Elapsed.Round(1e6))
+	_, _ = fmt.Fprintf(p.out, "%s%s\n", clearLine, gatherOf(s).StatusLine())
 }

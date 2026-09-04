@@ -1,7 +1,7 @@
 ---
 id: 2609021554
 title: A fleet gather reports its progress and its status
-status: "🔳"
+status: "✅"
 summary: >-
   Gathering the fleet walks every repository under the root and fetches
   each one over the network, yet today it runs in total silence — a
@@ -118,12 +118,14 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                         |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                             |
-|     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json. |
-| 2   | 🔲     | [the terminal progress is transient, with a closing status line](phase-2.md)                                                                                                                                                                                  |
-| 3   | 🔲     | [the gather status joins the report model, in table and JSON](phase-3.md)                                                                                                                                                                                     |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                            |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A required reporter and a returned status on Gather](phase-1.md)                                                                                                                                                                                                                                                |
+|     | ↳      | Gather takes a required Reporter and emits Start / Repo / Done as it walks; it returns a Summary (discovered, read, fetched, problems, elapsed) on every Result. The one production seam renders progress to a terminal stderr and stays silent under --json.                                                    |
+| 2   | ✅     | [the terminal progress is transient, with a closing status line](phase-2.md)                                                                                                                                                                                                                                     |
+|     | ↳      | The terminal progress line is transient: Repo redraws it in place with \r + ANSI erase-to-end-of-line, and Done clears it before writing a newline-terminated closing status. DiscardReporter and progressFor's terminal gate are unchanged, so a pipe, a file, a test buffer or a --json run still see nothing. |
+| 3   | ✅     | [the gather status joins the report model, in table and JSON](phase-3.md)                                                                                                                                                                                                                                        |
+|     | ↳      | Every gathering verb's report now carries a gather block — discovered, read, fetched, problems, and elapsed_ms under a fixed key — in --json and as a closing table footer, both drawn from one report.Gather so they cannot drift. A partial walk shows read < discovered in both renderings; Schema stays 1.   |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -139,13 +141,13 @@ footer: |
 - [x] Running the built `frit` against a multi-repository root prints
       per-repository progress to stderr while it walks, and stdout
       still carries only the command's own output
-- [ ] On a terminal, the progress is transient: the walk redraws a
+- [x] On a terminal, the progress is transient: the walk redraws a
       single line in place as it advances, then clears it and prints one
       closing status line, so a fast walk leaves one line behind
-- [ ] The gather status joins the report model, so `frit <verb> --json`
+- [x] The gather status joins the report model, so `frit <verb> --json`
       and the table both surface the counts — discovered, read, fetched,
       problems — with every key present and `Schema` unchanged
-- [ ] A partial walk, where a fault stepped over a repository, renders
+- [x] A partial walk, where a fault stepped over a repository, renders
       the reduced counts (`Read < Discovered`) in both renderings
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

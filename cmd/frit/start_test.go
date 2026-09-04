@@ -1570,6 +1570,21 @@ func heldLaneOwnedBy(
 	return repo, lane, renewed.Tip
 }
 
+// desertedLaneFixture stands up the one scenario the three deserted-hold
+// walk-advance tests in pick_test.go all drive: a matured, session-less
+// hold on plan 7 whose branch also carries a local commit its dead lane
+// never pushed — an unparked suffix parkFirstRefusal reads regardless
+// of cwd (S90). Callers differ only in the verb they run and the
+// assertions they make on top, mirroring liveLeaseFixture's own split
+// for the sibling live-lane gate.
+func desertedLaneFixture(t *testing.T, root string) (repo, lane string) {
+	t.Helper()
+	repo, lane, _ = heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+
+	return repo, lane
+}
+
 // dropToken removes the token a lane persisted for plan 7 — the shape
 // of a lane that lost its local state, or of a cloned machine and a
 // reused path that never had it (A1).

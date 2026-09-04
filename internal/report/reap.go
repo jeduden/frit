@@ -9,6 +9,7 @@ package report
 // alone knows whether it already happened or is only what would.
 type ReapDoc struct {
 	header
+	gathered
 	Root     string     `json:"root"`
 	Go       bool       `json:"go"`
 	Repos    []ReapRepo `json:"repos"`
