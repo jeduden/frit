@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The project status can only drop 0.5%
-status: "🔲"
+status: "✅"
 result: false
 ---
 Turn the confirmed upload into the gate. `codecov.yml` grows the
@@ -41,28 +41,47 @@ PR's own Codecov check appearing and reading correctly once pushed.
   changing branch protection** — it is a shared repository setting,
   not a file this plan's tree can gate red/green.
 
-**Discovered: no status posts pre-merge on a first integration.**
-`main` has never carried a Codecov report — this plan is what starts
-one. Codecov's own PR comment on #154 states outright: "Once you
-merge this PR into your default branch, you're all set!" No
-`project`/`patch` status or check-run appears on #154's commits.
-`gh api repos/jeduden/frit/commits/<sha>/status` stays `total_count:
-0`. Requiring the check now, before it has ever posted, would make
-GitHub wait on a context that cannot appear on this PR's own commits.
-That would deadlock the merge that is supposed to create the
-baseline. So the gate below splits into a same-PR half (config
-validates, no Go/lint regression) and a post-merge half (the check
-posts for real, then goes into `required_status_checks.contexts`).
+**Baseline established.** PR #154 merged
+(`e90c2d65eccb98d8579655fa9e7a8615e7be4241`); `main`'s CI passed and
+Codecov's report for that commit is `complete` at 88.21%. This PR
+pushes a second, small commit from the same lane to open a follow-up
+PR against `main` and confirm the `project`/`patch` checks post for
+real against that baseline.
 
-**Gate.** Four checks; the last two happen after PR #154 merges:
+**Discovered: no status ever posts, on any commit, in this repo.**
+The first theory — no baseline before PR #154 merges — turned out
+incomplete. [PR #156](https://github.com/jeduden/frit/pull/156)
+opened after the merge. It shows Codecov comparing against a real
+base: `base_totals` is populated at 88.21%, matching `main`. Still, no
+`project`/`patch` status or check-run appears on its commit.
+`gh api repos/jeduden/frit/commits/<sha>/status` stays `total_count:
+0` throughout, and `.../check-suites` lists only `github-actions` and
+`claude` — no `codecov` entry. The same query against
+`jeduden/mdsmith`, which gates nothing on it either but does receive
+one, shows a completed `codecov` check-suite on its commits. Uploads
+work in both repos (OIDC does not depend on it), but only `mdsmith`
+has a `codecov` check-suite at all — the GitHub App that posts
+statuses/checks back is authorized on `jeduden/mdsmith` and is not on
+`jeduden/frit`. That is a per-repository grant on GitHub's side
+(Settings → Applications → Installed GitHub Apps → Codecov →
+Configure → add `frit`, or the equivalent toggle in Codecov's own
+repo settings), not something a commit in this tree can fix.
+
+**Grant made.** The user authorized the Codecov GitHub App for
+`frit`. GitHub does not redeliver old webhooks on a permission
+change, so no existing commit picks this up — this commit is pushed
+to PR #156 to produce a fresh one and re-check gate 3.
+
+**Gate.** Four checks; the last two were blocked on the GitHub App
+grant above:
 
 1. `codecov.yml` validates: `curl -X POST --data-binary @codecov.yml
-   https://codecov.io/validate` returns the parsed config.
+   https://codecov.io/validate` returns the parsed config. ✅
 2. `go test ./...`, `golangci-lint`, and `mdsmith check .` stay green
-   — this change touches no Go.
-3. On the first push to `main` after merge (or the next same-repo PR),
-   Codecov posts both `project` and `patch` checks with a real
-   baseline — not `if_not_found: success` firing for lack of one.
+   — this change touches no Go. ✅
+3. Codecov posts both `project` and `patch` checks with a real
+   baseline on a same-repo PR — not `if_not_found: success` firing
+   for lack of one.
 4. `main`'s branch protection then lists the Codecov check under
    `required_status_checks.contexts` — confirmed with the user first.
 

@@ -1,7 +1,7 @@
 ---
 id: 2609022208
 title: Coverage uploads to Codecov and can only improve
-status: "🔳"
+status: "✅"
 summary: >-
   CI already measures coverage — every job builds one `cover.out` and
   parks it as an artifact — but the number lives and dies inside the
@@ -115,23 +115,24 @@ footer: |
 | --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [Coverage uploads to Codecov via OIDC](phase-1.md)                                                                                                                           |
 |     | ↳      | The `test` job now uploads `cover.out` to Codecov over OIDC — no stored token — guarded off on fork PRs; `codecov.yml` validates and the README carries the project's badge. |
-| 2   | 🔲     | [The project status can only drop 0.5%](phase-2.md)                                                                                                                          |
+| 2   | ✅     | [The project status can only drop 0.5%](phase-2.md)                                                                                                                          |
+|     | ↳      | `codecov.yml` gates `project` at a 0.5% drop and `patch` at 0%; both post as real GitHub checks, and the Codecov check is now required on `main`.                            |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] The test job uploads `cover.out` to Codecov using
+- [x] The test job uploads `cover.out` to Codecov using
       `codecov/codecov-action` with `use_oidc: true` and no stored
       token, and the job is granted `id-token: write`
-- [ ] The upload step is skipped on fork pull requests and runs on
+- [x] The upload step is skipped on fork pull requests and runs on
       pushes and same-repo pull requests
-- [ ] `codecov.yml` validates against Codecov's config validator
-- [ ] The README carries a Codecov coverage badge under its title,
+- [x] `codecov.yml` validates against Codecov's config validator
+- [x] The README carries a Codecov coverage badge under its title,
       linking to the project page, and `mdsmith check .` passes
-- [ ] `zizmor` reports no findings on the edited workflow
-- [ ] Codecov posts a `project` status that fails when coverage drops
+- [x] `zizmor` reports no findings on the edited workflow
+- [x] Codecov posts a `project` status that fails when coverage drops
       more than 0.5%, and a `patch` status on new code, both posting
       green on fork PRs
-- [ ] The Codecov project check is a required status check on `main`
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The Codecov project check is a required status check on `main`
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
