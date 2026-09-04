@@ -67,12 +67,12 @@ statuses/checks back is authorized on `jeduden/mdsmith` and is not on
 Configure → add `frit`, or the equivalent toggle in Codecov's own
 repo settings), not something a commit in this tree can fix.
 
-**Blocked.** Gate items 3 and 4 need that grant before they can be
-attempted at all — requiring the check now would deadlock every merge
-on a context that structurally cannot appear. Reported to the user
-rather than guessed at further.
+**Grant made.** The user authorized the Codecov GitHub App for
+`frit`. GitHub does not redeliver old webhooks on a permission
+change, so no existing commit picks this up — this commit is pushed
+to PR #156 to produce a fresh one and re-check gate 3.
 
-**Gate.** Four checks; the last two are blocked on the GitHub App
+**Gate.** Four checks; the last two were blocked on the GitHub App
 grant above:
 
 1. `codecov.yml` validates: `curl -X POST --data-binary @codecov.yml
@@ -81,10 +81,9 @@ grant above:
    — this change touches no Go. ✅
 3. Codecov posts both `project` and `patch` checks with a real
    baseline on a same-repo PR — not `if_not_found: success` firing
-   for lack of one. **Blocked** on the Codecov App's `frit` grant.
+   for lack of one.
 4. `main`'s branch protection then lists the Codecov check under
    `required_status_checks.contexts` — confirmed with the user first.
-   **Blocked** on gate 3.
 
 Then the full `go test ./...` and lint stay green — this change
 touches no Go — and `mdsmith check .` passes on the plan.
