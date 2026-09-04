@@ -39,8 +39,12 @@ type BoardPlan struct {
 	Stale        bool  `json:"stale"`
 	StaleSeconds int64 `json:"stale_seconds"`
 	// Dead marks a held plan whose bound session herdr positively
-	// confirms is gone: a takeover candidate at once, whether or not
-	// Stale has also matured.
+	// confirms is gone AND whose branch no live pane attends: a
+	// takeover candidate at once, whether or not Stale has also
+	// matured. A pane still working or idling on the branch clears it
+	// — "dead" reads to a person as "nobody is here", which a live
+	// pane, working or idle, disproves. Agent/AgentStatus carry that
+	// pane's own fact either way.
 	Dead        bool   `json:"dead"`
 	Agent       string `json:"agent"`
 	AgentStatus string `json:"agent_status"`
@@ -59,7 +63,11 @@ func NewBoard(root string, presence bool) *BoardDoc {
 }
 
 // AddPlan records one outstanding plan, with the agent joined to it or
-// empty when none is live on its lane.
+// empty when none is live on its lane. p.Dead is the identity fact —
+// the bound session herdr confirms gone — but a live pane on the lane
+// still working or idling means someone is there, so the rendered
+// Dead is cleared whenever agent is non-empty rather than copied
+// straight through.
 func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 	d.Plans = append(d.Plans, BoardPlan{
 		Key:          p.Key,
@@ -73,7 +81,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 		Holds:        refsOf(p.Holds),
 		Stale:        p.Stale,
 		StaleSeconds: int64(p.StaleFor / time.Second),
-		Dead:         p.Dead,
+		Dead:         p.Dead && agent == "",
 		Agent:        agent,
 		AgentStatus:  status,
 	})

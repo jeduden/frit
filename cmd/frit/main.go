@@ -1611,9 +1611,13 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	live, _, hostProbs := liveByBranch(c, rt)
 	doc := report.NewReady(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(list)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1650,9 +1654,13 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	live, _, hostProbs := liveByBranch(c, rt)
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(list)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1983,6 +1991,20 @@ func agentFor(
 	}
 
 	return "", ""
+}
+
+// attendedFor reports whether a live pane works one of a plan's hold
+// branches now, working or idle — the fact that clears a rendered
+// Dead, since a pane there disproves "nobody is here" regardless of
+// what it is doing.
+func attendedFor(p discovery.Plan, live map[string]herdr.Lane) bool {
+	for _, branch := range p.Holds {
+		if _, ok := live[branch]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // boardRow is one board line's cells, computed once so the title can be
@@ -2358,9 +2380,13 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	live, _, hostProbs := liveByBranch(c, rt)
 	doc := report.NewFind(c.Root, hostname(), f.Query)
 	carryProblems(doc, res.Problems, c.All)
-	doc.SetPlans(list)
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)

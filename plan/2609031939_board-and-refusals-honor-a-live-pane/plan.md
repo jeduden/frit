@@ -1,7 +1,7 @@
 ---
 id: 2609031939
 title: reports and refusals stop calling an attended lane dead
-status: "🔲"
+status: "🔳"
 summary: >-
   frit reports two facts about a held lane from herdr and lets them
   contradict each other. A `dead` field marks a lane whose bound
@@ -167,11 +167,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                  |
-| --- | ------ | ---------------------------------------------------------------------- |
-| 1   | 🔲     | [no report calls an attended lane dead](phase-1.md)                    |
-| 2   | 🔲     | [the deserted refusals name the pane and lead with resume](phase-2.md) |
-| 3   | 🔲     | [S89 runs the attended-lane state end-to-end under godog](phase-3.md)  |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [no report calls an attended lane dead](phase-1.md)                                                                                                                                                                                                                                                                                                                                          |
+|     | ↳      | board and the discovery card behind ready, pick and find no longer render `dead: true` for a held lane whose bound session herdr confirms gone but whose branch a live pane still attends, working or idle. The rendered field is gated on the live pane rather than copied straight from the identity fact, applied once at each render's shared site so ready, pick and find cannot drift. |
+| 2   | 🔲     | [the deserted refusals name the pane and lead with resume](phase-2.md)                                                                                                                                                                                                                                                                                                                       |
+| 3   | 🔲     | [S89 runs the attended-lane state end-to-end under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                        |
 <?/catalog?>
 
 ## Acceptance Criteria

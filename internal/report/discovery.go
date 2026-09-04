@@ -28,8 +28,11 @@ type PlanCard struct {
 	Stale        bool  `json:"stale"`
 	StaleSeconds int64 `json:"stale_seconds"`
 	// Dead marks a held plan whose bound session herdr positively
-	// confirms is gone: a takeover candidate at once, whether or not
-	// Stale has also matured.
+	// confirms is gone AND whose branch no live pane attends: a
+	// takeover candidate at once, whether or not Stale has also
+	// matured. A pane still working or idling on the branch clears it
+	// — "dead" reads to a person as "nobody is here", which a live
+	// pane, working or idle, disproves.
 	Dead bool `json:"dead"`
 }
 
@@ -53,11 +56,19 @@ func cardOf(p discovery.Plan) PlanCard {
 }
 
 // cardsOf projects a list, returning [] rather than nil so the encoded
-// form is a list and never null.
-func cardsOf(plans []discovery.Plan) []PlanCard {
+// form is a list and never null. attended reports, for one plan,
+// whether a live pane works its lane now; when it does, the copied
+// Dead is cleared — a live pane, working or idle, disproves "nobody is
+// here". A nil attended leaves every card's Dead exactly as cardOf
+// would render it alone.
+func cardsOf(plans []discovery.Plan, attended func(discovery.Plan) bool) []PlanCard {
 	out := make([]PlanCard, 0, len(plans))
 	for _, p := range plans {
-		out = append(out, cardOf(p))
+		card := cardOf(p)
+		if attended != nil && attended(p) {
+			card.Dead = false
+		}
+		out = append(out, card)
 	}
 
 	return out
@@ -85,9 +96,10 @@ func NewReady(root, host string) *ReadyDoc {
 }
 
 // SetPlans records the startable plans, in the order discovery ranked
-// them.
-func (d *ReadyDoc) SetPlans(plans []discovery.Plan) {
-	d.Plans = cardsOf(plans)
+// them. attended reports whether a live pane works a plan's lane now;
+// pass nil where that fact was not read.
+func (d *ReadyDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
+	d.Plans = cardsOf(plans, attended)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -117,8 +129,10 @@ func NewPick(root, host string) *PickDoc {
 }
 
 // SetPlans records the ranked candidates, in the order discovery gave.
-func (d *PickDoc) SetPlans(plans []discovery.Plan) {
-	d.Plans = cardsOf(plans)
+// attended reports whether a live pane works a plan's lane now; pass
+// nil where that fact was not read.
+func (d *PickDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
+	d.Plans = cardsOf(plans, attended)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -152,8 +166,10 @@ func NewFind(root, host, query string) *FindDoc {
 }
 
 // SetPlans records the matches, in the order discovery gave them.
-func (d *FindDoc) SetPlans(plans []discovery.Plan) {
-	d.Plans = cardsOf(plans)
+// attended reports whether a live pane works a plan's lane now; pass
+// nil where that fact was not read.
+func (d *FindDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
+	d.Plans = cardsOf(plans, attended)
 }
 
 // AddProblem records a repository whose plans could not be read.

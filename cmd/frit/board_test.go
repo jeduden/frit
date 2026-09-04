@@ -86,6 +86,55 @@ func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
 	assert.Contains(t, cell, "dead", "a confirmed-dead session is not a live hold")
 }
 
+// TestAddPlanClearsDeadForAWorkingLivePane: a held plan whose bound
+// session herdr confirms gone still reads as attended, not dead, when
+// a pane is actively working its lane — the observed contradiction
+// (plan 2609021313, 2026-09-03): `dead: true` beside `agent: claude,
+// agent_status: working`.
+func TestAddPlanClearsDeadForAWorkingLivePane(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "claude", "working")
+
+	assert.False(t, doc.Plans[0].Dead,
+		"a pane actively working the lane disproves dead")
+	assert.Equal(t, "claude", doc.Plans[0].Agent)
+	assert.Equal(t, "working", doc.Plans[0].AgentStatus)
+}
+
+// TestAddPlanClearsDeadForAnIdleLivePane: the same lane, idling
+// between phases rather than working, reads the same way — attended,
+// not dead.
+func TestAddPlanClearsDeadForAnIdleLivePane(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "claude", "idle")
+
+	assert.False(t, doc.Plans[0].Dead,
+		"a pane idling between phases still disproves dead")
+}
+
+// TestAddPlanStillMarksAnUnattendedDeadHoldDead: a held plan whose
+// bound session herdr confirms gone still reads dead when no pane
+// attends its lane — the takeover candidate it always was.
+func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "", "")
+
+	assert.True(t, doc.Plans[0].Dead,
+		"no live pane means the dead session still reads as a takeover candidate")
+}
+
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
 // as "hold" — the word a reader expects over the lane-slug cell —
 // while every other column keeps its own key as its header word.
@@ -438,7 +487,7 @@ func TestReadyTrimsTitleToWidth(t *testing.T) {
 	doc.SetPlans([]discovery.Plan{{
 		Repo: "atlas", ID: 100, Status: "🔲", Model: "opus",
 		Title: strings.Repeat("very long title ", 6),
-	}})
+	}}, nil)
 
 	var fitted bytes.Buffer
 	printReady(&fitted, doc, 50)
