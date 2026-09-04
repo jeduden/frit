@@ -1,5 +1,7 @@
 # frit
 
+[![codecov][codecov-badge]][codecov-project]
+
 A command and control CLI over plans, worktrees, hosts and agents.
 
 Frit is prepared, pre-fused material that waits in the batch until it
@@ -217,3 +219,6 @@ landed.
 ## License
 
 [MIT](LICENSE)
+
+[codecov-badge]: https://codecov.io/gh/jeduden/frit/graph/badge.svg
+[codecov-project]: https://codecov.io/gh/jeduden/frit
