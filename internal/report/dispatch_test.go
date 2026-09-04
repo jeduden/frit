@@ -199,3 +199,13 @@ func TestNewNudgeRendersAnEmptyPhaseAsWholePlan(t *testing.T) {
 		"", "sonnet", "/plan-phase 7", true)
 	assert.Equal(t, WholePlanPhase, doc.Phase)
 }
+
+// TestAskCommandNamesTheVerbAndSelector pins the one remedy text every
+// site that points a reader at the agent shares: the real verb, the
+// plan's own selector, and a question, so it runs verbatim — message
+// takes its text as a required positional, so a bare `frit message 7`
+// would refuse.
+func TestAskCommandNamesTheVerbAndSelector(t *testing.T) {
+	assert.Equal(t, `frit message 7 "what is your status?"`, AskCommand(7))
+	assert.Equal(t, "what is your status?", AskText)
+}

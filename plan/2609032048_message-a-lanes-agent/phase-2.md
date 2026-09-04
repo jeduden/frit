@@ -1,7 +1,7 @@
 ---
 n: 2
 title: the ambiguous-lane output routes to message
-status: "🔲"
+status: "✅"
 result: false
 ---
 When git cannot classify a held lane's work and a live pane attends it,
@@ -64,5 +64,5 @@ golangci-lint run` are clean.
 
 Write the handoff to `phase-2.result.md`. Record where the remedy is
 emitted (refusal, report, or both), the field or wording added, and the
-exact scenario Phase 3 should reproduce end-to-end so S90 pins the whole
+exact scenario Phase 3 should reproduce end-to-end so S91 pins the whole
 route from state to "ask the agent".

@@ -1,7 +1,7 @@
 ---
 id: 2609032048
 title: frit can message a lane's agent, so an ambiguous lane asks
-status: "🔳"
+status: "✅"
 summary: >-
   Git alone cannot tell a deserted, unlanded lane apart from one whose
   work is pushed and sitting in an open PR while its agent finishes the
@@ -16,7 +16,7 @@ summary: >-
   working or idle — and routes the ambiguous-state output there. A held
   lane a live pane attends, whose disposition git cannot classify, names
   `frit message` as the way to ask the agent, not `frit yield` or a
-  hand-land. A cross-layer matrix row, S90, runs the state under godog.
+  hand-land. A cross-layer matrix row, S91, runs the state under godog.
 model: sonnet
 depends-on: [2609031939]
 ---
@@ -76,7 +76,7 @@ The routing in Phase 2 layers on plan 2609031939, which makes the same
 refusals lead with resume instead of yield for an attended lane; this
 plan adds the "ask the agent" remedy beside it. The godog row reuses the
 cross-layer step file and herdr-fake vocabulary and takes the next free
-id, S90.
+id — S91, since plan 2609031951 took S90 first.
 
 **Why depends-on 2609031939.** That plan reconciles the `dead` render
 and the deserted refusals with the live pane, editing the same start.go
@@ -100,7 +100,7 @@ to ask, and its deserted reading and yield remedy stand.
    to `frit message` for a held lane a live pane attends whose work git
    cannot classify — so "ask the agent" stands where "yield and land"
    misled, layered on plan 2609031939's resume-first refusal.
-3. Phase 3: document the state as cross-layer matrix row S90 and run it
+3. Phase 3: document the state as cross-layer matrix row S91 and run it
    end-to-end under godog — the output routes to messaging the agent and
    the message reaches the pane — so the misread cannot return.
 
@@ -110,7 +110,7 @@ to ask, and its deserted reading and yield remedy stand.
 | ----- | -------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | frit message sends text to a live lane       | sonnet | Built `frit message <id>` on a working lane names the pane, shows the text dry, sends under `--go`; skill claim runs; suite and lint clean  |
 | 2     | the ambiguous-lane output routes to message  | sonnet | Unit test: an attended, unlanded lane names `frit message` and not `frit yield`; a no-pane lane is unchanged; suite and lint clean          |
-| 3     | S90 runs the ask-the-agent state under godog | sonnet | `TestFeatures/S90:` passes no SKIP; `go test ./internal/scenario` bijection green; `go test ./...` and lint clean; `mdsmith check .` passes |
+| 3     | S91 runs the ask-the-agent state under godog | sonnet | `TestFeatures/S91:` passes no SKIP; `go test ./internal/scenario` bijection green; `go test ./...` and lint clean; `mdsmith check .` passes |
 
 ## Phases
 
@@ -133,12 +133,14 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                         |
-| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                            |
-|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change. |
-| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                     |
-| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                    |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                           |
+|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change.                                                                                                                |
+| 2   | ✅     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                    |
+|     | ↳      | The deserted refusal an attended lane meets now leads with `frit message <id> "what is your status?"` ahead of resume and yield, and the survey reports carry the same pointer machine-readably: a new `ask` field on the discovery card and the board row, set only for a held lane whose bound session is gone but whose branch a live pane attends. The board table prints that ask beneath its rows. A no-pane lane and a bound live lane are untouched. |
+| 3   | ✅     | [S91 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                   |
+|     | ↳      | Cross-layer row S91 — bound session gone, pane still working, work unclassifiable — is documented in the matrix and runs for real under godog: board and ready carry the ask, start's deserted refusal leads with `frit message` ahead of `frit yield`, and `message --go` with the refusal's own text reaches the live pane. The plan is complete.                                                                                                          |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -153,21 +155,21 @@ footer: |
 - [x] The `message` verb ships with its thin skill front in the same
       change, per the Shipping Skills rule; the skill's example command
       follows the JSON Contract
-- [ ] For a held lane a live pane attends whose work is unlanded, the
+- [x] For a held lane a live pane attends whose work is unlanded, the
       deserted refusal and the survey report name `frit message` as the
       way to ask the agent, and do not lead with `frit yield` or a
       hand-landing
-- [ ] A held lane with no live pane is unchanged: no `frit message`
+- [x] A held lane with no live pane is unchanged: no `frit message`
       remedy is offered, and its deserted reading and yield remedy stand
-- [ ] frit gains no pull-request awareness and no new remote read: the
+- [x] frit gains no pull-request awareness and no new remote read: the
       resolution is the agent, and the send reuses `herdr.Prompt` over
       the pane `liveLaneFor` already finds
-- [ ] Cross-layer matrix row S90 is documented in
+- [x] Cross-layer matrix row S91 is documented in
       [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md),
-      and a `@S90` scenario in
+      and a `@S91` scenario in
       [features/cross-layer.feature](../../features/cross-layer.feature)
       reproduces the state and runs for real, not `@pending`
-- [ ] `go test ./cmd/frit -run 'TestFeatures/S90:'` reports S90 PASS,
+- [x] `go test ./cmd/frit -run 'TestFeatures/S91:'` reports S91 PASS,
       not SKIP; `go test ./internal/scenario` stays green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,31 +137,36 @@ func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
 		"no live pane means the dead session still reads as a takeover candidate")
 }
 
-// TestAttendedForFindsALivePaneOnAHoldBranch: attendedFor reports true
-// as soon as any of a plan's hold branches has a live lane, regardless
-// of what that lane's pane is doing — the same walk agentFor makes,
-// asking a different question of the answer.
-func TestAttendedForFindsALivePaneOnAHoldBranch(t *testing.T) {
+// TestPresenceForReportsTheLivePaneOnAHoldBranch: presenceFor reports
+// what the pane is doing as soon as any of a plan's hold branches has
+// a live lane — the same walk agentFor makes, asking a different
+// question of the answer — and a status herdr cannot vouch for reads
+// unknown rather than as nobody.
+func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
 	live := map[string]herdr.Lane{
 		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+		"plan/300": {Pane: herdr.Pane{Agent: "claude", Status: "confused"}},
 	}
-	p := discovery.Plan{Holds: []string{"plan/99", "plan/100"}}
 
-	assert.True(t, attendedFor(p, live),
+	assert.Equal(t, herdr.StatusIdle,
+		presenceFor(discovery.Plan{Holds: []string{"plan/99", "plan/100"}}, live),
 		"a live lane on one of the plan's hold branches is attended")
+	assert.Equal(t, herdr.StatusUnknown,
+		presenceFor(discovery.Plan{Holds: []string{"plan/300"}}, live),
+		"a pane there is attended even when herdr cannot say what it does")
 }
 
-// TestAttendedForMissesAPlanWithNoLiveBranch: a plan whose hold
-// branches match no live lane is not attended — the ordinary case, a
+// TestPresenceForMissesAPlanWithNoLiveBranch: a plan whose hold
+// branches match no live lane has no presence — the ordinary case, a
 // lane nobody is on.
-func TestAttendedForMissesAPlanWithNoLiveBranch(t *testing.T) {
+func TestPresenceForMissesAPlanWithNoLiveBranch(t *testing.T) {
 	live := map[string]herdr.Lane{
 		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
 	}
 	p := discovery.Plan{Holds: []string{"plan/200"}}
 
-	assert.False(t, attendedFor(p, live),
-		"no live lane on any hold branch means not attended")
+	assert.Empty(t, presenceFor(p, live),
+		"no live lane on any hold branch means nobody is there")
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
@@ -534,4 +540,107 @@ func TestReadyTrimsTitleToWidth(t *testing.T) {
 	var full bytes.Buffer
 	printReady(&full, doc, 0)
 	assert.NotContains(t, full.String(), "…", "no width means no trim")
+}
+
+// deadHeldBoard is a board carrying one held plan whose bound session
+// herdr confirms gone, with whatever agent and status the live read
+// joined to it — the one row the ask line exists for.
+func deadHeldBoard(id int64, agent, status string) *report.BoardDoc {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: fmt.Sprintf("forge:atlas:%d", id), Repo: "atlas", ID: id,
+		Status: "🔳", Title: "Underway", Held: true,
+		Holds: []string{fmt.Sprintf("plan/%d", id)}, Dead: true,
+	}, agent, status)
+
+	return doc
+}
+
+// TestPrintBoardPointsAtMessageForAnAttendedDeadHold: beneath the
+// table, a held lane whose bound session is gone but whose branch a
+// live agent works is pointed at `frit message` — the ask-the-agent
+// remedy the 2026-09-03 misread lacked, rendered where the reader
+// decides rather than only in the JSON.
+func TestPrintBoardPointsAtMessageForAnAttendedDeadHold(t *testing.T) {
+	doc := deadHeldBoard(100, "claude", "working")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, report.AskCommand(100), "the ask runs verbatim")
+	assert.NotContains(t, got, "(dead)", "a live agent still clears the marker")
+}
+
+// TestPrintBoardOffersNoAskForAnUnattendedDeadHold: with no agent on
+// the lane there is nobody to ask, so the dead marker and its legend
+// render exactly as before and message is never mentioned.
+func TestPrintBoardOffersNoAskForAnUnattendedDeadHold(t *testing.T) {
+	doc := deadHeldBoard(100, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, "(dead)")
+	assert.NotContains(t, got, "frit message")
+}
+
+// TestPrintBoardOffersNoAskForAnUnvouchedAgent: an agent whose status
+// herdr cannot vouch for is one message refuses, so the board does not
+// point at a command that would refuse when run — though the pane's
+// presence still clears the dead marker.
+func TestPrintBoardOffersNoAskForAnUnvouchedAgent(t *testing.T) {
+	doc := deadHeldBoard(100, "claude", "unknown")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.NotContains(t, got, "frit message")
+	assert.NotContains(t, got, "(dead)")
+}
+
+// TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn: the ask line
+// is a remedy, not a key to a marker, so it stays on screen when the
+// hold column — and its legend — is left out with --columns.
+func TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn(t *testing.T) {
+	doc := deadHeldBoard(100, "claude", "working")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, []string{"id", "agent"})
+
+	assert.Contains(t, buf.String(), report.AskCommand(100))
+}
+
+// TestPrintBoardNeverTrimsTheAskToWidth: the ask line's payload is a
+// command meant to run verbatim, so unlike the table's cells and the
+// legend it is never cut to the terminal's width — a real id and the
+// prose before the command already run past 80 columns, and a
+// trailing "…" where the text should be is the unrunnable pointer
+// the line exists to replace.
+func TestPrintBoardNeverTrimsTheAskToWidth(t *testing.T) {
+	doc := deadHeldBoard(2609032048, "claude", "working")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 80, boardCols)
+
+	assert.Contains(t, buf.String(), report.AskCommand(2609032048),
+		"the command survives whole at a width the line overruns")
+}
+
+// TestBoardAsks pins boardAsks's own contract apart from the printed
+// board: one line per row carrying an ask, naming the plan, the agent
+// attending it and the verbatim command, and nothing at all for a
+// board no row of which carries one.
+func TestBoardAsks(t *testing.T) {
+	asked := report.BoardPlan{ID: 7, Agent: "claude", Ask: report.AskCommand(7)}
+	quiet := report.BoardPlan{ID: 8, Agent: "claude"}
+
+	assert.Empty(t, boardAsks(nil), "no rows, no lines")
+	assert.Empty(t, boardAsks([]report.BoardPlan{quiet}), "no ask, no line")
+	assert.Equal(t, []string{
+		"7: the bound session is confirmed gone but claude still attends it; " +
+			"ask before yielding: " + report.AskCommand(7),
+	}, boardAsks([]report.BoardPlan{quiet, asked}))
 }

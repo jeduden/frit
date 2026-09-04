@@ -24,7 +24,8 @@
       "held": false,
       "stale": false,
       "stale_seconds": 0,
-      "dead": false
+      "dead": false,
+      "ask": ""
     },
     {
       "key": "forge:orrery:7",
@@ -39,7 +40,8 @@
       "held": true,
       "stale": true,
       "stale_seconds": 10800,
-      "dead": false
+      "dead": false,
+      "ask": ""
     }
   ],
   "problems": []

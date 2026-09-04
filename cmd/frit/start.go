@@ -425,7 +425,7 @@ func laneUnattended(rt *runtime, m claim.Marker) (unattended, known bool) {
 func desertedRefusal(
 	c *cli, rt *runtime, plan discovery.Plan, cwd string,
 ) (string, []hostProblem, error) {
-	if !plan.Held || !plan.Dead || plan.Stale {
+	if !plan.Deserted() {
 		return "", nil, nil
 	}
 	if !inOwnLane(rt, plan, cwd) {
@@ -461,7 +461,7 @@ func desertedRefusal(
 func parkFirstRefusal(
 	c *cli, rt *runtime, plan discovery.Plan, coord fleet.Coord,
 ) (string, []hostProblem, error) {
-	if !plan.Held || !plan.Dead || plan.Stale || coord.Path == "" {
+	if !plan.Deserted() || coord.Path == "" {
 		return "", nil, nil
 	}
 	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {
@@ -591,15 +591,18 @@ func liveLaneRefusal(lane herdr.Lane) string {
 // resumeRefusal is what a deserted or park-first hold renders once a
 // live pane turns out to attend its branch: the bound session herdr
 // confirmed gone is not the only thing that can be sitting on a lane,
-// so the reader is pointed at resuming that pane rather than a yield
-// teardown nobody needs while someone is there. `frit yield` still
+// so the reader is pointed at that pane rather than a yield teardown
+// nobody needs while someone is there. It leads with asking the agent
+// — git cannot tell work open as a PR from work abandoned, and the
+// agent can — then offers resuming the pane, and `frit yield` still
 // rides along as the trailing fallback, for when the work genuinely
 // should be set aside.
 func resumeRefusal(plan discovery.Plan, lane herdr.Lane) string {
 	return fmt.Sprintf(
-		"deserted hold: %s attends it; resume it with `frit open %d` — "+
+		"deserted hold: %s attends it; ask it with `%s` "+
+			"or resume it with `frit open %d` — "+
 			"run `frit yield %d` only to set the work aside instead",
-		paneNaming(lane), plan.ID, plan.ID)
+		paneNaming(lane), report.AskCommand(plan.ID), plan.ID, plan.ID)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

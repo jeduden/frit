@@ -27,7 +27,8 @@
       "stale_seconds": 0,
       "dead": false,
       "agent": "claude",
-      "agent_status": "working"
+      "agent_status": "working",
+      "ask": ""
     },
     {
       "key": "forge:orrery:7",
@@ -43,7 +44,8 @@
       "stale_seconds": 0,
       "dead": false,
       "agent": "",
-      "agent_status": ""
+      "agent_status": "",
+      "ask": ""
     }
   ],
   "problems": []

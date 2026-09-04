@@ -25,7 +25,8 @@
       "held": false,
       "stale": false,
       "stale_seconds": 0,
-      "dead": false
+      "dead": false,
+      "ask": ""
     }
   ],
   "problems": []

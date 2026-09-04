@@ -342,7 +342,7 @@ func desertedHeld(
 ) []discovery.Plan {
 	out := make([]discovery.Plan, 0)
 	for _, p := range plans {
-		if p.Repo != repo || !p.Held || !p.Dead || p.Stale {
+		if p.Repo != repo || !p.Deserted() {
 			continue
 		}
 		if resumableFromAnyLane(rt, p, worktrees, coord) {
@@ -1650,7 +1650,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1696,7 +1696,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -2054,16 +2054,21 @@ func agentFor(
 	return "", ""
 }
 
-// attendedFor reports whether a live pane works one of a plan's hold
-// branches now, working or idle — the fact that clears a rendered
+// presenceFor reports what the live pane on one of a plan's hold
+// branches is doing now — working, idle or unknown — or "" when none
+// is there. A non-empty answer is the fact that clears a rendered
 // Dead, since a pane there disproves "nobody is here" regardless of
-// what it is doing. It checks lane presence directly rather than
-// agentFor's returned agent so that a live pane herdr ever reports with
-// no agent attached still counts as attended.
-func attendedFor(p discovery.Plan, live map[string]herdr.Lane) bool {
-	_, ok := laneFor(p, live)
+// what it is doing; the status itself is what decides whether that
+// pane can be asked, since message refuses one herdr cannot vouch
+// for. It reads lane presence directly rather than agentFor's returned
+// agent so that a live pane herdr ever reports with no agent attached
+// still counts as attended.
+func presenceFor(p discovery.Plan, live map[string]herdr.Lane) string {
+	if lane, ok := laneFor(p, live); ok {
+		return lane.Pane.Presence()
+	}
 
-	return ok
+	return ""
 }
 
 // boardRow is one board line's cells, computed once so the title can be
@@ -2207,6 +2212,36 @@ func printBoard(
 		}
 		_, _ = fmt.Fprintln(out, legend)
 	}
+	for _, line := range boardAsks(doc.Plans) {
+		// Never trimmed to width: the line's payload is a command meant
+		// to run verbatim, and a trailing "…" where its text should be
+		// is exactly the unrunnable pointer it exists to replace.
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// boardAsks names, one line per plan, the ask-the-agent remedy for
+// each held lane whose bound session is confirmed gone but whose
+// branch a live agent still works — the lane git cannot classify,
+// since work open as a PR reads unlanded exactly as abandoned work
+// does. It is rendered whatever columns are shown: unlike the legend
+// it keys no marker, it points the reader at the one party who can
+// settle the lane, ahead of `frit yield` or a hand-landing. The dead
+// clause is foreignHoldRefusal's and the legend's own wording, so a
+// reader meets one phrasing of that fact everywhere. Empty when no
+// row carries an ask, so an unambiguous board pays nothing extra.
+func boardAsks(plans []report.BoardPlan) []string {
+	var lines []string
+	for _, p := range plans {
+		if p.Ask == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf(
+			"%d: the bound session is confirmed gone but %s still attends it; "+
+				"ask before yielding: %s", p.ID, p.Agent, p.Ask))
+	}
+
+	return lines
 }
 
 // boardLegend explains the `(stale …)` and `(dead)` hold markers when
@@ -2445,7 +2480,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
