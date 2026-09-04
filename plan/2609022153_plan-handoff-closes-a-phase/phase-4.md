@@ -1,7 +1,7 @@
 ---
 n: 4
 title: doctor honors the lane it runs in
-status: "🔳"
+status: "✅"
 result: false
 ---
 Task 4. `frit doctor` scans the fleet's main checkout — `discover.Repos`

@@ -643,6 +643,11 @@ schema has no way to see inside a markdown table's cells,
 cross-reference a table's rows against another section's headings, or
 compare a file name to a front-matter field.
 
+Run inside a plan's own lane, doctor checks that plan from the lane's
+working copy, the way next, show and phase do — so a gap fixed in the
+lane clears before the branch merges. Every other plan reads the
+fleet's default-branch copy.
+
 A repository with no plan/proto.md has nothing to check.`
 }
 
@@ -652,6 +657,18 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
+	}
+
+	// When the cwd stands in a plan's own lane, that plan is re-read
+	// from the lane's working copy below, so a gap fixed in the lane
+	// clears before the branch merges — the same lane read next, show
+	// and phase already do. laneRepo is empty when the cwd is in no
+	// lane, and the override is skipped.
+	laneRepo, laneID, laneRoot := "", int64(0), ""
+	if cwd, err := os.Getwd(); err == nil {
+		if r, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot); ok {
+			laneRepo, laneID, laneRoot = r, id, root
+		}
 	}
 
 	doc := report.NewDoctor(c.Root)
@@ -669,6 +686,14 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		if repo.Name == laneRepo {
+			findings, err = overrideLaneFindings(
+				findings, laneRoot, cfg.PlanDir, laneID)
+			if err != nil {
+				doc.AddProblem(repo.Name, err)
+				continue
+			}
+		}
 		doc.AddFindings(repo.Name, findings)
 	}
 
@@ -679,6 +704,30 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// overrideLaneFindings swaps the lane plan's findings for a fresh scan
+// of that one plan from the lane's own working copy, so a gap fixed in
+// the lane but not yet merged no longer reports. Every other plan's
+// findings are left exactly as the fleet's default-branch scan produced
+// them — the same narrowing laneOverride applies to next, show and
+// phase.
+func overrideLaneFindings(
+	findings []doctorpkg.Finding, laneRoot, planDir string, id int64,
+) ([]doctorpkg.Finding, error) {
+	laneFindings, err := doctorpkg.ScanID(laneRoot, planDir, id)
+	if err != nil {
+		return nil, err
+	}
+
+	kept := make([]doctorpkg.Finding, 0, len(findings)+len(laneFindings))
+	for _, f := range findings {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+
+	return append(kept, laneFindings...), nil
 }
 
 // printDoctor writes one row per finding. A repository with nothing

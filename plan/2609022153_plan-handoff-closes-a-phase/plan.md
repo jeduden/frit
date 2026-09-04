@@ -170,7 +170,8 @@ footer: |
 |     | ↳      | resumeFromLedger now calls handoffOf(planBody) and carries a single-file plan's top-level `## Handoff` heading as the open phase's HandoffIn, the same field a directory plan's result file already filled — frit phase surfaces it identically either way.                                                                                                                                                                                                                                           |
 | 3   | ✅     | [A doctor check catches a skipped handoff](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 |     | ↳      | frit doctor now reports a "handoff" finding for a phase recorded done in a plan still in progress whose handoff has no readable trace: no "## Handoff" in a single-file plan, none in a directory plan's own phase-N.result.md. A plan already done or superseded is exempt, since nothing resumes into it — a 34-plan survey of this repository confirmed every already-`✅` plan stays clean under that rule. The one live gap, plan 2609021554's phase-1 result closing with bold prose, is fixed. |
-| 4   | 🔳     | [doctor honors the lane it runs in](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 4   | ✅     | [doctor honors the lane it runs in](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|     | ↳      | frit doctor now reads the plan whose lane the cwd stands in from the lane's own working copy, so a gap fixed in the lane clears before the branch merges — the same narrowing next, show and phase already apply via laneOverride. Every other plan still reads the fleet's default-branch copy. New doctor.ScanID re-checks one plan from a given root; doctorCmd.Run swaps that plan's findings when repo.Name matches the current lane; the help text now states the lane read.                    |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -188,7 +189,7 @@ footer: |
 - [x] `frit doctor` reports a phase recorded done whose handoff is
       missing in its plan's shape, and comes back clean once the
       existing drift is fixed
-- [ ] Run inside a plan's own lane, `frit doctor` checks that plan from
+- [x] Run inside a plan's own lane, `frit doctor` checks that plan from
       the lane's working copy — a handoff written in the lane clears the
       finding before the branch merges — the way `next`/`show`/`phase`
       already read the lane; every other plan still reads the fleet's

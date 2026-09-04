@@ -65,6 +65,46 @@ func Scan(root, planDir string) ([]Finding, error) {
 		return nil, err
 	}
 
+	return scanPaths(root, paths)
+}
+
+// ScanID re-checks the single plan whose on-disk name leads with id,
+// read from root's own working copy — the seam frit doctor uses to
+// re-read the one plan whose lane the cwd stands in, so a gap fixed in
+// the lane clears before the branch merges, the way next, show and
+// phase already read the lane. Every other plan is left to the fleet's
+// default-branch scan. A repository with no proto.md reports ErrNoSchema
+// exactly as Scan does.
+func ScanID(root, planDir string, id int64) ([]Finding, error) {
+	protoPath := filepath.Join(root, planDir, planmeta.ProtoName)
+	if _, err := os.Stat(protoPath); err != nil {
+		return nil, ErrNoSchema
+	}
+
+	paths, err := planPaths(root, planDir)
+	if err != nil {
+		return nil, err
+	}
+
+	want := strconv.FormatInt(id, 10)
+	kept := paths[:0]
+	for _, p := range paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil, err
+		}
+		if leadingIDToken(rel) == want {
+			kept = append(kept, p)
+		}
+	}
+
+	return scanPaths(root, kept)
+}
+
+// scanPaths opens root's mdsmith session once and scans each plan path
+// through it, sorted by plan id then check so the same tree always
+// reports in the same order — the shared body of Scan and ScanID.
+func scanPaths(root string, paths []string) ([]Finding, error) {
 	sess, err := openSession(root)
 	if err != nil {
 		return nil, err
