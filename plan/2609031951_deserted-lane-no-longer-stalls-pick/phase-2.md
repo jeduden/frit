@@ -1,7 +1,7 @@
 ---
 n: 2
 title: S90 runs the deserted-lane walk skip under godog
-status: "🔲"
+status: "✅"
 result: false
 ---
 Document the guarantee Phase 1 built as cross-layer matrix row S90 and

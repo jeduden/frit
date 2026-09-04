@@ -209,6 +209,9 @@ func (w *world) registerRaceAndMultiRepoIdentityAndCrossLayer(sc *godog.Scenario
 func (w *world) registerPickWalkIdentityAndCrossLayer(sc *godog.ScenarioContext) {
 	sc.Step(`^plan (\d+)'s hold branch already carries a live herdr pane$`,
 		w.plansHoldBranchAlreadyCarriesALiveHerdrPane)
+	sc.Step(`^this machine holds plan (\d+) in a lane bound to a session, `+
+		`whose branch carries an unparked suffix$`,
+		w.thisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffix)
 	sc.Step(`^plan (\d+) is ready and held by nobody$`, w.planIsReadyAndHeldByNobody)
 	sc.Step(`^pick --go runs$`, w.pickGoRuns)
 	sc.Step(`^plan (\d+) is the one started$`, w.planIsTheOneStarted)
@@ -1161,6 +1164,27 @@ func (w *world) thisMachineHoldsPlanInALaneBoundToASessionWithItsTokenPersisted(
 	return w.buildLiveLane(planID, "wOld:p1")
 }
 
+// thisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffix
+// is S90's own Given: the same live lane S77 builds, but the fixture
+// pick --go's own walk must fire on, not the one an in-lane `start
+// --go` fires on. Since pick's walk never chdirs into a candidate's
+// lane, desertedRefusal's cwd check never fires (S77's own foreign
+// takeover shape leaves this fixture's local ref an ancestor of
+// origin's tip, so parkFirstRefusal would not fire either); a local
+// commit the dead lane made and never pushed, left past its own
+// persisted tip, is what parkFirstRefusal reads regardless of cwd.
+func (w *world) thisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffix(
+	planID int,
+) error {
+	if err := w.buildLiveLane(planID, "wOld:p1"); err != nil {
+		return err
+	}
+	st := section[identityAndCrossLayerState](w)
+	git(w.t, st.lane, "commit", "--allow-empty", "-q", "-m", "local work, never pushed")
+
+	return nil
+}
+
 // aTakeoverBoundToASessionAtANewEpochLandsOnPlan takes the lease over
 // exactly as aTakeoverAtANewEpochLandsOnPlan does, but binds the
 // takeover to a session — S77's own Given: deadSession reads the
@@ -2027,6 +2051,28 @@ func TestPickWalkIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T)
 	require.Error(t, w.planIsNotRefusedOn(7))
 	st.out = "started plan 8"
 	assert.NoError(t, w.planIsNotRefusedOn(7))
+}
+
+// TestThisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffixBuildsTheFixture:
+// S90's own Given must leave a local commit on the branch that origin
+// never received — parkFirstRefusal's own trigger, read from outside
+// the lane by coord.Path alone — not merely a live lane like S77's.
+func TestThisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffixBuildsTheFixture(
+	t *testing.T,
+) {
+	w := newWorld(t)
+
+	require.NoError(t,
+		w.thisMachineHoldsPlanInALaneBoundToASessionWhoseBranchCarriesAnUnparkedSuffix(7))
+
+	st := section[identityAndCrossLayerState](w)
+	require.NotEmpty(t, st.lane, "the lane the fixture built")
+	local, err := gitCapture(t, st.lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	origin, err := gitCapture(t, st.repo, "ls-remote", "origin", claim.Branch(int64(7)))
+	require.NoError(t, err)
+	assert.NotContains(t, origin, local,
+		"the local commit never reached origin's own tip")
 }
 
 // TestAttendedLaneIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:

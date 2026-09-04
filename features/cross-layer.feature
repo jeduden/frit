@@ -126,3 +126,12 @@ Feature: Cross-layer: herdr and frit disagree
     Then ready does not mark plan 7 dead either
     When the lane runs start --go for plan 7
     Then start refuses, naming the pane and leading with resume
+
+  @S90
+  Scenario: a deserted top lane in pick's walk
+    Given this machine holds plan 7 in a lane bound to a session, whose branch carries an unparked suffix
+    And herdr shows no agent on the lane
+    And plan 8 is ready and held by nobody
+    When pick --go runs
+    Then plan 8 is the one started
+    And plan 7 is not refused on
