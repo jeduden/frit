@@ -367,8 +367,7 @@ func TestPickGoAdvancesPastALiveHold(t *testing.T) {
 func TestPickGoAdvancesPastADesertedTopLaneToTheNextCandidate(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
-	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	repo, _ := desertedLaneFixture(t, root)
 	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
 	runner, rec := startHerdr()
 	withHerdr(t, runner)
@@ -394,8 +393,7 @@ func TestPickGoAdvancesPastADesertedTopLaneToTheNextCandidate(t *testing.T) {
 func TestPickGoAdvancesPastTheOnlyDesertedLaneToNothingStartable(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
-	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	repo, lane := desertedLaneFixture(t, root)
 	runner, rec := startHerdr()
 	withHerdr(t, runner)
 	var out, errb bytes.Buffer
@@ -428,8 +426,7 @@ func TestPickGoAdvancesPastTheOnlyDesertedLaneToNothingStartable(t *testing.T) {
 func TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
-	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	repo, lane := desertedLaneFixture(t, root)
 	localTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
 	require.NoError(t, err)
 	dropToken(t, lane)
