@@ -72,14 +72,19 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	// buildStart applies: S76 already makes a dead, unmatured hold
 	// Ready for a takeover from elsewhere, but taking it over from its
 	// own dead lane would leave whatever that lane committed locally,
-	// past its persisted token, orphaned rather than parked (S77).
-	if reason := desertedRefusal(rt, plan, cwd); reason != "" {
+	// past its persisted token, orphaned rather than parked (S77). A
+	// live pane on the branch, read the same way, means the lane is
+	// attended rather than gone, and the wording leads with resuming
+	// it instead.
+	if reason, hostProbs, herdrErr := desertedRefusal(c, rt, plan, cwd); reason != "" {
 		doc.Refuse(reason)
+		carryLiveLaneProblems(doc, hostProbs, herdrErr)
 		return renderClaim(c, rt, doc)
 	}
 
-	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
+	if reason, hostProbs, herdrErr := parkFirstRefusal(c, rt, plan, coord); reason != "" {
 		doc.Refuse(reason)
+		carryLiveLaneProblems(doc, hostProbs, herdrErr)
 		return renderClaim(c, rt, doc)
 	}
 

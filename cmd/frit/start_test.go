@@ -975,6 +975,24 @@ func TestLiveLaneRefusalNamesThePaneAndItsBranch(t *testing.T) {
 	assert.Contains(t, reason, "plan/7")
 }
 
+// TestResumeRefusalNamesThePaneAndLeadsWithOpen pins the wording a
+// deserted or park-first hold renders once a live pane attends its
+// lane: the pane the reader would open, named the same way
+// liveLaneRefusal names one, with resuming it offered before yield is
+// ever mentioned as the fallback.
+func TestResumeRefusalNamesThePaneAndLeadsWithOpen(t *testing.T) {
+	reason := resumeRefusal(discovery.Plan{ID: 7}, herdr.Lane{
+		Pane:   herdr.Pane{PaneID: "wLive:p1"},
+		Branch: "plan/7",
+	})
+
+	assert.Contains(t, reason, "wLive:p1", "the pane is named")
+	assert.Contains(t, reason, "frit open 7", "resuming it is offered")
+	require.True(t,
+		strings.Index(reason, "frit open") < strings.Index(reason, "frit yield"),
+		"resume leads; yield is only the trailing fallback: %q", reason)
+}
+
 // TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems pins
 // carryLiveLaneProblems's own contract in isolation from the
 // integration tests that only exercise it indirectly: a host problem
