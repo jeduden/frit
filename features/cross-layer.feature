@@ -135,3 +135,17 @@ Feature: Cross-layer: herdr and frit disagree
     When pick --go runs
     Then plan 8 is the one started
     And plan 7 is not refused on
+
+  @S91
+  Scenario: bound session gone, pane still working, work unclassifiable
+    Given this machine holds plan 7 in a lane bound to a session, with its token persisted
+    And a takeover bound to a session at a new epoch lands on plan 7
+    And herdr shows a live pane on the lane
+    When frit board --json reports plan 7
+    Then the board names the ask for plan 7, not dead
+    When frit ready --json lists plan 7
+    Then ready names the same ask for plan 7
+    When the lane runs start --go for plan 7
+    Then start refuses, naming frit message ahead of frit yield
+    When the lane runs the ask for plan 7 with --go
+    Then the text reaches the live pane
