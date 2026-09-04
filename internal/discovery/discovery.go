@@ -106,6 +106,17 @@ func (p Plan) Unfinished() bool {
 	return p.NotStarted() || p.InProgress()
 }
 
+// Deserted reports a held plan whose bound session herdr confirms
+// gone while its takeover window has yet to mature — the lane nobody
+// can resume from its own token, and the one a live pane on the branch
+// turns from "nobody is here" into "someone is". A matured window is
+// the stale reading's own cell and is not deserted. Every site that
+// acts on the deserted reading — start's refusals, the orphans walk,
+// the survey's ask — shares this one spelling of it.
+func (p Plan) Deserted() bool {
+	return p.Held && p.Dead && !p.Stale
+}
+
 // NextPhase returns the first phase not at ✅ — the phase frit next
 // points at, and the one an executor defaults to. A plan with no ledger
 // or with every phase done has no next phase and reports false.

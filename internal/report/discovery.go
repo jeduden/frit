@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/planmeta"
 )
 
@@ -30,7 +31,7 @@ type PlanCard struct {
 	// Dead marks a held plan whose bound session herdr positively
 	// confirms is gone: a takeover candidate at once, whether or not
 	// Stale has also matured. On a card that passed through cardsOf
-	// with a non-nil attended — ready, pick and find's own cards — a
+	// with a non-nil presence — ready, pick and find's own cards — a
 	// live pane still working or idling on the branch clears it,
 	// since "dead" reads to a person as "nobody is here", which a
 	// live pane disproves. A card built straight from cardOf (next's
@@ -42,7 +43,11 @@ type PlanCard struct {
 	// lane git cannot classify, since work open as a PR reads
 	// unlanded exactly as abandoned work does, and the agent is the
 	// one source that can. Empty everywhere else — no pane means no
-	// agent to ask, and a bound live lane was never read deserted.
+	// agent to ask, a pane whose status herdr cannot vouch for is one
+	// message itself refuses, and a bound live lane was never read
+	// deserted. A card built straight from cardOf (next's and phase's
+	// Plan) carries no ask, as it carries Dead unreconciled: those
+	// verbs read no presence.
 	Ask string `json:"ask"`
 }
 
@@ -66,19 +71,22 @@ func cardOf(p discovery.Plan) PlanCard {
 }
 
 // cardsOf projects a list, returning [] rather than nil so the encoded
-// form is a list and never null. attended reports, for one plan,
-// whether a live pane works its lane now; when it does, the copied
+// form is a list and never null. presence reports, for one plan, what
+// a live pane on its lane is doing now — working, idle or unknown —
+// or "" when none attends it; when one does, the copied
 // Dead is cleared — a live pane, working or idle, disproves "nobody is
-// here". A nil attended leaves every card's Dead exactly as cardOf
+// here". A nil presence leaves every card's Dead exactly as cardOf
 // would render it alone.
-func cardsOf(plans []discovery.Plan, attended func(discovery.Plan) bool) []PlanCard {
+func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string) []PlanCard {
 	out := make([]PlanCard, 0, len(plans))
 	for _, p := range plans {
 		card := cardOf(p)
-		if attended != nil && attended(p) {
-			card.Dead = false
-			card.Ask = askOf(p, true)
+		status := ""
+		if presence != nil {
+			status = presence(p)
 		}
+		card.Dead = p.Dead && status == ""
+		card.Ask = askOf(p, status)
 		out = append(out, card)
 	}
 
@@ -86,17 +94,25 @@ func cardsOf(plans []discovery.Plan, attended func(discovery.Plan) bool) []PlanC
 }
 
 // askOf names the ask-the-agent remedy for a plan, or "" when there is
-// no ambiguity to resolve. Its inputs are exactly the deserted
-// reading's own — held, confirmed dead, window not matured — plus the
-// live pane that turns "nobody is here" into "someone is, and only
-// they know whether the work is in flight". A matured window is
-// staleHeld's own cell and is left to it, as desertedRefusal does.
-func askOf(p discovery.Plan, attended bool) string {
-	if !attended || !p.Held || !p.Dead || p.Stale {
+// no ambiguity to resolve or nobody message could reach. Its inputs
+// are the deserted reading itself and the status of the live pane
+// that turns "nobody is here" into "someone is, and only they know
+// whether the work is in flight". The pane must be one message would
+// actually send to: message refuses a pane whose status herdr cannot
+// vouch for, so a lane read unknown earns no ask — offering it would
+// hand the reader a command that refuses when run.
+func askOf(p discovery.Plan, status string) string {
+	if !p.Deserted() || !askable(status) {
 		return ""
 	}
 
 	return AskCommand(p.ID)
+}
+
+// askable reports whether a pane with this presence is one message
+// sends to — working or idle, the two statuses herdr vouches for.
+func askable(status string) bool {
+	return status == herdr.StatusWorking || status == herdr.StatusIdle
 }
 
 // ReadyDoc is what `frit ready` found: the plans startable now, across
@@ -122,10 +138,10 @@ func NewReady(root, host string) *ReadyDoc {
 }
 
 // SetPlans records the startable plans, in the order discovery ranked
-// them. attended reports whether a live pane works a plan's lane now;
-// pass nil where that fact was not read.
-func (d *ReadyDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
-	d.Plans = cardsOf(plans, attended)
+// them. presence reports what a live pane on a plan's lane is doing now,
+// or "" when none attends it; pass nil where that fact was not read.
+func (d *ReadyDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
+	d.Plans = cardsOf(plans, presence)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -156,10 +172,11 @@ func NewPick(root, host string) *PickDoc {
 }
 
 // SetPlans records the ranked candidates, in the order discovery gave.
-// attended reports whether a live pane works a plan's lane now; pass
+// presence reports what a live pane on a plan's lane is doing now, or
+// "" when none attends it; pass
 // nil where that fact was not read.
-func (d *PickDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
-	d.Plans = cardsOf(plans, attended)
+func (d *PickDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
+	d.Plans = cardsOf(plans, presence)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -194,10 +211,11 @@ func NewFind(root, host, query string) *FindDoc {
 }
 
 // SetPlans records the matches, in the order discovery gave them.
-// attended reports whether a live pane works a plan's lane now; pass
+// presence reports what a live pane on a plan's lane is doing now, or
+// "" when none attends it; pass
 // nil where that fact was not read.
-func (d *FindDoc) SetPlans(plans []discovery.Plan, attended func(discovery.Plan) bool) {
-	d.Plans = cardsOf(plans, attended)
+func (d *FindDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
+	d.Plans = cardsOf(plans, presence)
 }
 
 // AddProblem records a repository whose plans could not be read.

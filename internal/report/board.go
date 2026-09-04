@@ -75,7 +75,8 @@ func NewBoard(root string, presence bool) *BoardDoc {
 // still working or idling means someone is there, so the rendered
 // Dead is cleared whenever agent is non-empty rather than copied
 // straight through. That same pairing — session gone, agent live — is
-// the lane git cannot classify, so it is the one that carries Ask.
+// the lane git cannot classify, so it is the one that carries Ask,
+// provided status is one message would send to; askOf owns that gate.
 func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 	d.Plans = append(d.Plans, BoardPlan{
 		Key:          p.Key,
@@ -92,7 +93,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 		Dead:         p.Dead && agent == "",
 		Agent:        agent,
 		AgentStatus:  status,
-		Ask:          askOf(p, agent != ""),
+		Ask:          askOf(p, status),
 	})
 }
 

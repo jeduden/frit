@@ -207,4 +207,5 @@ func TestNewNudgeRendersAnEmptyPhaseAsWholePlan(t *testing.T) {
 // would refuse.
 func TestAskCommandNamesTheVerbAndSelector(t *testing.T) {
 	assert.Equal(t, `frit message 7 "what is your status?"`, AskCommand(7))
+	assert.Equal(t, "what is your status?", AskText)
 }

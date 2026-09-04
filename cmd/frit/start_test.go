@@ -1011,6 +1011,9 @@ func TestResumeRefusalNamesMessageAsTheWayToAsk(t *testing.T) {
 		strings.Index(reason, "frit message") < strings.Index(reason, "frit yield"),
 		"ask leads; yield is only the trailing fallback: %q", reason)
 	assert.Contains(t, reason, "frit open 7", "resume is still offered")
+	require.True(t,
+		strings.Index(reason, "frit message") < strings.Index(reason, "frit open"),
+		"ask leads resume too — only the agent can say whether resuming is right: %q", reason)
 }
 
 // TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems pins

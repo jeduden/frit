@@ -292,16 +292,21 @@ type MessageDoc struct {
 	Problems []Problem `json:"problems"`
 }
 
+// AskText is the question AskCommand carries: the one a supervisor
+// asks a lane's agent to learn what git cannot say about its work.
+const AskText = "what is your status?"
+
 // AskCommand is the one remedy text every site that points a reader at
 // a lane's agent shares: the `frit message` invocation, with the plan's
-// own selector and a question, so it runs verbatim. message takes its
-// text as a required positional, which is why a question rides along
-// rather than leaving the reader to guess the shape. It is what the
-// deserted refusal and the survey cards name when git cannot classify
-// a held lane's work — open as a PR it reads unlanded — and only the
-// agent on it can.
+// own selector and AskText, so it runs verbatim — as a dry run naming
+// the pane and the text, like every rung that sends into a pane;
+// `--go` sends. message takes its text as a required positional, which
+// is why the question rides along rather than leaving the reader to
+// guess the shape. It is what the deserted refusal and the survey
+// cards name when git cannot classify a held lane's work — open as a
+// PR it reads unlanded — and only the agent on it can.
 func AskCommand(planID int64) string {
-	return fmt.Sprintf(`frit message %d "what is your status?"`, planID)
+	return fmt.Sprintf("frit message %d %q", planID, AskText)
 }
 
 // NewMessage opens a message report for a resolved plan and the text

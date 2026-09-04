@@ -45,8 +45,8 @@ Git alone cannot tell a deserted, unlanded lane apart from one whose
 work is pushed and sitting in an open PR while its agent finishes the
 merge — refs read the same either way. When a held lane's state is
 unclear, ask its agent rather than reaching for `frit yield` or a
-hand-land. `board --json` names that case for you: a held row whose
-`ask` is non-empty carries the exact message command to run.
+hand-land. `{{frit}} board --json` names that case for you: a held
+row whose `ask` is non-empty carries the exact message command to run.
 
 - **`{{frit}} message <id> "text"`** — send arbitrary text to the
   lane's live agent through herdr. Unlike `nudge`, it reaches a

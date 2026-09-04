@@ -155,3 +155,25 @@ func TestObserveVoidsOnAGapAndSaysWhy(t *testing.T) {
 func TestStaleDefaults(t *testing.T) {
 	assert.Equal(t, DefaultTakeoverWindow/4, DefaultSampleGap)
 }
+
+// TestPlanDesertedIsHeldDeadAndUnmatured pins the one spelling of the
+// deserted reading every acting site shares: held, bound session
+// confirmed gone, takeover window not yet matured — and nothing short
+// of all three.
+func TestPlanDesertedIsHeldDeadAndUnmatured(t *testing.T) {
+	deserted := Plan{Held: true, Dead: true}
+
+	assert.True(t, deserted.Deserted())
+
+	unheld := deserted
+	unheld.Held = false
+	assert.False(t, unheld.Deserted(), "nobody holds it")
+
+	alive := deserted
+	alive.Dead = false
+	assert.False(t, alive.Deserted(), "its bound session is not confirmed gone")
+
+	matured := deserted
+	matured.Stale = true
+	assert.False(t, matured.Deserted(), "a matured window is the stale reading's own cell")
+}

@@ -62,7 +62,7 @@ type identityAndCrossLayerState struct {
 	errOut   string
 	code     int
 	// rec is the herdr calls a run recorded, for a row that must prove
-	// what was dispatched — S45 and S73 — rather than reading the
+	// what was dispatched — S45, S73 and S91 — rather than reading the
 	// verb's own text output alone.
 	rec *herdrCalls
 	// repoA and repoB are S74's own two repositories sharing one plan
@@ -2145,8 +2145,8 @@ func TestAttendedLaneIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testin
 	require.Error(t, w.startRefusesNamingThePaneAndLeadingWithResume(),
 		"refused, but names no live pane")
 	st.out = "refused: plan 7 deserted hold: a live herdr pane (wLive:p1) on lane plan/7 " +
-		"attends it; resume it with `frit open 7` — run `frit yield 7` only to set the work " +
-		"aside instead"
+		"attends it; ask it with `" + report.AskCommand(7) + "` or resume it with " +
+		"`frit open 7` — run `frit yield 7` only to set the work aside instead"
 	assert.NoError(t, w.startRefusesNamingThePaneAndLeadingWithResume())
 }
 
@@ -2345,25 +2345,21 @@ func (w *world) startRefusesNamingFritMessageAheadOfFritYield() error {
 // theLaneRunsTheAskForPlanWithGo runs the exact ask phase 2 names —
 // `frit message <id> "what is your status?"` — under --go, from the
 // lane, against whatever herdr fake the live-pane Given armed. The
-// text is the one AskCommand carries rather than a fresh literal, so a
-// reader running the refusal's own remedy verbatim is what is pinned.
+// text is AskText — the one AskCommand carries — rather than a fresh
+// literal, so a reader running the refusal's own remedy is what is
+// pinned.
 func (w *world) theLaneRunsTheAskForPlanWithGo(planID int) error {
 	st := section[identityAndCrossLayerState](w)
 	if st.root == "" {
 		return fmt.Errorf("no root to run message from; the held-lane step comes first")
 	}
 	var out, errb strings.Builder
-	code := run([]string{"message", strconv.Itoa(planID), askText, "--go",
+	code := run([]string{"message", strconv.Itoa(planID), report.AskText, "--go",
 		"--root", st.root}, &out, &errb)
 	st.out, st.errOut, st.code = out.String(), errb.String(), code
 
 	return nil
 }
-
-// askText is the question AskCommand carries, kept as the literal a
-// reader would type so the S91 send proves the remedy's own words
-// reach the pane, not a paraphrase.
-const askText = "what is your status?"
 
 // theTextReachesTheLivePane checks S91's last observable: the fake
 // herdr recorded an `agent prompt` to the live pane carrying the ask's
@@ -2380,7 +2376,7 @@ func (w *world) theTextReachesTheLivePane() error {
 	if !strings.Contains(st.out, "sent") {
 		return fmt.Errorf("message did not report the text sent: %s", st.out)
 	}
-	if !st.rec.verb("agent", "prompt", "wLive:p1", askText) {
+	if !st.rec.verb("agent", "prompt", "wLive:p1", report.AskText) {
 		return fmt.Errorf("the ask never reached pane wLive:p1 whole: %v", st.rec.calls)
 	}
 
@@ -2452,14 +2448,8 @@ func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing
 	require.Error(t, w.theTextReachesTheLivePane(), "a dry-run never reports sent")
 	st.out = "sent"
 	require.Error(t, w.theTextReachesTheLivePane(), "reported sent, but nothing was recorded")
-	st.rec.calls = [][]string{{"agent", "prompt", "wOther:p1", askText}}
+	st.rec.calls = [][]string{{"agent", "prompt", "wOther:p1", report.AskText}}
 	require.Error(t, w.theTextReachesTheLivePane(), "sent to a different pane")
-	st.rec.calls = [][]string{{"agent", "prompt", "wLive:p1", askText}}
+	st.rec.calls = [][]string{{"agent", "prompt", "wLive:p1", report.AskText}}
 	assert.NoError(t, w.theTextReachesTheLivePane())
-}
-
-// TestAskTextIsTheQuestionAskCommandCarries ties S91's literal to the
-// remedy's own text, so the two cannot drift apart unnoticed.
-func TestAskTextIsTheQuestionAskCommandCarries(t *testing.T) {
-	assert.Equal(t, `frit message 7 "`+askText+`"`, report.AskCommand(7))
 }

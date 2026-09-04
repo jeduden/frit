@@ -38,7 +38,9 @@ verb that matches — never raw git.
   the session gone, none can resume it → `{{frit}} yield <id>` parks
   any unparked suffix, then `{{frit}} claim <id>` (or `start <id>`)
   takes it over at the next epoch. Both refuse until yield has parked
-  it.
+  it. First check `{{frit}} board --json`: a row whose `ask` is
+  non-empty still has an agent on it — run that command and wait for
+  its answer before yielding.
 
 ## Notes
 

@@ -425,7 +425,7 @@ func laneUnattended(rt *runtime, m claim.Marker) (unattended, known bool) {
 func desertedRefusal(
 	c *cli, rt *runtime, plan discovery.Plan, cwd string,
 ) (string, []hostProblem, error) {
-	if !plan.Held || !plan.Dead || plan.Stale {
+	if !plan.Deserted() {
 		return "", nil, nil
 	}
 	if !inOwnLane(rt, plan, cwd) {
@@ -461,7 +461,7 @@ func desertedRefusal(
 func parkFirstRefusal(
 	c *cli, rt *runtime, plan discovery.Plan, coord fleet.Coord,
 ) (string, []hostProblem, error) {
-	if !plan.Held || !plan.Dead || plan.Stale || coord.Path == "" {
+	if !plan.Deserted() || coord.Path == "" {
 		return "", nil, nil
 	}
 	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {

@@ -29,6 +29,17 @@ func TestBoardAddPlanLeavesAskEmptyWhenNoAgentIsLive(t *testing.T) {
 	assert.True(t, doc.Plans[0].Dead)
 }
 
+// TestBoardAddPlanLeavesAskEmptyForAnUnvouchedAgent: an agent whose
+// status herdr cannot vouch for still clears dead — someone is there —
+// but earns no ask, since message refuses exactly that pane.
+func TestBoardAddPlanLeavesAskEmptyForAnUnvouchedAgent(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "claude", "unknown")
+
+	assert.False(t, doc.Plans[0].Dead, "a pane there still disproves dead")
+	assert.Empty(t, doc.Plans[0].Ask, "but one message would refuse is not offered")
+}
+
 // TestBoardAddPlanLeavesAskEmptyForABoundLiveLane: a lane whose bound
 // session is live is unambiguous, so its agent earns no ask pointer.
 func TestBoardAddPlanLeavesAskEmptyForABoundLiveLane(t *testing.T) {
