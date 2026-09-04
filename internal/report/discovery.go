@@ -28,11 +28,13 @@ type PlanCard struct {
 	Stale        bool  `json:"stale"`
 	StaleSeconds int64 `json:"stale_seconds"`
 	// Dead marks a held plan whose bound session herdr positively
-	// confirms is gone AND whose branch no live pane attends: a
-	// takeover candidate at once, whether or not Stale has also
-	// matured. A pane still working or idling on the branch clears it
-	// — "dead" reads to a person as "nobody is here", which a live
-	// pane, working or idle, disproves.
+	// confirms is gone: a takeover candidate at once, whether or not
+	// Stale has also matured. On a card that passed through cardsOf
+	// with a non-nil attended — ready, pick and find's own cards — a
+	// live pane still working or idling on the branch clears it,
+	// since "dead" reads to a person as "nobody is here", which a
+	// live pane disproves. A card built straight from cardOf (next's
+	// Plan) carries the identity fact unreconciled.
 	Dead bool `json:"dead"`
 }
 

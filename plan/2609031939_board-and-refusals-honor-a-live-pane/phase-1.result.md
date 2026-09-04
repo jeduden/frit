@@ -67,17 +67,19 @@ the same one board already pays; no second query was added anywhere.
 same way board already does, so an unreadable host stays visible
 there too.
 
-One asymmetry worth naming: board's gate is `agent == ""` (an existing
-per-pane identity string that happens to double as "no pane found"),
-while `attendedFor` checks lane presence directly, so a live *bare*
-pane (no agent attached) would still clear `dead` through `cardsOf`
-but not through `AddPlan`. No test exercises a bare pane on a
-bound-session-gone hold, and the codebase already treats an empty
-`agent` as "nothing here" throughout the board renderer, so widening
-`AddPlan`'s signature to carry a separate `attended` bool was not
-worth the churn across its nine existing call sites for this phase.
-Worth a look if a bare-pane report ever surfaces the same
-contradiction.
+One gap worth naming, corrected from an earlier draft of this note:
+`AddPlan`'s `agent == ""` gate and `cardsOf`'s `attendedFor` gate do
+not diverge from each other, because both read the same `live` map
+`liveByBranch` builds from `whoLanes`, and `whoLanes` keeps only
+panes with `HasAgent()` true before that map is ever built. A live
+*bare* pane — no agent attached, a person sitting in a plain shell on
+the branch — never becomes an entry in `live` at all, so neither gate
+sees it: `dead` stays true through `AddPlan` and through `cardsOf`
+alike. No test exercises a bare pane on a bound-session-gone hold, and
+reaching one means widening what `whoLanes` keeps, not reconciling
+`AddPlan` against `cardsOf` — the two already agree. Worth a look if a
+bare-pane report ever surfaces the same contradiction this phase
+fixed for an agent's pane.
 
 **Guard the edges, confirmed.** `TestAddPlanStillMarksAnUnattendedDeadHoldDead`
 and `TestReadySetPlansStillMarksAnUnattendedDeadLaneDead` pin that a

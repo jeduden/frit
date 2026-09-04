@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/textw"
 	"github.com/stretchr/testify/assert"
@@ -133,6 +134,33 @@ func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
 
 	assert.True(t, doc.Plans[0].Dead,
 		"no live pane means the dead session still reads as a takeover candidate")
+}
+
+// TestAttendedForFindsALivePaneOnAHoldBranch: attendedFor reports true
+// as soon as any of a plan's hold branches has a live lane, regardless
+// of what that lane's pane is doing — the same walk agentFor makes,
+// asking a different question of the answer.
+func TestAttendedForFindsALivePaneOnAHoldBranch(t *testing.T) {
+	live := map[string]herdr.Lane{
+		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+	}
+	p := discovery.Plan{Holds: []string{"plan/99", "plan/100"}}
+
+	assert.True(t, attendedFor(p, live),
+		"a live lane on one of the plan's hold branches is attended")
+}
+
+// TestAttendedForMissesAPlanWithNoLiveBranch: a plan whose hold
+// branches match no live lane is not attended — the ordinary case, a
+// lane nobody is on.
+func TestAttendedForMissesAPlanWithNoLiveBranch(t *testing.T) {
+	live := map[string]herdr.Lane{
+		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+	}
+	p := discovery.Plan{Holds: []string{"plan/200"}}
+
+	assert.False(t, attendedFor(p, live),
+		"no live lane on any hold branch means not attended")
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads

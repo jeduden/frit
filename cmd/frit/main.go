@@ -1978,16 +1978,30 @@ func liveByBranch(
 	return live, true, probs
 }
 
+// laneFor finds the live lane on one of a plan's hold branches, if any
+// is live. A plan nobody holds has no lane to be worked on, so it
+// reports none. agentFor and attendedFor both ask this same question —
+// which of a plan's branches is live now — and differ only in what
+// they read off the answer, so they share this one walk of p.Holds
+// rather than each keeping its own copy.
+func laneFor(p discovery.Plan, live map[string]herdr.Lane) (herdr.Lane, bool) {
+	for _, branch := range p.Holds {
+		if lane, ok := live[branch]; ok {
+			return lane, true
+		}
+	}
+
+	return herdr.Lane{}, false
+}
+
 // agentFor finds the agent working one of a plan's hold branches, if
 // any is live. A plan nobody holds has no lane to be worked on, so it
 // reports none.
 func agentFor(
 	p discovery.Plan, live map[string]herdr.Lane,
 ) (agent, status string) {
-	for _, branch := range p.Holds {
-		if lane, ok := live[branch]; ok {
-			return lane.Pane.Agent, lane.Pane.Presence()
-		}
+	if lane, ok := laneFor(p, live); ok {
+		return lane.Pane.Agent, lane.Pane.Presence()
 	}
 
 	return "", ""
@@ -1996,15 +2010,13 @@ func agentFor(
 // attendedFor reports whether a live pane works one of a plan's hold
 // branches now, working or idle — the fact that clears a rendered
 // Dead, since a pane there disproves "nobody is here" regardless of
-// what it is doing.
+// what it is doing. It checks lane presence directly rather than
+// agentFor's returned agent so that a live pane herdr ever reports with
+// no agent attached still counts as attended.
 func attendedFor(p discovery.Plan, live map[string]herdr.Lane) bool {
-	for _, branch := range p.Holds {
-		if _, ok := live[branch]; ok {
-			return true
-		}
-	}
+	_, ok := laneFor(p, live)
 
-	return false
+	return ok
 }
 
 // boardRow is one board line's cells, computed once so the title can be
