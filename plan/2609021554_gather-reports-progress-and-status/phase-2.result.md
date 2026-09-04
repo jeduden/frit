@@ -47,12 +47,26 @@ repositories, 0 problem(s), in 72ms", then a bare `\n` before the
 command's own "nothing startable". A piped run and a `--json` run both
 leave stderr empty — no escape sequences, no progress text.
 
+**Wrap-safe follow-up.** A code-review finding showed `clearLine`
+erases only the cursor's own row, so a transient line long enough to
+wrap left its first row behind as stale text. Fixed in the same file:
+`newProgress` now takes the terminal width (`progressFor` passes
+`terminalWidth(rt.stderr)`), and a `transient` helper caps each `Start`
+and `Repo` line to that width with `textw.Truncate` so it stays on one
+row and `clearLine` always clears the whole line. A zero width — a
+pipe, a file, a test buffer — imposes no limit. `Done`'s closing line
+is left uncapped: it is permanent, newline-terminated output, so
+wrapping it is harmless. Verified on a 30-column pty: a long
+repository name renders as `[1/3] a-very-long-repository-…` rather
+than wrapping.
+
 ## Handoff
 
 The transient line and its control sequence
 (`"\r\x1b[K"`, no trailing newline until `Done`) are settled inside
 `cmd/frit/progress.go` alone; `Start` folds into the same redraw shape
-as `Repo` rather than opening a separate scrolled line. Phase 3 leaves
+as `Repo` rather than opening a separate scrolled line, and both cap to
+the stderr terminal's width so a long name cannot wrap. Phase 3 leaves
 this file alone and works only on the report model: it projects
 `Result.Summary` (already populated by Phase 1) into
 `internal/report` so `frit <verb> --json` and the table both surface

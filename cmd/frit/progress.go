@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/textw"
 	"golang.org/x/term"
 )
 
@@ -61,17 +62,30 @@ func newProgress(out io.Writer, width int) *progress {
 	return &progress{out: out, width: width}
 }
 
+// transient redraws the current line in place: it returns to the start
+// and clears it, then writes s capped to the terminal width — no
+// trailing newline, so the next transient call overwrites it. Capping
+// to the width keeps s on one row, so clearLine's erase-to-end-of-line,
+// which reaches only the cursor's own row, always clears the whole
+// line; an unbounded s could wrap and strand its first row.
+func (p *progress) transient(s string) {
+	if p.width > 0 {
+		s = textw.Truncate(s, p.width)
+	}
+	_, _ = fmt.Fprintf(p.out, "%s%s", clearLine, s)
+}
+
 // Start folds into the transient shape: it opens the line without a
 // trailing newline, so it is redrawn rather than scrolled by the first
 // Repo.
 func (p *progress) Start(repos int) {
-	_, _ = fmt.Fprintf(p.out, "%sgathering %d repositories", clearLine, repos)
+	p.transient(fmt.Sprintf("gathering %d repositories", repos))
 }
 
 // Repo redraws the transient line in place with the repository the walk
 // is reading now.
 func (p *progress) Repo(name string, index, total int) {
-	_, _ = fmt.Fprintf(p.out, "%s[%d/%d] %s", clearLine, index, total, name)
+	p.transient(fmt.Sprintf("[%d/%d] %s", index, total, name))
 }
 
 // Done clears the transient line and writes the closing status,
