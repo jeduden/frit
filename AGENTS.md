@@ -17,6 +17,21 @@ strip-frontmatter: "true"
 frit — a command and control CLI over plans, worktrees, hosts and
 agents, written in Go.
 
+## Steering Is Local, Coordination Is Origin
+
+The main principle. frit steers agents from their local edits, and it
+runs as many instances, on many hosts, at once. The one place they all
+coordinate is git origin: the claim that holds a plan, the rescue ref
+that parks a lane, and the plan files themselves are refs pushed there,
+because a ref push is the only atom every host can see and race on
+safely. A fact that never reaches origin — a live pane, an in-flight
+merge, a PR open on a pushed branch — is local. frit reads it from the
+host that has it (herdr's socket) or asks the agent; it never infers it
+from the shared refs, which cannot carry it. So a deserted, unlanded
+lane and one whose work is open as a PR read alike to a distant frit —
+the difference is local, and so is the resolution. See
+[docs/architecture.md](docs/architecture.md).
+
 ## Docs
 
 - [Plan template; see PLAN.md for status, plans live in plan/](plan/proto.md)

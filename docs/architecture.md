@@ -34,6 +34,27 @@ for how a hold is minted and read.
   the pane the claim stands up to herdr; the lease is the one thing it
   writes.
 
+## Steering is local; coordination is git origin
+
+frit steers agents from their local edits. What an agent has done — the
+commits in its worktree, the branch it stands on, the pane it works in —
+is a fact of the host it runs on, read there and acted on there.
+
+frit runs as many instances, on many hosts, at once. Nothing on one host
+reaches another except through one central place: git origin. The lease
+that says who holds a plan, the rescue ref that parks a lane's
+divergence, the plan files themselves — all are refs on origin, because a
+ref push is the only atom every host can see and race on safely.
+
+So a fact stays where it lives. A local fact — a live pane, an in-flight
+merge, a PR open on a pushed branch — is not on origin, and another
+host's frit cannot infer it from refs. frit reads such a fact from the
+host that has it, over herdr's socket, or asks the agent directly. It
+never guesses it from the shared refs, which cannot carry it. This is why
+a deserted, unlanded lane and one whose work is open as a PR read alike
+to a distant frit: the difference is local, so the resolution is local
+too.
+
 ## The one-mutation rule
 
 The rule that keeps those boundaries honest: frit indexes, displays,

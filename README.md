@@ -25,6 +25,17 @@ frit resolves a plan to a lane and a model tier, hands the pane to
 the agent that already runs there, and steps back. It renders no
 text input, and it never reads a transcript back.
 
+## How it coordinates
+
+frit steers agents from their local edits, and it runs as many
+instances, on many hosts, at once. The one place they all coordinate is
+git origin. The claim that holds a plan, the rescue ref that parks a
+lane, and the plan files themselves are all refs pushed there — a ref
+push is the only atom every host can see and race on safely. A fact that
+never reaches origin is local: a live pane, an in-flight merge, a PR
+open on a pushed branch. frit reads such a fact from the host that has
+it, or asks the agent; it never infers it from the shared refs.
+
 ## Built on mdsmith and herdr
 
 frit consumes rather than reimplements. It does not parse markdown,
