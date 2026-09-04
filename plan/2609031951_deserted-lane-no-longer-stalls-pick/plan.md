@@ -1,7 +1,7 @@
 ---
 id: 2609031951
 title: A deserted top lane no longer stalls pick's candidate walk
-status: "🔲"
+status: "🔳"
 summary: >-
   Plan 2609031211 makes pick --go's walk advance past a live-lane
   refusal on the top candidate. But that is one of two refusal gates in
@@ -133,10 +133,11 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                            |
-| --- | ------ | ---------------------------------------------------------------- |
-| 1   | 🔲     | [pick --go's walk advances past a deserted top lane](phase-1.md) |
-| 2   | 🔲     | [S90 runs the deserted-lane walk skip under godog](phase-2.md)   |
+| #   | Status | Phase                                                                                                  |
+| --- | ------ | ------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [pick --go's walk advances past a deserted top lane](phase-1.md)                                       |
+|     | ↳      | buildStart's startRefusal gate is now a skip in pick --go's walk, matching the sibling live-lane gate. |
+| 2   | 🔲     | [S90 runs the deserted-lane walk skip under godog](phase-2.md)                                         |
 <?/catalog?>
 
 ## Acceptance Criteria

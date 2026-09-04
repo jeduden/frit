@@ -385,6 +385,38 @@ func TestPickGoAdvancesPastADesertedTopLaneToTheNextCandidate(t *testing.T) {
 	assert.NotContains(t, out.String(), "refused")
 }
 
+// TestPickGoAdvancesPastTheOnlyDesertedLaneToNothingStartable: the same
+// deserted-hold fixture, with no other candidate underneath it — the
+// walk advances past it to the same empty answer a lost race gives,
+// not a surfaced refusal (mirrors
+// TestPickGoAdvancesPastTheOnlyLiveLaneToNothingStartable for the
+// sibling gate).
+func TestPickGoAdvancesPastTheOnlyDesertedLaneToNothingStartable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused",
+		"pick's own walk is not the operator staring at a named refusal")
+	assert.Contains(t, got, "nothing startable",
+		"the deserted lane advances past the only candidate, same as a lost race")
+	assert.False(t, rec.verb("worktree", "create"),
+		"a deserted lane is skipped before a takeover ever runs")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	localTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "the dead lane's own local commit is untouched")
+}
+
 // TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix: the same
 // deserted-hold fixture the walk-advance test above skips past, but
 // with no token on this machine to resolve a reattach — a lane whose

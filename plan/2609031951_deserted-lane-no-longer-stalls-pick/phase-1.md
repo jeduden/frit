@@ -1,7 +1,7 @@
 ---
 n: 1
 title: pick --go's walk advances past a deserted top lane
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `pick --go` treat a `startRefusal` on a candidate as one to skip
