@@ -459,6 +459,45 @@ func TestScanDoesNotFlagADonePlanWithNoHandoff(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestScanIDChecksOnlyTheNamedPlanFromItsOwnRoot is Phase 4's RED:
+// ScanID re-checks a single plan from a given root — the seam frit
+// doctor uses to read the plan whose lane the cwd stands in from the
+// lane's own working copy, leaving every other plan on the fleet's
+// default branch. It reports only the named plan's gaps, and nothing
+// for a clean one.
+func TestScanIDChecksOnlyTheNamedPlanFromItsOwnRoot(t *testing.T) {
+	root := newFixtureRoot(t)
+	writePlan(t, root, "100_gapped.md", `---
+id: 100
+title: Gapped
+status: "🔲"
+model: sonnet
+---
+# Gapped
+
+## Goal
+
+## Tasks
+
+1. x
+
+## Acceptance Criteria
+
+- [ ] y
+`)
+	writePlan(t, root, "101_clean.md", cleanPlanWithID(101))
+
+	gapped, err := ScanID(root, "plan", 100)
+	require.NoError(t, err)
+	require.Len(t, gapped, 1)
+	assert.Equal(t, int64(100), gapped[0].ID)
+	assert.Equal(t, "goal", gapped[0].Check)
+
+	clean, err := ScanID(root, "plan", 101)
+	require.NoError(t, err)
+	assert.Empty(t, clean, "the clean plan yields nothing, and the gapped one is not scanned")
+}
+
 // TestScanSortsFindingsByPlanIDThenCheck: a fleet-wide report reads
 // the same way on every run, not in filesystem-glob order.
 func TestScanSortsFindingsByPlanIDThenCheck(t *testing.T) {

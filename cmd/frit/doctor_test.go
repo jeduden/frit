@@ -151,3 +151,79 @@ func TestDoctorHelpListsTheChecksAndTheirProvenance(t *testing.T) {
 	}
 	assert.NotContains(t, got, "headroom", "the retired check is gone")
 }
+
+// handoffFindings filters a doctor document to its handoff findings, so
+// a lane test asserts on the check it cares about without minding the
+// execution-row noise a bare fixture plan also raises.
+func handoffFindings(doc report.DoctorDoc) []report.DoctorFinding {
+	var out []report.DoctorFinding
+	for _, f := range doc.Findings {
+		if f.Check == "handoff" {
+			out = append(out, f)
+		}
+	}
+
+	return out
+}
+
+// TestDoctorInsideItsOwnLaneReadsTheWorkingTreeCopy is Phase 4's RED,
+// mirroring TestNextInsideItsOwnLaneReadsTheWorkingTreeCopy: main
+// carries a plan whose done phase left no handoff, so doctor on main
+// reports it. The plan's own lane has written the handoff and
+// committed it; run from inside that lane, doctor reads the lane's copy
+// and the finding is gone — the way next, show and phase already read
+// the lane. At HEAD doctor reads main regardless of cwd, so the finding
+// persists.
+func TestDoctorInsideItsOwnLaneReadsTheWorkingTreeCopy(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writeDoctorSchema(t, repo)
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "## Goal\n\nShip it.")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan with a skipped handoff")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	writePlanFile(t, wt, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "## Goal\n\nShip it.\n\n## Handoff\n\nPhase 1 landed.")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "write the handoff")
+	t.Chdir(wt)
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	assert.Empty(t, handoffFindings(doc),
+		"inside the lane, doctor reads the lane's copy where the handoff is written")
+}
+
+// TestDoctorOutsideTheLaneStillReadsTheDefaultBranch: the same diverging
+// lane exists, but standing outside it doctor still reports main's
+// skipped handoff, unchanged.
+func TestDoctorOutsideTheLaneStillReadsTheDefaultBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writeDoctorSchema(t, repo)
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "## Goal\n\nShip it.")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan with a skipped handoff")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	writePlanFile(t, wt, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "## Goal\n\nShip it.\n\n## Handoff\n\nPhase 1 landed.")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "write the handoff")
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	found := handoffFindings(doc)
+	require.Len(t, found, 1,
+		"outside the lane, doctor still reads main's skipped handoff")
+	assert.Equal(t, int64(100), found[0].ID)
+}
