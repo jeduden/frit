@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -166,7 +168,7 @@ func TestDesertedRefusalExcludesAnUnheldPlan(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec}
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: false, Dead: true}
 
-	got := desertedRefusal(rt, plan, lane)
+	got, _, _ := desertedRefusal(nil, rt, plan, lane)
 
 	assert.Empty(t, got, "nobody holds this plan, so there is nothing to yield")
 }
@@ -214,6 +216,168 @@ func TestStartNamesYieldForADesertedLaneOnThisHost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, body, "holder:  ghost",
 		"the dead lane's own ref was never seized")
+}
+
+// TestStartNamesThePaneForADesertedLaneAWorkingPaneAttends: the same
+// deserted-lane fixture as TestStartNamesYieldForADesertedLaneOnThisHost
+// — bound session confirmed gone, window unmatured, this exact lane's
+// token behind origin's tip — but with herdr showing a pane actively
+// working the branch. The refusal names that pane and leads with
+// resuming it; `frit yield` stays only the trailing fallback, since
+// nobody deserted a lane someone is sitting in.
+func TestStartNamesThePaneForADesertedLaneAWorkingPaneAttends(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	// Somebody else moves the ref past the token this lane persisted.
+	ghost := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "ghost", Lane: "/lanes/ghost",
+		Session: "wGhost:p1"}
+	_, err = claim.Takeover(repo, ghost, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "wLive:p1", "the refusal names the live pane")
+	assert.Contains(t, got, "frit open 7", "leads with resuming it")
+	assert.NotContains(t, got, "started plan 7")
+	require.True(t,
+		strings.Index(got, "frit open") < strings.Index(got, "frit yield"),
+		"resume leads; yield is only the trailing fallback: %q", got)
+}
+
+// TestStartNamesThePaneForADesertedLaneAnIdlePaneAttends: the same
+// fixture, but the pane is idling between phases rather than working.
+// A cheap guard that the reconciliation reads any live pane, not just
+// a working one — nothing here should key off agent_status.
+func TestStartNamesThePaneForADesertedLaneAnIdlePaneAttends(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	ghost := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "ghost", Lane: "/lanes/ghost",
+		Session: "wGhost:p1"}
+	_, err = claim.Takeover(repo, ghost, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "idle",
+		"pane_id": "wLive:p1", "cwd": lane,
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "wLive:p1",
+		"an idling pane is still named, not read as gone")
+	assert.Contains(t, got, "frit open 7")
+}
+
+// TestStartNamesThePaneForAnUnparkedSuffixALivePaneAttends: the
+// park-first guard's own fixture (from outside the lane, a divergent
+// local commit past the pushed tip), but with a herdr pane sitting
+// live on the branch elsewhere. The refusal names that pane and leads
+// with resume rather than the park-first yield.
+func TestStartNamesThePaneForAnUnparkedSuffixALivePaneAttends(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x",
+		Session: "wOld:p1"}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "plan/7")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "local work")
+	localTip, err := gitCapture(t, repo, "rev-parse", "plan/7")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	lane := liveLeaseLane(t, repo, "plan/7")
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	}))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "wLive:p1", "the refusal names the live pane")
+	assert.Contains(t, got, "frit open 7", "leads with resuming it")
+	assert.NotContains(t, got, "started plan 7")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "nothing was taken over; the local commit stands")
+}
+
+// TestStartGoRefusalOfAnAttendedDesertedLaneCarriesInJSON: the
+// resume-first wording rides in the JSON contract the same way every
+// other pre-flight refusal does — `refused` names the pane, and
+// `prompt_dispatched` stays false.
+func TestStartGoRefusalOfAnAttendedDesertedLaneCarriesInJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane,
+		Session: "wOld:p1"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	ghost := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "ghost", Lane: "/lanes/ghost",
+		Session: "wGhost:p1"}
+	_, err = claim.Takeover(repo, ghost, renewed.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": lane,
+	}))
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
+
+	assert.Contains(t, doc.Refused, "wLive:p1")
+	assert.Contains(t, doc.Refused, "frit open 7")
+	assert.False(t, doc.PromptDispatched)
 }
 
 // TestClaimRefusesAnUnparkedSuffixFromOutsideTheLane: a held plan

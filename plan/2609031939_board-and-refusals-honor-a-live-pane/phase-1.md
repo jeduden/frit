@@ -1,7 +1,7 @@
 ---
 n: 1
 title: no report calls an attended lane dead
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make every frit report stop rendering `dead: true` for a held lane

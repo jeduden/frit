@@ -1,7 +1,7 @@
 ---
 n: 3
 title: S89 runs the attended-lane state end-to-end under godog
-status: "🔲"
+status: "✅"
 result: false
 ---
 Document the attended-lane state as cross-layer matrix row S89. Run it

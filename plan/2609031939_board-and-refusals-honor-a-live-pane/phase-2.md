@@ -1,7 +1,7 @@
 ---
 n: 2
 title: the deserted refusals name the pane and lead with resume
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make the deserted-hold refusals answer to the live pane: when a pane
