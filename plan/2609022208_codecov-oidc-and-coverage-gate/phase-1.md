@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Coverage uploads to Codecov via OIDC
-status: "🔲"
+status: "✅"
 result: false
 ---
 Upload the coverage profile CI already builds to Codecov, using the

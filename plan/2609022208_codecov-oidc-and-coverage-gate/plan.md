@@ -1,7 +1,7 @@
 ---
 id: 2609022208
 title: Coverage uploads to Codecov and can only improve
-status: "🔲"
+status: "🔳"
 summary: >-
   CI already measures coverage — every job builds one `cover.out` and
   parks it as an artifact — but the number lives and dies inside the
@@ -110,9 +110,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                              |
-| --- | ------ | -------------------------------------------------- |
-| 1   | 🔲     | [Coverage uploads to Codecov via OIDC](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                        |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Coverage uploads to Codecov via OIDC](phase-1.md)                                                                                                                           |
+|     | ↳      | The `test` job now uploads `cover.out` to Codecov over OIDC — no stored token — guarded off on fork PRs; `codecov.yml` validates and the README carries the project's badge. |
 <?/catalog?>
 
 ## Acceptance Criteria
