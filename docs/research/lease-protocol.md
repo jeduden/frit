@@ -471,6 +471,7 @@ PR #79 cite the fetch-before-read row by the old number.
 | S77 | deserted lane on its own host                                             | the dead host sees local commits ahead of origin; `start` rebuilds its pane on the lane's token, refusing an unpushed suffix (plan 2609011836) so yield parks it first (RESUME, YIELD)               |
 | S86 | a live lane's own raw commits advance the branch past its persisted token | ownToken re-anchors: a tip descending from the token under the same epoch and holder is the lane's own advance, so release/renew/resume succeed unaided; a new-epoch takeover fences (RESUME, FENCE) |
 | S88 | a live top lane in pick's walk                                            | `pick --go` treats the live-lane pre-flight refusal (#126) as a candidate to skip: it advances to the next ready plan; an explicit `start <id>` meets the refusal (plan 2609031211)                  |
+| S89 | bound session gone, pane still attends                                    | board and ready render the lane attended, not dead, since a live pane on the branch disproves "nobody is here" whatever the bound session did; start's deserted refusal names the pane and leads with resume, `frit yield` only the trailing fallback (plan 2609031939) (RESUME, YIELD) |
 
 ### Liveness traps, from the blind liveness attack
 
