@@ -36,6 +36,14 @@ type PlanCard struct {
 	// live pane disproves. A card built straight from cardOf (next's
 	// Plan) carries the identity fact unreconciled.
 	Dead bool `json:"dead"`
+	// Ask is the `frit message` invocation that asks the lane's agent
+	// its status, set only for a held lane whose bound session herdr
+	// confirms gone but whose branch a live pane attends: the one
+	// lane git cannot classify, since work open as a PR reads
+	// unlanded exactly as abandoned work does, and the agent is the
+	// one source that can. Empty everywhere else — no pane means no
+	// agent to ask, and a bound live lane was never read deserted.
+	Ask string `json:"ask"`
 }
 
 // cardOf projects a discovery plan into its wire shape.
@@ -69,11 +77,26 @@ func cardsOf(plans []discovery.Plan, attended func(discovery.Plan) bool) []PlanC
 		card := cardOf(p)
 		if attended != nil && attended(p) {
 			card.Dead = false
+			card.Ask = askOf(p, true)
 		}
 		out = append(out, card)
 	}
 
 	return out
+}
+
+// askOf names the ask-the-agent remedy for a plan, or "" when there is
+// no ambiguity to resolve. Its inputs are exactly the deserted
+// reading's own — held, confirmed dead, window not matured — plus the
+// live pane that turns "nobody is here" into "someone is, and only
+// they know whether the work is in flight". A matured window is
+// staleHeld's own cell and is left to it, as desertedRefusal does.
+func askOf(p discovery.Plan, attended bool) string {
+	if !attended || !p.Held || !p.Dead || p.Stale {
+		return ""
+	}
+
+	return AskCommand(p.ID)
 }
 
 // ReadyDoc is what `frit ready` found: the plans startable now, across

@@ -3,7 +3,6 @@ package report
 import (
 	"testing"
 
-	"github.com/jeduden/frit/internal/discovery"
 	"github.com/stretchr/testify/assert"
 )
 

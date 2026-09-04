@@ -49,6 +49,12 @@ type BoardPlan struct {
 	Dead        bool   `json:"dead"`
 	Agent       string `json:"agent"`
 	AgentStatus string `json:"agent_status"`
+	// Ask is the `frit message` invocation that asks the lane's agent
+	// its status, set only when the bound session is confirmed gone
+	// and an agent is live on the branch all the same — the lane git
+	// cannot classify, whose work may be open as a PR. Empty for a
+	// lane with no agent, and for one whose bound session is live.
+	Ask string `json:"ask"`
 }
 
 // NewBoard opens a status board. presence carries whether herdr was
@@ -68,7 +74,8 @@ func NewBoard(root string, presence bool) *BoardDoc {
 // the bound session herdr confirms gone — but a live pane on the lane
 // still working or idling means someone is there, so the rendered
 // Dead is cleared whenever agent is non-empty rather than copied
-// straight through.
+// straight through. That same pairing — session gone, agent live — is
+// the lane git cannot classify, so it is the one that carries Ask.
 func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 	d.Plans = append(d.Plans, BoardPlan{
 		Key:          p.Key,
@@ -85,6 +92,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 		Dead:         p.Dead && agent == "",
 		Agent:        agent,
 		AgentStatus:  status,
+		Ask:          askOf(p, agent != ""),
 	})
 }
 

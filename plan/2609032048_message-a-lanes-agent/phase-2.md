@@ -1,7 +1,7 @@
 ---
 n: 2
 title: the ambiguous-lane output routes to message
-status: "🔲"
+status: "✅"
 result: false
 ---
 When git cannot classify a held lane's work and a live pane attends it,

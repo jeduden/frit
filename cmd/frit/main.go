@@ -2207,6 +2207,34 @@ func printBoard(
 		}
 		_, _ = fmt.Fprintln(out, legend)
 	}
+	for _, line := range boardAsks(doc.Plans) {
+		if width > 0 {
+			line = textw.Truncate(line, width)
+		}
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// boardAsks names, one line per plan, the ask-the-agent remedy for
+// each held lane whose bound session is confirmed gone but whose
+// branch a live agent still works — the lane git cannot classify,
+// since work open as a PR reads unlanded exactly as abandoned work
+// does. It is rendered whatever columns are shown: unlike the legend
+// it keys no marker, it points the reader at the one party who can
+// settle the lane, ahead of `frit yield` or a hand-landing. Empty when
+// no row carries an ask, so an unambiguous board pays nothing extra.
+func boardAsks(plans []report.BoardPlan) []string {
+	var lines []string
+	for _, p := range plans {
+		if p.Ask == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf(
+			"%d: its bound session is gone but %s still attends it; "+
+				"ask before yielding: %s", p.ID, p.Agent, p.Ask))
+	}
+
+	return lines
 }
 
 // boardLegend explains the `(stale …)` and `(dead)` hold markers when

@@ -133,12 +133,13 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                         |
-| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                            |
-|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change. |
-| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                     |
-| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                    |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                           |
+|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change.                                                                                                                |
+| 2   | ✅     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                    |
+|     | ↳      | The deserted refusal an attended lane meets now leads with `frit message <id> "what is your status?"` ahead of resume and yield, and the survey reports carry the same pointer machine-readably: a new `ask` field on the discovery card and the board row, set only for a held lane whose bound session is gone but whose branch a live pane attends. The board table prints that ask beneath its rows. A no-pane lane and a bound live lane are untouched. |
+| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                   |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -153,13 +154,13 @@ footer: |
 - [x] The `message` verb ships with its thin skill front in the same
       change, per the Shipping Skills rule; the skill's example command
       follows the JSON Contract
-- [ ] For a held lane a live pane attends whose work is unlanded, the
+- [x] For a held lane a live pane attends whose work is unlanded, the
       deserted refusal and the survey report name `frit message` as the
       way to ask the agent, and do not lead with `frit yield` or a
       hand-landing
-- [ ] A held lane with no live pane is unchanged: no `frit message`
+- [x] A held lane with no live pane is unchanged: no `frit message`
       remedy is offered, and its deserted reading and yield remedy stand
-- [ ] frit gains no pull-request awareness and no new remote read: the
+- [x] frit gains no pull-request awareness and no new remote read: the
       resolution is the agent, and the send reuses `herdr.Prompt` over
       the pane `liveLaneFor` already finds
 - [ ] Cross-layer matrix row S90 is documented in
