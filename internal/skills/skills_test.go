@@ -234,6 +234,25 @@ func TestPlanPhaseDoesNotCaveatTheDefaultBranchRead(t *testing.T) {
 	}
 }
 
+// TestPlanPhaseFrontsPlanHandoffForTheClose guards this plan's task 5:
+// plan-phase step 4 points at /plan-handoff for the close rather than
+// restating the recipe inline, so the one skill owns the recipe and the
+// two cannot drift. The tell that the recipe is gone is the front-matter
+// detail `result: true, summary`, which now lives only in plan-handoff.
+func TestPlanPhaseFrontsPlanHandoffForTheClose(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-phase/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-phase skill: %v", err)
+	}
+	body := string(data)
+	if !contains(body, "plan-handoff") {
+		t.Fatal("plan-phase skill does not point at plan-handoff for the close")
+	}
+	if contains(body, "result: true, summary") {
+		t.Fatal("plan-phase skill still restates the close recipe inline")
+	}
+}
+
 // TestShippedSkillNamesFritOnPath guards the load-bearing content
 // detail: a shipped skill runs where frit is a binary on PATH, so its
 // commands must read `frit`, not `go run ./cmd/frit`.
