@@ -1,7 +1,7 @@
 ---
 id: 2609032048
 title: frit can message a lane's agent, so an ambiguous lane asks
-status: "🔳"
+status: "✅"
 summary: >-
   Git alone cannot tell a deserted, unlanded lane apart from one whose
   work is pushed and sitting in an open PR while its agent finishes the
@@ -139,7 +139,8 @@ footer: |
 |     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change.                                                                                                                |
 | 2   | ✅     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                    |
 |     | ↳      | The deserted refusal an attended lane meets now leads with `frit message <id> "what is your status?"` ahead of resume and yield, and the survey reports carry the same pointer machine-readably: a new `ask` field on the discovery card and the board row, set only for a held lane whose bound session is gone but whose branch a live pane attends. The board table prints that ask beneath its rows. A no-pane lane and a bound live lane are untouched. |
-| 3   | 🔲     | [S91 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 3   | ✅     | [S91 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                   |
+|     | ↳      | Cross-layer row S91 — bound session gone, pane still working, work unclassifiable — is documented in the matrix and runs for real under godog: board and ready carry the ask, start's deserted refusal leads with `frit message` ahead of `frit yield`, and `message --go` with the refusal's own text reaches the live pane. The plan is complete.                                                                                                          |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -163,12 +164,12 @@ footer: |
 - [x] frit gains no pull-request awareness and no new remote read: the
       resolution is the agent, and the send reuses `herdr.Prompt` over
       the pane `liveLaneFor` already finds
-- [ ] Cross-layer matrix row S91 is documented in
+- [x] Cross-layer matrix row S91 is documented in
       [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md),
       and a `@S91` scenario in
       [features/cross-layer.feature](../../features/cross-layer.feature)
       reproduces the state and runs for real, not `@pending`
-- [ ] `go test ./cmd/frit -run 'TestFeatures/S91:'` reports S91 PASS,
+- [x] `go test ./cmd/frit -run 'TestFeatures/S91:'` reports S91 PASS,
       not SKIP; `go test ./internal/scenario` stays green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

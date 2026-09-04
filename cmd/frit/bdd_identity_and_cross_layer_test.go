@@ -31,6 +31,7 @@ func init() {
 	registrars = append(registrars, (*world).registerRaceAndMultiRepoIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerPickWalkIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerAttendedLaneIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerAskTheAgentIdentityAndCrossLayer)
 }
 
 // raceResult is one contender's own captured run — a claim or a start
@@ -230,6 +231,18 @@ func (w *world) registerAttendedLaneIdentityAndCrossLayer(sc *godog.ScenarioCont
 	sc.Step(`^ready does not mark plan (\d+) dead either$`, w.readyDoesNotMarkPlanDeadEither)
 	sc.Step(`^start refuses, naming the pane and leading with resume$`,
 		w.startRefusesNamingThePaneAndLeadingWithResume)
+}
+
+// registerAskTheAgentIdentityAndCrossLayer is S91's own five steps,
+// on top of the S89 fixture and Given it reuses whole.
+func (w *world) registerAskTheAgentIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^the board names the ask for plan (\d+), not dead$`,
+		w.theBoardNamesTheAskForPlanNotDead)
+	sc.Step(`^ready names the same ask for plan (\d+)$`, w.readyNamesTheSameAskForPlan)
+	sc.Step(`^start refuses, naming frit message ahead of frit yield$`,
+		w.startRefusesNamingFritMessageAheadOfFritYield)
+	sc.Step(`^the lane runs the ask for plan (\d+) with --go$`, w.theLaneRunsTheAskForPlanWithGo)
+	sc.Step(`^the text reaches the live pane$`, w.theTextReachesTheLivePane)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -2141,16 +2154,21 @@ func TestAttendedLaneIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testin
 // lane's own worktree, under a different pane id than the session the
 // marker bound — S89's own point: the bound session rotating away is
 // not the same question as whether a pane still attends the branch,
-// and this fake answers only the second one, working.
+// and this fake answers only the second one, working. The fake
+// records what frit sends it, so S91 can prove the ask reached this
+// very pane; S89 reads nothing back from the recording and is
+// unchanged by it.
 func (w *world) herdrShowsALivePaneOnTheLane() error {
 	st := section[identityAndCrossLayerState](w)
 	if st.lane == "" {
 		return fmt.Errorf("no lane to put a live pane on; the token step comes first")
 	}
-	withHerdr(w.t, herdrReturning(map[string]any{
+	runner, rec := recordingHerdr(map[string]any{
 		"agent": "claude", "agent_status": "working",
 		"pane_id": "wLive:p1", "cwd": st.lane,
-	}))
+	})
+	withHerdr(w.t, runner)
+	st.rec = rec
 
 	return nil
 }
@@ -2268,4 +2286,180 @@ func (w *world) startRefusesNamingThePaneAndLeadingWithResume() error {
 	}
 
 	return nil
+}
+
+// theBoardNamesTheAskForPlanNotDead checks S91's first observable: the
+// board row a prior step decoded carries the exact `frit message`
+// invocation as its ask — the machine-readable pointer phase 2 set at
+// board.AddPlan — and still does not read dead, since the ask exists
+// precisely because a live pane attends a lane whose session is gone.
+func (w *world) theBoardNamesTheAskForPlanNotDead(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.boardRow.ID != int64(planID) {
+		return fmt.Errorf("no board row read for plan %d; the board step comes first", planID)
+	}
+	if st.boardRow.Dead {
+		return fmt.Errorf("plan %d's board row reads dead with a live pane attending: %+v",
+			planID, st.boardRow)
+	}
+	if want := report.AskCommand(int64(planID)); st.boardRow.Ask != want {
+		return fmt.Errorf("plan %d's board row ask is %q, want %q", planID, st.boardRow.Ask, want)
+	}
+
+	return nil
+}
+
+// readyNamesTheSameAskForPlan checks S91's second observable: the
+// discovery card cardsOf builds behind ready carries the same ask the
+// board does, through the one askOf gate both share.
+func (w *world) readyNamesTheSameAskForPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.readyRow.ID != int64(planID) {
+		return fmt.Errorf("no ready row read for plan %d; the ready step comes first", planID)
+	}
+	if want := report.AskCommand(int64(planID)); st.readyRow.Ask != want {
+		return fmt.Errorf("plan %d's ready row ask is %q, want %q", planID, st.readyRow.Ask, want)
+	}
+
+	return nil
+}
+
+// startRefusesNamingFritMessageAheadOfFritYield checks S91's third
+// observable: the deserted refusal names the ask before it ever
+// mentions yield — resumeRefusal's phase-2 ordering, the wording the
+// 2026-09-03 misread lacked when it reached for a teardown.
+func (w *world) startRefusesNamingFritMessageAheadOfFritYield() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, "refused") {
+		return fmt.Errorf("start did not refuse: %s", st.out)
+	}
+	askAt := strings.Index(st.out, "frit message")
+	yieldAt := strings.Index(st.out, "frit yield")
+	if askAt < 0 || yieldAt < 0 || askAt > yieldAt {
+		return fmt.Errorf("the refusal does not lead with the ask ahead of yield: %s", st.out)
+	}
+
+	return nil
+}
+
+// theLaneRunsTheAskForPlanWithGo runs the exact ask phase 2 names —
+// `frit message <id> "what is your status?"` — under --go, from the
+// lane, against whatever herdr fake the live-pane Given armed. The
+// text is the one AskCommand carries rather than a fresh literal, so a
+// reader running the refusal's own remedy verbatim is what is pinned.
+func (w *world) theLaneRunsTheAskForPlanWithGo(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to run message from; the held-lane step comes first")
+	}
+	var out, errb strings.Builder
+	code := run([]string{"message", strconv.Itoa(planID), askText, "--go",
+		"--root", st.root}, &out, &errb)
+	st.out, st.errOut, st.code = out.String(), errb.String(), code
+
+	return nil
+}
+
+// askText is the question AskCommand carries, kept as the literal a
+// reader would type so the S91 send proves the remedy's own words
+// reach the pane, not a paraphrase.
+const askText = "what is your status?"
+
+// theTextReachesTheLivePane checks S91's last observable: the fake
+// herdr recorded an `agent prompt` to the live pane carrying the ask's
+// own text whole, and message reported it sent rather than refusing a
+// working lane the way nudge would.
+func (w *world) theTextReachesTheLivePane() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.rec == nil {
+		return fmt.Errorf("no herdr recording; the live-pane step comes first")
+	}
+	if st.code != 0 {
+		return fmt.Errorf("message exited %d: %s", st.code, st.errOut)
+	}
+	if !strings.Contains(st.out, "sent") {
+		return fmt.Errorf("message did not report the text sent: %s", st.out)
+	}
+	if !st.rec.verb("agent", "prompt", "wLive:p1", askText) {
+		return fmt.Errorf("the ask never reached pane wLive:p1 whole: %v", st.rec.calls)
+	}
+
+	return nil
+}
+
+// TestAskTheAgentIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// S91's own new steps refuse when the state an earlier step records was
+// never built, rather than reading a zero value as real.
+func TestAskTheAgentIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.theBoardNamesTheAskForPlanNotDead(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no board row")
+
+	err = w.readyNamesTheSameAskForPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no ready row")
+
+	err = w.theLaneRunsTheAskForPlanWithGo(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.theTextReachesTheLivePane()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no herdr recording")
+}
+
+// TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape:
+// S91's own Then steps want the exact ask on the decoded rows, the ask
+// ahead of yield in start's refusal, and the ask's own text recorded
+// against the live pane — a near miss on any of them must not pass.
+func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+	ask := report.AskCommand(7)
+
+	st.boardRow = report.BoardPlan{ID: 7, Dead: true, Ask: ask}
+	require.Error(t, w.theBoardNamesTheAskForPlanNotDead(7), "the board row still reads dead")
+	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: ""}
+	require.Error(t, w.theBoardNamesTheAskForPlanNotDead(7), "not dead, but no ask")
+	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: ask}
+	assert.NoError(t, w.theBoardNamesTheAskForPlanNotDead(7))
+
+	st.readyRow = report.PlanCard{ID: 7, Ask: "frit message 8 \"what is your status?\""}
+	require.Error(t, w.readyNamesTheSameAskForPlan(7), "the ask names another plan")
+	st.readyRow = report.PlanCard{ID: 7, Ask: ask}
+	assert.NoError(t, w.readyNamesTheSameAskForPlan(7))
+
+	st.out = "started plan 7"
+	require.Error(t, w.startRefusesNamingFritMessageAheadOfFritYield(), "no refusal at all")
+	st.out = "refused: plan 7 deserted hold: its token cannot self-resume; " +
+		"run `frit yield 7` to retire this lane"
+	require.Error(t, w.startRefusesNamingFritMessageAheadOfFritYield(),
+		"refused, but never names the ask")
+	st.out = "refused: run `frit yield 7` to set the work aside, or ask it with `" + ask + "`"
+	require.Error(t, w.startRefusesNamingFritMessageAheadOfFritYield(),
+		"the ask trails yield")
+	st.out = "refused: plan 7 deserted hold: a live herdr pane (wLive:p1) on lane plan/7 " +
+		"attends it; ask it with `" + ask + "` or resume it with `frit open 7` — " +
+		"run `frit yield 7` only to set the work aside instead"
+	assert.NoError(t, w.startRefusesNamingFritMessageAheadOfFritYield())
+
+	st.rec = &herdrCalls{}
+	st.code, st.out = 1, ""
+	require.Error(t, w.theTextReachesTheLivePane(), "message exited non-zero")
+	st.code, st.out = 0, "would send"
+	require.Error(t, w.theTextReachesTheLivePane(), "a dry-run never reports sent")
+	st.out = "sent"
+	require.Error(t, w.theTextReachesTheLivePane(), "reported sent, but nothing was recorded")
+	st.rec.calls = [][]string{{"agent", "prompt", "wOther:p1", askText}}
+	require.Error(t, w.theTextReachesTheLivePane(), "sent to a different pane")
+	st.rec.calls = [][]string{{"agent", "prompt", "wLive:p1", askText}}
+	assert.NoError(t, w.theTextReachesTheLivePane())
+}
+
+// TestAskTextIsTheQuestionAskCommandCarries ties S91's literal to the
+// remedy's own text, so the two cannot drift apart unnoticed.
+func TestAskTextIsTheQuestionAskCommandCarries(t *testing.T) {
+	assert.Equal(t, `frit message 7 "`+askText+`"`, report.AskCommand(7))
 }

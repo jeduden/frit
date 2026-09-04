@@ -1,7 +1,7 @@
 ---
 n: 3
 title: S91 runs the ask-the-agent state under godog
-status: "🔲"
+status: "✅"
 result: false
 ---
 Pin the whole route under godog, so the 2026-09-03 misread cannot
