@@ -32,9 +32,11 @@ clean. Verified against a built `frit` over a three-repository fleet:
 stderr while stdout carries only the report; the same verb under
 `--json` leaves stderr empty.
 
-**Handoff.** The reporter seam is in place, so the two remaining phases
-change only their own surface. Phase 2 makes the terminal rendering
-transient — a redrawn line rather than one per repository — inside
+## Handoff
+
+The reporter seam is in place, so the two remaining phases change only
+their own surface. Phase 2 makes the terminal rendering transient — a
+redrawn line rather than one per repository — inside
 [cmd/frit/progress.go](../../cmd/frit/progress.go) alone. Phase 3
 projects `Result.Summary` into the report model so `frit <verb> --json`
 and the table both surface the gather's status; the `Summary` fields it

@@ -629,15 +629,24 @@ func (d *doctorCmd) Help() string {
   phase-n-sync    a folder plan's phase-N.md, or its phase-N.result.md,
                   front-matter n disagrees with the number its own
                   filename carries
+  handoff         a phase recorded done in a plan still in progress
+                  whose handoff frit can find no readable trace of: no
+                  "## Handoff" in a single-file plan's plan.md, none in
+                  a directory plan's own phase-N.result.md
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
 repository's own plan/proto.md, rather than reimplementing a checker.
-execution-row, tier, id-sync and phase-n-sync read the body and
-file-name data frit already parses for next and show — mdsmith's
+execution-row, tier, id-sync, phase-n-sync and handoff read the body
+and file-name data frit already parses for next and show — mdsmith's
 schema has no way to see inside a markdown table's cells,
 cross-reference a table's rows against another section's headings, or
 compare a file name to a front-matter field.
+
+Run inside a plan's own lane, doctor checks that plan from the lane's
+working copy, the way next, show and phase do — so a gap fixed in the
+lane clears before the branch merges. Every other plan reads the
+fleet's default-branch copy.
 
 A repository with no plan/proto.md has nothing to check.`
 }
@@ -648,6 +657,18 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	repos, _, err := discover.Repos(c.Root, rt.git)
 	if err != nil {
 		return err
+	}
+
+	// When the cwd stands in a plan's own lane, that plan is re-read
+	// from the lane's working copy below, so a gap fixed in the lane
+	// clears before the branch merges — the same lane read next, show
+	// and phase already do. laneRepo is empty when the cwd is in no
+	// lane, and the override is skipped.
+	laneRepo, laneID, laneRoot := "", int64(0), ""
+	if cwd, err := os.Getwd(); err == nil {
+		if r, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot); ok {
+			laneRepo, laneID, laneRoot = r, id, root
+		}
 	}
 
 	doc := report.NewDoctor(c.Root)
@@ -665,6 +686,14 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		if repo.Name == laneRepo {
+			findings, err = overrideLaneFindings(
+				findings, laneRoot, cfg.PlanDir, laneID)
+			if err != nil {
+				doc.AddProblem(repo.Name, err)
+				continue
+			}
+		}
 		doc.AddFindings(repo.Name, findings)
 	}
 
@@ -675,6 +704,30 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// overrideLaneFindings swaps the lane plan's findings for a fresh scan
+// of that one plan from the lane's own working copy, so a gap fixed in
+// the lane but not yet merged no longer reports. Every other plan's
+// findings are left exactly as the fleet's default-branch scan produced
+// them — the same narrowing laneOverride applies to next, show and
+// phase.
+func overrideLaneFindings(
+	findings []doctorpkg.Finding, laneRoot, planDir string, id int64,
+) ([]doctorpkg.Finding, error) {
+	laneFindings, err := doctorpkg.ScanID(laneRoot, planDir, id)
+	if err != nil {
+		return nil, err
+	}
+
+	kept := make([]doctorpkg.Finding, 0, len(findings)+len(laneFindings))
+	for _, f := range findings {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+
+	return append(kept, laneFindings...), nil
 }
 
 // printDoctor writes one row per finding. A repository with nothing
@@ -2374,8 +2427,9 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 // handoff, any in-progress notes already parked, and the result file
 // to write. Each of the optional pieces is printed only when the
 // bundle actually carries one, so a plan resumed from its plan.md
-// ledger — which carries no handoff, notes or result path of its
-// own — prints just the phase line and its spec.
+// ledger — which carries no notes or result path of its own, though
+// its top-level `## Handoff` heading does surface — prints just the
+// phase line, its spec, and that handoff when one is present.
 func printPhase(out io.Writer, doc *report.PhaseDoc) {
 	p := doc.Plan
 	if !doc.HasPhase {

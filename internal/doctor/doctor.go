@@ -41,9 +41,9 @@ type Finding struct {
 	// Path is the plan file's path, relative to root.
 	Path string
 	// Check names which of doctor's checks produced this finding —
-	// "goal", "execution-row", "tier", "schema", "id-sync" or
-	// "phase-n-sync" — matching the vocabulary the doctor --help text
-	// documents.
+	// "goal", "execution-row", "tier", "schema", "id-sync",
+	// "phase-n-sync" or "handoff" — matching the vocabulary the doctor
+	// --help text documents.
 	Check string
 	// Message is what is wrong, in prose. For "goal" and "schema" this
 	// is mdsmith's own diagnostic message, carried through rather than
@@ -65,6 +65,46 @@ func Scan(root, planDir string) ([]Finding, error) {
 		return nil, err
 	}
 
+	return scanPaths(root, paths)
+}
+
+// ScanID re-checks the single plan whose on-disk name leads with id,
+// read from root's own working copy — the seam frit doctor uses to
+// re-read the one plan whose lane the cwd stands in, so a gap fixed in
+// the lane clears before the branch merges, the way next, show and
+// phase already read the lane. Every other plan is left to the fleet's
+// default-branch scan. A repository with no proto.md reports ErrNoSchema
+// exactly as Scan does.
+func ScanID(root, planDir string, id int64) ([]Finding, error) {
+	protoPath := filepath.Join(root, planDir, planmeta.ProtoName)
+	if _, err := os.Stat(protoPath); err != nil {
+		return nil, ErrNoSchema
+	}
+
+	paths, err := planPaths(root, planDir)
+	if err != nil {
+		return nil, err
+	}
+
+	want := strconv.FormatInt(id, 10)
+	kept := paths[:0]
+	for _, p := range paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil, err
+		}
+		if leadingIDToken(rel) == want {
+			kept = append(kept, p)
+		}
+	}
+
+	return scanPaths(root, kept)
+}
+
+// scanPaths opens root's mdsmith session once and scans each plan path
+// through it, sorted by plan id then check so the same tree always
+// reports in the same order — the shared body of Scan and ScanID.
+func scanPaths(root string, paths []string) ([]Finding, error) {
 	sess, err := openSession(root)
 	if err != nil {
 		return nil, err
@@ -187,6 +227,12 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 		findings = append(findings, nSync...)
 	}
 
+	hs, err := checkHandoff(plan, rel, filepath.Dir(path), source, plans.IsFolderPlanFile(rel))
+	if err != nil {
+		return nil, err
+	}
+	findings = append(findings, hs...)
+
 	diags, _ := sess.Check(rel, source)
 	findings = append(findings, checkDiagnostics(plan.ID, rel, diags)...)
 
@@ -272,6 +318,86 @@ func checkPhaseNumberSync(id int64, planRel, dir string) ([]Finding, error) {
 			Message: fmt.Sprintf(
 				"%s front-matter n %q does not match its filename",
 				name, m.FrontMatterN),
+		})
+	}
+
+	return out, nil
+}
+
+// checkHandoff reports a phase recorded done whose handoff frit can
+// find no readable trace of — the record plan-handoff writes inside
+// the phase's own closing commit, and Resume reads back as the next
+// phase's inherited context. A plan already `✅` or `⛔` needs no
+// lingering handoff, since nothing resumes into a finished plan, so
+// this only runs on one still in progress.
+//
+// A folder plan's handoff lives in its own phase-N.result.md, checked
+// per phase since each phase owns its own file. A single-file plan's
+// lives in one shared plan.md `## Handoff` heading, overwritten on
+// every close, so one finding covers every done phase once that
+// heading is missing rather than one per phase re-reporting the same
+// gap.
+func checkHandoff(p planmeta.Plan, planRel, dir string, planBody []byte, isFolder bool) ([]Finding, error) {
+	if p.Status == planmeta.StatusDone || p.Status == planmeta.StatusSuperseded {
+		return nil, nil
+	}
+
+	if isFolder {
+		return checkFolderHandoff(p, planRel, dir)
+	}
+
+	var lastDone planmeta.PhaseNumber
+	anyDone := false
+	for _, ph := range p.Phases {
+		if ph.Status == planmeta.StatusDone {
+			anyDone, lastDone = true, ph.N
+		}
+	}
+	if !anyDone {
+		return nil, nil
+	}
+	if _, ok := planmeta.HandoffOf(planBody); ok {
+		return nil, nil
+	}
+
+	return []Finding{{
+		ID: p.ID, Path: planRel, Check: "handoff",
+		Message: fmt.Sprintf(
+			"phase %s recorded done has no readable ## Handoff in %s",
+			lastDone, filepath.Base(planRel)),
+	}}, nil
+}
+
+// checkFolderHandoff is checkHandoff's folder-plan half: one finding
+// per done phase whose own phase-N.result.md carries no readable `##
+// Handoff` — a missing file counts the same as an unreadable one,
+// since a done phase's result file is expected to exist.
+func checkFolderHandoff(p planmeta.Plan, planRel, dir string) ([]Finding, error) {
+	var out []Finding
+	for _, ph := range p.Phases {
+		if ph.Status != planmeta.StatusDone {
+			continue
+		}
+		name := planmeta.ResultFileName(string(ph.N))
+		// #nosec G304 -- name comes from the plan's own phase ledger
+		result, err := os.ReadFile(filepath.Join(dir, name))
+		hasHandoff := false
+		switch {
+		case err == nil:
+			_, hasHandoff = planmeta.HandoffOf(result)
+		case !os.IsNotExist(err):
+			return nil, err
+		}
+		if hasHandoff {
+			continue
+		}
+		out = append(out, Finding{
+			ID:    p.ID,
+			Path:  filepath.Join(filepath.Dir(planRel), name),
+			Check: "handoff",
+			Message: fmt.Sprintf(
+				"phase %s recorded done has no readable ## Handoff in %s",
+				ph.N, name),
 		})
 	}
 

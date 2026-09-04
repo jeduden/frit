@@ -373,6 +373,131 @@ func TestScanToleratesAPhaseFileWithoutFrontMatter(t *testing.T) {
 	assert.Contains(t, got[0].Message, "phase 2")
 }
 
+// folderPlanMDWithStatus renders a folder plan's plan.md, its own
+// status parameterized, with an `## Execution` table naming a row for
+// phase 1 only — the shape checkHandoff's two tests share, differing
+// only in whether the plan itself is still open.
+func folderPlanMDWithStatus(id int64, status string) string {
+	return fmt.Sprintf(`---
+id: %d
+title: A folder plan
+status: "%s"
+model: sonnet
+---
+# A folder plan
+
+## Goal
+
+Ship the thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | sonnet | sonnet    | test one |
+
+## Tasks
+
+1. Do it.
+
+## Acceptance Criteria
+
+- [ ] It is done.
+`, id, status)
+}
+
+// resultFileWithBoldHandoff renders a phase-1.result.md whose closing
+// section is bold prose, `**Handoff.**`, rather than a `## Handoff`
+// heading — the shape plan 2609021554's real phase-1 result drifted
+// into, which handoffOf does not read.
+const resultFileWithBoldHandoff = `---
+n: 1
+title: One
+status: "✅"
+result: true
+summary: Done.
+---
+The phase landed.
+
+**Handoff.** Nothing more to say.
+`
+
+// TestScanFlagsADonePhaseWithNoReadableHandoff is Phase 3's RED: a
+// folder plan still in progress, whose one done phase closed with bold
+// prose instead of a `## Handoff` heading, is flagged — the live drift
+// plan 2609021554 carries today.
+func TestScanFlagsADonePhaseWithNoReadableHandoff(t *testing.T) {
+	root := newFixtureRoot(t)
+	const folder = "2601030000_open"
+	writeFolderPlan(t, root, folder, folderPlanMDWithStatus(2601030000, "🔳"))
+	writeFolderPhaseFile(t, root, folder, "phase-1.md", phaseFileMD(1, "One", "✅"))
+	writeFolderPhaseFile(t, root, folder, "phase-1.result.md", resultFileWithBoldHandoff)
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "handoff", got[0].Check)
+	assert.Contains(t, got[0].Message, "phase 1")
+	assert.Contains(t, got[0].Path, "phase-1.result.md")
+}
+
+// TestScanDoesNotFlagADonePlanWithNoHandoff: the same drift, but the
+// plan itself is already done. Nothing resumes into a finished plan,
+// so a stale or missing handoff is no longer a gap — the exemption a
+// 34-plan survey of this repository's own history relies on.
+func TestScanDoesNotFlagADonePlanWithNoHandoff(t *testing.T) {
+	root := newFixtureRoot(t)
+	const folder = "2601030000_closed"
+	writeFolderPlan(t, root, folder, folderPlanMDWithStatus(2601030000, "✅"))
+	writeFolderPhaseFile(t, root, folder, "phase-1.md", phaseFileMD(1, "One", "✅"))
+	writeFolderPhaseFile(t, root, folder, "phase-1.result.md", resultFileWithBoldHandoff)
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestScanIDChecksOnlyTheNamedPlanFromItsOwnRoot is Phase 4's RED:
+// ScanID re-checks a single plan from a given root — the seam frit
+// doctor uses to read the plan whose lane the cwd stands in from the
+// lane's own working copy, leaving every other plan on the fleet's
+// default branch. It reports only the named plan's gaps, and nothing
+// for a clean one.
+func TestScanIDChecksOnlyTheNamedPlanFromItsOwnRoot(t *testing.T) {
+	root := newFixtureRoot(t)
+	writePlan(t, root, "100_gapped.md", `---
+id: 100
+title: Gapped
+status: "🔲"
+model: sonnet
+---
+# Gapped
+
+## Goal
+
+## Tasks
+
+1. x
+
+## Acceptance Criteria
+
+- [ ] y
+`)
+	writePlan(t, root, "101_clean.md", cleanPlanWithID(101))
+
+	gapped, err := ScanID(root, "plan", 100)
+	require.NoError(t, err)
+	require.Len(t, gapped, 1)
+	assert.Equal(t, int64(100), gapped[0].ID)
+	assert.Equal(t, "goal", gapped[0].Check)
+
+	clean, err := ScanID(root, "plan", 101)
+	require.NoError(t, err)
+	assert.Empty(t, clean, "the clean plan yields nothing, and the gapped one is not scanned")
+}
+
 // TestScanSortsFindingsByPlanIDThenCheck: a fleet-wide report reads
 // the same way on every run, not in filesystem-glob order.
 func TestScanSortsFindingsByPlanIDThenCheck(t *testing.T) {

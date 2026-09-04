@@ -123,7 +123,7 @@ footer: |
 | 2609021315 | ✅     | sonnet | [The lifecycle claim-and-ref scenarios run under godog](plan/2609021315_bdd-lifecycle-claims-and-refs/plan.md)                         |
 | 2609021316 | 🔲     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
 | 2609021554 | 🔳     | sonnet | [A fleet gather reports its progress and its status](plan/2609021554_gather-reports-progress-and-status/plan.md)                       |
-| 2609022153 | 🔲     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
+| 2609022153 | ✅     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
 | 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
 | 2609031211 | ✅     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
 | 2609031939 | 🔲     | sonnet | [reports and refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)                |

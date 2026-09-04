@@ -1,7 +1,7 @@
 ---
 id: 2609022153
 title: A plan-handoff skill closes a phase in one command
-status: "🔲"
+status: "✅"
 summary: >-
   Closing a phase is pure agent discipline today: plan-phase reminds
   the executor to record a handoff, but frit produces nothing and
@@ -68,6 +68,21 @@ visible after the fact, the shape `checkPhaseNumberSync` in
 [internal/doctor/doctor.go](../../internal/doctor/doctor.go) already
 uses to point one finding at the file that carries it.
 
+**The guard must see the lane, not just main.** A doctor that only
+reads the fleet's default-branch checkout catches a skip long after the
+phase has merged. It never catches it at the close, in the lane, where
+the executor could still fix it. Worse, it silently disagrees with
+`next`, `show` and `phase`. Those already swap in the lane's own
+working copy when run inside it — the `laneOverride` seam in
+[cmd/frit/main.go](../../cmd/frit/main.go). A blind-agent test of the
+main-only behavior — four agents, two of them smaller models — came
+back unanimous. The "fix it, re-run, still reported" gap reads as *my
+fix didn't take*, and drives a re-fix loop. It is worst for the smaller
+models, which act on the literal signal. So doctor honors the lane it
+runs in, the same as its siblings. The plan the cwd stands in is
+checked from the lane's copy; every other plan reads the fleet's
+default branch.
+
 **Reuse first.** The skill rides the existing bundle: canonical text in
 [internal/skills/assets](../../internal/skills), laid down by `frit
 skills`, dogfood copies guarded by `TestDogfoodCopiesMatchCanonical`,
@@ -106,15 +121,26 @@ assembles.
    Fix the existing drift in the phase-1 result under
    [plan 2609021554](../2609021554_gather-reports-progress-and-status/plan.md)
    so a real run of the check comes back clean on it.
-4. Later: point [plan-phase](../../.claude/skills/plan-phase/SKILL.md)
+4. Later: `frit doctor` honors the lane it runs in. When the cwd
+   stands in a plan's own lane, that plan is checked from the lane's
+   working copy — so a handoff written in the lane clears the finding
+   before the branch merges — the way `next`, `show` and `phase`
+   already read the lane via `laneOverride` in
+   [cmd/frit/main.go](../../cmd/frit/main.go). Every other plan still
+   reads the fleet's default-branch copy.
+5. Later: point [plan-phase](../../.claude/skills/plan-phase/SKILL.md)
    step 4 at `/plan-handoff` for the close rather than restating the
    recipe inline, so the two skills cannot drift.
 
 ## Execution
 
-| Phase | Title                                | Tier   | Gate                                                                                                                             |
-| ----- | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | The plan-handoff skill in the bundle | sonnet | built `frit skills --via "go run ./cmd/frit"` lays plan-handoff into `.claude/skills`; `mdsmith check .` clean, token budget met |
+| Phase | Title                                                | Tier   | Gate                                                                                                                                              |
+| ----- | ---------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | The plan-handoff skill in the bundle                 | sonnet | built `frit skills --via "go run ./cmd/frit"` lays plan-handoff into `.claude/skills`; `mdsmith check .` clean, token budget met                  |
+| 2     | Resume surfaces a single-file plan's Handoff heading | sonnet | `go test ./internal/planmeta/...`; full `go test ./...` and lint clean                                                                            |
+| 3     | A doctor check catches a skipped handoff             | sonnet | `go test ./internal/planmeta/... ./internal/doctor/...`; full `go test ./...` and lint clean; a built `frit doctor` over this repository is clean |
+| 4     | doctor honors the lane it runs in                    | sonnet | `go test ./internal/doctor/... ./cmd/frit/...`; full `go test ./...` and lint clean                                                               |
+| 5     | plan-phase fronts plan-handoff for the close         | sonnet | `go test ./internal/skills/...`; full `go test ./...` and lint clean; `mdsmith check .` clean, token budget met                                   |
 
 ## Phases
 
@@ -137,25 +163,42 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                              |
-| --- | ------ | -------------------------------------------------- |
-| 1   | 🔲     | [The plan-handoff skill in the bundle](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [The plan-handoff skill in the bundle](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+|     | ↳      | plan-handoff joined the bundle — internal/skills/assets/plan-handoff and its dogfooded .claude/skills copy — teaching the split close: a `## Handoff` heading for a single-file plan, a phase-N.result.md for a directory plan, either way riding the commit that lands the work.                                                                                                                                                                                                                     |
+| 2   | ✅     | [Resume surfaces a single-file plan's Handoff heading](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+|     | ↳      | resumeFromLedger now calls handoffOf(planBody) and carries a single-file plan's top-level `## Handoff` heading as the open phase's HandoffIn, the same field a directory plan's result file already filled — frit phase surfaces it identically either way.                                                                                                                                                                                                                                           |
+| 3   | ✅     | [A doctor check catches a skipped handoff](phase-3.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+|     | ↳      | frit doctor now reports a "handoff" finding for a phase recorded done in a plan still in progress whose handoff has no readable trace: no "## Handoff" in a single-file plan, none in a directory plan's own phase-N.result.md. A plan already done or superseded is exempt, since nothing resumes into it — a 34-plan survey of this repository confirmed every already-`✅` plan stays clean under that rule. The one live gap, plan 2609021554's phase-1 result closing with bold prose, is fixed. |
+| 4   | ✅     | [doctor honors the lane it runs in](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|     | ↳      | frit doctor now reads the plan whose lane the cwd stands in from the lane's own working copy, so a gap fixed in the lane clears before the branch merges — the same narrowing next, show and phase already apply via laneOverride. Every other plan still reads the fleet's default-branch copy. New doctor.ScanID re-checks one plan from a given root; doctorCmd.Run swaps that plan's findings when repo.Name matches the current lane; the help text now states the lane read.                    |
+| 5   | ✅     | [plan-phase fronts plan-handoff for the close](phase-5.md)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | plan-phase step 4 now closes the phase with /plan-handoff instead of restating the recipe inline, so the one skill owns the close and the two cannot drift. The canonical asset and its regenerated dogfood copy match, the skill kind's token budget still passes, and this closes the plan.                                                                                                                                                                                                         |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `/plan-handoff` records the handoff in the plan's shape: a `##
+- [x] `/plan-handoff` records the handoff in the plan's shape: a `##
       Handoff` heading in a single-file plan's `plan.md`, a separate
       `phase-N.result.md` in a directory plan — each inside the commit
       that lands the phase's work
-- [ ] The built `frit skills --via "go run ./cmd/frit"` lays
+- [x] The built `frit skills --via "go run ./cmd/frit"` lays
       `plan-handoff` into `.claude/skills`, and the skill passes the
       `skill` kind's 650-token budget
-- [ ] `frit phase` on a single-file plan surfaces the prior phase's
+- [x] `frit phase` on a single-file plan surfaces the prior phase's
       `## Handoff` as its inherited handoff, the way it already does for
       a directory plan's result file
-- [ ] `frit doctor` reports a phase recorded done whose handoff is
+- [x] `frit doctor` reports a phase recorded done whose handoff is
       missing in its plan's shape, and comes back clean once the
       existing drift is fixed
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] Run inside a plan's own lane, `frit doctor` checks that plan from
+      the lane's working copy — a handoff written in the lane clears the
+      finding before the branch merges — the way `next`/`show`/`phase`
+      already read the lane; every other plan still reads the fleet's
+      default-branch copy
+- [x] `plan-phase`'s step 4 points at `/plan-handoff` for the close
+      rather than restating the recipe inline, and its dogfood copy
+      matches the canonical asset (`TestDogfoodCopiesMatchCanonical`)
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

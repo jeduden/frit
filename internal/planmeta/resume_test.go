@@ -284,6 +284,23 @@ func TestResumeWithNoDirectoryUsesTheLedger(t *testing.T) {
 	assert.Equal(t, "Do the second thing.", got.Spec)
 }
 
+// TestResumeFromLedgerSurfacesThePlansOwnHandoffHeading: a single-file
+// plan's own top-level ## Handoff section, written by plan-handoff on
+// the previous phase's close, travels as the open phase's HandoffIn —
+// the same field a directory plan's result file already fills.
+func TestResumeFromLedgerSurfacesThePlansOwnHandoffHeading(t *testing.T) {
+	body := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'First', status: \"✅\" }\n" +
+		"  - { n: 2, title: 'Second', status: \"🔲\" }\n" +
+		"---\n# T\n\n## Handoff\n\nFirst phase landed the seam.\n\n" +
+		"## Phase 2: Second\n\nDo the second thing.\n"
+
+	got, err := Resume("", []byte(body))
+
+	require.NoError(t, err)
+	assert.Equal(t, "First phase landed the seam.", got.HandoffIn)
+}
+
 // TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone mirrors
 // FirstOpenPhase's own "none left" case for a phase-file plan.
 func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone(t *testing.T) {
