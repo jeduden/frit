@@ -60,8 +60,11 @@ jobs:
       # secret sits in this repository's settings. A fork PR has no
       # id-token (permissions above are job-scoped, and forks never
       # inherit them), so this step is skipped rather than failing.
+      # !cancelled() matches Summarise coverage and upload-artifact
+      # above: cover.out exists even when go test fails, and a failing
+      # run is exactly when its coverage is most wanted.
       - name: Upload coverage to Codecov
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true

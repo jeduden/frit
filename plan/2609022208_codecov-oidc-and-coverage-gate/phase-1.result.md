@@ -46,6 +46,17 @@ bottom of the file — a bare inline link ran the line past mdsmith's
 `go build ./...` and `go vet ./...` stay green (no Go touched);
 `mdsmith check .` passes on the full tree (245 checked, 0 failures).
 
+**Review fix.** `/code-review high --fix` caught the upload step
+skipping on a failed `go test` — its plain `if:` got an implicit
+`success()` ANDed in, unlike `Summarise coverage` and `upload-artifact`
+just above it, which both carry `!cancelled()` for exactly the reason
+this file states in its own comment: coverage from a failing run is
+the one most wanted. Fixed by adding `!cancelled() &&` to the step's
+condition. The review also flagged that `codecov-action` detects fork
+PRs internally and could upload tokenlessly instead of skipping
+outright — left as-is: reversing the deliberate fork guard is a policy
+call for phase 2, not a bug fix.
+
 **Inherits into phase 2.** Uploads are wired but unconfirmed on a real
 run — phase 2 should start by watching that first CI run land on
 Codecov before adding the `coverage.status.project`/`patch` gate at
