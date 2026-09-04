@@ -40,6 +40,7 @@ the difference is local, and so is the resolution. See
 - [Development — build, test, release, mechanics](docs/development.md)
 - [How frit and mdsmith fit together](docs/mdsmith-and-frit.md)
 - [Why frit exists — the research](docs/research/fleet-index/README.md)
+- [Cross-host presence — the transport](docs/research/cross-host-presence.md)
 - [Where the name comes from](docs/research/naming.md)
 
 Research notes record how a decision was reached, including the wrong

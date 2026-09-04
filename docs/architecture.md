@@ -53,7 +53,9 @@ host that has it, over herdr's socket, or asks the agent directly. It
 never guesses it from the shared refs, which cannot carry it. This is why
 a deserted, unlanded lane and one whose work is open as a PR read alike
 to a distant frit: the difference is local, so the resolution is local
-too.
+too. How one host might learn another's local facts — pull herdr over
+ssh, or publish it to origin as a heartbeat — is worked through in
+[cross-host presence](research/cross-host-presence.md).
 
 ## The one-mutation rule
 
