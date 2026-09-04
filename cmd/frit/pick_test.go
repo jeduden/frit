@@ -354,3 +354,67 @@ func TestPickGoAdvancesPastALiveHold(t *testing.T) {
 		"the veto renews the live holder's own lease; it is never taken over")
 	assert.NotContains(t, body, "plan 7: takeover")
 }
+
+// TestPickGoAdvancesPastADesertedTopLaneToTheNextCandidate: the same
+// walk-advance 2609031211 gave the live-lane gate, now on startRefusal's
+// own deserted-hold guard — herdr confirms the bound session gone, and
+// the hold's own branch carries a local commit its dead lane never
+// pushed, so parkFirstRefusal fires ahead of the ordinary readiness
+// check. With a free next candidate underneath the deserted top pick,
+// pick --go starts that one instead of halting (observed live on
+// 2026-09-03: a deserted hold on the top-ranked plan refused every pick
+// while other plans sat startable).
+func TestPickGoAdvancesPastADesertedTopLaneToTheNextCandidate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "start", "plan-8"),
+		"the deserted top lane is skipped for the next ready candidate")
+	assert.False(t, rec.verb("agent", "start", "plan-7"),
+		"the deserted lane is never taken over")
+	assert.Contains(t, out.String(), "started plan 8")
+	assert.NotContains(t, out.String(), "refused")
+}
+
+// TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix: the same
+// deserted-hold fixture the walk-advance test above skips past, but
+// with no token on this machine to resolve a reattach — a lane whose
+// local state is gone, or reached from a clone that never had it. The
+// explicit `start <id>` path still meets startRefusal's own park-first
+// guard and names `frit yield` — an operator naming this plan directly
+// still learns it needs recovery first, exactly as before this phase
+// (S77 untouched by the pick --go skip).
+func TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo, lane, _ := heldLaneOwnedBy(t, root, hostname(), "wOld:p1")
+	git(t, lane, "commit", "-q", "--allow-empty", "-m", "local work, never pushed")
+	localTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	dropToken(t, lane)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "refused")
+	assert.Contains(t, got, "deserted hold")
+	assert.Contains(t, got, "yield 7")
+	assert.False(t, rec.verb("worktree", "create"),
+		"nothing is stood up over an unparked suffix")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, localTip, tip, "the dead lane's own commit still heads the branch")
+}
