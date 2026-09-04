@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -14,10 +15,12 @@ import (
 
 // The dispatch verbs climb the ladder above the read-only board: open
 // hands a running pane over, and the rungs above it compose a typed
-// slash command from the plan and send it. Three rules hold across all
-// of them — the tool composes the prompt and the user never writes one,
-// it sends then hands over and never reads a reply, and every rung that
-// sends is dry-run until --go.
+// slash command from the plan and send it. Two rules hold across all
+// of them — it sends then hands over and never reads a reply, and
+// every rung that sends is dry-run until --go. The third — the tool
+// composes the prompt and the user never writes one — holds for every
+// rung but message, which exists precisely to carry the operator's own
+// words instead of a composed one.
 
 type openCmd struct {
 	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
@@ -335,7 +338,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
-	Text     string `arg:"" help:"Text to send to the lane's live agent."`
+	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 
@@ -348,6 +351,16 @@ type messageCmd struct {
 // dry-run by default: without --go it prints the text and the target
 // and sends nothing.
 func (m *messageCmd) Run(c *cli, rt *runtime) error {
+	if m.Selector == "" {
+		// resolveSelector treats "" as "infer from the cwd", the
+		// behavior nudge's and open's optional selector relies on.
+		// message's selector is required, not optional, precisely so
+		// it never falls into that inference — an explicitly empty
+		// argument must refuse, not silently target whatever plan the
+		// caller's worktree happens to sit on.
+		return errors.New("message requires a plan id or slug")
+	}
+
 	res, err := gatherFleet(c, rt)
 	if err != nil {
 		return err

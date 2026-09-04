@@ -781,3 +781,47 @@ func TestMessageEmitsJSON(t *testing.T) {
 	assert.Equal(t, "wC:p1", doc.Target)
 	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
 }
+
+// TestMessageRefusesAnEmptySelector: message is documented to never
+// infer from the cwd, unlike nudge's optional selector (phase-1's own
+// result.md) — an explicitly empty selector must refuse outright
+// rather than falling into resolveSelector's cwd inference and
+// silently targeting whatever plan the caller's worktree happens to
+// sit on, which here is plan 7's own hold branch.
+func TestMessageRefusesAnEmptySelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	t.Chdir(repo)
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	assert.NotEqual(t, 0, code,
+		"an empty selector must not resolve via cwd inference")
+	assert.False(t, rec.verb("agent", "prompt"))
+}
+
+// TestMessageSaysHerdrUnreachable: with the socket down, message
+// refuses on presence being unknown, not on an absent lane it never
+// looked for — the same rule nudge's own TestNudgeSaysHerdrUnreachable
+// pins, carried over verbatim by message's identical switch.
+func TestMessageSaysHerdrUnreachable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "herdr unreachable")
+	assert.NotContains(t, out.String(), "no live lane")
+}

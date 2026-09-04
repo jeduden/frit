@@ -143,14 +143,14 @@ footer: |
 
 ## Acceptance Criteria
 
-- [ ] `frit message <selector> "<text>"` sends the given text to the
+- [x] `frit message <selector> "<text>"` sends the given text to the
       live agent on the plan's lane through `herdr.Prompt`, whether the
       agent is working or idle; it dry-runs by default and sends only
       under `--go`, naming the target pane in both cases
-- [ ] `frit message` refuses a plan with no live lane, and reports
+- [x] `frit message` refuses a plan with no live lane, and reports
       presence-unknown rather than an absent lane when a configured host
       goes unread — matching how `nudge` withholds its action
-- [ ] The `message` verb ships with its thin skill front in the same
+- [x] The `message` verb ships with its thin skill front in the same
       change, per the Shipping Skills rule; the skill's example command
       follows the JSON Contract
 - [ ] For a held lane a live pane attends whose work is unlanded, the
