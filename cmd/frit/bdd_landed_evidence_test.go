@@ -239,11 +239,7 @@ func (w *world) scavengesAtTheObservedTip(holder string) error {
 		return err
 	}
 	le := section[landedEvidenceState](w)
-	run := le.runner
-	if run == nil {
-		run = gitwt.Exec
-	}
-	le.scav, le.scavErr = claim.Scavenge(repo, leaseFor(holder, w.planID), w.tipObserved(), run)
+	le.scav, le.scavErr = claim.Scavenge(repo, leaseFor(holder, w.planID), w.tipObserved(), w.landedEvidenceRunner())
 
 	return nil
 }
@@ -518,11 +514,13 @@ func (w *world) theHoldIsRefusedNamingALiveLease() error {
 	if !strings.Contains(got, "refused") {
 		return fmt.Errorf("expected a refusal, got: %s", got)
 	}
-	if !strings.Contains(got, "live lease") {
-		return fmt.Errorf("the refusal does not name a live lease: %s", got)
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "refused") && strings.Contains(line, "live lease") {
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("no refused line names a live lease: %s", got)
 }
 
 // theHoldStillResolvesOnOrigin confirms the canonical hold ref reap
@@ -577,8 +575,16 @@ func (w *world) aStrandedLandedCheckoutOnPlansBranch(planID int) error {
 func (w *world) theBranchIsReaped() error {
 	le := section[landedEvidenceState](w)
 	got := le.out.String()
-	if !strings.Contains(got, "reaped") {
-		return fmt.Errorf("expected the branch reaped, got: %s", got)
+	named := false
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "reaped") && strings.Contains(line, le.branch) {
+			named = true
+
+			break
+		}
+	}
+	if !named {
+		return fmt.Errorf("no reaped line names branch %s, got: %s", le.branch, got)
 	}
 	if branchExists(w.t, le.repo, le.branch) {
 		return fmt.Errorf("branch %s still resolves after reap", le.branch)
@@ -593,6 +599,9 @@ func (w *world) theBranchIsReaped() error {
 // holds, not merely that some rescue ref exists.
 func (w *world) theCheckoutsCommitIsParkedToTheRescueRef() error {
 	le := section[landedEvidenceState](w)
+	if le.tip == "" {
+		return fmt.Errorf("no checkout tip recorded for this scenario")
+	}
 	rescue, err := gitCapture(w.t, le.repo, "ls-remote", "origin",
 		fmt.Sprintf("refs/frit/rescue/%d/*", w.planID))
 	if err != nil {
@@ -818,6 +827,10 @@ func TestLandedEvidenceStepsRefuseAMachineTheyNeverMet(t *testing.T) {
 	w.clones["box-a"] = t.TempDir()
 
 	require.Error(t, w.pushesWorkOnTheLane("ghost"))
+	// A tip must be on record first, or squashMergesOntoTheDefaultBranch
+	// refuses on "nothing has been pushed" before ever reaching cloneOf,
+	// proving the wrong guard.
+	section[landedEvidenceState](w).tip = "deadbeef"
 	require.Error(t, w.squashMergesOntoTheDefaultBranch("ghost"))
 	require.Error(t, w.scavengesAtTheObservedTip("ghost"))
 	require.Error(t, w.localWorkRefStillResolvesAtItsTip("ghost"))
