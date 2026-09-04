@@ -629,12 +629,16 @@ func (d *doctorCmd) Help() string {
   phase-n-sync    a folder plan's phase-N.md, or its phase-N.result.md,
                   front-matter n disagrees with the number its own
                   filename carries
+  handoff         a phase recorded done in a plan still in progress
+                  whose handoff frit can find no readable trace of: no
+                  "## Handoff" in a single-file plan's plan.md, none in
+                  a directory plan's own phase-N.result.md
 
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
 repository's own plan/proto.md, rather than reimplementing a checker.
-execution-row, tier, id-sync and phase-n-sync read the body and
-file-name data frit already parses for next and show — mdsmith's
+execution-row, tier, id-sync, phase-n-sync and handoff read the body
+and file-name data frit already parses for next and show — mdsmith's
 schema has no way to see inside a markdown table's cells,
 cross-reference a table's rows against another section's headings, or
 compare a file name to a front-matter field.

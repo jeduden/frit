@@ -1,7 +1,7 @@
 ---
 n: 3
 title: A doctor check catches a skipped handoff
-status: "🔳"
+status: "✅"
 result: false
 ---
 Task 3. A phase can still close with its status flipped to done and no

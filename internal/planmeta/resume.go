@@ -264,6 +264,10 @@ func ResultFileName(n string) string { return resultFileName(n) }
 func specFileName(n string) string   { return "phase-" + n + ".md" }
 func resultFileName(n string) string { return "phase-" + n + ".result.md" }
 
+// HandoffOf is handoffOf, exported for doctor's own handoff check —
+// the same walk, not re-derived at the caller.
+func HandoffOf(source []byte) (text string, ok bool) { return handoffOf(source) }
+
 // handoffOf reports a phase result file's `## Handoff` section, found
 // by walking its parsed AST for a level-2 heading with that exact
 // title — not a substring match — so a `## Handoff` quoted or fenced
