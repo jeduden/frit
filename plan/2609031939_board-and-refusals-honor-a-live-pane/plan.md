@@ -1,7 +1,7 @@
 ---
 id: 2609031939
 title: reports and refusals stop calling an attended lane dead
-status: "🔳"
+status: "✅"
 summary: >-
   frit reports two facts about a held lane from herdr and lets them
   contradict each other. A `dead` field marks a lane whose bound
@@ -167,39 +167,40 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                        |
-| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [no report calls an attended lane dead](phase-1.md)                                                                                                                                                                                                                                                                                                                                          |
-|     | ↳      | board and the discovery card behind ready, pick and find no longer render `dead: true` for a held lane whose bound session herdr confirms gone but whose branch a live pane still attends, working or idle. The rendered field is gated on the live pane rather than copied straight from the identity fact, applied once at each render's shared site so ready, pick and find cannot drift. |
-| 2   | ✅     | [the deserted refusals name the pane and lead with resume](phase-2.md)                                                                                                                                                                                                                                                                                                                       |
-|     | ↳      | desertedRefusal and parkFirstRefusal now read the same liveLaneFor a fresh acquire's pre-flight uses, once their own gate already decided a hold is deserted or unparked. Attended, the refusal names the pane and leads with `frit open <id>`, keeping `frit yield <id>` only as a trailing fallback; unattended, both refusals render exactly as before.                                   |
-| 3   | 🔲     | [S89 runs the attended-lane state end-to-end under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                        |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [no report calls an attended lane dead](phase-1.md)                                                                                                                                                                                                                                                                                                                                               |
+|     | ↳      | board and the discovery card behind ready, pick and find no longer render `dead: true` for a held lane whose bound session herdr confirms gone but whose branch a live pane still attends, working or idle. The rendered field is gated on the live pane rather than copied straight from the identity fact, applied once at each render's shared site so ready, pick and find cannot drift.      |
+| 2   | ✅     | [the deserted refusals name the pane and lead with resume](phase-2.md)                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | desertedRefusal and parkFirstRefusal now read the same liveLaneFor a fresh acquire's pre-flight uses, once their own gate already decided a hold is deserted or unparked. Attended, the refusal names the pane and leads with `frit open <id>`, keeping `frit yield <id>` only as a trailing fallback; unattended, both refusals render exactly as before.                                        |
+| 3   | ✅     | [S89 runs the attended-lane state end-to-end under godog](phase-3.md)                                                                                                                                                                                                                                                                                                                             |
+|     | ↳      | Cross-layer matrix row S89 documents "bound session gone, pane still attends"; its @S89 scenario in features/cross-layer.feature runs the state end-to-end — board and ready render the lane attended through a real `--json` read, and start's refusal names the pane and leads with resume — reusing Phase 1's and Phase 2's own fixtures and wording rather than inventing a third vocabulary. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit board --json`, `frit ready --json`, `frit pick --json` and
+- [x] `frit board --json`, `frit ready --json`, `frit pick --json` and
       `frit find --json` over a held lane whose bound session herdr
       confirms gone but whose branch a live pane attends do not report
       that lane as `dead: true`, whether the pane is working or idle;
       board's `agent`/`agent_status` still shows the live pane
-- [ ] The JSON Contract holds: every documented key is present, and the
+- [x] The JSON Contract holds: every documented key is present, and the
       chosen render for the attended-lane case is deliberate, not a
       dropped or nulled field; where the discovery card did not carry
       the live-pane fact, it is plumbed into `cardOf` rather than
       guessed
-- [ ] `frit orphans` is deliberately unchanged: its `Deserted` category
+- [x] `frit orphans` is deliberately unchanged: its `Deserted` category
       still lists a bound-session-gone lane, a separate cleanup concern
-- [ ] An explicit `start <id>` refusal for a lane a live pane attends
+- [x] An explicit `start <id>` refusal for a lane a live pane attends
       names that pane and leads with resuming it, not with `frit yield`
-- [ ] A lane with no live pane still reads and refuses exactly as before
+- [x] A lane with no live pane still reads and refuses exactly as before
       — the deserted wording and the yield remedy are unchanged there
-- [ ] Cross-layer matrix row S89 is documented in
+- [x] Cross-layer matrix row S89 is documented in
       [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md),
       and a `@S89` scenario in
       [features/cross-layer.feature](../../features/cross-layer.feature)
       reproduces the state and runs for real, not `@pending`
-- [ ] `go test ./cmd/frit -run 'TestFeatures/S89:'` reports S89 PASS,
+- [x] `go test ./cmd/frit -run 'TestFeatures/S89:'` reports S89 PASS,
       not SKIP; `go test ./internal/scenario` stays green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

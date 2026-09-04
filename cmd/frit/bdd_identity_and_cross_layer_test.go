@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +30,7 @@ func init() {
 	registrars = append(registrars, (*world).registerObservationAndBoundaryIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerRaceAndMultiRepoIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerPickWalkIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerAttendedLaneIdentityAndCrossLayer)
 }
 
 // raceResult is one contender's own captured run — a claim or a start
@@ -68,6 +71,11 @@ type identityAndCrossLayerState struct {
 	// raceA and raceB are S72's two contending verbs' own captured
 	// results, and S74's two repositories' own claims.
 	raceA, raceB raceResult
+	// boardRow and readyRow are S89's own board and ready reads, kept
+	// so the Then that follows each --json read has the plan's own row
+	// to check without re-decoding the document.
+	boardRow report.BoardPlan
+	readyRow report.PlanCard
 }
 
 func (w *world) registerIdentityAndCrossLayer(sc *godog.ScenarioContext) {
@@ -205,6 +213,20 @@ func (w *world) registerPickWalkIdentityAndCrossLayer(sc *godog.ScenarioContext)
 	sc.Step(`^pick --go runs$`, w.pickGoRuns)
 	sc.Step(`^plan (\d+) is the one started$`, w.planIsTheOneStarted)
 	sc.Step(`^plan (\d+) is not refused on$`, w.planIsNotRefusedOn)
+}
+
+// registerAttendedLaneIdentityAndCrossLayer is S89's own six steps,
+// split out so neither this file's other registrars nor this one
+// trips golangci-lint's funlen.
+func (w *world) registerAttendedLaneIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^herdr shows a live pane on the lane$`, w.herdrShowsALivePaneOnTheLane)
+	sc.Step(`^frit board --json reports plan (\d+)$`, w.fritBoardJSONReportsPlan)
+	sc.Step(`^the board does not mark plan (\d+) dead, and shows the live pane$`,
+		w.theBoardDoesNotMarkPlanDeadAndShowsTheLivePane)
+	sc.Step(`^frit ready --json lists plan (\d+)$`, w.fritReadyJSONListsPlan)
+	sc.Step(`^ready does not mark plan (\d+) dead either$`, w.readyDoesNotMarkPlanDeadEither)
+	sc.Step(`^start refuses, naming the pane and leading with resume$`,
+		w.startRefusesNamingThePaneAndLeadingWithResume)
 }
 
 // holdsPlanBoundToASession mints a lease bound to a session that no
@@ -2005,4 +2027,199 @@ func TestPickWalkIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T)
 	require.Error(t, w.planIsNotRefusedOn(7))
 	st.out = "started plan 8"
 	assert.NoError(t, w.planIsNotRefusedOn(7))
+}
+
+// TestAttendedLaneIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition:
+// S89's own new steps refuse when the state an earlier step records
+// was never built, rather than reading a zero value as real.
+func TestAttendedLaneIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *testing.T) {
+	w := newWorld(t)
+
+	err := w.herdrShowsALivePaneOnTheLane()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lane")
+
+	err = w.fritBoardJSONReportsPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.theBoardDoesNotMarkPlanDeadAndShowsTheLivePane(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no board row")
+
+	err = w.fritReadyJSONListsPlan(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no root")
+
+	err = w.readyDoesNotMarkPlanDeadEither(7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no ready row")
+}
+
+// TestAttendedLaneIdentityAndCrossLayerReadBacksWantTheirExactShape:
+// S89's own Then steps read the board and ready rows a prior step
+// decoded, and start's own captured output, so a row that still reads
+// dead, or a refusal that omits the pane or leads with yield, must
+// not pass.
+func TestAttendedLaneIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
+	w := newWorld(t)
+	st := section[identityAndCrossLayerState](w)
+
+	st.boardRow = report.BoardPlan{ID: 7, Dead: true}
+	require.Error(t, w.theBoardDoesNotMarkPlanDeadAndShowsTheLivePane(7),
+		"the board row still reads dead")
+	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Agent: ""}
+	require.Error(t, w.theBoardDoesNotMarkPlanDeadAndShowsTheLivePane(7),
+		"not dead, but the pane is missing")
+	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Agent: "claude"}
+	assert.NoError(t, w.theBoardDoesNotMarkPlanDeadAndShowsTheLivePane(7))
+
+	st.readyRow = report.PlanCard{ID: 7, Dead: true}
+	require.Error(t, w.readyDoesNotMarkPlanDeadEither(7), "the ready row still reads dead")
+	st.readyRow = report.PlanCard{ID: 7, Dead: false}
+	assert.NoError(t, w.readyDoesNotMarkPlanDeadEither(7))
+
+	st.out = "started plan 7"
+	require.Error(t, w.startRefusesNamingThePaneAndLeadingWithResume(), "no refusal at all")
+	st.out = "refused: plan 7 deserted hold: its token cannot self-resume; " +
+		"run `frit yield 7` to retire this lane"
+	require.Error(t, w.startRefusesNamingThePaneAndLeadingWithResume(),
+		"refused, but names no live pane")
+	st.out = "refused: plan 7 deserted hold: a live herdr pane (wLive:p1) on lane plan/7 " +
+		"attends it; resume it with `frit open 7` — run `frit yield 7` only to set the work " +
+		"aside instead"
+	assert.NoError(t, w.startRefusesNamingThePaneAndLeadingWithResume())
+}
+
+// herdrShowsALivePaneOnTheLane fakes herdr with a pane sitting in the
+// lane's own worktree, under a different pane id than the session the
+// marker bound — S89's own point: the bound session rotating away is
+// not the same question as whether a pane still attends the branch,
+// and this fake answers only the second one, working.
+func (w *world) herdrShowsALivePaneOnTheLane() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to put a live pane on; the token step comes first")
+	}
+	withHerdr(w.t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wLive:p1", "cwd": st.lane,
+	}))
+
+	return nil
+}
+
+// fritBoardJSONReportsPlan runs `board --json` from the fleet root,
+// carrying forward whatever herdr fake an earlier Given step armed —
+// S89 reads the exact live-pane read those steps set up, not a fresh
+// one — and keeps the plan's own row for the following Then.
+func (w *world) fritBoardJSONReportsPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to run board from; the held-lane step comes first")
+	}
+	var out, errb strings.Builder
+	code := run([]string{"board", "--root", st.root, "--json"}, &out, &errb)
+	if code != 0 {
+		return fmt.Errorf("board exited %d: %s", code, errb.String())
+	}
+	var doc report.BoardDoc
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		return fmt.Errorf("decode board's document: %w: %s", err, out.String())
+	}
+	for _, p := range doc.Plans {
+		if p.ID == int64(planID) {
+			st.boardRow = p
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("plan %d does not appear on the board", planID)
+}
+
+// theBoardDoesNotMarkPlanDeadAndShowsTheLivePane checks S89's own
+// board observable: the bound-session-gone identity fact must not
+// read as dead once a live pane attends the branch, and the pane
+// itself still rides in the same row (phase 1, board.AddPlan).
+func (w *world) theBoardDoesNotMarkPlanDeadAndShowsTheLivePane(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.boardRow.ID != int64(planID) {
+		return fmt.Errorf("no board row read for plan %d; the board step comes first", planID)
+	}
+	if st.boardRow.Dead {
+		return fmt.Errorf("plan %d's board row reads dead with a live pane attending: %+v",
+			planID, st.boardRow)
+	}
+	if st.boardRow.Agent == "" {
+		return fmt.Errorf("plan %d's board row names no agent, want the live pane", planID)
+	}
+
+	return nil
+}
+
+// fritReadyJSONListsPlan runs `ready --json` the same way board was
+// read, for S89's second observable: the discovery card cardsOf
+// builds behind ready shares the reconciliation board's own AddPlan
+// applies (phase 1).
+func (w *world) fritReadyJSONListsPlan(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.root == "" {
+		return fmt.Errorf("no root to run ready from; the held-lane step comes first")
+	}
+	var out, errb strings.Builder
+	code := run([]string{"ready", "--root", st.root, "--json"}, &out, &errb)
+	if code != 0 {
+		return fmt.Errorf("ready exited %d: %s", code, errb.String())
+	}
+	var doc report.ReadyDoc
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		return fmt.Errorf("decode ready's document: %w: %s", err, out.String())
+	}
+	for _, p := range doc.Plans {
+		if p.ID == int64(planID) {
+			st.readyRow = p
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("plan %d does not appear on ready's list", planID)
+}
+
+// readyDoesNotMarkPlanDeadEither checks S89's second observable: the
+// same live-pane fact ready shares with board through cardOf.
+func (w *world) readyDoesNotMarkPlanDeadEither(planID int) error {
+	st := section[identityAndCrossLayerState](w)
+	if st.readyRow.ID != int64(planID) {
+		return fmt.Errorf("no ready row read for plan %d; the ready step comes first", planID)
+	}
+	if st.readyRow.Dead {
+		return fmt.Errorf("plan %d's ready row reads dead with a live pane attending: %+v",
+			planID, st.readyRow)
+	}
+
+	return nil
+}
+
+// startRefusesNamingThePaneAndLeadingWithResume checks S89's third
+// observable: the deserted refusal reads the same live pane and leads
+// with `frit open`, not `frit yield` — resumeRefusal's own ordering
+// (phase 2), the one this whole row exists to pin so it cannot
+// regress unnoticed.
+func (w *world) startRefusesNamingThePaneAndLeadingWithResume() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, "refused") {
+		return fmt.Errorf("start did not refuse: %s", st.out)
+	}
+	if !strings.Contains(st.out, "wLive:p1") {
+		return fmt.Errorf("the refusal does not name the live pane: %s", st.out)
+	}
+	openAt := strings.Index(st.out, "frit open")
+	yieldAt := strings.Index(st.out, "frit yield")
+	if openAt < 0 || yieldAt < 0 || openAt > yieldAt {
+		return fmt.Errorf("the refusal does not lead with resume ahead of yield: %s", st.out)
+	}
+
+	return nil
 }
