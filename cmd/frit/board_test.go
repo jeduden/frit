@@ -535,3 +535,60 @@ func TestReadyTrimsTitleToWidth(t *testing.T) {
 	printReady(&full, doc, 0)
 	assert.NotContains(t, full.String(), "…", "no width means no trim")
 }
+
+// TestPrintBoardPointsAtMessageForAnAttendedDeadHold: beneath the
+// table, a held lane whose bound session is gone but whose branch a
+// live agent works is pointed at `frit message` — the ask-the-agent
+// remedy the 2026-09-03 misread lacked, rendered where the reader
+// decides rather than only in the JSON.
+func TestPrintBoardPointsAtMessageForAnAttendedDeadHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "claude", "working")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, report.AskCommand(100), "the ask runs verbatim")
+	assert.NotContains(t, got, "(dead)", "a live agent still clears the marker")
+}
+
+// TestPrintBoardOffersNoAskForAnUnattendedDeadHold: with no agent on
+// the lane there is nobody to ask, so the dead marker and its legend
+// render exactly as before and message is never mentioned.
+func TestPrintBoardOffersNoAskForAnUnattendedDeadHold(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "", "")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	got := buf.String()
+	assert.Contains(t, got, "(dead)")
+	assert.NotContains(t, got, "frit message")
+}
+
+// TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn: the ask line
+// is a remedy, not a key to a marker, so it stays on screen when the
+// hold column — and its legend — is left out with --columns.
+func TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Dead: true,
+	}, "claude", "working")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, []string{"id", "agent"})
+
+	assert.Contains(t, buf.String(), report.AskCommand(100))
+}

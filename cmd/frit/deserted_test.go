@@ -377,6 +377,8 @@ func TestStartGoRefusalOfAnAttendedDesertedLaneCarriesInJSON(t *testing.T) {
 
 	assert.Contains(t, doc.Refused, "wLive:p1")
 	assert.Contains(t, doc.Refused, "frit open 7")
+	assert.Contains(t, doc.Refused, "frit message 7",
+		"the attended lane is offered the ask-the-agent remedy")
 	assert.False(t, doc.PromptDispatched)
 }
 

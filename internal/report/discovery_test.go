@@ -125,3 +125,89 @@ func TestShowCarriesRescueRefsForStrandedCommits(t *testing.T) {
 	doc.SetRescue([]string{"refs/frit/rescue/7/box-a"})
 	assert.Equal(t, []string{"refs/frit/rescue/7/box-a"}, doc.Rescue)
 }
+
+// attendedLane is the attended callback a live pane on the lane
+// answers with.
+func attendedLane(discovery.Plan) bool { return true }
+
+// unattendedLane is the attended callback no live pane answers with.
+func unattendedLane(discovery.Plan) bool { return false }
+
+// TestReadySetPlansNamesTheAskForAnAttendedDeadLane: a held lane whose
+// bound session is gone but whose branch a live pane attends is the
+// one git cannot classify — its work may be open as a PR and read
+// unlanded all the same — so the card carries the verb that asks the
+// agent, runnable verbatim. ready shares cardsOf with pick and find,
+// so proving it here proves the pointer for all three.
+func TestReadySetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+
+	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask,
+		"the ask names the real verb and selector")
+}
+
+// TestReadySetPlansLeavesAskEmptyForAnUnattendedDeadLane: no live
+// pane means no agent to ask, so the deserted reading stands alone.
+func TestReadySetPlansLeavesAskEmptyForAnUnattendedDeadLane(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, unattendedLane)
+
+	assert.Empty(t, doc.Plans[0].Ask, "there is no agent to ask")
+	assert.True(t, doc.Plans[0].Dead, "and the deserted reading stands")
+}
+
+// TestReadySetPlansLeavesAskEmptyForABoundLiveLane: a lane whose bound
+// session is still live is not ambiguous — nobody read it deserted —
+// so the pane attending it earns no ask pointer.
+func TestReadySetPlansLeavesAskEmptyForABoundLiveLane(t *testing.T) {
+	bound := deadHeldPlan
+	bound.Dead = false
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{bound}, attendedLane)
+
+	assert.Empty(t, doc.Plans[0].Ask, "a live bound lane is unchanged")
+}
+
+// TestReadySetPlansLeavesAskEmptyWithNoAttendedRead: a nil attended —
+// the fact was never read — offers no ask, since an unread pane is not
+// a live one.
+func TestReadySetPlansLeavesAskEmptyWithNoAttendedRead(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, nil)
+
+	assert.Empty(t, doc.Plans[0].Ask)
+}
+
+// TestPickSetPlansNamesTheAskForAnAttendedDeadLane confirms pick reads
+// the same pointer ready does, since both back onto cardsOf.
+func TestPickSetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
+	doc := NewPick("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+
+	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
+}
+
+// TestFindSetPlansNamesTheAskForAnAttendedDeadLane confirms find reads
+// the same pointer ready and pick do, since all three back onto cardsOf.
+func TestFindSetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
+	doc := NewFind("/fleet", "forge", "underway")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+
+	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
+}
+
+// TestAskOfIsGatedOnEveryDesertedInput pins askOf's own inputs: held,
+// confirmed dead, not matured, and attended — the exact reading
+// desertedRefusal fires on — and nothing short of all four.
+func TestAskOfIsGatedOnEveryDesertedInput(t *testing.T) {
+	stale := deadHeldPlan
+	stale.Stale = true
+	unheld := deadHeldPlan
+	unheld.Held = false
+
+	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, true))
+	assert.Empty(t, askOf(deadHeldPlan, false), "unattended")
+	assert.Empty(t, askOf(stale, true), "a matured window is staleHeld's own cell")
+	assert.Empty(t, askOf(unheld, true), "nobody holds it")
+}

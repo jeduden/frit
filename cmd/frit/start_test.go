@@ -993,6 +993,26 @@ func TestResumeRefusalNamesThePaneAndLeadsWithOpen(t *testing.T) {
 		"resume leads; yield is only the trailing fallback: %q", reason)
 }
 
+// TestResumeRefusalNamesMessageAsTheWayToAsk pins the ask-the-agent
+// remedy an attended deserted hold renders: git cannot tell a lane
+// whose work is open as a PR from one abandoned, so the refusal names
+// `frit message` — the verb that asks the one party who knows — ahead
+// of the yield teardown the 2026-09-03 misread reached for. Resume
+// still rides along, and yield still trails both.
+func TestResumeRefusalNamesMessageAsTheWayToAsk(t *testing.T) {
+	reason := resumeRefusal(discovery.Plan{ID: 7}, herdr.Lane{
+		Pane:   herdr.Pane{PaneID: "wLive:p1"},
+		Branch: "plan/7",
+	})
+
+	assert.Contains(t, reason, report.AskCommand(7),
+		"the ask remedy names the real verb and selector, runnable verbatim")
+	require.True(t,
+		strings.Index(reason, "frit message") < strings.Index(reason, "frit yield"),
+		"ask leads; yield is only the trailing fallback: %q", reason)
+	assert.Contains(t, reason, "frit open 7", "resume is still offered")
+}
+
 // TestCarryLiveLaneProblemsAddsBothHostAndHerdrProblems pins
 // carryLiveLaneProblems's own contract in isolation from the
 // integration tests that only exercise it indirectly: a host problem
