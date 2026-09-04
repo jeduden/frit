@@ -85,9 +85,10 @@ graded a stale cache.
 
 ## Execution
 
-| Phase | Title                                | Tier   | Gate                                                                                                           |
-| ----- | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------- |
-| 1     | Coverage uploads to Codecov via OIDC | sonnet | `codecov.yml` validates via `https://codecov.io/validate`; zizmor clean on the edited workflow; a push uploads |
+| Phase | Title                                 | Tier   | Gate                                                                                                           |
+| ----- | ------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| 1     | Coverage uploads to Codecov via OIDC  | sonnet | `codecov.yml` validates via `https://codecov.io/validate`; zizmor clean on the edited workflow; a push uploads |
+| 2     | The project status can only drop 0.5% | sonnet | `codecov.yml` validates; the PR's Codecov `project`/`patch` checks post; the check is required on `main`       |
 
 ## Phases
 
@@ -114,6 +115,7 @@ footer: |
 | --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [Coverage uploads to Codecov via OIDC](phase-1.md)                                                                                                                           |
 |     | ↳      | The `test` job now uploads `cover.out` to Codecov over OIDC — no stored token — guarded off on fork PRs; `codecov.yml` validates and the README carries the project's badge. |
+| 2   | 🔲     | [The project status can only drop 0.5%](phase-2.md)                                                                                                                          |
 <?/catalog?>
 
 ## Acceptance Criteria
