@@ -22,7 +22,7 @@ func progressFor(c *cli, rt *runtime) fleet.Reporter {
 		return fleet.DiscardReporter{}
 	}
 
-	return newProgress(rt.stderr)
+	return newProgress(rt.stderr, terminalWidth(rt.stderr))
 }
 
 // isTerminalWriter reports whether w is an interactive terminal — a nil
@@ -47,14 +47,18 @@ const clearLine = "\r\x1b[K"
 // it and writes a single closing status line, so a fast walk leaves one
 // line behind and a slow one still shows live progress.
 type progress struct {
-	out io.Writer
+	out   io.Writer
+	width int
 }
 
 // newProgress builds the reporter the gather emits into, writing to
 // out. It is the one production wiring of fleet.Reporter, so every verb
-// that gathers the fleet reports progress by construction.
-func newProgress(out io.Writer) *progress {
-	return &progress{out: out}
+// that gathers the fleet reports progress by construction. width is the
+// terminal's column count, so the transient line can be capped to fit
+// on one row; a zero width — a pipe, a file, a test buffer — imposes no
+// limit.
+func newProgress(out io.Writer, width int) *progress {
+	return &progress{out: out, width: width}
 }
 
 // Start folds into the transient shape: it opens the line without a

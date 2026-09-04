@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/fleet"
+	"github.com/jeduden/frit/internal/textw"
 )
 
 // TestProgressRepoRedrawsInPlace asserts each Repo write returns to the
@@ -15,7 +16,7 @@ import (
 // over many repositories does not scroll the terminal.
 func TestProgressRepoRedrawsInPlace(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgress(&buf)
+	p := newProgress(&buf, 0)
 
 	p.Repo("atlas", 1, 3)
 	p.Repo("borealis", 2, 3)
@@ -42,7 +43,7 @@ func TestProgressRepoRedrawsInPlace(t *testing.T) {
 // own output starts clean on the next line.
 func TestProgressDoneClosesTransientLine(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgress(&buf)
+	p := newProgress(&buf, 0)
 
 	p.Repo("atlas", 1, 1)
 	p.Done(fleet.Summary{
@@ -65,12 +66,58 @@ func TestProgressDoneClosesTransientLine(t *testing.T) {
 	}
 }
 
+// TestProgressRepoFitsWidthToAvoidWrap asserts a transient line is
+// capped to the terminal's column count, so a long repository name
+// cannot wrap onto a second row that clearLine's erase-to-end-of-line
+// leaves behind as stale text.
+func TestProgressRepoFitsWidthToAvoidWrap(t *testing.T) {
+	var buf bytes.Buffer
+	const width = 20
+	p := newProgress(&buf, width)
+
+	p.Repo("a-very-long-repository-name-that-would-wrap", 1, 3)
+
+	fitted := strings.TrimPrefix(buf.String(), clearLine)
+	if w := textw.Width(fitted); w > width {
+		t.Fatalf("Repo line %q is %d cols, exceeds width %d and would wrap", fitted, w, width)
+	}
+}
+
+// TestProgressStartFitsWidthToAvoidWrap asserts Start's opening line is
+// capped to the terminal width for the same reason as Repo's redraws.
+func TestProgressStartFitsWidthToAvoidWrap(t *testing.T) {
+	var buf bytes.Buffer
+	const width = 10
+	p := newProgress(&buf, width)
+
+	p.Start(1000000)
+
+	fitted := strings.TrimPrefix(buf.String(), clearLine)
+	if w := textw.Width(fitted); w > width {
+		t.Fatalf("Start line %q is %d cols, exceeds width %d and would wrap", fitted, w, width)
+	}
+}
+
+// TestProgressWidthZeroImposesNoLimit asserts a zero width — a pipe, a
+// file, a test buffer — leaves the line untruncated, so only a real
+// terminal whose width is known ever caps the transient line.
+func TestProgressWidthZeroImposesNoLimit(t *testing.T) {
+	var buf bytes.Buffer
+	p := newProgress(&buf, 0)
+
+	p.Repo("a-very-long-repository-name-that-would-wrap", 1, 1)
+
+	if !strings.Contains(buf.String(), "a-very-long-repository-name-that-would-wrap") {
+		t.Fatalf("width 0 must impose no limit, got %q", buf.String())
+	}
+}
+
 // TestProgressStartFoldsIntoTransientShape asserts Start does not by
 // itself scroll the terminal with a standalone newline-terminated line
 // ahead of the redrawn Repo lines.
 func TestProgressStartFoldsIntoTransientShape(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgress(&buf)
+	p := newProgress(&buf, 0)
 
 	p.Start(3)
 	p.Repo("atlas", 1, 3)
