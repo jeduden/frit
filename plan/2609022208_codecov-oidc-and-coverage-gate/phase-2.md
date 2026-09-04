@@ -41,6 +41,13 @@ PR's own Codecov check appearing and reading correctly once pushed.
   changing branch protection** — it is a shared repository setting,
   not a file this plan's tree can gate red/green.
 
+**Baseline established.** PR #154 merged
+(`e90c2d65eccb98d8579655fa9e7a8615e7be4241`); `main`'s CI passed and
+Codecov's report for that commit is `complete` at 88.21%. This PR
+pushes a second, small commit from the same lane to open a follow-up
+PR against `main` and confirm the `project`/`patch` checks post for
+real against that baseline.
+
 **Discovered: no status posts pre-merge on a first integration.**
 `main` has never carried a Codecov report — this plan is what starts
 one. Codecov's own PR comment on #154 states outright: "Once you
