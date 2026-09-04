@@ -119,12 +119,12 @@ footer: |
 | 2609021313 | ✅     | sonnet | [The storage-anomaly scenarios run under godog](plan/2609021313_bdd-storage-anomalies/plan.md)                                         |
 | 2609021314 | ✅     | sonnet | [The identity and cross-layer scenarios run under godog](plan/2609021314_bdd-identity-and-cross-layer/plan.md)                         |
 | 2609021315 | ✅     | sonnet | [The lifecycle claim-and-ref scenarios run under godog](plan/2609021315_bdd-lifecycle-claims-and-refs/plan.md)                         |
-| 2609021316 | 🔲     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
+| 2609021316 | ✅     | sonnet | [The landed-evidence scenarios run under godog](plan/2609021316_bdd-landed-evidence/plan.md)                                           |
 | 2609021554 | ✅     | sonnet | [A fleet gather reports its progress and its status](plan/2609021554_gather-reports-progress-and-status/plan.md)                       |
 | 2609022153 | ✅     | sonnet | [A plan-handoff skill closes a phase in one command](plan/2609022153_plan-handoff-closes-a-phase/plan.md)                              |
-| 2609022208 | 🔲     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
+| 2609022208 | ✅     | sonnet | [Coverage uploads to Codecov and can only improve](plan/2609022208_codecov-oidc-and-coverage-gate/plan.md)                             |
 | 2609031211 | ✅     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
-| 2609031939 | 🔲     | sonnet | [reports and refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)                |
+| 2609031939 | ✅     | sonnet | [reports and refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)                |
 | 2609031951 | 🔲     | sonnet | [A deserted top lane no longer stalls pick's candidate walk](plan/2609031951_deserted-lane-no-longer-stalls-pick/plan.md)              |
 | 2609032048 | 🔲     | sonnet | [frit can message a lane's agent, so an ambiguous lane asks](plan/2609032048_message-a-lanes-agent/plan.md)                            |
 <?/catalog?>
