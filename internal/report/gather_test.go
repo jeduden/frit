@@ -40,3 +40,17 @@ func TestGatherStatusLineShowsPartialWalk(t *testing.T) {
 	assert.Contains(t, line, "1 problem", "must show the problem count")
 	assert.Contains(t, line, "20ms", "must show the elapsed time")
 }
+
+// TestSetGatherRecordsTheSummary asserts the promoted setter stores the
+// summary on the embedding document, so a gathering verb projects its
+// coverage the same way at every call site.
+func TestSetGatherRecordsTheSummary(t *testing.T) {
+	var g gathered
+	g.SetGather(Gather{Discovered: 3, Read: 2, Fetched: 1, Problems: 1, ElapsedMS: 20})
+
+	assert.Equal(t, 3, g.Gather.Discovered)
+	assert.Equal(t, 2, g.Gather.Read)
+	assert.Equal(t, 1, g.Gather.Fetched)
+	assert.Equal(t, 1, g.Gather.Problems)
+	assert.Equal(t, int64(20), g.Gather.ElapsedMS)
+}

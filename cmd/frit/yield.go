@@ -48,6 +48,7 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 	branch := claim.Branch(plan.ID)
 	doc := report.NewYield(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 
 	coord, ok := res.Coords[plan.Repo]
 	if !ok {
@@ -175,6 +176,7 @@ func renderYield(c *cli, rt *runtime, doc *report.YieldDoc) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printYield(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

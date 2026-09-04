@@ -66,10 +66,12 @@ func (d *driftCmd) Run(c *cli, rt *runtime) error {
 		doc.AddRow(p.Repo, p.ID, landed, lastPhase, commits)
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printDrift(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

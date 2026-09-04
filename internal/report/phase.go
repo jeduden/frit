@@ -32,6 +32,7 @@ type PhaseBundleCard struct {
 // open phase left", the same split NextDoc makes.
 type PhaseDoc struct {
 	header
+	gathered
 	Root     string          `json:"root"`
 	Plan     PlanCard        `json:"plan"`
 	Phase    PhaseBundleCard `json:"phase"`

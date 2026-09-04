@@ -52,6 +52,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	branch := claim.Branch(plan.ID)
 	doc := report.NewClaim(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 
 	// The gather withholds a coordinate when two checkouts share the
 	// plan's repository name; without one there is no repository to mint
@@ -612,6 +613,7 @@ func renderClaim(c *cli, rt *runtime, doc *report.ClaimDoc) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printClaim(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
