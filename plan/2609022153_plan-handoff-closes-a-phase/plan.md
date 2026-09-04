@@ -140,6 +140,7 @@ assembles.
 | 2     | Resume surfaces a single-file plan's Handoff heading | sonnet | `go test ./internal/planmeta/...`; full `go test ./...` and lint clean                                                                            |
 | 3     | A doctor check catches a skipped handoff             | sonnet | `go test ./internal/planmeta/... ./internal/doctor/...`; full `go test ./...` and lint clean; a built `frit doctor` over this repository is clean |
 | 4     | doctor honors the lane it runs in                    | sonnet | `go test ./internal/doctor/... ./cmd/frit/...`; full `go test ./...` and lint clean                                                               |
+| 5     | plan-phase fronts plan-handoff for the close         | sonnet | `go test ./internal/skills/...`; full `go test ./...` and lint clean; `mdsmith check .` clean, token budget met                                   |
 
 ## Phases
 
@@ -172,6 +173,7 @@ footer: |
 |     | ↳      | frit doctor now reports a "handoff" finding for a phase recorded done in a plan still in progress whose handoff has no readable trace: no "## Handoff" in a single-file plan, none in a directory plan's own phase-N.result.md. A plan already done or superseded is exempt, since nothing resumes into it — a 34-plan survey of this repository confirmed every already-`✅` plan stays clean under that rule. The one live gap, plan 2609021554's phase-1 result closing with bold prose, is fixed. |
 | 4   | ✅     | [doctor honors the lane it runs in](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 |     | ↳      | frit doctor now reads the plan whose lane the cwd stands in from the lane's own working copy, so a gap fixed in the lane clears before the branch merges — the same narrowing next, show and phase already apply via laneOverride. Every other plan still reads the fleet's default-branch copy. New doctor.ScanID re-checks one plan from a given root; doctorCmd.Run swaps that plan's findings when repo.Name matches the current lane; the help text now states the lane read.                    |
+| 5   | 🔳     | [plan-phase fronts plan-handoff for the close](phase-5.md)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -194,5 +196,8 @@ footer: |
       finding before the branch merges — the way `next`/`show`/`phase`
       already read the lane; every other plan still reads the fleet's
       default-branch copy
+- [ ] `plan-phase`'s step 4 points at `/plan-handoff` for the close
+      rather than restating the recipe inline, and its dogfood copy
+      matches the canonical asset (`TestDogfoodCopiesMatchCanonical`)
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
