@@ -34,15 +34,18 @@ func isTerminalWriter(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// clearLine returns to the start of the current line and erases it, so
+// the next write redraws in place rather than appending a new line.
+const clearLine = "\r\x1b[K"
+
 // progress renders a fleet gather's progress to a writer — stderr in
 // production, so a slow walk over many repositories reports which one
 // it is on rather than hanging in silence, while stdout stays reserved
 // for the command's own table or JSON.
 //
-// This first cut prints one plain line per repository. Making the line
-// transient on a terminal and adding a closing status line is a later
-// phase; the reporter seam is here so that refinement changes only this
-// file.
+// The line is transient: each Repo redraws it in place, and Done clears
+// it and writes a single closing status line, so a fast walk leaves one
+// line behind and a slow one still shows live progress.
 type progress struct {
 	out io.Writer
 }
@@ -54,19 +57,23 @@ func newProgress(out io.Writer) *progress {
 	return &progress{out: out}
 }
 
-// Start names how many repositories the walk will cover.
+// Start folds into the transient shape: it opens the line without a
+// trailing newline, so it is redrawn rather than scrolled by the first
+// Repo.
 func (p *progress) Start(repos int) {
-	_, _ = fmt.Fprintf(p.out, "gathering %d repositories\n", repos)
+	_, _ = fmt.Fprintf(p.out, "%sgathering %d repositories", clearLine, repos)
 }
 
-// Repo names the repository the walk is reading now.
+// Repo redraws the transient line in place with the repository the walk
+// is reading now.
 func (p *progress) Repo(name string, index, total int) {
-	_, _ = fmt.Fprintf(p.out, "  [%d/%d] %s\n", index, total, name)
+	_, _ = fmt.Fprintf(p.out, "%s[%d/%d] %s", clearLine, index, total, name)
 }
 
-// Done reports what the walk covered once it closes.
+// Done clears the transient line and writes the closing status,
+// terminated by a newline so the command's own output starts clean.
 func (p *progress) Done(s fleet.Summary) {
 	_, _ = fmt.Fprintf(p.out,
-		"gathered %d/%d repositories, %d problem(s), in %s\n",
-		s.Read, s.Discovered, s.Problems, s.Elapsed.Round(1e6))
+		"%sgathered %d/%d repositories, %d problem(s), in %s\n",
+		clearLine, s.Read, s.Discovered, s.Problems, s.Elapsed.Round(1e6))
 }

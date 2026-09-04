@@ -56,10 +56,11 @@ func TestProgressDoneClosesTransientLine(t *testing.T) {
 	if !strings.HasSuffix(out, "\n") {
 		t.Fatalf("Done must end the output with a newline, got %q", out)
 	}
-	if strings.Contains(out, "atlas") {
-		t.Fatalf("Done must clear the transient line, not leave it behind, got %q", out)
+	visible := out[strings.LastIndex(out, "\r"):]
+	if strings.Contains(visible, "atlas") {
+		t.Fatalf("Done must clear the transient line before writing its own, not leave it visible, got %q", out)
 	}
-	if !strings.Contains(out, "gathered 1/1 repositories") {
+	if !strings.Contains(visible, "gathered 1/1 repositories") {
 		t.Fatalf("Done must keep the closing status counts, got %q", out)
 	}
 }
