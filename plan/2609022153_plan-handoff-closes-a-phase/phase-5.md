@@ -1,7 +1,7 @@
 ---
 n: 5
 title: plan-phase fronts plan-handoff for the close
-status: "🔳"
+status: "✅"
 result: false
 ---
 Task 5, the plan's last. `plan-phase`'s step 4 restates the whole

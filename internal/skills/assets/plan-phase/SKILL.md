@@ -32,17 +32,11 @@ commit, so the ledger can never go stale.
    that passes it. Verify with the narrowest instrument, then the
    phase's gate. Park a follow-up or a side quest in the result file
    `phase` named rather than chasing it.
-4. **Close the phase in the same commit.**
-
-  - First commit of the plan → plan `status:` 🔲 → 🔳.
-  - A phase-file plan (`phase` named a result path) → write that
-     file's `{n, title, status, result: true, summary}` front matter
-     and its `## Handoff`: the outcome, what the next phase inherits.
-  - A ledgered plan (no result path) → flip its `phases:` entry → ✅.
-  - The last phase's closing commit → tick met Acceptance Criteria,
-     plan `status:` → ✅, `mdsmith fix PLAN.md`. Then `mdsmith check .`
-     stays clean.
-
+4. **Close the phase with `/plan-handoff`**, riding this same commit.
+   It writes the handoff in the plan's shape and flips the phase's
+   status — the first commit of a plan also moves it 🔲 → 🔳, the last
+   phase's close ticks the met Acceptance Criteria and moves it → ✅.
+   Then `mdsmith check .` stays clean.
 5. **Stop and report** if the spec conflicts with the tree — a named
    seam is gone, a test ripples past the files it names. Do not
    improvise a design or weaken a check to reach green.

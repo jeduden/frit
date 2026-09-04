@@ -1,7 +1,7 @@
 ---
 id: 2609022153
 title: A plan-handoff skill closes a phase in one command
-status: "🔳"
+status: "✅"
 summary: >-
   Closing a phase is pure agent discipline today: plan-phase reminds
   the executor to record a handoff, but frit produces nothing and
@@ -173,7 +173,8 @@ footer: |
 |     | ↳      | frit doctor now reports a "handoff" finding for a phase recorded done in a plan still in progress whose handoff has no readable trace: no "## Handoff" in a single-file plan, none in a directory plan's own phase-N.result.md. A plan already done or superseded is exempt, since nothing resumes into it — a 34-plan survey of this repository confirmed every already-`✅` plan stays clean under that rule. The one live gap, plan 2609021554's phase-1 result closing with bold prose, is fixed. |
 | 4   | ✅     | [doctor honors the lane it runs in](phase-4.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 |     | ↳      | frit doctor now reads the plan whose lane the cwd stands in from the lane's own working copy, so a gap fixed in the lane clears before the branch merges — the same narrowing next, show and phase already apply via laneOverride. Every other plan still reads the fleet's default-branch copy. New doctor.ScanID re-checks one plan from a given root; doctorCmd.Run swaps that plan's findings when repo.Name matches the current lane; the help text now states the lane read.                    |
-| 5   | 🔳     | [plan-phase fronts plan-handoff for the close](phase-5.md)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 5   | ✅     | [plan-phase fronts plan-handoff for the close](phase-5.md)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | plan-phase step 4 now closes the phase with /plan-handoff instead of restating the recipe inline, so the one skill owns the close and the two cannot drift. The canonical asset and its regenerated dogfood copy match, the skill kind's token budget still passes, and this closes the plan.                                                                                                                                                                                                         |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -196,7 +197,7 @@ footer: |
       finding before the branch merges — the way `next`/`show`/`phase`
       already read the lane; every other plan still reads the fleet's
       default-branch copy
-- [ ] `plan-phase`'s step 4 points at `/plan-handoff` for the close
+- [x] `plan-phase`'s step 4 points at `/plan-handoff` for the close
       rather than restating the recipe inline, and its dogfood copy
       matches the canonical asset (`TestDogfoodCopiesMatchCanonical`)
 - [x] All tests pass: `go test ./...`
