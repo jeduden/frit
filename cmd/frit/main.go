@@ -129,6 +129,7 @@ type cli struct {
 	Board   boardCmd   `cmd:"" help:"Outstanding plans: status, who holds each, and the agent on it."`
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
+	Message messageCmd `cmd:"" help:"Send text to a plan's live lane, working or idle; dry-run unless --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
 	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`

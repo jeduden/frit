@@ -173,17 +173,19 @@ func TestPlanSyncFrontsDrift(t *testing.T) {
 }
 
 // TestPlanDriveFrontsOrchestratorVerbs guards CLAUDE.md's standing
-// rule for the orchestrator verbs: board, who, open, nudge and start
-// drive live lanes rather than work a plan, so they ship in their own
-// plan-drive skill instead of being reachable only through a --help
-// scan.
+// rule for the orchestrator verbs: board, who, open, nudge, message
+// and start drive live lanes rather than work a plan, so they ship in
+// their own plan-drive skill instead of being reachable only through a
+// --help scan.
 func TestPlanDriveFrontsOrchestratorVerbs(t *testing.T) {
 	data, err := assets.ReadFile("assets/plan-drive/SKILL.md")
 	if err != nil {
 		t.Fatalf("reading plan-drive skill: %v", err)
 	}
 	body := string(data)
-	for _, verb := range []string{"board", "who", "open", "nudge", "start"} {
+	for _, verb := range []string{
+		"board", "who", "open", "nudge", "message", "start",
+	} {
 		if !contains(body, "{{frit}} "+verb) {
 			t.Fatalf("plan-drive skill does not mention `{{frit}} %s`", verb)
 		}

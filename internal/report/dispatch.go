@@ -263,6 +263,64 @@ func (d *NudgeDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
 
+// MessageDoc is what `frit message` sent, or would send, to a plan's
+// live lane: the operator's own text, carried whole, and the pane it
+// targeted.
+//
+// message is nudge's sibling with one deliberate difference: it
+// carries the operator's own words rather than a composed slash
+// command, and it reaches a working agent as readily as an idle one —
+// asking whether a lane is mid-merge is the whole point, and a busy
+// refusal would defeat it. It never carries a reply — message sends
+// and hands over, like every rung below it.
+type MessageDoc struct {
+	header
+	Root string       `json:"root"`
+	Plan DispatchPlan `json:"plan"`
+	// Text is the operator's own words, sent whole and unmodified.
+	Text string `json:"text"`
+	// Target is the pane a send would land in, empty when no lane is
+	// live to take it.
+	Target string `json:"target"`
+	// Go is whether --go was given; Sent is whether text actually went.
+	// They differ on a refusal: --go with no live lane sends nothing.
+	Go   bool `json:"go"`
+	Sent bool `json:"sent"`
+	// Refused is why a send was withheld — no live lane, or presence
+	// unknown — empty when message was free to send.
+	Refused  string    `json:"refused"`
+	Problems []Problem `json:"problems"`
+}
+
+// NewMessage opens a message report for a resolved plan and the text
+// it would carry.
+func NewMessage(
+	root string, repo string, id int64, title, text string, wantGo bool,
+) *MessageDoc {
+	return &MessageDoc{
+		header:   newHeader("message"),
+		Root:     root,
+		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
+		Text:     text,
+		Go:       wantGo,
+		Problems: []Problem{},
+	}
+}
+
+// SetTarget records the pane a send would land in.
+func (d *MessageDoc) SetTarget(pane string) { d.Target = pane }
+
+// Refuse records why a send was withheld, leaving Sent false.
+func (d *MessageDoc) Refuse(reason string) { d.Refused = reason }
+
+// MarkSent records that the text went to the target.
+func (d *MessageDoc) MarkSent() { d.Sent = true }
+
+// AddProblem records a socket frit could not read.
+func (d *MessageDoc) AddProblem(repo string, err error) {
+	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
 // ClaimDoc is what `frit claim` did: the hold branch it minted for a
 // plan, or the reason the plan was not claimable.
 //

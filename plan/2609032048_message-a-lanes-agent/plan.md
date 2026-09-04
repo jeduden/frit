@@ -1,7 +1,7 @@
 ---
 id: 2609032048
 title: frit can message a lane's agent, so an ambiguous lane asks
-status: "🔲"
+status: "🔳"
 summary: >-
   Git alone cannot tell a deserted, unlanded lane apart from one whose
   work is pushed and sitting in an open PR while its agent finishes the
@@ -133,23 +133,24 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                              |
-| --- | ------ | ------------------------------------------------------------------ |
-| 1   | 🔲     | [frit message sends an operator's text to a live lane](phase-1.md) |
-| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)          |
-| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)         |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [frit message sends an operator's text to a live lane](phase-1.md)                                                                                                                                                                                                                                                                            |
+|     | ↳      | `frit message <id> "<text>"` sends arbitrary text to a plan's live lane through `herdr.Prompt`, working or idle — the one deliberate divergence from `nudge`, which refuses a busy lane. Dry-run by default, `--go` to send, reporting a sibling `report.MessageDoc` built the same way `NudgeDoc` is. The skill front rides the same change. |
+| 2   | 🔲     | [the ambiguous-lane output routes to message](phase-2.md)                                                                                                                                                                                                                                                                                     |
+| 3   | 🔲     | [S90 runs the ask-the-agent state under godog](phase-3.md)                                                                                                                                                                                                                                                                                    |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit message <selector> "<text>"` sends the given text to the
+- [x] `frit message <selector> "<text>"` sends the given text to the
       live agent on the plan's lane through `herdr.Prompt`, whether the
       agent is working or idle; it dry-runs by default and sends only
       under `--go`, naming the target pane in both cases
-- [ ] `frit message` refuses a plan with no live lane, and reports
+- [x] `frit message` refuses a plan with no live lane, and reports
       presence-unknown rather than an absent lane when a configured host
       goes unread — matching how `nudge` withholds its action
-- [ ] The `message` verb ships with its thin skill front in the same
+- [x] The `message` verb ships with its thin skill front in the same
       change, per the Shipping Skills rule; the skill's example command
       follows the JSON Contract
 - [ ] For a held lane a live pane attends whose work is unlanded, the

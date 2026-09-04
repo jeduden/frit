@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                       |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------- |
+| 2609032048 | sonnet | [frit can message a lane's agent, so an ambiguous lane asks](plan/2609032048_message-a-lanes-agent/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -126,5 +128,5 @@ footer: |
 | 2609031211 | ✅     | sonnet | [A live top lane no longer stalls pick's candidate walk](plan/2609031211_pick-walk-advances-past-live-lane/plan.md)                    |
 | 2609031939 | ✅     | sonnet | [reports and refusals stop calling an attended lane dead](plan/2609031939_board-and-refusals-honor-a-live-pane/plan.md)                |
 | 2609031951 | ✅     | sonnet | [A deserted top lane no longer stalls pick's candidate walk](plan/2609031951_deserted-lane-no-longer-stalls-pick/plan.md)              |
-| 2609032048 | 🔲     | sonnet | [frit can message a lane's agent, so an ambiguous lane asks](plan/2609032048_message-a-lanes-agent/plan.md)                            |
+| 2609032048 | 🔳     | sonnet | [frit can message a lane's agent, so an ambiguous lane asks](plan/2609032048_message-a-lanes-agent/plan.md)                            |
 <?/catalog?>

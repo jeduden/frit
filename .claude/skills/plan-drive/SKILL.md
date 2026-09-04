@@ -2,9 +2,10 @@
 name: plan-drive
 description: >-
   Drive lanes from outside them: see what is outstanding and who is
-  live, then raise, nudge or escalate one lane at the lowest rung that
-  moves it. Trigger on "what's running", "who is on plan X", "open plan
-  X", "nudge the lane", "the lane is idle", "escalate plan X".
+  live, then raise, nudge, message or escalate one lane at the lowest
+  rung that moves it. Trigger on "what's running", "who is on plan X",
+  "open plan X", "nudge the lane", "the lane is idle", "escalate plan
+  X", "message the agent", "is this lane really deserted".
 ---
 # plan-drive
 
@@ -38,9 +39,23 @@ nothing until `--go`.
    whose checkout still holds its token, with no live agent, resumes
    here — no takeover window to wait out.
 
+## Ask directly
+
+Git alone cannot tell a deserted, unlanded lane apart from one whose
+work is pushed and sitting in an open PR while its agent finishes the
+merge — refs read the same either way. When a held lane's state is
+unclear, ask its agent rather than reaching for `frit yield` or a
+hand-land.
+
+- **`go run ./cmd/frit message <id> "text"`** — send arbitrary text to the
+  lane's live agent through herdr. Unlike `nudge`, it reaches a
+  **working** lane as readily as an idle one, because that is exactly
+  who needs asking: `go run ./cmd/frit message <id> "are you in a PR?"`.
+
 ## Notes
 
-- `open` and `nudge` need a lane that already exists; `start` is the
-  rung that creates one — a plan with no live lane starts, not opens.
+- `open`, `nudge` and `message` need a lane that already exists;
+  `start` is the rung that creates one — a plan with no live lane
+  starts, not opens.
 - Claiming and beginning an unheld plan is `plan-pick`, not a rung
   here.

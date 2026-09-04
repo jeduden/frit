@@ -648,3 +648,231 @@ func TestNudgeTierComesFromThePlan(t *testing.T) {
 	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
 	assert.Equal(t, "wC:p1", doc.Target)
 }
+
+// workingLane is idleLane's busy counterpart, so a test can prove
+// message reaches a lane nudge would refuse.
+func workingLane(repo string) map[string]any {
+	return map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "busy",
+	}
+}
+
+// TestMessageReachesAWorkingLane is the Phase 1 gate's leading case:
+// message carries the operator's own words to a lane nudge would
+// refuse for being busy — the whole point of asking "are you in a
+// PR?" of an agent still working.
+func TestMessageReachesAWorkingLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "are you in a PR?",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"), "dry-run sends nothing")
+	assert.NotContains(t, out.String(), "refus",
+		"message does not refuse a working lane the way nudge would")
+	assert.Contains(t, out.String(), "are you in a PR?",
+		"the operator's text is shown")
+	assert.Contains(t, out.String(), "wC:p1", "the target pane is printed")
+}
+
+// TestMessageGoSendsTheTextToAWorkingLane: with --go, the operator's
+// exact text is prompted into the working lane, whole.
+func TestMessageGoSendsTheTextToAWorkingLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "are you in a PR?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t,
+		rec.verb("agent", "prompt", "wC:p1", "are you in a PR?"),
+		"the exact text is sent whole to the pane")
+	assert.False(t, rec.verb("agent", "read"), "message never reads a reply")
+	assert.Contains(t, out.String(), "sent")
+}
+
+// TestMessageReachesAnIdleLane: both live statuses are covered, not
+// only the working one message exists for.
+func TestMessageReachesAnIdleLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.True(t, rec.verb("agent", "prompt", "wC:p1", "status?"))
+	assert.Contains(t, out.String(), "sent")
+}
+
+// TestMessageRefusesWhenNoLiveLane: message is into an existing lane,
+// so a plan nobody is working is refused rather than started.
+func TestMessageRefusesWhenNoLiveLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // no panes
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"))
+	assert.Contains(t, out.String(), "no live lane")
+}
+
+// TestMessageSaysPresenceUnknownWhenAHostIsUnread: a configured host
+// that went unread is presence unknown, not an absent lane — message
+// refuses on that, mirroring nudge, rather than claiming nobody works
+// the plan.
+func TestMessageSaysPresenceUnknownWhenAHostIsUnread(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr() // local socket, no panes
+	withHerdr(t, runner)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "status?", "--go",
+		"--hosts", "box", "--root", root)
+
+	assert.Contains(t, doc.Refused, "presence unknown")
+	assert.NotContains(t, doc.Refused, "no live lane",
+		"an unread host is not an absent lane frit looked for")
+	assert.False(t, rec.verb("agent", "prompt"),
+		"nothing is sent when presence is unknown")
+	require.NotEmpty(t, doc.Problems, "the unread host travels in the report")
+}
+
+// TestMessageEmitsJSON pins the fields a consumer keys on: the text
+// carried whole, the target pane, and go/sent apart from each other.
+func TestMessageEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, _ := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "are you in a PR?", "--root", root)
+
+	assert.Equal(t, "message", doc.Command)
+	assert.Equal(t, "are you in a PR?", doc.Text)
+	assert.Equal(t, "wC:p1", doc.Target)
+	assert.False(t, doc.Sent, "a dry run under --json sends nothing")
+}
+
+// TestMessageRefusesAnEmptySelector: message is documented to never
+// infer from the cwd, unlike nudge's optional selector (phase-1's own
+// result.md) — an explicitly empty selector must refuse outright
+// rather than falling into resolveSelector's cwd inference and
+// silently targeting whatever plan the caller's worktree happens to
+// sit on, which here is plan 7's own hold branch.
+func TestMessageRefusesAnEmptySelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	t.Chdir(repo)
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	assert.NotEqual(t, 0, code,
+		"an empty selector must not resolve via cwd inference")
+	assert.False(t, rec.verb("agent", "prompt"))
+}
+
+// TestMessageSaysHerdrUnreachable: with the socket down, message
+// refuses on presence being unknown, not on an absent lane it never
+// looked for — the same rule nudge's own TestNudgeSaysHerdrUnreachable
+// pins, carried over verbatim by message's identical switch.
+func TestMessageSaysHerdrUnreachable(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "herdr unreachable")
+	assert.NotContains(t, out.String(), "no live lane")
+}
+
+// unknownStatusLane fakes a pane whose agent_status herdr could not read
+// as either idle or working — Pane.Presence's own honest third state, so
+// a test can prove message refuses it rather than collapsing it into a
+// safe-looking send.
+func unknownStatusLane(repo string) map[string]any {
+	return map[string]any{
+		"agent": "claude", "agent_status": "confused", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "?",
+	}
+}
+
+// TestMessageRefusesAnUnknownStatusLane: a pane whose status herdr
+// cannot read is not idle or working — Pane.Presence reads it as
+// StatusUnknown rather than a false idle — and message refuses it the
+// same way nudge refuses a busy lane, rather than sending blind into a
+// pane nobody can vouch for.
+func TestMessageRefusesAnUnknownStatusLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(unknownStatusLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"),
+		"a pane herdr cannot read is not sent to")
+	assert.Contains(t, out.String(), "refus")
+}
+
+// TestMessageRefusesEmptyText: an empty text is never a real ask, so
+// message refuses it outright rather than dry-running or, under --go,
+// reporting a silent send of nothing as if it went whole to the pane.
+func TestMessageRefusesEmptyText(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "", "--go", "--root", root},
+		&out, &errb)
+
+	assert.NotEqual(t, 0, code, "an empty text must be refused outright")
+	assert.False(t, rec.verb("agent", "prompt"))
+}

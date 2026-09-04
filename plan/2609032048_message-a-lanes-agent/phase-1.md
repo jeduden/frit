@@ -1,7 +1,7 @@
 ---
 n: 1
 title: frit message sends an operator's text to a live lane
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give frit an agent-aware `message` verb that sends arbitrary text to a
