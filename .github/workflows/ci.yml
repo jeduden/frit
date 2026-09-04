@@ -16,6 +16,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,6 +55,21 @@ jobs:
         with:
           name: coverage
           path: cover.out
+      # OIDC over a stored token: the runner mints a short-lived
+      # identity that Codecov exchanges for an upload grant, so no
+      # secret sits in this repository's settings. A fork PR has no
+      # id-token (permissions above are job-scoped, and forks never
+      # inherit them), so this step is skipped rather than failing.
+      # !cancelled() matches Summarise coverage and upload-artifact
+      # above: cover.out exists even when go test fails, and a failing
+      # run is exactly when its coverage is most wanted.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        with:
+          use_oidc: true
+          files: cover.out
+          fail_ci_if_error: false
 
   lint:
     runs-on: ubuntu-latest

@@ -1,0 +1,35 @@
+codecov:
+  notify:
+    # Wait for every CI workflow to finish before posting status
+    # checks, so the status is never evaluated against a stale or
+    # missing upload.
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        # Tolerate a small dip from deleting well-covered code, since
+        # the project average drifts toward the mean; a larger drop
+        # fails the check.
+        threshold: 0.5%
+        # A fork PR never uploads (see ci.yml's guard on the upload
+        # step), so without these the required check would hang
+        # rather than post. A same-repo run still gates on the real
+        # number.
+        if_no_uploads: success
+        if_not_found: success
+    patch:
+      default:
+        target: auto
+        # New code carries its own coverage, so the project average
+        # alone cannot be gamed by pairing untested lines with
+        # well-covered ones.
+        threshold: 0%
+        if_no_uploads: success
+        if_not_found: success
+
+comment:
+  layout: "condensed_header, condensed_files, condensed_footer"
+  require_changes: true

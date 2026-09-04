@@ -9,6 +9,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// deadHeldPlan is a held plan whose bound session herdr confirms
+// gone — the identity fact ready, pick and find each carry through
+// cardOf, which this phase reconciles with a live pane.
+var deadHeldPlan = discovery.Plan{
+	Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+	Held: true, Holds: []string{"plan/100"}, Dead: true,
+}
+
+// TestReadySetPlansClearsDeadForAnAttendedLane: ready shares cardOf
+// with pick and find, so proving it here proves the reconciliation for
+// all three at their one shared site.
+func TestReadySetPlansClearsDeadForAnAttendedLane(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan},
+		func(discovery.Plan) bool { return true })
+
+	assert.False(t, doc.Plans[0].Dead,
+		"a live pane on the lane disproves dead")
+}
+
+// TestReadySetPlansStillMarksAnUnattendedDeadLaneDead: a lane no pane
+// attends reads dead exactly as before — the takeover candidate it
+// always was.
+func TestReadySetPlansStillMarksAnUnattendedDeadLaneDead(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan},
+		func(discovery.Plan) bool { return false })
+
+	assert.True(t, doc.Plans[0].Dead,
+		"no live pane means the dead session still reads as a takeover candidate")
+}
+
+// TestPickSetPlansClearsDeadForAnAttendedLane confirms pick reads the
+// same reconciled fact ready does, since both back onto cardOf.
+func TestPickSetPlansClearsDeadForAnAttendedLane(t *testing.T) {
+	doc := NewPick("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan},
+		func(discovery.Plan) bool { return true })
+
+	assert.False(t, doc.Plans[0].Dead,
+		"pick shares cardOf with ready; a live pane clears dead there too")
+}
+
+// TestFindSetPlansClearsDeadForAnAttendedLane confirms find reads the
+// same reconciled fact ready and pick do, since all three back onto
+// cardOf.
+func TestFindSetPlansClearsDeadForAnAttendedLane(t *testing.T) {
+	doc := NewFind("/fleet", "forge", "underway")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan},
+		func(discovery.Plan) bool { return true })
+
+	assert.False(t, doc.Plans[0].Dead,
+		"find shares cardOf with ready; a live pane clears dead there too")
+}
+
 // TestNewNextCarriesThePhasesTierAndGate is the seam phase 2 opens:
 // what the Execution table names for the target phase rides in the
 // wire shape, not just its number, title and status.

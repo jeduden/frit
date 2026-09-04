@@ -195,12 +195,21 @@ func startRefusal(
 	// it over from its own dead lane would leave whatever that lane
 	// committed locally, past its persisted token, orphaned rather
 	// than parked — yield is the way out, not a silent takeover
-	// (S77).
-	if reason := desertedRefusal(rt, plan, cwd); reason != "" {
-		return refusedStart(c, res, plan, phase, doGo, reason)
+	// (S77). Either guard, once it decides to fire, checks for a live
+	// pane on the branch before wording itself: a pane there means the
+	// lane is attended, not deserted, and the refusal leads with
+	// resuming it instead.
+	if reason, hostProbs, herdrErr := desertedRefusal(c, rt, plan, cwd); reason != "" {
+		doc := refusedStart(c, res, plan, phase, doGo, reason)
+		carryLiveLaneProblems(doc, hostProbs, herdrErr)
+
+		return doc
 	}
-	if reason := parkFirstRefusal(rt, plan, coord); reason != "" {
-		return refusedStart(c, res, plan, phase, doGo, reason)
+	if reason, hostProbs, herdrErr := parkFirstRefusal(c, rt, plan, coord); reason != "" {
+		doc := refusedStart(c, res, plan, phase, doGo, reason)
+		carryLiveLaneProblems(doc, hostProbs, herdrErr)
+
+		return doc
 	}
 	if reattach {
 		if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
@@ -401,17 +410,32 @@ func laneUnattended(rt *runtime, m claim.Marker) (unattended, known bool) {
 // exact case, leaving the ordinary readiness refusal as the arbiter —
 // a matured window is staleHeld's own cell, orphans.go, and a
 // takeover from elsewhere is unaffected.
-func desertedRefusal(rt *runtime, plan discovery.Plan, cwd string) string {
+//
+// Once the deserted case fires, a live pane on the branch means the
+// lane is attended rather than gone — the bound session that rotated
+// away is not the only thing that can be sitting there — so the read
+// that liveLaneFor already runs for the fresh-acquire pre-flight is
+// read here too, and the wording leads with resuming that pane
+// instead of the yield teardown. The read only happens once the
+// caller already knows this is a deserted hold, so an ordinary start
+// pays nothing extra for it.
+func desertedRefusal(
+	c *cli, rt *runtime, plan discovery.Plan, cwd string,
+) (string, []hostProblem, error) {
 	if !plan.Held || !plan.Dead || plan.Stale {
-		return ""
+		return "", nil, nil
 	}
 	if !inOwnLane(rt, plan, cwd) {
-		return ""
+		return "", nil, nil
+	}
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	if found {
+		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
 
 	return fmt.Sprintf(
 		"deserted hold: its token cannot self-resume; "+
-			"run `frit yield %d` to retire this lane", plan.ID)
+			"run `frit yield %d` to retire this lane", plan.ID), hostProbs, herdrErr
 }
 
 // parkFirstRefusal is the S77 park-first guard's cwd-free sibling:
@@ -426,17 +450,28 @@ func desertedRefusal(rt *runtime, plan discovery.Plan, cwd string) string {
 // gather withheld a coordinate to read the branch from (the
 // ambiguous-repo refusal is the arbiter there), leaving the ordinary
 // readiness path unaffected.
-func parkFirstRefusal(rt *runtime, plan discovery.Plan, coord fleet.Coord) string {
+//
+// A live pane on the branch is read the same way desertedRefusal
+// reads one, and for the same reason: the lane is attended, so the
+// wording leads with resuming that pane rather than the park-first
+// yield.
+func parkFirstRefusal(
+	c *cli, rt *runtime, plan discovery.Plan, coord fleet.Coord,
+) (string, []hostProblem, error) {
 	if !plan.Held || !plan.Dead || plan.Stale || coord.Path == "" {
-		return ""
+		return "", nil, nil
 	}
 	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {
-		return ""
+		return "", nil, nil
+	}
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	if found {
+		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
 
 	return fmt.Sprintf(
 		"deserted hold: its branch carries an unparked suffix; "+
-			"run `frit yield %d` to park it first", plan.ID)
+			"run `frit yield %d` to park it first", plan.ID), hostProbs, herdrErr
 }
 
 // reattachParkFirstRefusal is the park-first guard for a resume from
@@ -514,9 +549,11 @@ func startLiveLaneRefusal(
 // problems onto doc, whichever shape it ends up: a refusal when a live
 // agent was found, or the eventual success doc when it was not, so an
 // unreachable herdr or an unread host is never silently dropped either
-// way.
+// way. doc is a problemAdder rather than *report.StartDoc so claim's
+// deserted/park-first refusals, which read the same live-pane fact
+// onto a ClaimDoc, share this rather than a copy.
 func carryLiveLaneProblems(
-	doc *report.StartDoc, probs []hostProblem, herdrErr error,
+	doc problemAdder, probs []hostProblem, herdrErr error,
 ) {
 	for _, p := range probs {
 		doc.AddProblem(p.name, p.err)
@@ -524,6 +561,16 @@ func carryLiveLaneProblems(
 	if herdrErr != nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
+}
+
+// paneNaming names a live herdr pane and the branch it sits on, the
+// phrase resumeRefusal reuses from liveLaneRefusal's own wording so a
+// pane is named consistently wherever frit points a reader at one. Not
+// shared by liveLaneRefusal itself: its exact phrasing ("already sits
+// on lane") is pinned by the S32 cross-layer scenario.
+func paneNaming(lane herdr.Lane) string {
+	return fmt.Sprintf("a live herdr pane (%s) on lane %s",
+		lane.Pane.PaneID, lane.Branch)
 }
 
 // liveLaneRefusal names the refusal a fresh acquire meets when herdr
@@ -536,6 +583,20 @@ func liveLaneRefusal(lane herdr.Lane) string {
 		"a live herdr pane (%s) already sits on lane %s; "+
 			"free it before starting this plan again",
 		lane.Pane.PaneID, lane.Branch)
+}
+
+// resumeRefusal is what a deserted or park-first hold renders once a
+// live pane turns out to attend its branch: the bound session herdr
+// confirmed gone is not the only thing that can be sitting on a lane,
+// so the reader is pointed at resuming that pane rather than a yield
+// teardown nobody needs while someone is there. `frit yield` still
+// rides along as the trailing fallback, for when the work genuinely
+// should be set aside.
+func resumeRefusal(plan discovery.Plan, lane herdr.Lane) string {
+	return fmt.Sprintf(
+		"deserted hold: %s attends it; resume it with `frit open %d` — "+
+			"run `frit yield %d` only to set the work aside instead",
+		paneNaming(lane), plan.ID, plan.ID)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

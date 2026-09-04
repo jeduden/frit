@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The four lease-API rows of landed evidence run for real
-status: "🔲"
+status: "✅"
 result: false
 ---
 Convert the four rows the lease API and `DefaultRef` alone can drive.

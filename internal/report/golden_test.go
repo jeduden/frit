@@ -153,7 +153,7 @@ func goldenReady() *ReadyDoc {
 			DependsOn: []int64{2608161809},
 			Path:      "plan/2608161810_dispatch-ladder.md",
 		},
-	})
+	}, nil)
 	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
 
 	return doc
@@ -180,7 +180,7 @@ func goldenPick() *PickDoc {
 			Held: true, Holds: []string{"plan/7"},
 			Stale: true, StaleFor: 3 * time.Hour,
 		},
-	})
+	}, nil)
 
 	return doc
 }
@@ -290,7 +290,7 @@ func goldenFind() *FindDoc {
 			Model:   "opus",
 			Path:    "plan/12_raymarch-gas-giants.md",
 		},
-	})
+	}, nil)
 
 	return doc
 }
