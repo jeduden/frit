@@ -1,7 +1,7 @@
 ---
 id: 2609031951
 title: A deserted top lane no longer stalls pick's candidate walk
-status: "🔳"
+status: "✅"
 summary: >-
   Plan 2609031211 makes pick --go's walk advance past a live-lane
   refusal on the top candidate. But that is one of two refusal gates in
@@ -133,31 +133,32 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                  |
-| --- | ------ | ------------------------------------------------------------------------------------------------------ |
-| 1   | ✅     | [pick --go's walk advances past a deserted top lane](phase-1.md)                                       |
-|     | ↳      | buildStart's startRefusal gate is now a skip in pick --go's walk, matching the sibling live-lane gate. |
-| 2   | 🔲     | [S90 runs the deserted-lane walk skip under godog](phase-2.md)                                         |
+| #   | Status | Phase                                                                                                                                      |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [pick --go's walk advances past a deserted top lane](phase-1.md)                                                                           |
+|     | ↳      | buildStart's startRefusal gate is now a skip in pick --go's walk, matching the sibling live-lane gate.                                     |
+| 2   | ✅     | [S90 runs the deserted-lane walk skip under godog](phase-2.md)                                                                             |
+|     | ↳      | S90 documents and runs the deserted-lane walk skip under godog; the matrix and feature file are in bijection and TestFeatures/S90: passes. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `pick --go`, run against a fleet whose top-ranked candidate is a
+- [x] `pick --go`, run against a fleet whose top-ranked candidate is a
       deserted hold with an unparked suffix and at least one lower ready
       plan held by nobody, starts the lower plan and does not refuse on
       the deserted one
-- [ ] `pick --go` against a fleet whose only candidate is such a
+- [x] `pick --go` against a fleet whose only candidate is such a
       deserted hold reports `nothing startable`, not a refusal
-- [ ] An explicit `start <id>` on the deserted hold still renders the
+- [x] An explicit `start <id>` on the deserted hold still renders the
       "deserted hold … run `frit yield <id>`" refusal, unchanged
-- [ ] A diverging local branch still makes `pick --go` exit non-zero
+- [x] A diverging local branch still makes `pick --go` exit non-zero
       and stand nothing up — the fault path is untouched
-- [ ] Cross-layer matrix row S90 is documented in
+- [x] Cross-layer matrix row S90 is documented in
       [docs/research/lease-protocol.md](../../docs/research/lease-protocol.md),
       and a `@S90` scenario in
       [features/cross-layer.feature](../../features/cross-layer.feature)
       runs for real, not `@pending`
-- [ ] `go test ./cmd/frit -run 'TestFeatures/S90:'` reports S90 PASS,
+- [x] `go test ./cmd/frit -run 'TestFeatures/S90:'` reports S90 PASS,
       not SKIP; `go test ./internal/scenario` stays green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
