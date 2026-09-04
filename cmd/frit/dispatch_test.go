@@ -825,3 +825,54 @@ func TestMessageSaysHerdrUnreachable(t *testing.T) {
 	assert.Contains(t, out.String(), "herdr unreachable")
 	assert.NotContains(t, out.String(), "no live lane")
 }
+
+// unknownStatusLane fakes a pane whose agent_status herdr could not read
+// as either idle or working — Pane.Presence's own honest third state, so
+// a test can prove message refuses it rather than collapsing it into a
+// safe-looking send.
+func unknownStatusLane(repo string) map[string]any {
+	return map[string]any{
+		"agent": "claude", "agent_status": "confused", "cwd": repo,
+		"pane_id": "wC:p1", "terminal_title_stripped": "?",
+	}
+}
+
+// TestMessageRefusesAnUnknownStatusLane: a pane whose status herdr
+// cannot read is not idle or working — Pane.Presence reads it as
+// StatusUnknown rather than a false idle — and message refuses it the
+// same way nudge refuses a busy lane, rather than sending blind into a
+// pane nobody can vouch for.
+func TestMessageRefusesAnUnknownStatusLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(unknownStatusLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.False(t, rec.verb("agent", "prompt"),
+		"a pane herdr cannot read is not sent to")
+	assert.Contains(t, out.String(), "refus")
+}
+
+// TestMessageRefusesEmptyText: an empty text is never a real ask, so
+// message refuses it outright rather than dry-running or, under --go,
+// reporting a silent send of nothing as if it went whole to the pane.
+func TestMessageRefusesEmptyText(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(idleLane(repo))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "", "--go", "--root", root},
+		&out, &errb)
+
+	assert.NotEqual(t, 0, code, "an empty text must be refused outright")
+	assert.False(t, rec.verb("agent", "prompt"))
+}

@@ -49,6 +49,19 @@ the dogfood copy and `TestDogfoodCopiesMatchCanonical` passes.
 `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run` and
 `mdsmith check .` are all clean.
 
+**Code review addendum.** A recall-biased review of this phase found
+`messageSend` sent to any found lane regardless of `Pane.Presence()`,
+including the honest-unknown status herdr reports for a pane it cannot
+read — a gap `nudgeSend`'s idle-only gate never had, and one the
+acceptance criteria's own "working or idle" framing did not intend to
+cover. `messageSend` now refuses `herdr.StatusUnknown` the way
+`nudgeSend` refuses anything but idle, and `messageCmd.Run` now refuses
+an empty `Text` outright rather than dry-running (or, under `--go`,
+silently sending) nothing — mirroring the empty-`Selector` guard already
+next to it. `TestMessageRefusesAnUnknownStatusLane` and
+`TestMessageRefusesEmptyText` pin both. `go test ./...`, the linter and
+`mdsmith check .` are clean after the fix.
+
 **What Phase 2 inherits.** `liveLaneFor` is the one join Phase 2 should
 reuse to reach "a live pane attends" at the deserted-refusal and survey
 sites — it already resolves a plan's hold branches to the live lane in

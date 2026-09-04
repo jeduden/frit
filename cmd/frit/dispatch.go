@@ -17,10 +17,11 @@ import (
 // hands a running pane over, and the rungs above it compose a typed
 // slash command from the plan and send it. Two rules hold across all
 // of them — it sends then hands over and never reads a reply, and
-// every rung that sends is dry-run until --go. The third — the tool
-// composes the prompt and the user never writes one — holds for every
-// rung but message, which exists precisely to carry the operator's own
-// words instead of a composed one.
+// every rung that sends is dry-run until --go. The third rule — the
+// tool composes the prompt and the user never writes one — holds for
+// every rung that composes one at all, which is every sending rung but
+// message: message exists precisely to carry the operator's own words
+// instead of a composed one.
 
 type openCmd struct {
 	Selector string `arg:"" optional:"" help:"Plan id or slug; empty infers from the cwd."`
@@ -360,6 +361,12 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 		// caller's worktree happens to sit on.
 		return errors.New("message requires a plan id or slug")
 	}
+	if m.Text == "" {
+		// An empty text is never a real ask; refuse it outright rather
+		// than dry-running and, under --go, reporting a silent send of
+		// nothing as if it went whole to the pane.
+		return errors.New("message requires text to send")
+	}
 
 	res, err := gatherFleet(c, rt)
 	if err != nil {
@@ -409,23 +416,32 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 // messageSend applies message's own rule to the lane it found: refuse a
 // plan with no live lane, and otherwise send only when --go was given.
 // Unlike nudgeSend, a working lane is not refused — that is the one
-// divergence from nudge the whole verb exists for. A send that fails is
-// surfaced rather than reported as done.
+// divergence from nudge the whole verb exists for. A pane whose status
+// herdr could not read at all is refused just as nudgeSend refuses it,
+// though: Pane.Presence's own rule is that an unrecognised status reads
+// as StatusUnknown, never a false idle, and message asking a pane herdr
+// cannot vouch for is no safer than nudge prompting one. A send that
+// fails is surfaced rather than reported as done.
 func messageSend(
 	rt *runtime, m *messageCmd, doc *report.MessageDoc,
 	plan discovery.Plan, lane herdr.Lane, found bool,
 ) error {
-	if !found {
+	switch {
+	case !found:
 		doc.Refuse(fmt.Sprintf("no live lane for plan %d", plan.ID))
-		return nil
-	}
-
-	doc.SetTarget(lane.Pane.PaneID)
-	if m.Go {
-		if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID, m.Text); err != nil {
-			return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+	case lane.Pane.Presence() == herdr.StatusUnknown:
+		doc.SetTarget(lane.Pane.PaneID)
+		doc.Refuse(fmt.Sprintf("lane %s is %s, not idle or working",
+			lane.Branch, lane.Pane.Presence()))
+	default:
+		doc.SetTarget(lane.Pane.PaneID)
+		if m.Go {
+			if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID,
+				m.Text); err != nil {
+				return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+			}
+			doc.MarkSent()
 		}
-		doc.MarkSent()
 	}
 
 	return nil
