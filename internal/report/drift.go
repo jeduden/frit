@@ -5,6 +5,7 @@ package report
 // its work landed, and which commits name its id.
 type DriftDoc struct {
 	header
+	gathered
 	Root     string     `json:"root"`
 	Rows     []DriftRow `json:"rows"`
 	Problems []Problem  `json:"problems"`

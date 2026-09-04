@@ -95,10 +95,12 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 			dropped, refusedHolds, pruned, refusedPruned)
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printReap(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

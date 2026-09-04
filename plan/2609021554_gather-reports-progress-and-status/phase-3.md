@@ -1,7 +1,7 @@
 ---
 n: 3
 title: the gather status joins the report model, in table and JSON
-status: "🔲"
+status: "✅"
 result: false
 ---
 Carry the gather's `Summary` into the report model, so `frit <verb>

@@ -46,6 +46,7 @@ func (rc *releaseCmd) Run(c *cli, rt *runtime) error {
 	branch := claim.Branch(plan.ID)
 	doc := report.NewRelease(c.Root, plan.Repo, plan.ID, plan.Title, branch)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 
 	coord, ok := res.Coords[plan.Repo]
 	if !ok {
@@ -134,6 +135,7 @@ func renderRelease(c *cli, rt *runtime, doc *report.ReleaseDoc) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printRelease(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

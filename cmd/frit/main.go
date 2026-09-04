@@ -300,10 +300,12 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		}
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printOrphans(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1266,6 +1268,36 @@ func gatherFleetOpts(c *cli, rt *runtime, opts fleet.Options) (fleet.Result, err
 	return res, nil
 }
 
+// gatherStatus projects the fleet walk's Summary — populated on every
+// Result by construction — into the report model, so a gathering verb
+// carries how much of the fleet its answer reflects.
+func gatherStatus(res fleet.Result) report.Gather {
+	return gatherOf(res.Summary)
+}
+
+// gatherOf projects a walk's Summary into the report model. It is the
+// one conversion, so the terminal's closing progress line and every
+// verb's report draw the coverage from a single shape rather than
+// re-tallying it apart. Elapsed is rendered in milliseconds to match
+// the report block's fixed shape.
+func gatherOf(s fleet.Summary) report.Gather {
+	return report.Gather{
+		Discovered: s.Discovered,
+		Read:       s.Read,
+		Fetched:    s.Fetched,
+		Problems:   s.Problems,
+		ElapsedMS:  s.Elapsed.Milliseconds(),
+	}
+}
+
+// printGather writes the gather status as a footer line on a table, so
+// a person reading stdout sees the same coverage a --json consumer
+// reads. It draws from the report model, not a second copy, so the two
+// renderings cannot drift.
+func printGather(out io.Writer, g report.Gather) {
+	_, _ = fmt.Fprintln(out, g.StatusLine())
+}
+
 // observeHolds folds this run's view of every held work ref into the
 // per-host observation store and marks the plans whose takeover window
 // has matured. Observation piggybacks on every fleet-reading verb —
@@ -1619,10 +1651,12 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	}
 	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printReady(rt.stdout, doc, rt.width)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1657,6 +1691,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	live, _, hostProbs := liveByBranch(c, rt)
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
@@ -1666,6 +1701,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printReady(rt.stdout, readyView(doc), rt.width)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1740,11 +1776,13 @@ func (pc *pickCmd) emptyStart(
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
 	doc.Problems = append(doc.Problems, skipped...)
+	doc.SetGather(gatherStatus(res))
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printReady(rt.stdout, readyView(doc), rt.width)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1787,10 +1825,12 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printNext(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1821,10 +1861,12 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printShow(rt.stdout, doc, c.All)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1899,10 +1941,12 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewPhase(c.Root, plan, bundle)
 	carryProblems(doc, res.Problems, c.All)
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printPhase(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -1947,10 +1991,12 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		doc.AddPlan(p, agent, status)
 	}
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printBoard(rt.stdout, doc, rt.width, cols)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
@@ -2400,10 +2446,12 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	}
 	doc.SetPlans(list, func(p discovery.Plan) bool { return attendedFor(p, live) })
 
+	doc.SetGather(gatherStatus(res))
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printFind(rt.stdout, doc, rt.width)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

@@ -139,6 +139,7 @@ func buildStart(
 	}
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 	carryLiveLaneProblems(doc, liveProbs, liveHerdrErr)
 	if rs.active() {
 		doc.MarkResumed()
@@ -608,6 +609,7 @@ func refusedStart(
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title,
 		report.StartPlan{Phase: phase, Tier: plan.Model, Kind: "claude"}, doGo)
 	carryProblems(doc, res.Problems, c.All)
+	doc.SetGather(gatherStatus(res))
 	doc.Refuse(reason)
 
 	return doc
@@ -1225,6 +1227,7 @@ func renderStart(c *cli, rt *runtime, doc *report.StartDoc) error {
 		return report.WriteJSON(rt.stdout, doc)
 	}
 	printStart(rt.stdout, doc)
+	printGather(rt.stdout, doc.Gather)
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil

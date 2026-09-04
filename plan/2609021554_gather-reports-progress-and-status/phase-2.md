@@ -1,7 +1,7 @@
 ---
 n: 2
 title: the terminal progress is transient, with a closing status line
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make the terminal progress rendering transient: a single line the walk

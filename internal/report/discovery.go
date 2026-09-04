@@ -80,6 +80,7 @@ func cardsOf(plans []discovery.Plan, attended func(discovery.Plan) bool) []PlanC
 // every repository and ref.
 type ReadyDoc struct {
 	header
+	gathered
 	Root     string     `json:"root"`
 	Host     string     `json:"host"`
 	Plans    []PlanCard `json:"plans"`
@@ -113,6 +114,7 @@ func (d *ReadyDoc) AddProblem(repo string, err error) {
 // trimmed to the number asked for.
 type PickDoc struct {
 	header
+	gathered
 	Root     string     `json:"root"`
 	Host     string     `json:"host"`
 	Plans    []PlanCard `json:"plans"`
@@ -148,6 +150,7 @@ func (d *PickDoc) AddProblem(repo string, err error) {
 // was asked.
 type FindDoc struct {
 	header
+	gathered
 	Root     string     `json:"root"`
 	Host     string     `json:"host"`
 	Query    string     `json:"query"`
@@ -213,6 +216,7 @@ const (
 // carries HasPhase false rather than a made-up phase zero.
 type NextDoc struct {
 	header
+	gathered
 	Root string `json:"root"`
 	// Source names where Plan and Phase came from: SourceDefaultBranch
 	// unless the cwd stood in the plan's own held lane, in which case
@@ -295,6 +299,7 @@ type DepCard struct {
 // tree of one plan, so "what blocks this" has a direct answer.
 type ShowDoc struct {
 	header
+	gathered
 	Root string `json:"root"`
 	// Source names where Goal and Tree's root plan came from:
 	// SourceDefaultBranch unless the cwd stood in the shown plan's own
