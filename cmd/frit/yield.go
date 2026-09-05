@@ -67,7 +67,15 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	if reason, ok := foreignYieldRefusal(plan, local); ok {
-		doc.RefuseUnproven(reason, plan.ID)
+		if plan.Stale || plan.Dead {
+			// A matured or confirmed-dead hold already names its own way
+			// out — `frit claim` — inside reason; the wait-or-take-over
+			// NextAction would contradict that by telling the caller to
+			// wait for a window that has already matured.
+			doc.Refuse(reason)
+		} else {
+			doc.RefuseUnproven(reason, plan.ID)
+		}
 		return renderYield(c, rt, doc)
 	}
 

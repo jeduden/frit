@@ -287,6 +287,8 @@ func TestYieldRefusesAMaturedForeignHoldNamingTheTakeover(t *testing.T) {
 	assert.Contains(t, out.String(), "refused")
 	assert.Contains(t, out.String(), "frit claim",
 		"a matured hold names claim's takeover, not a wait")
+	assert.NotContains(t, out.String(), "wait for the takeover window",
+		"a window that has already matured must not be told to wait on it")
 	tip, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Contains(t, tip, lease.Tip, "a matured foreign lease is not touched by yield")
