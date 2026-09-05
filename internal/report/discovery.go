@@ -76,8 +76,13 @@ func cardOf(p discovery.Plan) PlanCard {
 // or "" when none attends it; when one does, the copied
 // Dead is cleared — a live pane, working or idle, disproves "nobody is
 // here". A nil presence leaves every card's Dead exactly as cardOf
-// would render it alone.
-func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string) []PlanCard {
+// would render it alone. unknown is presenceUnknown's own answer for
+// the read presence came from — true when a configured host went
+// unread with no cache, or the read failed outright — and withholds
+// Ask without touching the status a live pane's own presence already
+// named: a read frit could not vouch for in full earns no ask, but a
+// pane herdr did show is not misreported as unknown just to get there.
+func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool) []PlanCard {
 	out := make([]PlanCard, 0, len(plans))
 	for _, p := range plans {
 		card := cardOf(p)
@@ -86,7 +91,7 @@ func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string) []Pla
 			status = presence(p)
 		}
 		card.Dead = p.Dead && status == ""
-		card.Ask = askOf(p, status)
+		card.Ask = askOf(p, status, unknown)
 		out = append(out, card)
 	}
 
@@ -94,15 +99,18 @@ func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string) []Pla
 }
 
 // askOf names the ask-the-agent remedy for a plan, or "" when there is
-// no ambiguity to resolve or nobody message could reach. Its inputs
-// are the deserted reading itself and the status of the live pane
-// that turns "nobody is here" into "someone is, and only they know
-// whether the work is in flight". The pane must be one message would
-// actually send to: message refuses a pane whose status herdr cannot
-// vouch for, so a lane read unknown earns no ask — offering it would
-// hand the reader a command that refuses when run.
-func askOf(p discovery.Plan, status string) string {
-	if !p.Deserted() || !askable(status) {
+// no ambiguity to resolve, nobody message could reach, or this
+// survey's own presence read was incomplete. Its inputs are the
+// deserted reading itself, the status of the live pane that turns
+// "nobody is here" into "someone is, and only they know whether the
+// work is in flight", and whether the fleet's presence read was
+// complete enough to trust that status at all. The pane must be one
+// message would actually send to: message refuses a pane whose status
+// herdr cannot vouch for, so a lane read unknown earns no ask, and so
+// does one read off an incomplete survey — offering either would hand
+// the reader a command that refuses when run.
+func askOf(p discovery.Plan, status string, unknown bool) string {
+	if unknown || !p.Deserted() || !askable(status) {
 		return ""
 	}
 
@@ -140,8 +148,12 @@ func NewReady(root, host string) *ReadyDoc {
 // SetPlans records the startable plans, in the order discovery ranked
 // them. presence reports what a live pane on a plan's lane is doing now,
 // or "" when none attends it; pass nil where that fact was not read.
-func (d *ReadyDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
-	d.Plans = cardsOf(plans, presence)
+// unknown withholds every card's Ask, never its Dead-clearing, when
+// the fleet's presence read was incomplete — see cardsOf.
+func (d *ReadyDoc) SetPlans(
+	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+) {
+	d.Plans = cardsOf(plans, presence, unknown)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -174,9 +186,13 @@ func NewPick(root, host string) *PickDoc {
 // SetPlans records the ranked candidates, in the order discovery gave.
 // presence reports what a live pane on a plan's lane is doing now, or
 // "" when none attends it; pass
-// nil where that fact was not read.
-func (d *PickDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
-	d.Plans = cardsOf(plans, presence)
+// nil where that fact was not read. unknown withholds every card's
+// Ask, never its Dead-clearing, when the fleet's presence read was
+// incomplete — see cardsOf.
+func (d *PickDoc) SetPlans(
+	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+) {
+	d.Plans = cardsOf(plans, presence, unknown)
 }
 
 // AddProblem records a repository whose plans could not be read.
@@ -213,9 +229,13 @@ func NewFind(root, host, query string) *FindDoc {
 // SetPlans records the matches, in the order discovery gave them.
 // presence reports what a live pane on a plan's lane is doing now, or
 // "" when none attends it; pass
-// nil where that fact was not read.
-func (d *FindDoc) SetPlans(plans []discovery.Plan, presence func(discovery.Plan) string) {
-	d.Plans = cardsOf(plans, presence)
+// nil where that fact was not read. unknown withholds every card's
+// Ask, never its Dead-clearing, when the fleet's presence read was
+// incomplete — see cardsOf.
+func (d *FindDoc) SetPlans(
+	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+) {
+	d.Plans = cardsOf(plans, presence, unknown)
 }
 
 // AddProblem records a repository whose plans could not be read.

@@ -92,6 +92,7 @@ func TestDiscoveryCarriesABrokenRepoAsAProblem(t *testing.T) {
 	broken := initRepo(t, root, "busted")
 	require.NoError(t, os.WriteFile(filepath.Join(broken, ".frit.yml"),
 		[]byte("holds: [\n"), 0o600))
+	withHerdr(t, herdrReturning())
 	var doc report.ReadyDoc
 
 	stderr := emit(t, &doc, "ready", "--root", root)
@@ -212,6 +213,7 @@ func TestNotAPlanIsAbsentFromJSONUntilAll(t *testing.T) {
 	repo := initRepo(t, root, "atlas")
 	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
 	commitNonPlan(t, repo, "PLAN.md")
+	withHerdr(t, herdrReturning())
 
 	var plain report.ReadyDoc
 	emit(t, &plain, "ready", "--root", root)
@@ -518,6 +520,131 @@ func TestReadyEmitsJSON(t *testing.T) {
 	assert.Equal(t, int64(3), doc.Plans[0].ID)
 	assert.Equal(t, "atlas", doc.Plans[0].Repo)
 	assert.Equal(t, []int64{1}, doc.Plans[0].DependsOn)
+}
+
+// sharedPlanRepos builds two repositories, atlas and orrery, each
+// carrying plan 7 held on plan/7 with a bound session herdr will show
+// gone — no pane in the fake herdr answers this session, so both read
+// Dead on their own before any live pane is joined in. It is the
+// fixture Phase 2 stands two hosts up over: one repo here plays the
+// unread host there, told apart from the other by which one a live
+// pane actually attends.
+func sharedPlanRepos(t *testing.T, root string) (atlas, orrery string) {
+	t.Helper()
+	atlas = claimableRepo(t, root, "atlas", 7, "Shared work")
+	orrery = claimableRepo(t, root, "orrery", 7, "Shared work")
+	for _, repo := range []string{atlas, orrery} {
+		_, err := claim.Acquire(repo, claim.LeaseOptions{
+			PlanID: 7, Remote: "origin", Base: "origin/main",
+			Holder: "elsewhere", Lane: "/lanes/x", Session: "wOld:p1",
+		}, gitwt.Exec)
+		require.NoError(t, err)
+	}
+
+	return atlas, orrery
+}
+
+// boardPlanByRepo returns the board's row for a repository, or nil when
+// none is there — main_test.go's boardPlanByID keyed sibling, for a
+// fixture where two repositories share the same plan id.
+func boardPlanByRepo(doc report.BoardDoc, repo string) *report.BoardPlan {
+	return findFirst(doc.Plans, func(p report.BoardPlan) bool { return p.Repo == repo })
+}
+
+// planCardByRepo is boardPlanByRepo's sibling for ready, pick and
+// find's shared PlanCard shape.
+func planCardByRepo(cards []report.PlanCard, repo string) *report.PlanCard {
+	return findFirst(cards, func(c report.PlanCard) bool { return c.Repo == repo })
+}
+
+// TestBoardKeysLiveLaneByRepositoryAndBranch is the observed case
+// (plan 2609050143): two repositories hold the identically named
+// branch plan/7, and only one of them has a live pane. The board must
+// clear dead and offer an ask on that repository's row alone — never
+// on the other repo's row, which shares nothing but the branch name.
+// orrery's live lane stands in a linked worktree whose directory is
+// not named for the repository, the case fleet.RepoName exists for
+// and herdr.Lane.Repo gets wrong.
+func TestBoardKeysLiveLaneByRepositoryAndBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	sharedPlanRepos(t, root)
+	orrery := filepath.Join(root, "orrery")
+
+	wt := filepath.Join(t.TempDir(), "not-named-orrery")
+	git(t, orrery, "worktree", "add", "-q", wt, claim.Branch(7))
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": wt,
+		"pane_id": "wB:p1", "terminal_title_stripped": "in orrery",
+	}))
+	var doc report.BoardDoc
+
+	emit(t, &doc, "board", "--root", root)
+
+	orreryRow := boardPlanByRepo(doc, "orrery")
+	atlasRow := boardPlanByRepo(doc, "atlas")
+	require.NotNil(t, orreryRow, "orrery carries plan 7 too")
+	require.NotNil(t, atlasRow, "atlas carries plan 7 too")
+	assert.False(t, orreryRow.Dead, "the live pane sits in orrery's own repo")
+	assert.Equal(t, "claude", orreryRow.Agent)
+	assert.NotEmpty(t, orreryRow.Ask)
+	assert.True(t, atlasRow.Dead,
+		"orrery's pane is not atlas's: the same branch name is not the same lane")
+	assert.Empty(t, atlasRow.Agent)
+	assert.Empty(t, atlasRow.Ask)
+}
+
+// TestReadyKeysLiveLaneByRepositoryAndBranch is board's test above,
+// run through ready — and via cardsOf, pick and find — to prove the
+// repository-aware join reaches every survey the same way.
+func TestReadyKeysLiveLaneByRepositoryAndBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	sharedPlanRepos(t, root)
+	orrery := filepath.Join(root, "orrery")
+
+	wt := filepath.Join(t.TempDir(), "not-named-orrery")
+	git(t, orrery, "worktree", "add", "-q", wt, claim.Branch(7))
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": wt,
+		"pane_id": "wB:p1", "terminal_title_stripped": "in orrery",
+	}))
+	var doc report.ReadyDoc
+
+	emit(t, &doc, "ready", "--root", root)
+
+	orreryCard := planCardByRepo(doc.Plans, "orrery")
+	atlasCard := planCardByRepo(doc.Plans, "atlas")
+	require.NotNil(t, orreryCard, "orrery's plan 7 is a takeover candidate")
+	require.NotNil(t, atlasCard, "atlas's plan 7 is a takeover candidate too")
+	assert.False(t, orreryCard.Dead, "the live pane sits in orrery's own repo")
+	assert.NotEmpty(t, orreryCard.Ask)
+	assert.True(t, atlasCard.Dead, "orrery's pane is not atlas's")
+	assert.Empty(t, atlasCard.Ask)
+}
+
+// TestReadyCarriesAnUnreachableHerdr: ready, pick and find share
+// liveByBranch, which used to swallow fleetPresence's own error rather
+// than hand it back. Now an unreachable local herdr travels in
+// problems[] exactly as it already does for board (via Presence) and
+// for open, nudge and message (via presenceUnknown) — the reading
+// every survey verb now gives alike, pinned once since pick and find
+// wire the same three lines.
+func TestReadyCarriesAnUnreachableHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Dispatch me", nil, "")
+	withHerdr(t, func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: connect: no such file")
+	})
+	var doc report.ReadyDoc
+
+	stderr := emit(t, &doc, "ready", "--root", root)
+
+	assert.Empty(t, stderr, "under --json nothing goes to stderr")
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
 
 // commitPhasedPlan writes and commits a plan carrying a phase ledger.

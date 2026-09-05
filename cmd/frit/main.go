@@ -1453,6 +1453,25 @@ func carryProblems(doc problemAdder, problems []fleet.Problem, all bool) {
 	}
 }
 
+// carryHostProblems moves liveByBranch's own per-host failures onto a
+// document — the identical loop board, ready, pick and find each ran
+// over hostProbs before this shared it.
+func carryHostProblems(doc problemAdder, hostProbs []hostProblem) {
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+}
+
+// carryHerdrProblem records liveByBranch's own herdr error under the
+// "herdr" name — the identical guard ready, pick and find each apply.
+// board carries the same fact through its own Presence field instead,
+// so it never calls this.
+func carryHerdrProblem(doc problemAdder, err error) {
+	if err != nil {
+		doc.AddProblem("herdr", err)
+	}
+}
+
 // resolveSelector turns a command's optional selector into one plan.
 //
 // A selector given on the command line is resolved by id or slug; an
@@ -1644,13 +1663,13 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewReady(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1689,14 +1708,14 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1981,15 +2000,14 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, present, hostProbs := liveByBranch(c, rt)
-	doc := report.NewBoard(c.Root, present)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
+	doc := report.NewBoard(c.Root, liveErr == nil)
 	carryProblems(doc, res.Problems, c.All)
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
+	carryHostProblems(doc, hostProbs)
 	for _, p := range list {
 		agent, status := agentFor(p, live)
-		doc.AddPlan(p, agent, status)
+		doc.AddPlan(p, agent, status, unknown)
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2003,37 +2021,74 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// liveByBranch keys every staffed lane by the branch its worktree is
-// on, so a plan can find the agent working one of its hold branches. A
-// missing socket yields no map and false, which the board reads as
-// "presence unknown".
-func liveByBranch(
-	c *cli, rt *runtime,
-) (map[string]herdr.Lane, bool, []hostProblem) {
-	panes, probs, err := fleetPresence(c, rt)
-	if err != nil {
-		return nil, false, nil
-	}
-
-	live := map[string]herdr.Lane{}
-	for _, lane := range whoLanes(panes, rt.git) {
-		if lane.Branch != "" {
-			live[lane.Branch] = lane
-		}
-	}
-
-	return live, true, probs
+// repoBranch keys a live lane by its repository and hold branch. A
+// hold branch name is repo-local — a plan id is only unique within a
+// repository — so the branch name alone collides whenever two
+// repositories hold the same id: keying by the pair is what keeps
+// them apart.
+type repoBranch struct {
+	repo, branch string
 }
 
-// laneFor finds the live lane on one of a plan's hold branches, if any
-// is live. A plan nobody holds has no lane to be worked on, so it
-// reports none. agentFor and attendedFor both ask this same question —
-// which of a plan's branches is live now — and differ only in what
-// they read off the answer, so they share this one walk of p.Holds
-// rather than each keeping its own copy.
-func laneFor(p discovery.Plan, live map[string]herdr.Lane) (herdr.Lane, bool) {
+// laneRepo resolves the repository a lane's worktree belongs to,
+// through the host's own git — the one resolution liveLaneFor already
+// made inline, now shared with liveByBranch's key so the survey and
+// the dispatch verbs agree on which repository a lane is in. A linked
+// worktree sits under its own directory, so the lane's own basename
+// (herdr.Lane.Repo) would name the lane, not the repository; this
+// walks the worktree list instead, exactly as fleet.RepoName does for
+// liveLaneFor.
+func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
+	return fleet.RepoName(lane.Root, gitForHost(git)(lane.Pane.Host))
+}
+
+// liveByBranch keys every staffed lane by its repository and the
+// branch its worktree is on, so a plan can find the agent working one
+// of its hold branches without being handed a same-named branch from
+// another repository. A missing socket hands the read's own error
+// straight back — never swallowed — so a caller can feed it to
+// presenceUnknown exactly as open, nudge and message already do off
+// liveLaneFor's matching shape. laneRepo's own walk of the worktree
+// list is resolved once per distinct root — two panes in the same
+// lane, e.g. two terminals on one worktree, share the answer rather
+// than each paying their own git call (an ssh round trip, for a
+// remote pane).
+func liveByBranch(
+	c *cli, rt *runtime,
+) (map[repoBranch]herdr.Lane, []hostProblem, error) {
+	panes, probs, err := fleetPresence(c, rt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	repos := map[string]string{}
+	live := map[repoBranch]herdr.Lane{}
+	for _, lane := range whoLanes(panes, rt.git) {
+		if lane.Branch == "" {
+			continue
+		}
+		rootKey := string(lane.Pane.Host) + "\x00" + lane.Root
+		repo, cached := repos[rootKey]
+		if !cached {
+			repo = laneRepo(lane, rt.git)
+			repos[rootKey] = repo
+		}
+		live[repoBranch{repo: repo, branch: lane.Branch}] = lane
+	}
+
+	return live, probs, nil
+}
+
+// laneFor finds the live lane on one of a plan's hold branches, in the
+// plan's own repository, if any is live. A plan nobody holds has no
+// lane to be worked on, so it reports none. agentFor and attendedFor
+// both ask this same question — which of a plan's branches is live
+// now — and differ only in what they read off the answer, so they
+// share this one walk of p.Holds rather than each keeping its own
+// copy.
+func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool) {
 	for _, branch := range p.Holds {
-		if lane, ok := live[branch]; ok {
+		if lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]; ok {
 			return lane, true
 		}
 	}
@@ -2045,7 +2100,7 @@ func laneFor(p discovery.Plan, live map[string]herdr.Lane) (herdr.Lane, bool) {
 // any is live. A plan nobody holds has no lane to be worked on, so it
 // reports none.
 func agentFor(
-	p discovery.Plan, live map[string]herdr.Lane,
+	p discovery.Plan, live map[repoBranch]herdr.Lane,
 ) (agent, status string) {
 	if lane, ok := laneFor(p, live); ok {
 		return lane.Pane.Agent, lane.Pane.Presence()
@@ -2062,8 +2117,12 @@ func agentFor(
 // pane can be asked, since message refuses one herdr cannot vouch
 // for. It reads lane presence directly rather than agentFor's returned
 // agent so that a live pane herdr ever reports with no agent attached
-// still counts as attended.
-func presenceFor(p discovery.Plan, live map[string]herdr.Lane) string {
+// still counts as attended. It never rewrites the status itself —
+// board's agent_status column reports exactly what herdr saw whether
+// or not this call's presence read was complete; withholding the ask
+// on an incomplete read is askOf's own second input, not a reason to
+// misreport what a pane herdr did see is doing.
+func presenceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) string {
 	if lane, ok := laneFor(p, live); ok {
 		return lane.Pane.Presence()
 	}
@@ -2474,13 +2533,13 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewFind(c.Root, hostname(), f.Query)
 	carryProblems(doc, res.Problems, c.All)
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {

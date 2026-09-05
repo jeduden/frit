@@ -154,7 +154,7 @@ func goldenReady() *ReadyDoc {
 			DependsOn: []int64{2608161809},
 			Path:      "plan/2608161810_dispatch-ladder.md",
 		},
-	}, nil)
+	}, nil, false)
 	doc.AddProblem("broken", errors.New("plan/bad.md: no front matter"))
 
 	return doc
@@ -181,7 +181,7 @@ func goldenPick() *PickDoc {
 			Held: true, Holds: []string{"plan/7"},
 			Stale: true, StaleFor: 3 * time.Hour,
 		},
-	}, nil)
+	}, nil, false)
 
 	return doc
 }
@@ -291,7 +291,7 @@ func goldenFind() *FindDoc {
 			Model:   "opus",
 			Path:    "plan/12_raymarch-gas-giants.md",
 		},
-	}, nil)
+	}, nil, false)
 
 	return doc
 }
@@ -305,11 +305,11 @@ func goldenBoard() *BoardDoc {
 		Key: "forge:atlas:2608161810", Repo: "atlas", ID: 2608161810,
 		Status: "🔳", Title: "The dispatch ladder", Model: "opus",
 		Held: true, Holds: []string{"plan/2608161810-dispatch"},
-	}, "claude", "working")
+	}, "claude", "working", false)
 	doc.AddPlan(discovery.Plan{
 		Key: "forge:orrery:7", Repo: "orrery", ID: 7,
 		Status: "🔲", Title: "Shader unit tests", Model: "sonnet",
-	}, "", "")
+	}, "", "", false)
 
 	return doc
 }

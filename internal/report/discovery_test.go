@@ -24,7 +24,7 @@ var deadHeldPlan = discovery.Plan{
 func TestReadySetPlansClearsDeadForAnAttendedLane(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{deadHeldPlan},
-		attendedLane)
+		attendedLane, false)
 
 	assert.False(t, doc.Plans[0].Dead,
 		"a live pane on the lane disproves dead")
@@ -36,7 +36,7 @@ func TestReadySetPlansClearsDeadForAnAttendedLane(t *testing.T) {
 func TestReadySetPlansStillMarksAnUnattendedDeadLaneDead(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{deadHeldPlan},
-		unattendedLane)
+		unattendedLane, false)
 
 	assert.True(t, doc.Plans[0].Dead,
 		"no live pane means the dead session still reads as a takeover candidate")
@@ -47,7 +47,7 @@ func TestReadySetPlansStillMarksAnUnattendedDeadLaneDead(t *testing.T) {
 func TestPickSetPlansClearsDeadForAnAttendedLane(t *testing.T) {
 	doc := NewPick("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{deadHeldPlan},
-		attendedLane)
+		attendedLane, false)
 
 	assert.False(t, doc.Plans[0].Dead,
 		"pick shares cardOf with ready; a live pane clears dead there too")
@@ -59,7 +59,7 @@ func TestPickSetPlansClearsDeadForAnAttendedLane(t *testing.T) {
 func TestFindSetPlansClearsDeadForAnAttendedLane(t *testing.T) {
 	doc := NewFind("/fleet", "forge", "underway")
 	doc.SetPlans([]discovery.Plan{deadHeldPlan},
-		attendedLane)
+		attendedLane, false)
 
 	assert.False(t, doc.Plans[0].Dead,
 		"find shares cardOf with ready; a live pane clears dead there too")
@@ -146,7 +146,7 @@ func unvouchedLane(discovery.Plan) string { return herdr.StatusUnknown }
 // so proving it here proves the pointer for all three.
 func TestReadySetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane, false)
 
 	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask,
 		"the ask names the real verb and selector")
@@ -156,7 +156,7 @@ func TestReadySetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 // pane means no agent to ask, so the deserted reading stands alone.
 func TestReadySetPlansLeavesAskEmptyForAnUnattendedDeadLane(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, unattendedLane)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, unattendedLane, false)
 
 	assert.Empty(t, doc.Plans[0].Ask, "there is no agent to ask")
 	assert.True(t, doc.Plans[0].Dead, "and the deserted reading stands")
@@ -169,7 +169,7 @@ func TestReadySetPlansLeavesAskEmptyForABoundLiveLane(t *testing.T) {
 	bound := deadHeldPlan
 	bound.Dead = false
 	doc := NewReady("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{bound}, attendedLane)
+	doc.SetPlans([]discovery.Plan{bound}, attendedLane, false)
 
 	assert.Empty(t, doc.Plans[0].Ask, "a live bound lane is unchanged")
 }
@@ -179,7 +179,7 @@ func TestReadySetPlansLeavesAskEmptyForABoundLiveLane(t *testing.T) {
 // a live one.
 func TestReadySetPlansLeavesAskEmptyWithNoAttendedRead(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, nil)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, nil, false)
 
 	assert.Empty(t, doc.Plans[0].Ask)
 }
@@ -191,17 +191,30 @@ func TestReadySetPlansLeavesAskEmptyWithNoAttendedRead(t *testing.T) {
 // run.
 func TestReadySetPlansLeavesAskEmptyForAnUnvouchedPane(t *testing.T) {
 	doc := NewReady("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, unvouchedLane)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, unvouchedLane, false)
 
 	assert.False(t, doc.Plans[0].Dead, "a pane there still disproves dead")
 	assert.Empty(t, doc.Plans[0].Ask, "but one message would refuse is not offered")
+}
+
+// TestReadySetPlansWithholdsAskOnIncompletePresence: unknown withholds
+// every card's Ask the same way an unvouched status does, but Dead
+// still clears on a pane herdr did show — presenceUnknown's own rule
+// reaching ready, pick and find via the same cardsOf both back onto.
+func TestReadySetPlansWithholdsAskOnIncompletePresence(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane, true)
+
+	assert.False(t, doc.Plans[0].Dead, "the live pane still disproves dead")
+	assert.Empty(t, doc.Plans[0].Ask,
+		"a configured host went unread, so no ask is offered off this read")
 }
 
 // TestPickSetPlansNamesTheAskForAnAttendedDeadLane confirms pick reads
 // the same pointer ready does, since both back onto cardsOf.
 func TestPickSetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 	doc := NewPick("/fleet", "forge")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane, false)
 
 	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
 }
@@ -210,14 +223,15 @@ func TestPickSetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 // the same pointer ready and pick do, since all three back onto cardsOf.
 func TestFindSetPlansNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 	doc := NewFind("/fleet", "forge", "underway")
-	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane)
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, attendedLane, false)
 
 	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
 }
 
 // TestAskOfIsGatedOnEveryDesertedInput pins askOf's own inputs: the
 // deserted reading desertedRefusal fires on — held, confirmed dead,
-// not matured — and a pane message would send to, and nothing short
+// not matured — a pane message would send to, and a presence read
+// this survey call itself vouches for as complete, and nothing short
 // of all of them.
 func TestAskOfIsGatedOnEveryDesertedInput(t *testing.T) {
 	stale := deadHeldPlan
@@ -225,14 +239,16 @@ func TestAskOfIsGatedOnEveryDesertedInput(t *testing.T) {
 	unheld := deadHeldPlan
 	unheld.Held = false
 
-	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusWorking))
-	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusIdle),
+	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusWorking, false))
+	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusIdle, false),
 		"message reaches an idle pane too")
-	assert.Empty(t, askOf(deadHeldPlan, ""), "unattended")
-	assert.Empty(t, askOf(deadHeldPlan, herdr.StatusUnknown),
+	assert.Empty(t, askOf(deadHeldPlan, "", false), "unattended")
+	assert.Empty(t, askOf(deadHeldPlan, herdr.StatusUnknown, false),
 		"message refuses a pane herdr cannot vouch for")
-	assert.Empty(t, askOf(stale, herdr.StatusWorking), "a matured window is staleHeld's own cell")
-	assert.Empty(t, askOf(unheld, herdr.StatusWorking), "nobody holds it")
+	assert.Empty(t, askOf(stale, herdr.StatusWorking, false), "a matured window is staleHeld's own cell")
+	assert.Empty(t, askOf(unheld, herdr.StatusWorking, false), "nobody holds it")
+	assert.Empty(t, askOf(deadHeldPlan, herdr.StatusWorking, true),
+		"a configured host went unread, so this read is not vouched for either")
 }
 
 // TestAskableNamesTheStatusesMessageSendsTo pins the gate to message's

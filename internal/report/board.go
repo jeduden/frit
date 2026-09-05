@@ -77,7 +77,12 @@ func NewBoard(root string, presence bool) *BoardDoc {
 // straight through. That same pairing — session gone, agent live — is
 // the lane git cannot classify, so it is the one that carries Ask,
 // provided status is one message would send to; askOf owns that gate.
-func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
+// unknown is presenceUnknown's own answer for this read — true when a
+// configured host went unread with no cache, or the read failed
+// outright — and withholds Ask the same way, without touching
+// AgentStatus: that column reports exactly what herdr saw, whether or
+// not this read was complete enough to trust for an ask.
+func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string, unknown bool) {
 	d.Plans = append(d.Plans, BoardPlan{
 		Key:          p.Key,
 		Host:         hostOf(p.Key),
@@ -93,7 +98,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string) {
 		Dead:         p.Dead && agent == "",
 		Agent:        agent,
 		AgentStatus:  status,
-		Ask:          askOf(p, status),
+		Ask:          askOf(p, status, unknown),
 	})
 }
 

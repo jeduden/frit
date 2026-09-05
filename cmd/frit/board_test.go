@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/textw"
@@ -31,7 +33,7 @@ func boardWith(title string) *report.BoardDoc {
 	doc.AddPlan(discovery.Plan{
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: title, Held: true, Holds: []string{"plan/100-underway"},
-	}, "claude", "working")
+	}, "claude", "working", false)
 
 	return doc
 }
@@ -46,7 +48,7 @@ func TestBoardCellNamesAMaturedHoldsAge(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Stale: true, StaleFor: 3 * time.Hour,
-	}, "", "")
+	}, "", "", false)
 
 	cell := boardCell("held", doc, doc.Plans[0])
 
@@ -63,7 +65,7 @@ func TestBoardCellLeavesALiveHoldUnmarked(t *testing.T) {
 	doc.AddPlan(discovery.Plan{
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
-	}, "", "")
+	}, "", "", false)
 
 	cell := boardCell("held", doc, doc.Plans[0])
 
@@ -80,7 +82,7 @@ func TestBoardCellNamesADeadSessionsHold(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Dead: true,
-	}, "", "")
+	}, "", "", false)
 
 	cell := boardCell("held", doc, doc.Plans[0])
 
@@ -99,7 +101,7 @@ func TestAddPlanClearsDeadForAWorkingLivePane(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Dead: true,
-	}, "claude", "working")
+	}, "claude", "working", false)
 
 	assert.False(t, doc.Plans[0].Dead,
 		"a pane actively working the lane disproves dead")
@@ -116,7 +118,7 @@ func TestAddPlanClearsDeadForAnIdleLivePane(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Dead: true,
-	}, "claude", "idle")
+	}, "claude", "idle", false)
 
 	assert.False(t, doc.Plans[0].Dead,
 		"a pane idling between phases still disproves dead")
@@ -131,7 +133,7 @@ func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Dead: true,
-	}, "", "")
+	}, "", "", false)
 
 	assert.True(t, doc.Plans[0].Dead,
 		"no live pane means the dead session still reads as a takeover candidate")
@@ -139,20 +141,20 @@ func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
 
 // TestPresenceForReportsTheLivePaneOnAHoldBranch: presenceFor reports
 // what the pane is doing as soon as any of a plan's hold branches has
-// a live lane — the same walk agentFor makes, asking a different
-// question of the answer — and a status herdr cannot vouch for reads
-// unknown rather than as nobody.
+// a live lane in the plan's own repository — the same walk agentFor
+// makes, asking a different question of the answer — and a status
+// herdr cannot vouch for reads unknown rather than as nobody.
 func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
-	live := map[string]herdr.Lane{
-		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
-		"plan/300": {Pane: herdr.Pane{Agent: "claude", Status: "confused"}},
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+		{repo: "atlas", branch: "plan/300"}: {Pane: herdr.Pane{Agent: "claude", Status: "confused"}},
 	}
 
 	assert.Equal(t, herdr.StatusIdle,
-		presenceFor(discovery.Plan{Holds: []string{"plan/99", "plan/100"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/99", "plan/100"}}, live),
 		"a live lane on one of the plan's hold branches is attended")
 	assert.Equal(t, herdr.StatusUnknown,
-		presenceFor(discovery.Plan{Holds: []string{"plan/300"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/300"}}, live),
 		"a pane there is attended even when herdr cannot say what it does")
 }
 
@@ -160,13 +162,141 @@ func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
 // branches match no live lane has no presence — the ordinary case, a
 // lane nobody is on.
 func TestPresenceForMissesAPlanWithNoLiveBranch(t *testing.T) {
-	live := map[string]herdr.Lane{
-		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
 	}
-	p := discovery.Plan{Holds: []string{"plan/200"}}
+	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/200"}}
 
 	assert.Empty(t, presenceFor(p, live),
 		"no live lane on any hold branch means nobody is there")
+}
+
+// TestPresenceForMissesASameNamedBranchInAnotherRepo: a hold branch
+// name is repo-local, so a live lane on the identically named branch
+// in a different repository is not this plan's — the same guard
+// liveLaneFor already applies, now shared by the survey's own join.
+func TestPresenceForMissesASameNamedBranchInAnotherRepo(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "orrery", branch: "plan/7"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/7"}}
+
+	assert.Empty(t, presenceFor(p, live),
+		"the live lane sits in another repository's plan/7, not this one's")
+}
+
+// TestAgentForReportsTheAgentAndStatusOnALiveLane: agentFor's own
+// baseline, direct rather than only through board's integration tests
+// (CLAUDE.md: every function ships with a dedicated unit test). It
+// reports the pane's real status always — withholding an ask off an
+// incomplete presence read is askOf's own job, downstream of this
+// call, never a reason for agentFor to misreport what herdr saw.
+func TestAgentForReportsTheAgentAndStatusOnALiveLane(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+
+	agent, status := agentFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, live)
+
+	assert.Equal(t, "claude", agent)
+	assert.Equal(t, herdr.StatusWorking, status)
+}
+
+// TestAgentForMissesAPlanWithNoLiveLane: no live lane on any hold
+// branch names no agent and no status.
+func TestAgentForMissesAPlanWithNoLiveLane(t *testing.T) {
+	agent, status := agentFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, nil)
+
+	assert.Empty(t, agent)
+	assert.Empty(t, status)
+}
+
+// TestLaneRepoResolvesThroughTheMainWorktreeList: laneRepo's own unit
+// test, direct rather than only through liveByBranch/liveLaneFor's
+// integration tests (CLAUDE.md: every function ships with a dedicated
+// unit test). A lane in a linked worktree whose directory is not named
+// for the repository still resolves to the repository, through
+// fleet.RepoName's walk of the main worktree list — the case
+// herdr.Lane.Repo (a bare basename) gets wrong.
+func TestLaneRepoResolvesThroughTheMainWorktreeList(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "orrery")
+	wt := filepath.Join(t.TempDir(), "not-named-orrery")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7", wt)
+
+	got := laneRepo(herdr.Lane{Root: wt}, gitwt.Exec)
+
+	assert.Equal(t, "orrery", got,
+		"a linked worktree resolves to the repository, not its own directory name")
+}
+
+// TestLaneRepoFallsBackToTheRootsBasenameWhenGitCannotAnswer: the same
+// fallback fleet.RepoName documents for an unreadable worktree list —
+// laneRepo inherits it rather than hiding it behind a different answer.
+func TestLaneRepoFallsBackToTheRootsBasenameWhenGitCannotAnswer(t *testing.T) {
+	broken := func(string, ...string) ([]byte, error) {
+		return nil, fmt.Errorf("boom")
+	}
+
+	got := laneRepo(herdr.Lane{Root: "/some/root-name"}, broken)
+
+	assert.Equal(t, "root-name", got,
+		"an unreadable worktree list falls back to the root's own basename")
+}
+
+// TestLiveByBranchResolvesEachWorktreeRootOnlyOnce: two panes sharing
+// one worktree root — two terminals in the same lane — must not pay
+// laneRepo's git-worktree-list walk twice for the same root; a cache
+// keyed by root serves the second pane from the first's answer.
+func TestLiveByBranchResolvesEachWorktreeRootOnlyOnce(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/7")
+
+	calls := 0
+	countingGit := func(dir string, args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "list" {
+			calls++
+		}
+		return gitwt.Exec(dir, args...)
+	}
+	rt := &runtime{git: countingGit, herdr: herdrReturning(
+		map[string]any{
+			"agent": "claude", "agent_status": "working", "cwd": repo,
+			"pane_id": "wA:p1", "terminal_title_stripped": "one",
+		},
+		map[string]any{
+			"agent": "claude", "agent_status": "idle", "cwd": repo,
+			"pane_id": "wA:p2", "terminal_title_stripped": "two",
+		},
+	)}
+
+	live, _, err := liveByBranch(&cli{}, rt)
+
+	require.NoError(t, err)
+	assert.Contains(t, live, repoBranch{repo: "atlas", branch: "plan/7"})
+	assert.Equal(t, 1, calls,
+		"two panes sharing one worktree root resolve its repository once, not once per pane")
+}
+
+// TestLiveByBranchHandsBackFleetPresencesError: liveByBranch used to
+// discard fleetPresence's own error, leaving no caller able to feed it
+// to presenceUnknown — the same rule open, nudge and message already
+// apply. It now hands the error straight back, mirroring liveLaneFor's
+// own shape.
+func TestLiveByBranchHandsBackFleetPresencesError(t *testing.T) {
+	boom := errors.New("dial unix .herdr.sock: no such file")
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		return nil, boom
+	}}
+
+	live, hostProbs, err := liveByBranch(&cli{}, rt)
+
+	assert.ErrorIs(t, err, boom)
+	assert.Nil(t, live)
+	assert.Nil(t, hostProbs)
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
@@ -276,7 +406,7 @@ func TestPrintBoardLegendsAStaleHold(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Stale: true, StaleFor: 3 * time.Hour,
-	}, "", "")
+	}, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -296,7 +426,7 @@ func TestPrintBoardLegendsADeadHold(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Dead: true,
-	}, "", "")
+	}, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -317,12 +447,12 @@ func TestPrintBoardLegendsBothWhenBothAppear(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Stale: true, StaleFor: 3 * time.Hour,
-	}, "", "")
+	}, "", "", false)
 	doc.AddPlan(discovery.Plan{
 		Key: "forge:atlas:101", Repo: "atlas", ID: 101, Status: "🔳",
 		Title: "Also underway", Held: true, Holds: []string{"plan/101"},
 		Dead: true,
-	}, "", "")
+	}, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -360,7 +490,7 @@ func TestPrintBoardOmitsTheLegendWhenHeldIsNotShown(t *testing.T) {
 		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
 		Title: "Underway", Held: true, Holds: []string{"plan/100"},
 		Stale: true, StaleFor: 3 * time.Hour,
-	}, "", "")
+	}, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, []string{"id", "title"})
@@ -396,7 +526,7 @@ func TestPrintBoardTrimsTheLaneOnANarrowTerminal(t *testing.T) {
 		Key: "forge:smalt:100", Repo: "smalt", ID: 100, Status: "🔳",
 		Title: "A title that also wants room",
 		Held:  true, Holds: []string{"plan/100-render-consistency-loop-gas-giants"},
-	}, "", "")
+	}, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 80, boardCols)
@@ -529,7 +659,7 @@ func TestReadyTrimsTitleToWidth(t *testing.T) {
 	doc.SetPlans([]discovery.Plan{{
 		Repo: "atlas", ID: 100, Status: "🔲", Model: "opus",
 		Title: strings.Repeat("very long title ", 6),
-	}}, nil)
+	}}, nil, false)
 
 	var fitted bytes.Buffer
 	printReady(&fitted, doc, 50)
@@ -544,14 +674,15 @@ func TestReadyTrimsTitleToWidth(t *testing.T) {
 
 // deadHeldBoard is a board carrying one held plan whose bound session
 // herdr confirms gone, with whatever agent and status the live read
-// joined to it — the one row the ask line exists for.
-func deadHeldBoard(id int64, agent, status string) *report.BoardDoc {
+// joined to it — the one row the ask line exists for. unknown is
+// presenceUnknown's own answer for that read.
+func deadHeldBoard(id int64, agent, status string, unknown bool) *report.BoardDoc {
 	doc := report.NewBoard("/x", true)
 	doc.AddPlan(discovery.Plan{
 		Key: fmt.Sprintf("forge:atlas:%d", id), Repo: "atlas", ID: id,
 		Status: "🔳", Title: "Underway", Held: true,
 		Holds: []string{fmt.Sprintf("plan/%d", id)}, Dead: true,
-	}, agent, status)
+	}, agent, status, unknown)
 
 	return doc
 }
@@ -562,7 +693,7 @@ func deadHeldBoard(id int64, agent, status string) *report.BoardDoc {
 // remedy the 2026-09-03 misread lacked, rendered where the reader
 // decides rather than only in the JSON.
 func TestPrintBoardPointsAtMessageForAnAttendedDeadHold(t *testing.T) {
-	doc := deadHeldBoard(100, "claude", "working")
+	doc := deadHeldBoard(100, "claude", "working", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -576,7 +707,7 @@ func TestPrintBoardPointsAtMessageForAnAttendedDeadHold(t *testing.T) {
 // the lane there is nobody to ask, so the dead marker and its legend
 // render exactly as before and message is never mentioned.
 func TestPrintBoardOffersNoAskForAnUnattendedDeadHold(t *testing.T) {
-	doc := deadHeldBoard(100, "", "")
+	doc := deadHeldBoard(100, "", "", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -591,7 +722,7 @@ func TestPrintBoardOffersNoAskForAnUnattendedDeadHold(t *testing.T) {
 // point at a command that would refuse when run — though the pane's
 // presence still clears the dead marker.
 func TestPrintBoardOffersNoAskForAnUnvouchedAgent(t *testing.T) {
-	doc := deadHeldBoard(100, "claude", "unknown")
+	doc := deadHeldBoard(100, "claude", "unknown", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, boardCols)
@@ -605,7 +736,7 @@ func TestPrintBoardOffersNoAskForAnUnvouchedAgent(t *testing.T) {
 // is a remedy, not a key to a marker, so it stays on screen when the
 // hold column — and its legend — is left out with --columns.
 func TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn(t *testing.T) {
-	doc := deadHeldBoard(100, "claude", "working")
+	doc := deadHeldBoard(100, "claude", "working", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 0, []string{"id", "agent"})
@@ -620,7 +751,7 @@ func TestPrintBoardPointsAtMessageEvenWithoutTheHoldColumn(t *testing.T) {
 // trailing "…" where the text should be is the unrunnable pointer
 // the line exists to replace.
 func TestPrintBoardNeverTrimsTheAskToWidth(t *testing.T) {
-	doc := deadHeldBoard(2609032048, "claude", "working")
+	doc := deadHeldBoard(2609032048, "claude", "working", false)
 	var buf bytes.Buffer
 
 	printBoard(&buf, doc, 80, boardCols)
