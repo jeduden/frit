@@ -1,7 +1,7 @@
 ---
 id: 2609050854
 title: A claim-only lane carries its token, and every refusal names the way out
-status: "🔲"
+status: "🔳"
 summary: >-
   frit claim mints the lease, then asks herdr to create the lane's
   worktree. The token that proves the lane is its own is written before
@@ -151,18 +151,19 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                             |
-| --- | ------ | ----------------------------------------------------------------- |
-| 1   | 🔲     | [A claim-only lane persists its token once it stands](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A claim-only lane persists its token once it stands](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+|     | ↳      | `claim` now writes its own lane's token the moment herdr reports the worktree stood up, through a newly exported `claim.WriteToken` shared with the unexported `persistToken` every other transition already called. `start`'s fresh-worktree branch calls the same write, so its token no longer depends on `bindSession`'s later renewal, which only fires once herdr's own session lookup answers non-empty. A claim-only lane now releases and resumes from inside itself exactly as a lane `start` created does, with no takeover window to wait out — proven against `liveLaneHerdr`, which runs a real `git worktree add`, in `cmd/frit/claim_test.go`, `cmd/frit/start_test.go` and `cmd/frit/release_test.go`, and end to end by the new `@S92` scenario in `features/lifecycle.feature`, mirrored as a row in `docs/research/lease-protocol.md`. A write that fails once the worktree already exists — as opposed to the routine, silent skip when nothing is on disk yet — surfaces as a warning on the claim document rather than a silent no-op, so a standing lane's misfortune can be found rather than trusted. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A lane `frit claim` stands up carries `frit/token-<id>` in its
+- [x] A lane `frit claim` stands up carries `frit/token-<id>` in its
       git directory, holding the minted tip
-- [ ] `frit release` from inside a claim-only lane ends the lease, and
+- [x] `frit release` from inside a claim-only lane ends the lease, and
       `frit start` from inside it resumes without waiting the window
-- [ ] A claim whose worktree herdr cannot create still unwinds and
+- [x] A claim whose worktree herdr cannot create still unwinds and
       leaves no token behind
 - [ ] `release` and `start`, refused from inside a lane with no
       token, name that situation and carry a non-empty `next_action`

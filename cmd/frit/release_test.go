@@ -152,6 +152,39 @@ func TestReleaseEndsTheLanesOwnLease(t *testing.T) {
 		"the release is CASed from the lane's own persisted token")
 }
 
+// TestReleaseEndsALaneClaimAloneStoodUp: a lane `frit claim` alone
+// stood up carries the same token a lane `start` created would, so
+// release run from inside it ends the lease with no foreign-hold
+// refusal in between — the resume shortcut a claim-only lane could not
+// reach before this phase.
+func TestReleaseEndsALaneClaimAloneStoodUp(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var claimed struct {
+		Worktree string `json:"worktree"`
+	}
+	emit(t, &claimed, "claim", "7", "--root", root)
+	require.NotEmpty(t, claimed.Worktree)
+	t.Chdir(claimed.Worktree)
+	var doc struct {
+		Released bool   `json:"released"`
+		Refused  string `json:"refused"`
+	}
+
+	emit(t, &doc, "release", "7", "--root", root)
+
+	assert.True(t, doc.Released)
+	assert.Empty(t, doc.Refused)
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: release")
+}
+
 // TestReleaseRecognizesALaneWhoseOwnCommitsAdvancedTheTip: the
 // prescribed workflow is raw git commit/push on plan/<id>, with no
 // frit transition between — origin's tip ends up a descendant of the

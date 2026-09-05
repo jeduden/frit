@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                                            |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 2609050854 | sonnet | [A claim-only lane carries its token, and every refusal names the way out](plan/2609050854_claim-lane-carries-its-token/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -128,5 +130,5 @@ footer: |
 | 2609031951 | ✅     | sonnet | [A deserted top lane no longer stalls pick's candidate walk](plan/2609031951_deserted-lane-no-longer-stalls-pick/plan.md)              |
 | 2609032048 | ✅     | sonnet | [frit can message a lane's agent, so an ambiguous lane asks](plan/2609032048_message-a-lanes-agent/plan.md)                            |
 | 2609050143 | ✅     | sonnet | [the survey reads a live lane the way dispatch does](plan/2609050143_survey-join-matches-dispatch/plan.md)                             |
-| 2609050854 | 🔲     | sonnet | [A claim-only lane carries its token, and every refusal names the way out](plan/2609050854_claim-lane-carries-its-token/plan.md)       |
+| 2609050854 | 🔳     | sonnet | [A claim-only lane carries its token, and every refusal names the way out](plan/2609050854_claim-lane-carries-its-token/plan.md)       |
 <?/catalog?>

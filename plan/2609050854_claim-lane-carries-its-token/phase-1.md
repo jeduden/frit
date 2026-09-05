@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A claim-only lane persists its token once it stands
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `frit claim` leave the proof it mints. Once herdr reports the

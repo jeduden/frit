@@ -1057,16 +1057,17 @@ func (w *world) theStartSucceedsStandingLaneUp() error {
 }
 
 // theSecondStartIsRefusedNamingTheLane is S32's own refusal:
-// startLiveLaneRefusal's wording, distinct from the ordinary "already
-// held" claimRefusal gives an unmatured hold — this fires only past
-// that check, once herdr's own pane list shows the first call's lane
-// still live.
+// liveHoldRefusal's wording, distinct from the ordinary "not yet
+// matured" claimRefusal gives an unproven hold — this fires once the
+// first call's own persisted token, written the moment its worktree
+// stood up, lets holdKindFor prove the hold and herdr's own pane list
+// confirms it is still attended.
 func (w *world) theSecondStartIsRefusedNamingTheLane() error {
 	got := section[cliState](w).out.String()
 	if !strings.Contains(got, "refused") {
 		return fmt.Errorf("expected a refusal, got: %s", got)
 	}
-	if !strings.Contains(got, "already sits on lane") {
+	if !strings.Contains(got, "a live agent is on this lane") {
 		return fmt.Errorf("the refusal does not name a live lane: %s", got)
 	}
 	branch := claim.Branch(int64(w.planID))
