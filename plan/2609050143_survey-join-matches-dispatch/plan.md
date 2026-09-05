@@ -1,7 +1,7 @@
 ---
 id: 2609050143
 title: the survey reads a live lane the way dispatch does
-status: "🔳"
+status: "✅"
 summary: >-
   Plan 2609032048 made board, ready, pick and find offer `frit message`
   for a held lane whose bound session is gone but whose branch a live
@@ -151,11 +151,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                 |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [the survey keys live lanes by repository](phase-1.md)                                                                                                                                                                                                                                                                                |
-|     | ↳      | liveByBranch now keys every staffed lane by `repoBranch{repo, branch}` rather than branch alone, through a new `laneRepo` helper in `cmd/frit/main.go` that `liveLaneFor` in `cmd/frit/dispatch.go` now calls too. Two repositories holding the same plan id on the same branch name no longer collide in board, ready, pick or find. |
-| 2   | 🔲     | [the survey withholds the ask on unread presence](phase-2.md)                                                                                                                                                                                                                                                                         |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [the survey keys live lanes by repository](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | liveByBranch now keys every staffed lane by `repoBranch{repo, branch}` rather than branch alone, through a new `laneRepo` helper in `cmd/frit/main.go` that `liveLaneFor` in `cmd/frit/dispatch.go` now calls too. Two repositories holding the same plan id on the same branch name no longer collide in board, ready, pick or find.                                                                                                                             |
+| 2   | ✅     | [the survey withholds the ask on unread presence](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                     |
+|     | ↳      | askOf takes a second input, unknown, alongside status: cardsOf and BoardDoc.AddPlan thread it through untouched, so an incomplete presence read withholds Ask without rewriting Dead-clearing or agent_status. board, ready, pick and find each compute it once via presenceUnknown off liveByBranch's now-honest error return, and ready/pick/find carry that error into problems[] the way board's own Presence field already implied. Plan 2609050143 is done. |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -166,16 +167,16 @@ footer: |
       repository's row; the other stays dead, ask empty, agent empty
 - [x] The repository resolution the survey uses is the one
       `liveLaneFor` uses, written once and called from both joins
-- [ ] When a configured host went unread with no cache, every survey
+- [x] When a configured host went unread with no cache, every survey
       row carries `ask: ""` and the host rides in `problems[]`; a pane
       herdr did show still clears `dead` and its `agent_status` is the
       status herdr reported, never rewritten to withhold the ask
-- [ ] With the local herdr unreachable, `ready`, `pick` and `find`
+- [x] With the local herdr unreachable, `ready`, `pick` and `find`
       carry the socket in `problems[]` and every row's `ask` is empty,
       the reading `board` and the dispatch verbs already give
-- [ ] A host served from stale cache does not withhold the ask,
+- [x] A host served from stale cache does not withhold the ask,
       matching `presenceUnknown`
-- [ ] `open`, `nudge` and `message` are unchanged: their tests pass
+- [x] `open`, `nudge` and `message` are unchanged: their tests pass
       without edits
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

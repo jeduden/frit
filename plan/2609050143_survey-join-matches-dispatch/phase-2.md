@@ -1,7 +1,7 @@
 ---
 n: 2
 title: the survey withholds the ask on unread presence
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make the survey read presence-completeness the way `open`, `nudge`
