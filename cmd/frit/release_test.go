@@ -71,8 +71,9 @@ func TestReleaseIsANoOpOnAnAlreadyReleasedPlan(t *testing.T) {
 }
 
 // TestReleaseRefusesALiveForeignHold: a plan another lane holds live —
-// no matured window — is refused; only that lane's own token can
-// release it.
+// no matured window — is refused; only that lane's own token can end
+// it. The refusal names the same wait-or-take-over way out yield gives
+// the identical hold, since both route it through refuseForeignHold.
 func TestReleaseRefusesALiveForeignHold(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -87,6 +88,8 @@ func TestReleaseRefusesALiveForeignHold(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "takeover window",
+		"a live foreign hold names the same way out yield does")
 	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Equal(t, lease.Tip, tip, "the foreign lease is untouched")

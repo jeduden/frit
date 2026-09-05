@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,6 +225,154 @@ func TestYieldReportsAnUnconfirmedYieldAsARefusalNotAWarning(t *testing.T) {
 		"nothing was parked or torn down; it must not read as a success")
 	assert.False(t, rec.verb("worktree", "remove"),
 		"an unconfirmed still-held read leaves the worktree standing")
+}
+
+// TestYieldRefusesAForeignHoldWithNothingToPark: a plan another lane
+// holds, run from a repository that never fetched or minted the work
+// ref locally — the plan/7 lease was acquired entirely from a second
+// clone, so refs/heads/plan/7 does not exist in repo at all. Nothing
+// is fenced here, so yield refuses the way release does rather than
+// let claim.Yield's own empty-local no-op read as a success it never
+// performed. The remote lease is left untouched.
+func TestYieldRefusesAForeignHoldWithNothingToPark(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	other := cloneAgain(t, repo)
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(other, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = gitCapture(t, repo, "rev-parse", "--verify", "--quiet",
+		"refs/heads/plan/7")
+	require.Error(t, err, "nothing was ever fetched or minted locally")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.NotContains(t, out.String(), "yielded plan 7",
+		"nothing was parked or torn down; it must not read as a success")
+	assert.NotContains(t, out.String(), "parked")
+	assert.Contains(t, out.String(), "wait for the takeover window",
+		"the way out rides in next_action")
+	tip, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, tip, lease.Tip, "the remote lease tip is unchanged")
+	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/frit/rescue/7/*")
+	require.NoError(t, err)
+	assert.Empty(t, rescue, "nothing was parked")
+}
+
+// TestYieldRefusesAMaturedForeignHoldNamingTheTakeover: the same
+// foreign hold with nothing local to park, but its window has
+// matured — the refusal names frit claim as the takeover, matching
+// release's own wording for a matured hold.
+func TestYieldRefusesAMaturedForeignHoldNamingTheTakeover(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	other := cloneAgain(t, repo)
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(other, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+
+	var out, errb bytes.Buffer
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "frit claim",
+		"a matured hold names claim's takeover, not a wait")
+	assert.NotContains(t, out.String(), "wait for the takeover window",
+		"a window that has already matured must not be told to wait on it")
+	tip, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, tip, lease.Tip, "a matured foreign lease is not touched by yield")
+}
+
+// TestYieldOnAnUnheldPlanIsStillACleanNoOp: a plan whose work ref was
+// never claimed at all — plan.HoldTip is empty and nobody holds it —
+// still succeeds as the honest no-op it always was, distinct from the
+// foreign-hold refusal above.
+func TestYieldOnAnUnheldPlanIsStillACleanNoOp(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "yielded plan 7")
+}
+
+// TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp: a plan
+// another lane released, with nothing ever fetched or minted locally
+// — plan.HoldTip still points at the release marker, but plan.Held is
+// false. foreignYieldRefusal must key on plan.Held, not plan.HoldTip
+// == "", or this reads as "held live by another lane", a claim that is
+// false of a lease that already ended.
+func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	other := cloneAgain(t, repo)
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(other, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Release(other, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = gitCapture(t, repo, "rev-parse", "--verify", "--quiet",
+		"refs/heads/plan/7")
+	require.Error(t, err, "nothing was ever fetched or minted locally")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "refused",
+		"a released hold is not held live by another lane")
+	assert.Contains(t, out.String(), "yielded plan 7")
+}
+
+// TestRefuseForeignHold pins the one decision release and yield both
+// route a hold they cannot end through, so the two verbs cannot drift:
+// a live hold carries the wait-or-take-over next_action, a matured or
+// confirmed-dead hold carries none — its reason already names frit
+// claim, which a "wait" would contradict — and a YieldDoc and a
+// ReleaseDoc are worded identically for the same fact.
+func TestRefuseForeignHold(t *testing.T) {
+	live := discovery.Plan{Held: true, Holds: []string{"plan/7-x"}}
+	y := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(y, live)
+	assert.Contains(t, y.Refused, "held live by another lane")
+	assert.NotEmpty(t, y.NextAction, "a live hold names the way out")
+
+	r := report.NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(r, live)
+	assert.Equal(t, y.Refused, r.Refused,
+		"release and yield word the same hold identically")
+	assert.Equal(t, y.NextAction, r.NextAction, "and give the same way out")
+
+	matured := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(matured, discovery.Plan{Held: true, Stale: true})
+	assert.Contains(t, matured.Refused, "frit claim")
+	assert.Empty(t, matured.NextAction,
+		"a matured hold already names claim; no contradicting wait")
+
+	dead := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(dead, discovery.Plan{Held: true, Dead: true})
+	assert.Contains(t, dead.Refused, "frit claim")
+	assert.Empty(t, dead.NextAction)
 }
 
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still

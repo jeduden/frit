@@ -224,6 +224,27 @@ func (e *UnconfirmedDeleteError) Error() string {
 
 func (e *UnconfirmedDeleteError) Unwrap() error { return e.Err }
 
+// EmptyLocalError reports a yield with no local copy of the work ref to
+// park: nothing was ever fetched or minted here, so the lease atom has
+// nothing of this lane's own to rescue. It is not a failure so much as
+// the absence of anything for the library to do — but it is emphatically
+// not a success either, which is why Yield returns it rather than a bare
+// Scavenged{} nil a caller could read as work performed (#166). Whether
+// an empty local is a clean no-op (nobody holds the plan) or a refusal
+// (another lane holds it, and this lane cannot end it) turns on the
+// coordination facts the caller's gather carries — Held, Stale, Dead —
+// which the lease atom deliberately does not read from a local view.
+// The library refuses to guess; the caller decides.
+type EmptyLocalError struct {
+	PlanID int64
+}
+
+func (e *EmptyLocalError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: this lane has no local copy of the work ref to park",
+		e.PlanID)
+}
+
 // UnconfirmedYieldError reports a yield refused because the still-held
 // check's own read failed — an unreadable remote is a fault, not a
 // "not held" answer, and folding it to absent would let Yield fall
@@ -492,20 +513,22 @@ func checkedOut(repoDir, branch string, run gitwt.Runner) bool {
 // silently discard the lease rather than release it, so that case is
 // refused instead (F4, F5).
 //
-// An empty local is its own case, checked first: nothing was ever
-// fetched or minted here, so there is nothing of this lane's own to
-// rescue. It must not fall into the still-held comparison — an absent
-// remote ref reads as "" too, and "" == "" would misreport a plan
-// nobody holds as still held by this lane. It must not reach park
-// either: park's push is tip+":"+rescue, and an empty tip turns that
-// into a delete of the rescue ref, which git accepts whether or not
-// the ref exists — a silent false "parked" for a rescue that was
-// never written.
+// An empty local is its own case, checked first and returned as an
+// EmptyLocalError rather than a bare no-op: nothing was ever fetched or
+// minted here, so there is nothing of this lane's own to rescue — but
+// whether that means a clean no-op or a refusal is the caller's call to
+// make from its gathered facts, not one the lease atom fakes as a
+// success (#166). The early return keeps this case out of the still-held
+// comparison — an absent remote ref reads as "" too, and "" == "" would
+// misreport a plan nobody holds as still held by this lane — and out of
+// park, whose push is tip+":"+rescue: an empty tip turns that into a
+// delete of the rescue ref, which git accepts whether or not the ref
+// exists, a silent false "parked" for a rescue that was never written.
 func Yield(
 	repoDir string, opts LeaseOptions, local string, run gitwt.Runner,
 ) (Scavenged, error) {
 	if local == "" {
-		return Scavenged{}, nil
+		return Scavenged{}, &EmptyLocalError{PlanID: opts.PlanID}
 	}
 
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)

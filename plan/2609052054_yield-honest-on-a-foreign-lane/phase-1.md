@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Yield refuses a foreign, unfenced hold and names it
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make `frit yield` honest about a lane it cannot end. Run against a

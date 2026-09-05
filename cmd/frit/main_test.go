@@ -17,6 +17,7 @@ import (
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -820,6 +821,64 @@ func TestObserveHoldsLeavesDeadFalseWhenHerdrIsUnreachable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Plans, 1)
 	assert.False(t, res.Plans[0].Dead)
+}
+
+// TestObserveHoldsKeepsAWindowANonFetchingPassCouldNotConfirmGone: a
+// held plan whose work ref this pass never refreshed arrives with an
+// empty HoldTip though it is still held elsewhere. A pass that fetched
+// nothing (Summary.Fetched == 0) cannot tell that absence from a
+// genuinely gone ref, so it must leave the accrued window standing
+// rather than reset frit start's takeover clock to zero.
+func TestObserveHoldsKeepsAWindowANonFetchingPassCouldNotConfirmGone(t *testing.T) {
+	isolate(t)
+	now := time.Now()
+	path, err := observe.Path()
+	require.NoError(t, err)
+	key := observe.Key("atlas", 7)
+	require.NoError(t, observe.Save(path, observe.State{
+		key: discovery.Window{
+			Tip: "tip-7", First: now.Add(-3 * time.Hour), Last: now, Samples: 9,
+		},
+	}))
+	res := &fleet.Result{
+		Plans:   []discovery.Plan{{Repo: "atlas", ID: 7, Held: true, HoldTip: ""}},
+		Summary: fleet.Summary{Fetched: 0},
+	}
+
+	observeHolds(res, &runtime{git: gitwt.Exec}, now)
+
+	got := observe.Load(path)
+	win, ok := got[key]
+	require.True(t, ok, "the window a non-fetching pass could not confirm gone survives")
+	assert.Equal(t, 9, win.Samples, "its accrued samples are untouched")
+	assert.Equal(t, now.Add(-3*time.Hour).Unix(), win.First.Unix(),
+		"its span is not reset to zero")
+}
+
+// TestObserveHoldsPrunesAWindowAFetchingPassConfirmedGone: the same
+// empty HoldTip on a pass that did refresh (Summary.Fetched > 0) is a
+// ref confirmed gone — the window is dropped, so the store keeps only
+// what this host still watches.
+func TestObserveHoldsPrunesAWindowAFetchingPassConfirmedGone(t *testing.T) {
+	isolate(t)
+	now := time.Now()
+	path, err := observe.Path()
+	require.NoError(t, err)
+	key := observe.Key("atlas", 7)
+	require.NoError(t, observe.Save(path, observe.State{
+		key: discovery.Window{
+			Tip: "tip-7", First: now.Add(-3 * time.Hour), Last: now, Samples: 9,
+		},
+	}))
+	res := &fleet.Result{
+		Plans:   []discovery.Plan{{Repo: "atlas", ID: 7, Held: true, HoldTip: ""}},
+		Summary: fleet.Summary{Fetched: 1},
+	}
+
+	observeHolds(res, &runtime{git: gitwt.Exec}, now)
+
+	_, ok := observe.Load(path)[key]
+	assert.False(t, ok, "a fetching pass that finds no ref drops the window")
 }
 
 // TestStaleHeldExcludesADeadSessionWithNoMaturedWindow: a bound

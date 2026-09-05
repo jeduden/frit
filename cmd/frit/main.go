@@ -1401,6 +1401,19 @@ func printGather(out io.Writer, g report.Gather) {
 	_, _ = fmt.Fprintln(out, g.StatusLine())
 }
 
+// printNextAction writes a refusal's way out, indented under the
+// refusal line it follows, when there is one. yield, release and start
+// each carry a NextAction of this same unadorned shape on a refusal
+// their own doc cannot otherwise prove past (open's printOpenNextStep
+// words its NextAction per hold kind instead, so it stays its own
+// function).
+func printNextAction(out io.Writer, nextAction string) {
+	if nextAction == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  %s\n", nextAction)
+}
+
 // observeHolds folds this run's view of every held work ref into the
 // per-host observation store and marks the plans whose takeover window
 // has matured. Observation piggybacks on every fleet-reading verb —
@@ -1426,12 +1439,20 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		p := &res.Plans[i]
 		key := observe.Key(p.Repo, p.ID)
 		if p.HoldTip == "" {
-			// No work ref, no window; dropping the key keeps the state
-			// to what this host actually watches. A ref that exists is
-			// observed whether or not it counts as a hold — glyph
-			// evidence needs a matured window on a ref the hold
-			// filters already dropped.
-			delete(state, key)
+			// No work ref in this pass's view. Dropping the key keeps the
+			// state to what this host actually watches — but only when the
+			// pass was authoritative enough to confirm the ref gone. A
+			// pass that refreshed nothing (Fetched == 0) may simply have a
+			// stale or absent local view of a hold still live elsewhere;
+			// deleting the accrued window on that evidence would reset
+			// start's takeover clock to zero, so the hold could never
+			// mature. A fetching pass that finds no ref did confirm it
+			// gone, and drops it. A ref that exists is observed whether or
+			// not it counts as a hold — glyph evidence needs a matured
+			// window on a ref the hold filters already dropped.
+			if res.Summary.Fetched > 0 {
+				delete(state, key)
+			}
 			continue
 		}
 		window, sampleGap := staleClock(res, p.Repo)

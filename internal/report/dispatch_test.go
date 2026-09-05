@@ -233,6 +233,18 @@ func TestReleaseRefuseUnprovenNamesTheWaitForATokenlessOwnLane(t *testing.T) {
 	assert.Equal(t, openNextAction(false, false, HoldUnproven, 7), doc.NextAction)
 }
 
+// TestYieldRefuseUnprovenNamesTheWaitForAForeignHold pins yield's own
+// way out: a refusal for a foreign hold with nothing local to park
+// carries the same wait-or-take-over wording release's own
+// RefuseUnproven gives, in one call alongside the refusal itself.
+func TestYieldRefuseUnprovenNamesTheWaitForAForeignHold(t *testing.T) {
+	doc := NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	doc.RefuseUnproven("is held live by another lane", 7)
+
+	assert.Equal(t, "is held live by another lane", doc.Refused)
+	assert.Equal(t, unprovenNextAction(7), doc.NextAction)
+}
+
 // TestNewStartRendersAnEmptyPhaseAsWholePlan: a phase-less plan is
 // dispatched as one whole-plan prompt, so its doc reports that rather
 // than a blank phase cell — blank reads as a missing field, not a

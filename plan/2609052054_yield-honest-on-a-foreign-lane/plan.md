@@ -3,7 +3,7 @@ id: 2609052054
 title: >-
   frit yield is honest on a lane it cannot end, and never drops it
   from sampling
-status: "🔲"
+status: "✅"
 summary: >-
   frit yield on a foreign, unfenced lane — a plan another lane holds,
   run from a pane that is not that lane's own worktree — reports
@@ -144,22 +144,25 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                             |
-| --- | ------ | ----------------------------------------------------------------- |
-| 1   | 🔲     | [Yield refuses a foreign, unfenced hold and names it](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Yield refuses a foreign, unfenced hold and names it](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|     | ↳      | `frit yield` now dispatches on the gather's own plan facts before ever calling `claim.Yield`: a plan nobody holds (`plan.HoldTip == ""`) still reaches the existing clean no-op, but a foreign hold with nothing of this lane's own to park (`local == ""`) refuses instead, worded from the same `foreignHoldRefusal` release already uses and carrying the wait-or-take-over sentence in a new `next_action` field on `YieldDoc`. The fenced-lane park-and-tear-down path is untouched. Pinned by `TestYieldRefusesAForeignHoldWithNothingToPark`, `TestYieldRefusesAMaturedForeignHoldNamingTheTakeover` and `TestYieldOnAnUnheldPlanIsStillACleanNoOp`; the existing `TestYieldParksAFencedLaneAndTearsItDown` still covers the fenced path. `go test ./...` and `golangci-lint run` are green; `mdsmith check .` passes. |
+| 2   | ✅     | [A non-fetching pass keeps the window it did not read](phase-2.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+|     | ↳      | `observeHolds` no longer deletes a held plan's accumulated staleness window on a pass that could not confirm the ref gone. The empty- `HoldTip` delete is now gated on `res.Summary.Fetched > 0`: a pass that refreshed nothing leaves the window untouched — neither deleted nor re-observed — so its accrued span survives, while a fetching pass that finds no ref still prunes it as before. Pinned by `TestObserveHoldsKeepsAWindowANonFetchingPassCouldNotConfirmGone` and `TestObserveHoldsPrunesAWindowAFetchingPassConfirmedGone`. `go test ./...`, `golangci-lint run` and `mdsmith check .` are green.                                                                                                                                                                                                             |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit yield` on a foreign, unfenced lane refuses instead of
+- [x] `frit yield` on a foreign, unfenced lane refuses instead of
       reporting a success, naming the live holder or the matured
       takeover, and carries a non-empty `next_action`
-- [ ] A `frit yield` on a plan nobody holds still succeeds as a clean
+- [x] A `frit yield` on a plan nobody holds still succeeds as a clean
       no-op, and a fenced lane still parks its divergence and tears its
       worktree down
-- [ ] A held plan's accumulated staleness window survives a pass that
+- [x] A held plan's accumulated staleness window survives a pass that
       did not fetch, so `frit start`'s reported span keeps growing and
       its takeover window can mature
-- [ ] Both the table and `--json` renderings of yield carry the field
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] Both the table and `--json` renderings of yield carry the field
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
