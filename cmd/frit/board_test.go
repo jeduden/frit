@@ -139,20 +139,20 @@ func TestAddPlanStillMarksAnUnattendedDeadHoldDead(t *testing.T) {
 
 // TestPresenceForReportsTheLivePaneOnAHoldBranch: presenceFor reports
 // what the pane is doing as soon as any of a plan's hold branches has
-// a live lane — the same walk agentFor makes, asking a different
-// question of the answer — and a status herdr cannot vouch for reads
-// unknown rather than as nobody.
+// a live lane in the plan's own repository — the same walk agentFor
+// makes, asking a different question of the answer — and a status
+// herdr cannot vouch for reads unknown rather than as nobody.
 func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
-	live := map[string]herdr.Lane{
-		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
-		"plan/300": {Pane: herdr.Pane{Agent: "claude", Status: "confused"}},
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+		{repo: "atlas", branch: "plan/300"}: {Pane: herdr.Pane{Agent: "claude", Status: "confused"}},
 	}
 
 	assert.Equal(t, herdr.StatusIdle,
-		presenceFor(discovery.Plan{Holds: []string{"plan/99", "plan/100"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/99", "plan/100"}}, live),
 		"a live lane on one of the plan's hold branches is attended")
 	assert.Equal(t, herdr.StatusUnknown,
-		presenceFor(discovery.Plan{Holds: []string{"plan/300"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/300"}}, live),
 		"a pane there is attended even when herdr cannot say what it does")
 }
 
@@ -160,13 +160,27 @@ func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
 // branches match no live lane has no presence — the ordinary case, a
 // lane nobody is on.
 func TestPresenceForMissesAPlanWithNoLiveBranch(t *testing.T) {
-	live := map[string]herdr.Lane{
-		"plan/100": {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "idle"}},
 	}
-	p := discovery.Plan{Holds: []string{"plan/200"}}
+	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/200"}}
 
 	assert.Empty(t, presenceFor(p, live),
 		"no live lane on any hold branch means nobody is there")
+}
+
+// TestPresenceForMissesASameNamedBranchInAnotherRepo: a hold branch
+// name is repo-local, so a live lane on the identically named branch
+// in a different repository is not this plan's — the same guard
+// liveLaneFor already applies, now shared by the survey's own join.
+func TestPresenceForMissesASameNamedBranchInAnotherRepo(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "orrery", branch: "plan/7"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/7"}}
+
+	assert.Empty(t, presenceFor(p, live),
+		"the live lane sits in another repository's plan/7, not this one's")
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
