@@ -134,6 +134,7 @@ footer: |
 | --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [the survey keys live lanes by repository](phase-1.md)                                                                                                                                                                                                                                                                                |
 |     | ↳      | liveByBranch now keys every staffed lane by `repoBranch{repo, branch}` rather than branch alone, through a new `laneRepo` helper in `cmd/frit/main.go` that `liveLaneFor` in `cmd/frit/dispatch.go` now calls too. Two repositories holding the same plan id on the same branch name no longer collide in board, ready, pick or find. |
+| 2   | 🔲     | [the survey withholds the ask on unread presence](phase-2.md)                                                                                                                                                                                                                                                                         |
 <?/catalog?>
 
 ## Acceptance Criteria
