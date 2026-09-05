@@ -132,4 +132,5 @@ footer: |
 | 2609050143 | ✅     | sonnet | [the survey reads a live lane the way dispatch does](plan/2609050143_survey-join-matches-dispatch/plan.md)                               |
 | 2609050854 | ✅     | sonnet | [A claim-only lane carries its token, and every refusal names the way out](plan/2609050854_claim-lane-carries-its-token/plan.md)         |
 | 2609052054 | 🔳     | sonnet | [frit yield is honest on a lane it cannot end, and never drops it from sampling](plan/2609052054_yield-honest-on-a-foreign-lane/plan.md) |
+| 2609052303 | 🔲     | sonnet | [Plans declare and include their BDD scenario coverage](plan/2609052303_plans-declare-bdd-coverage/plan.md)                              |
 <?/catalog?>
