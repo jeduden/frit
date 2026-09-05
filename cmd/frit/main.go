@@ -2028,7 +2028,11 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // branch its worktree is on, so a plan can find the agent working one
 // of its hold branches without being handed a same-named branch from
 // another repository. A missing socket yields no map and false, which
-// the board reads as "presence unknown".
+// the board reads as "presence unknown". laneRepo's own walk of the
+// worktree list is resolved once per distinct root — two panes in the
+// same lane, e.g. two terminals on one worktree, share the answer
+// rather than each paying their own git call (an ssh round trip, for a
+// remote pane).
 func liveByBranch(
 	c *cli, rt *runtime,
 ) (map[repoBranch]herdr.Lane, bool, []hostProblem) {
@@ -2037,12 +2041,19 @@ func liveByBranch(
 		return nil, false, nil
 	}
 
+	repos := map[string]string{}
 	live := map[repoBranch]herdr.Lane{}
 	for _, lane := range whoLanes(panes, rt.git) {
 		if lane.Branch == "" {
 			continue
 		}
-		live[repoBranch{repo: laneRepo(lane, rt.git), branch: lane.Branch}] = lane
+		rootKey := string(lane.Pane.Host) + "\x00" + lane.Root
+		repo, cached := repos[rootKey]
+		if !cached {
+			repo = laneRepo(lane, rt.git)
+			repos[rootKey] = repo
+		}
+		live[repoBranch{repo: repo, branch: lane.Branch}] = lane
 	}
 
 	return live, true, probs

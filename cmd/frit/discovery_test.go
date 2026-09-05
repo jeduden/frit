@@ -546,25 +546,13 @@ func sharedPlanRepos(t *testing.T, root string) (atlas, orrery string) {
 // none is there — main_test.go's boardPlanByID keyed sibling, for a
 // fixture where two repositories share the same plan id.
 func boardPlanByRepo(doc report.BoardDoc, repo string) *report.BoardPlan {
-	for i := range doc.Plans {
-		if doc.Plans[i].Repo == repo {
-			return &doc.Plans[i]
-		}
-	}
-
-	return nil
+	return findFirst(doc.Plans, func(p report.BoardPlan) bool { return p.Repo == repo })
 }
 
 // planCardByRepo is boardPlanByRepo's sibling for ready, pick and
 // find's shared PlanCard shape.
 func planCardByRepo(cards []report.PlanCard, repo string) *report.PlanCard {
-	for i := range cards {
-		if cards[i].Repo == repo {
-			return &cards[i]
-		}
-	}
-
-	return nil
+	return findFirst(cards, func(c report.PlanCard) bool { return c.Repo == repo })
 }
 
 // TestBoardKeysLiveLaneByRepositoryAndBranch is the observed case

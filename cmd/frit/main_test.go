@@ -238,16 +238,24 @@ func landedDeletedClone(t *testing.T, name string, id int) string {
 	return root
 }
 
-// boardPlanByID returns the board's row for a plan id, or nil when the
-// plan is off the board.
-func boardPlanByID(doc report.BoardDoc, id int64) *report.BoardPlan {
-	for i := range doc.Plans {
-		if doc.Plans[i].ID == id {
-			return &doc.Plans[i]
+// findFirst returns a pointer to the first item matching, or nil when
+// none does — the one linear-scan-by-predicate every by-field test
+// lookup (boardPlanByID, boardPlanByRepo, planCardByRepo) shares,
+// rather than each keeping its own copy of the same loop.
+func findFirst[T any](items []T, match func(T) bool) *T {
+	for i := range items {
+		if match(items[i]) {
+			return &items[i]
 		}
 	}
 
 	return nil
+}
+
+// boardPlanByID returns the board's row for a plan id, or nil when the
+// plan is off the board.
+func boardPlanByID(doc report.BoardDoc, id int64) *report.BoardPlan {
+	return findFirst(doc.Plans, func(p report.BoardPlan) bool { return p.ID == id })
 }
 
 // TestFetchFlagDefaultsOnAndNegates: the global --fetch bool defaults
