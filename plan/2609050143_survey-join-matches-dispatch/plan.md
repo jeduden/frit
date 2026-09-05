@@ -72,25 +72,44 @@ inline in `liveLaneFor`: `fleet.RepoName` over the lane's worktree
 root through the host's own git. Phase 1 lifts it into one helper
 both joins call, rather than a second copy. `presenceUnknown` is
 already a pure function of the read outcomes; Phase 2 feeds the
-survey's own `hostProbs` through it, unchanged. The `attended`
-callback [`report`](../../internal/report/discovery.go)'s `cardsOf`
-and `BoardDoc.AddPlan` take is the seam both phases work behind, so
-the report package needs no new field — only the string the callback
-answers changes.
+survey's own read through it, unchanged — its `hostProbs`, and the
+local socket error `liveByBranch` used to swallow, so that `ready`,
+`pick` and `find` carry an unreachable herdr in `problems[]` as
+`board` already marks it. The survey joins at two sites, not one
+callback: `ready`, `pick` and `find` hand
+[`cardsOf`](../../internal/report/discovery.go) a `presence` callback
+answered by `presenceFor`, and `board` hands `BoardDoc.AddPlan` the
+agent and status `agentFor` reads. Both derive the cleared `dead` and
+the `ask` from that one status string, and `board` also emits it as
+`agent_status`. So Phase 2 cannot withhold the ask by answering a
+different status: the only status that clears `dead` and earns no ask
+is `unknown`, which would misreport a pane herdr saw working. It adds
+one input beside the status — presence complete or not — that `askOf`
+reads and `agent_status` does not.
 
-**What was looked at and not reused.** `herdr.Lane.Repo`, set in
+**What was looked at and not reused.** `herdr.Lane.Repo` is set in
 [`Join`](../../internal/herdr/resolve.go) as the basename of the
-resolved worktree root, is not the repository's name for a linked
-worktree — that is the lane directory's own name — which is why
-`liveLaneFor` resolves through `fleet.RepoName` instead. `who` renders
-`Lane.Repo` as a column and is left alone; this plan does not redefine
-it. A fleet-wide "presence complete" flag on the gather result was
-considered and set aside: the per-host problems already carry the
-`noPresence` bit `presenceUnknown` reads.
+resolved worktree root. For a linked worktree that is the lane
+directory's own name, not the repository's. That is why `liveLaneFor`
+resolves through `fleet.RepoName` instead. `who` renders `Lane.Repo` as
+a column and is left alone; this plan does not redefine it. A
+"presence complete" flag stored on the gather result was considered
+and set aside. The per-host problems already carry the `noPresence`
+bit `presenceUnknown` reads. The survey computes the flag at the join
+and hands it to the report as the ask's second input, rather than
+keeping it twice.
 
 **Out of scope.** The verbs' own rules do not move. `who` is
 unchanged. No new herdr query: the join reads the same `agent list`
-it reads today.
+it reads today. The ask's selector does not move either, and it is a
+gap this plan narrows but does not close: `AskCommand` names the plan
+by bare id, `Resolve` refuses an id two repositories share as
+ambiguous, and no selector form names a repository — a slug matches
+titles, repository-relative paths and branches, none of which tell two
+same-named plans apart. So in this plan's own fixture the live row's
+ask names the right pane and still refuses when run from outside the
+lane's checkout; only cwd inference resolves it. A repository-qualified
+selector for the ask is a plan of its own.
 
 ## Tasks
 
@@ -99,15 +118,17 @@ it reads today.
    same-named branch in another repository neither clears `dead` nor
    earns an ask.
 2. Phase 2: withhold the ask — never the dead-clearing — when the
-   presence read was incomplete by `presenceUnknown`'s own rule, so
-   the survey offers only what the verb will take.
+   presence read was incomplete by `presenceUnknown`'s own rule, a
+   configured host unread or the local herdr unreachable, so the
+   survey offers only what the verb will take and carries the gap in
+   `problems[]` on every survey verb.
 
 ## Execution
 
-| Phase | Title                                           | Tier   | Gate                                                                                                                                                              |
-| ----- | ----------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | the survey keys live lanes by repository        | sonnet | Unit test: two repos holding plan 7 on `plan/7`, one live; the dead repo's rows stay dead with no ask and no agent; `liveLaneFor` unchanged; suite and lint clean |
-| 2     | the survey withholds the ask on unread presence | sonnet | Unit test: a host with `noPresence` and a live pane elsewhere; rows clear dead but carry `ask: ""`; a cached host still offers the ask; suite and lint clean      |
+| Phase | Title                                           | Tier   | Gate                                                                                                                                                                                |
+| ----- | ----------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | the survey keys live lanes by repository        | sonnet | Unit test: two repos holding plan 7 on `plan/7`, one live; the dead repo's rows stay dead, no ask, no agent; `liveLaneFor`'s tests pass unedited; suite and lint clean              |
+| 2     | the survey withholds the ask on unread presence | sonnet | Unit test: unread host, live pane elsewhere; rows clear dead, `ask: ""`, `agent_status` as herdr saw it; unreachable herdr reads alike on every survey verb; cached host still asks |
 
 ## Phases
 
@@ -147,7 +168,11 @@ footer: |
       `liveLaneFor` uses, written once and called from both joins
 - [ ] When a configured host went unread with no cache, every survey
       row carries `ask: ""` and the host rides in `problems[]`; a pane
-      herdr did show still clears `dead`
+      herdr did show still clears `dead` and its `agent_status` is the
+      status herdr reported, never rewritten to withhold the ask
+- [ ] With the local herdr unreachable, `ready`, `pick` and `find`
+      carry the socket in `problems[]` and every row's `ask` is empty,
+      the reading `board` and the dispatch verbs already give
 - [ ] A host served from stale cache does not withhold the ask,
       matching `presenceUnknown`
 - [ ] `open`, `nudge` and `message` are unchanged: their tests pass

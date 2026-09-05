@@ -23,44 +23,68 @@ returns `(nil, false, nil)` on failure and never hands the error back,
 so no caller can feed it to `presenceUnknown`. Change its signature to
 `(map[repoBranch]herdr.Lane, []hostProblem, error)`, mirroring
 `liveLaneFor`'s own shape. Then `board`/`ready`/`pick`/`find` can call
-`presenceUnknown(err, hostProbs)` exactly as `open` does. Add unit
-tests, leading with the observed case:
+`presenceUnknown(err, hostProbs)` exactly as `open` does.
 
-- A held plan whose bound session is confirmed gone, one configured
-  host (`--hosts`) that answered with neither a live read nor a cache,
-  and a *different* host's live pane herdr did show: `board --json`'s
-  row for that plan clears `dead`, names the agent, but carries
-  `ask: ""`; the unread host still rides in `problems[]`.
-- The same fixture through `ready --json` (and via `cardsOf`, pick and
-  find): the card's `dead` clears, `ask` stays `""`.
-- A host served from stale cache (present in `problems[]` as a
-  reachability warning, `noPresence` false) does not withhold the ask
-  — `presenceUnknown` already draws this line; the survey must not
-  redraw it.
+**Two joins, two callers of `askOf`, one gate.** `ready`, `pick` and
+`find` hand [`cardsOf`](../../internal/report/discovery.go) a
+`presence` callback answered by `presenceFor`. `board` hands
+`BoardDoc.AddPlan` the agent and status `agentFor` reads. Both derive
+`Dead`-clearing and `Ask` from that one status string. `board` also
+renders it verbatim as `agent_status`. A design that withholds the ask
+by having `agentFor`/`presenceFor` answer `herdr.StatusUnknown` when
+presence is incomplete works for `Ask`. But it also rewrites
+`agent_status` — a pane herdr confirmed working would render as
+unknown, misreporting a fact the survey actually has, purely as a side
+effect of gating a different field. The correct shape adds a second
+input beside the status: `askOf(p, status, unknown bool)`, `cardsOf`
+and `BoardDoc.AddPlan` taking the same bool and passing it through.
+`agentFor`/`presenceFor` never change; they keep reporting the pane's
+real status always.
 
-Each fails today: `liveByBranch`'s middle return is a bare `bool`, and
-`agentFor`/`presenceFor` have no way to know presence was incomplete,
-so every row offers its ask exactly as if every host had answered.
-Commit the red.
+Add unit tests, leading with the observed case:
 
-**GREEN.** Change `agentFor` and `presenceFor` to take one more
-argument: the `unknown bool` `board`/`ready`/`pick`/`find` each
-compute once via `presenceUnknown`. When a lane has a live pane (a
-non-empty status) and `unknown` is true, downgrade the returned status
-to `herdr.StatusUnknown`. `askOf`'s existing `askable` gate already
-refuses that status, so `Ask` comes back `""`. Neither `askOf`,
-`cardsOf`, nor `BoardDoc.AddPlan` changes. A non-empty status, unknown
-included, still clears `Dead` — a pane being there is not in question,
-only what it is doing is. This is the seam the plan's own Context
-names: no new field on `PlanCard` or `BoardPlan`, only the string the
-callback answers.
+- `askOf`/`cardsOf`/`BoardDoc.AddPlan`, given `unknown: true` on an
+  otherwise-attended dead-session plan: `Ask` is `""`, `Dead` still
+  clears, and (for `BoardDoc.AddPlan`) `AgentStatus` still reads the
+  pane's real status, not `unknown`. Construct the plan directly
+  (`discovery.Plan{Held: true, Dead: true, ...}`), not through a real
+  fleet: a held plan needs `Dead` or `Stale` to be a `ready`/`pick`/
+  `find` candidate at all, and both are computed by `observeHolds` off
+  the same `os.UserCacheDir()` a broken-presence-cache fixture would
+  also have to break, so no plan a real "host went unread" fixture can
+  build ever carries an ask to withhold in the first place. Pin the
+  behavior at the report package instead, where a plan's `Dead` needs
+  no fleet at all.
+- `liveByBranch` hands `fleetPresence`'s error straight back instead of
+  swallowing it (a herdr it cannot reach yields `(nil, nil, err)`, not
+  `(nil, false, nil)`).
+- A full command test that is testable end to end: with the local
+  herdr unreachable, `ready` (and, by the same three lines, `pick` and
+  `find`) now carries `"herdr"` in `problems[]`, matching what `board`
+  already implies through `Presence` and what `open`/`nudge`/`message`
+  already give through `presenceUnknown`.
 
+Each fails today: `liveByBranch`'s middle return is a bare `bool` with
+no error to hand back; `askOf` takes no second input, so `ready`,
+`pick` and `find` never learn presence was incomplete; and the
+unreachable-herdr problem never reaches `ready`/`pick`/`find`'s
+`problems[]` at all. Commit the red.
+
+**GREEN.** `askOf(p discovery.Plan, status string, unknown bool) string`
+refuses on `unknown` before ever consulting `askable(status)`.
+`cardsOf` takes the same `unknown bool` and threads it to `askOf`,
+touching nothing else. `ReadyDoc.SetPlans`, `PickDoc.SetPlans` and
+`FindDoc.SetPlans` take it too, forwarding it to `cardsOf`.
+`BoardDoc.AddPlan(p, agent, status string, unknown bool)` threads it to
+its own `askOf` call, leaving `AgentStatus: status` exactly as before.
 Wire `board`, `ready`, `pick` and `find`'s `Run` methods. Read
 `liveByBranch`'s three return values. Compute
-`unknown := presenceUnknown(liveErr, hostProbs)` once. Pass it into
-every `agentFor`/`presenceFor` call for that command. `board`'s
-`doc.Presence` keeps its exact meaning (`liveErr == nil`) — do not
-fold it into `unknown`, which also covers a stale-cache-only gap
+`unknown := presenceUnknown(liveErr, hostProbs)` once. Carry
+`liveErr` into `problems[]` via `doc.AddProblem("herdr", liveErr)` when
+non-nil — `ready`, `pick` and `find` have no `Presence`-style field of
+their own, so this is the only channel they have for it. `board`'s
+`doc.Presence` keeps its exact meaning (`liveErr == nil`); it is not
+folded into `unknown`, which also covers a stale-cache-only gap
 `doc.Presence` was never about.
 
 **Guard the edges.** A fleet with no `--hosts` configured is
