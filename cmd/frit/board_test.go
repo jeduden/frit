@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/textw"
@@ -181,6 +182,76 @@ func TestPresenceForMissesASameNamedBranchInAnotherRepo(t *testing.T) {
 
 	assert.Empty(t, presenceFor(p, live),
 		"the live lane sits in another repository's plan/7, not this one's")
+}
+
+// TestLaneRepoResolvesThroughTheMainWorktreeList: laneRepo's own unit
+// test, direct rather than only through liveByBranch/liveLaneFor's
+// integration tests (CLAUDE.md: every function ships with a dedicated
+// unit test). A lane in a linked worktree whose directory is not named
+// for the repository still resolves to the repository, through
+// fleet.RepoName's walk of the main worktree list — the case
+// herdr.Lane.Repo (a bare basename) gets wrong.
+func TestLaneRepoResolvesThroughTheMainWorktreeList(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "orrery")
+	wt := filepath.Join(t.TempDir(), "not-named-orrery")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7", wt)
+
+	got := laneRepo(herdr.Lane{Root: wt}, gitwt.Exec)
+
+	assert.Equal(t, "orrery", got,
+		"a linked worktree resolves to the repository, not its own directory name")
+}
+
+// TestLaneRepoFallsBackToTheRootsBasenameWhenGitCannotAnswer: the same
+// fallback fleet.RepoName documents for an unreadable worktree list —
+// laneRepo inherits it rather than hiding it behind a different answer.
+func TestLaneRepoFallsBackToTheRootsBasenameWhenGitCannotAnswer(t *testing.T) {
+	broken := func(string, ...string) ([]byte, error) {
+		return nil, fmt.Errorf("boom")
+	}
+
+	got := laneRepo(herdr.Lane{Root: "/some/root-name"}, broken)
+
+	assert.Equal(t, "root-name", got,
+		"an unreadable worktree list falls back to the root's own basename")
+}
+
+// TestLiveByBranchResolvesEachWorktreeRootOnlyOnce: two panes sharing
+// one worktree root — two terminals in the same lane — must not pay
+// laneRepo's git-worktree-list walk twice for the same root; a cache
+// keyed by root serves the second pane from the first's answer.
+func TestLiveByBranchResolvesEachWorktreeRootOnlyOnce(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/7")
+
+	calls := 0
+	countingGit := func(dir string, args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "list" {
+			calls++
+		}
+		return gitwt.Exec(dir, args...)
+	}
+	rt := &runtime{git: countingGit, herdr: herdrReturning(
+		map[string]any{
+			"agent": "claude", "agent_status": "working", "cwd": repo,
+			"pane_id": "wA:p1", "terminal_title_stripped": "one",
+		},
+		map[string]any{
+			"agent": "claude", "agent_status": "idle", "cwd": repo,
+			"pane_id": "wA:p2", "terminal_title_stripped": "two",
+		},
+	)}
+
+	live, ok, _ := liveByBranch(&cli{}, rt)
+
+	require.True(t, ok)
+	assert.Contains(t, live, repoBranch{repo: "atlas", branch: "plan/7"})
+	assert.Equal(t, 1, calls,
+		"two panes sharing one worktree root resolve its repository once, not once per pane")
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
