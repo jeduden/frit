@@ -2,22 +2,19 @@
 
 [![codecov][codecov-badge]][codecov-project]
 
-frit is a command-line tool for developers who run coding agents. It
-finds every plan across many git repositories, branches and machines
-and tells you which plan is ready to start. It claims a plan with one
-atomic git push, so two agents never begin the same work. Then it
-hands the plan to an agent in its own worktree and steps back. The
-name is a glassmaking term for material prepared before the melt;
+frit is a command-line tool for developers who run coding agents: it
+finds every plan across many repositories, branches and machines,
+claims one with a single atomic git push, and hands it to an agent.
+The name is a glassmaking term for material prepared before the melt;
 [the naming note](docs/research/naming.md) explains the choice.
 
 ## The problem frit solves
 
 Work on a developer's machine is scattered: many repositories, many
-branches in each, worktrees for some, and agents running in a few. A
-plan is a markdown file that may exist on only one branch. No single
-view shows all of that, and nothing stops two agents from starting
-the same plan. [Why frit exists](docs/research/fleet-index/README.md)
-records the survey that found no tool for this gap.
+branches in each, worktrees for some, agents running in a few, and a
+plan file that may exist on one branch only. No single view shows all
+of that, and nothing stops two agents from starting the same plan;
+[why frit exists](docs/research/fleet-index/README.md) records the gap.
 
 frit is that single view. It does three things:
 
@@ -27,17 +24,16 @@ frit is that single view. It does three things:
   nobody holds them.
 - It claims a plan by pushing a branch to the git remote, then hands
   the plan to an agent in a worktree of its own. That claim is the
-  only thing frit writes: it never edits a plan, never writes a prompt
-  of its own, and never reads an agent's conversation. The
-  [architecture](docs/architecture.md) page calls this the
-  one-mutation rule.
+  one mutation frit owns on the shared refs: it never edits a plan,
+  never writes a prompt of its own, and never reads an agent's
+  conversation. [architecture.md](docs/architecture.md) calls this
+  the one-mutation rule.
 
 ## How frit works
 
-Three tools share the job. mdsmith parses the markdown. herdr runs
-the terminal panes and worktrees that agents work in. frit reads
-both and joins them with what git holds. [How frit and mdsmith fit
-together](docs/mdsmith-and-frit.md) draws the line between the three.
+mdsmith parses the markdown. herdr runs the panes and worktrees that
+agents work in. frit joins both with what git holds; [how frit and
+mdsmith fit together](docs/mdsmith-and-frit.md) draws the line.
 
 ```mermaid
 flowchart LR
@@ -64,16 +60,15 @@ that never reaches the remote, such as a running pane or an open pull
 request, stays on the machine that has it. frit reads that fact from
 herdr on that machine, or asks the agent. It never guesses it from
 the refs. [CLAUDE.md](CLAUDE.md) states this rule and
-[architecture.md](docs/architecture.md) explains it.
-
-So every machine sees a claim once it fetches, while a running agent
-is visible only where it runs. `--hosts a,b` reads other machines'
-herdr over ssh; a host that does not answer shows `?` in the board's
-agent column. When two machines claim one plan at once, the remote
+[architecture.md](docs/architecture.md) explains it. `--hosts a,b`
+reads other machines' herdr over ssh; a host that does not answer is
+reported as a problem and its lanes show their last cached presence,
+while `?` in the board's agent column means the local herdr socket
+did not answer. When two machines claim one plan at once, the remote
 accepts the first push and the second reports who won.
 
-A plan moves through a small set of states. The status glyph lives in
-the plan file's front matter. The hold is a branch on the remote.
+A plan moves through a small set of states; the status glyph lives
+in the plan file's front matter, the hold on the remote.
 
 ```mermaid
 stateDiagram-v2
@@ -92,14 +87,14 @@ unmerged commits.
 
 ## Words frit uses
 
-| Word        | Meaning                                                              | Defined in                                                |
-| ----------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| fleet, root | every git repository under one directory, the root                   | [claiming.md](docs/claiming.md#the-fleet)                 |
-| plan        | a markdown file with id, title, status and model in its front matter | [plan/proto.md](plan/proto.md)                            |
-| hold, lease | the branch `plan/<id>` on the remote; its tip says who holds it      | [claiming.md](docs/claiming.md#the-work-ref-is-the-lease) |
-| lane        | the worktree on a plan's branch, and the pane an agent works it in   | [claiming.md](docs/claiming.md#work-rides-the-same-ref)   |
-| rescue ref  | where unmerged commits are parked before a lane is torn down         | [claiming.md](docs/claiming.md#fencing-and-yield)         |
-| tier        | the model named in a plan's front matter: haiku, sonnet or opus      | [plan/proto.md](plan/proto.md)                            |
+| Word        | Meaning                                                                | Defined in                                                 |
+| ----------- | ---------------------------------------------------------------------- | ---------------------------------------------------------- |
+| fleet, root | every git repository under one directory, the root                     | [claiming.md](docs/claiming.md#the-fleet)                  |
+| plan        | a markdown file with id, title, status and, optionally, model up front | [plan/proto.md](plan/proto.md)                             |
+| hold, lease | the branch `plan/<id>` on the remote; its tip says who holds it        | [claiming.md](docs/claiming.md#the-work-ref-is-the-lease)  |
+| lane        | one worktree on one host, working one plan; an agent's pane rides it   | [lease-protocol.md](docs/research/lease-protocol.md#terms) |
+| rescue ref  | where unmerged commits are parked before a lane is torn down           | [claiming.md](docs/claiming.md#fencing-and-yield)          |
+| tier        | the model named in a plan's front matter: haiku, sonnet or opus        | [plan/proto.md](plan/proto.md)                             |
 
 ## Install
 
@@ -111,7 +106,7 @@ go install github.com/jeduden/frit/cmd/frit@latest
 
 Or download a binary from the
 [releases page](https://github.com/jeduden/frit/releases) and check
-its build provenance attestation before you run it:
+its provenance before you run it:
 
 ```sh
 gh attestation verify frit-linux-amd64 -R jeduden/frit
@@ -124,14 +119,14 @@ a source build. Three other tools matter:
   read and for the claim, as [CLAUDE.md](CLAUDE.md) requires.
 - **herdr** must be running for any verb that touches a lane: `claim`,
   `start`, `open`, `nudge`, `message` and `yield`. The survey verbs
-  work without it; `who` and `board` then show the agent as unknown.
+  work without it: `board` then shows `?` in the agent column, and
+  `who` prints `no live agents` and reports the socket as a problem.
 - **mdsmith** lints plans and regenerates the plan index. Install it
   with `go install github.com/jeduden/mdsmith/cmd/mdsmith@latest`.
 
 ## First run
 
-Point frit at the directory that holds your repositories, then give
-one repository the files frit and mdsmith read:
+Point frit at your repositories, then give one the files it reads:
 
 ```sh
 export FRIT_ROOT=~/git
@@ -139,53 +134,54 @@ cd ~/git/myrepo
 frit init --mdsmith .   # writes .frit.yml, .mdsmith.yml, plan/proto.md, PLAN.md
 ```
 
-Write a plan as `plan/<id>_<slug>.md`, following the template in
-[plan/proto.md](plan/proto.md). The id is the creation minute in UTC,
-from `date -u +%y%m%d%H%M`. Commit it and push. Then:
+Write a plan as `plan/<id>_<slug>.md`, or as
+`plan/<id>_<slug>/plan.md` with one `phase-N.md` per phase, following
+the template in [plan/proto.md](plan/proto.md). The id is the creation
+minute in UTC, from `date -u +%y%m%d%H%M`. Regenerate the index with
+`mdsmith fix PLAN.md`, commit both and push. Then:
 
 ```sh
-mdsmith check plan/    # the plan passes the schema
+mdsmith check .        # the plan passes the schema, the index is current
 frit doctor            # no missing Goal, tier or Execution row
 frit ready             # the plan is listed: deps done, nobody holds
 frit claim <id>        # pushes plan/<id>, stands up a worktree beside the repo
 frit board             # shows the hold and, once one runs, the agent
 ```
 
-To claim and start an agent in one step, use `frit start <id> --go`
-instead of `claim`. To take the best plan without naming one, use
-`frit pick --go`. Both are dry runs until `--go`.
+`frit start <id> --go` claims and starts an agent in one step;
+`frit pick --go` does the same for the best plan nobody holds.
 
 ## Commands
 
 `frit --help` lists every verb, and `frit <verb> --help` its flags.
 Grouped by what they do:
 
-| Group    | Verb                 | What it does                                                        |
-| -------- | -------------------- | ------------------------------------------------------------------- |
-| survey   | `repos`              | list repositories and their worktrees                               |
-| survey   | `plans [--detail]`   | count plan files on every ref, or list them                         |
-| survey   | `board [--wip]`      | outstanding plans: status, who holds each, the agent on it          |
-| survey   | `who`                | which lane has a live agent, read from herdr                        |
-| survey   | `stale --days N`     | worktrees whose branch has not moved                                |
-| survey   | `orphans`            | claims, checkouts and rescue refs that no longer add up             |
-| survey   | `doctor`             | plans with a semantic gap: missing Goal, tier, Execution row        |
-| survey   | `drift`              | not-done plans whose work has landed, with the commit evidence      |
-| discover | `ready`              | plans startable now: deps done, nobody holds                        |
-| discover | `pick [-n N]`        | the same, ranked by how many plans each unblocks; `--go` starts one |
-| discover | `next <plan>`        | the first phase of a plan not yet done                              |
-| discover | `phase <plan>`       | the open phase's spec, prior handoff, notes, tier and gate          |
-| discover | `show <plan>`        | a plan and everything that blocks it                                |
-| discover | `find <text>`        | search titles and summaries across every ref                        |
-| lease    | `claim <plan>`       | mint the atomic hold on a startable plan                            |
-| lease    | `release <plan>`     | end this lane's own lease with a release marker                     |
-| lease    | `yield <plan>`       | end a fenced lane: park its commits to a rescue ref, tear it down   |
-| drive    | `open <plan>`        | focus the pane a plan's lane runs in; sends no text                 |
-| drive    | `nudge <plan>`       | prompt the next open phase into an idle lane                        |
-| drive    | `message <plan> ...` | send text to a live lane, working or idle                           |
-| drive    | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt      |
-| clean    | `reap [<plan>]`      | tear down what `orphans` reports                                    |
-| setup    | `init [<dir>]`       | write `.frit.yml` with every default; `--mdsmith` adds the schema   |
-| setup    | `skills [<dir>]`     | install the bundled agent skills into `.claude/skills`              |
+| Group    | Verb                 | What it does                                                                                                           |
+| -------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| survey   | `repos`              | list repositories and their worktrees                                                                                  |
+| survey   | `plans [--detail]`   | count plan files on every ref, or list them                                                                            |
+| survey   | `board [--wip]`      | outstanding plans: status, holder, agent; `--columns` picks columns, `description` and `lane` alias `title` and `held` |
+| survey   | `who`                | which lane has a live agent, read from herdr                                                                           |
+| survey   | `stale --days N`     | worktrees whose branch has not moved                                                                                   |
+| survey   | `orphans`            | claims, checkouts and rescue refs that no longer add up                                                                |
+| survey   | `doctor`             | plans with a semantic gap: missing Goal, tier, Execution row                                                           |
+| survey   | `drift`              | not-done plans whose work has landed, with the commit evidence                                                         |
+| discover | `ready`              | plans startable now: deps done, nobody holds; `--all` adds files that are not plans                                    |
+| discover | `pick [-n N]`        | the same, ranked by how many plans each unblocks; `--go` starts one                                                    |
+| discover | `next <plan>`        | the first phase of a plan not yet done                                                                                 |
+| discover | `phase [<plan>]`     | the open phase's bundle; runs only from inside the plan's lane                                                         |
+| discover | `show <plan>`        | a plan and everything that blocks it; `--all` adds deps already done                                                   |
+| discover | `find <text>`        | search titles and summaries across every ref                                                                           |
+| lease    | `claim <plan>`       | mint the atomic hold on a startable plan                                                                               |
+| lease    | `release <plan>`     | end this lane's own lease with a release marker                                                                        |
+| lease    | `yield <plan>`       | end a fenced lane: park its commits to a rescue ref, tear it down                                                      |
+| drive    | `open <plan>`        | focus the pane a plan's lane runs in; sends no text                                                                    |
+| drive    | `nudge <plan>`       | prompt the next open phase into an idle lane                                                                           |
+| drive    | `message <plan> ...` | send text to a live lane, working or idle                                                                              |
+| drive    | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR`  |
+| clean    | `reap [<plan>]`      | tear down what `orphans` reports                                                                                       |
+| setup    | `init [<dir>]`       | write `.frit.yml` with every default; `--mdsmith` adds the schema                                                      |
+| setup    | `skills [<dir>]`     | install the bundled agent skills into `.claude/skills`                                                                 |
 
 Three conventions hold across the table:
 
@@ -199,10 +195,16 @@ Three conventions hold across the table:
   prints the reason and exits 0. Every reason is listed in
   [the refusal table](docs/claiming.md#when-a-claim-is-refused).
 
+`board`, `ready`, `pick` and `find` take `--sort status|repo|id|held`
+and `--reverse`; `id` is creation time, `held` puts claimed lanes
+first. Tables trim titles to the terminal width only on a TTY; a pipe
+gets the full text, and `--width N` sets the width where none can be
+measured. Global flags may sit before or after the verb.
+
 ## Scripting with JSON
 
-Every verb takes `--json` and answers with a document instead of a
-table. Both come from the same model, so they never disagree.
+Every verb takes `--json`; the table and the document come from one
+model, so they never disagree.
 
 ```sh
 frit orphans --json | jq '.repos[] | select(.unstaffed | length > 0)'
@@ -210,9 +212,8 @@ frit orphans --json | jq '.repos[] | select(.unstaffed | length > 0)'
 
 Three rules make the document safe to write against. Every key is
 always present. A list is `[]` and never null. A repository frit could
-not read is carried in `problems`, so stdout is the whole report. The
-golden files in [internal/report/testdata](internal/report/testdata)
-pin every verb's document, and
+not read is carried in `problems`, so stdout is the whole report.
+Golden files in [internal/report](internal/report) pin every document;
 [UX principles](docs/ux-principles.md#the-json-contract) explain them.
 
 ## Configuration
@@ -256,22 +257,22 @@ writes seven Claude Code skills into a repository's `.claude/skills`:
 | `plan-drive`   | survey the board and drive one lane up the `open`, `nudge`, `start` ladder |
 
 The skills are embedded in the binary, and `--via "go run ./cmd/frit"`
-changes how they invoke frit. The one prompt frit ever sends to a pane
-is `/plan-phase <id> [phase]`, composed in
-[internal/dispatch](internal/dispatch/dispatch.go).
+changes how they invoke frit. The prompt frit composes for a pane is
+`/plan-phase <id> [phase]`, from
+[internal/dispatch](internal/dispatch/dispatch.go); `start --note`
+and `--edit` amend it, and `message` sends whatever text you give it.
 [Development](docs/development.md#the-skills-bundle) has the rest.
 
 ## Releases
 
 Every release is on the
 [GitHub releases page](https://github.com/jeduden/frit/releases), or
-from a terminal with `gh release list -R jeduden/frit`. A release
-carries notes generated from the merged pull requests, five platform
-binaries, a checksum file and a provenance attestation.
-
-A release is made from the Actions "Run workflow" button on
+from a terminal with `gh release list -R jeduden/frit`. It carries
+notes from the merged pull requests, five platform binaries, a
+checksum file and a provenance attestation. A release is made from
+the Actions "Run workflow" button on
 [release.yml](.github/workflows/release.yml) with a version such as
-`v0.11.0`. The workflow checks the version, runs the suite, builds the
+`v0.11.0`; the workflow checks the version, runs the suite, builds the
 binaries, and creates the tag only once they exist.
 [Development](docs/development.md#ci-and-release) has the details.
 
