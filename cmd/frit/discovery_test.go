@@ -621,6 +621,73 @@ func TestReadyKeysLiveLaneByRepositoryAndBranch(t *testing.T) {
 	assert.Empty(t, atlasCard.Ask)
 }
 
+// TestBoardWithholdsAskWhenAConfiguredHostWentUnread: presenceUnknown's
+// own rule — a configured host that answered with neither a live read
+// nor a cache — reaches board too. The row for a held, dead-session
+// plan whose own branch a live pane attends clears dead and names the
+// agent, but carries no ask, since message itself would refuse on
+// presence unknown before ever reaching that pane.
+func TestBoardWithholdsAskWhenAConfiguredHostWentUnread(t *testing.T) {
+	isolate(t)
+	// Force presence.CachePath to fail, so the configured remote cannot
+	// be read or reconciled and comes back noPresence, not merely stale.
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := claim.Acquire(repo, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x", Session: "wOld:p1",
+	}, gitwt.Exec)
+	require.NoError(t, err)
+	wt := filepath.Join(t.TempDir(), "atlas-lane")
+	git(t, repo, "worktree", "add", "-q", wt, claim.Branch(7))
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": wt,
+		"pane_id": "wA:p1", "terminal_title_stripped": "in atlas",
+	}))
+	var doc report.BoardDoc
+
+	emit(t, &doc, "board", "--hosts", "box", "--root", root)
+
+	row := boardPlanByID(doc, 7)
+	require.NotNil(t, row)
+	assert.False(t, row.Dead, "the pane herdr did show still disproves nobody is here")
+	assert.Equal(t, "claude", row.Agent)
+	assert.Empty(t, row.Ask, "a configured host went unread, so no ask is offered")
+	assert.NotEmpty(t, doc.Problems, "the unread host rides in problems")
+}
+
+// TestReadyWithholdsAskWhenAConfiguredHostWentUnread is board's test
+// above through ready — and via cardsOf, pick and find.
+func TestReadyWithholdsAskWhenAConfiguredHostWentUnread(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := claim.Acquire(repo, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x", Session: "wOld:p1",
+	}, gitwt.Exec)
+	require.NoError(t, err)
+	wt := filepath.Join(t.TempDir(), "atlas-lane")
+	git(t, repo, "worktree", "add", "-q", wt, claim.Branch(7))
+	withHerdr(t, herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": wt,
+		"pane_id": "wA:p1", "terminal_title_stripped": "in atlas",
+	}))
+	var doc report.ReadyDoc
+
+	emit(t, &doc, "ready", "--hosts", "box", "--root", root)
+
+	card := planCardByRepo(doc.Plans, "atlas")
+	require.NotNil(t, card, "atlas's dead-session plan 7 is a takeover candidate")
+	assert.False(t, card.Dead, "the pane herdr did show still disproves nobody is here")
+	assert.Empty(t, card.Ask, "a configured host went unread, so no ask is offered")
+	assert.NotEmpty(t, doc.Problems, "the unread host rides in problems")
+}
+
 // commitPhasedPlan writes and commits a plan carrying a phase ledger.
 func commitPhasedPlan(
 	t *testing.T, repo string, id int, status, title string,

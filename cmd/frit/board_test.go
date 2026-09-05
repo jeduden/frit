@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,10 +151,10 @@ func TestPresenceForReportsTheLivePaneOnAHoldBranch(t *testing.T) {
 	}
 
 	assert.Equal(t, herdr.StatusIdle,
-		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/99", "plan/100"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/99", "plan/100"}}, live, false),
 		"a live lane on one of the plan's hold branches is attended")
 	assert.Equal(t, herdr.StatusUnknown,
-		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/300"}}, live),
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/300"}}, live, false),
 		"a pane there is attended even when herdr cannot say what it does")
 }
 
@@ -166,7 +167,7 @@ func TestPresenceForMissesAPlanWithNoLiveBranch(t *testing.T) {
 	}
 	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/200"}}
 
-	assert.Empty(t, presenceFor(p, live),
+	assert.Empty(t, presenceFor(p, live, false),
 		"no live lane on any hold branch means nobody is there")
 }
 
@@ -180,8 +181,68 @@ func TestPresenceForMissesASameNamedBranchInAnotherRepo(t *testing.T) {
 	}
 	p := discovery.Plan{Repo: "atlas", Holds: []string{"plan/7"}}
 
-	assert.Empty(t, presenceFor(p, live),
+	assert.Empty(t, presenceFor(p, live, false),
 		"the live lane sits in another repository's plan/7, not this one's")
+}
+
+// TestPresenceForDowngradesToUnknownWhenPresenceWasIncomplete: a
+// configured host that went unread leaves any live pane's real status
+// unproven, so presenceFor reports unknown rather than the pane's own
+// answer — the one status askOf's askable gate already refuses,
+// withholding the ask without presenceFor's caller changing at all.
+// A plan with no live lane at all still reports nothing: there is no
+// status to downgrade.
+func TestPresenceForDowngradesToUnknownWhenPresenceWasIncomplete(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+
+	assert.Equal(t, herdr.StatusUnknown,
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, live, true),
+		"a live pane's real status is unproven while presence is incomplete")
+	assert.Empty(t,
+		presenceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/200"}}, live, true),
+		"no live lane at all has no status to downgrade")
+}
+
+// TestAgentForReportsTheAgentAndStatusOnALiveLane: agentFor's own
+// baseline, direct rather than only through board's integration tests
+// (CLAUDE.md: every function ships with a dedicated unit test).
+func TestAgentForReportsTheAgentAndStatusOnALiveLane(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+
+	agent, status := agentFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, live, false)
+
+	assert.Equal(t, "claude", agent)
+	assert.Equal(t, herdr.StatusWorking, status)
+}
+
+// TestAgentForMissesAPlanWithNoLiveLane: no live lane on any hold
+// branch names no agent and no status.
+func TestAgentForMissesAPlanWithNoLiveLane(t *testing.T) {
+	agent, status := agentFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, nil, false)
+
+	assert.Empty(t, agent)
+	assert.Empty(t, status)
+}
+
+// TestAgentForDowngradesStatusButKeepsTheAgentNameWhenPresenceWasIncomplete:
+// the same downgrade presenceFor applies, but the agent's own name
+// survives — dead-clearing in board keys off the agent, not the
+// status, so it must still name who is there even while withholding
+// what they are proven to be doing.
+func TestAgentForDowngradesStatusButKeepsTheAgentNameWhenPresenceWasIncomplete(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/100"}: {Pane: herdr.Pane{Agent: "claude", Status: "working"}},
+	}
+
+	agent, status := agentFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/100"}}, live, true)
+
+	assert.Equal(t, "claude", agent, "the pane herdr did show still names its agent")
+	assert.Equal(t, herdr.StatusUnknown, status,
+		"the pane's real status is unproven while presence is incomplete")
 }
 
 // TestLaneRepoResolvesThroughTheMainWorktreeList: laneRepo's own unit
@@ -246,12 +307,30 @@ func TestLiveByBranchResolvesEachWorktreeRootOnlyOnce(t *testing.T) {
 		},
 	)}
 
-	live, ok, _ := liveByBranch(&cli{}, rt)
+	live, _, err := liveByBranch(&cli{}, rt)
 
-	require.True(t, ok)
+	require.NoError(t, err)
 	assert.Contains(t, live, repoBranch{repo: "atlas", branch: "plan/7"})
 	assert.Equal(t, 1, calls,
 		"two panes sharing one worktree root resolve its repository once, not once per pane")
+}
+
+// TestLiveByBranchHandsBackFleetPresencesError: liveByBranch used to
+// discard fleetPresence's own error, leaving no caller able to feed it
+// to presenceUnknown — the same rule open, nudge and message already
+// apply. It now hands the error straight back, mirroring liveLaneFor's
+// own shape.
+func TestLiveByBranchHandsBackFleetPresencesError(t *testing.T) {
+	boom := errors.New("dial unix .herdr.sock: no such file")
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		return nil, boom
+	}}
+
+	live, hostProbs, err := liveByBranch(&cli{}, rt)
+
+	assert.ErrorIs(t, err, boom)
+	assert.Nil(t, live)
+	assert.Nil(t, hostProbs)
 }
 
 // TestBoardColLabelRendersHoldForHeld: the held column's header reads
