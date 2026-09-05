@@ -87,6 +87,58 @@ func TestUnprovenHeldExcludesAPlanWithNoLocalCheckout(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestUnprovenHeldExcludesAMaturedHold: a matured window is
+// staleHeld's own cell, with its own correct wording ("take it over
+// now"). Naming the wait-or-take-over sentence here too would
+// contradict it (code review, plan 2609050854 phase 3), so a stale
+// hold is excluded here even when its checkout carries no token.
+func TestUnprovenHeldExcludesAMaturedHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+
+	rt := &runtime{git: gitwt.Exec}
+	plan := discovery.Plan{
+		Repo: "atlas", ID: 7, Held: true, Stale: true, Holds: []string{"plan/7"},
+	}
+	worktrees := []gitwt.Worktree{{Path: lane, Branch: "plan/7"}}
+
+	got := unprovenHeld(rt, []discovery.Plan{plan}, "atlas", worktrees)
+
+	assert.Empty(t, got, "a matured hold is staleHeld's cell, not this one")
+}
+
+// TestUnprovenHeldExcludesADeadHold: desertedHeld's own cell, for the
+// same reason TestUnprovenHeldExcludesAMaturedHold excludes a matured
+// one.
+func TestUnprovenHeldExcludesADeadHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+
+	rt := &runtime{git: gitwt.Exec}
+	plan := discovery.Plan{
+		Repo: "atlas", ID: 7, Held: true, Dead: true, Holds: []string{"plan/7"},
+	}
+	worktrees := []gitwt.Worktree{{Path: lane, Branch: "plan/7"}}
+
+	got := unprovenHeld(rt, []discovery.Plan{plan}, "atlas", worktrees)
+
+	assert.Empty(t, got, "a confirmed-dead session is desertedHeld's cell, not this one")
+}
+
 // TestOrphansNamesTheWayOutForATokenlessOwnLane: the S49 fixture, run
 // through `frit orphans`, carries the plan in `unproven` with a
 // non-empty `next_action`, and the table names the way out too.
@@ -137,12 +189,41 @@ func TestBoardUnprovenReportsAClaimOnlyLaneWithNoToken(t *testing.T) {
 		"atlas": {Path: repo, Remote: "origin"},
 	}}
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Holds: []string{"plan/7"}}
-	cache := map[string][]gitwt.Worktree{}
+	cache := map[string]map[int64]bool{}
 
 	assert.True(t, boardUnproven(rt, res, plan, cache))
 	assert.False(t,
 		boardUnproven(rt, res, discovery.Plan{Repo: "atlas", ID: 8, Held: true}, cache),
 		"a different plan id on the same lane's branch proves nothing")
+}
+
+// TestBoardUnprovenExcludesAMaturedOrDeadHold: board.go's Ask and
+// legend already name the correct next step for a matured or
+// confirmed-dead hold — pairing NextAction with either would print
+// contradictory guidance on the same row (code review, plan
+// 2609050854 phase 3).
+func TestBoardUnprovenExcludesAMaturedOrDeadHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+
+	rt := &runtime{git: gitwt.Exec}
+	res := fleet.Result{Coords: map[string]fleet.Coord{
+		"atlas": {Path: repo, Remote: "origin"},
+	}}
+	cache := map[string]map[int64]bool{}
+
+	stale := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true}
+	assert.False(t, boardUnproven(rt, res, stale, cache))
+
+	dead := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Dead: true}
+	assert.False(t, boardUnproven(rt, res, dead, cache))
 }
 
 // TestBoardNamesTheWayOutForATokenlessOwnLane: the S49 fixture, run

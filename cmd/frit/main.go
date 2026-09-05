@@ -388,60 +388,97 @@ func resumableFromAnyLane(
 // unprovenHeld filters one repository's held plans whose checkout, on
 // this host, carries no token at all — the S49 shape a claim-only
 // lane leaves when its stand-up write never landed, or a legacy lane
-// stood up before phase 1 of plan 2609050854. Unlike desertedHeld,
-// this reads no herdr socket, and no origin coordinate either:
-// tokenlessOwnLane's own check is pure local git, so an ambiguous
-// repository, or a plan with no local checkout, costs nothing extra.
+// stood up before phase 1 of plan 2609050854. A matured window or a
+// confirmed-dead session already has its own cell — staleHeld's or
+// desertedHeld's — and its own correct wording; naming the
+// wait-or-take-over sentence here too would contradict it, so both
+// are excluded exactly as release.go's own refuseUnproved excludes
+// them (code review, plan 2609050854 phase 3).
+//
+// Every worktree's own plan id is read off the path and branch
+// gitwt.List already returned, with holdsForRoot(wt.Path).Match — the
+// same join fleet.CurrentLane makes, but skipping the herdr.Resolve
+// walk-up a path already known to be a worktree root does not need.
+// So the fleet is scanned once, never once per held plan in it, and
+// no herdr socket or origin coordinate is read either.
 func unprovenHeld(
 	rt *runtime, plans []discovery.Plan, repo string, worktrees []gitwt.Worktree,
 ) []discovery.Plan {
-	out := make([]discovery.Plan, 0)
+	byID := make(map[int64]discovery.Plan, len(plans))
 	for _, p := range plans {
-		if p.Repo != repo || !p.Held {
+		if p.Repo == repo && p.Held && !p.Stale && !p.Dead {
+			byID[p.ID] = p
+		}
+	}
+
+	out := make([]discovery.Plan, 0)
+	for _, wt := range worktrees {
+		id, ok := holdsForRoot(wt.Path).Match(wt.Branch)
+		if !ok {
 			continue
 		}
-		for _, wt := range worktrees {
-			if tokenlessOwnLane(rt, p, wt.Path) {
-				out = append(out, p)
-				break
-			}
+		p, held := byID[id]
+		if !held || claim.ReadToken(wt.Path, id, rt.git) != "" {
+			continue
 		}
+		out = append(out, p)
+		delete(byID, id)
 	}
 
 	return out
 }
 
 // boardUnproven reports whether p's own checkout, somewhere on this
-// host, carries no token — reusing tokenlessOwnLane against every
-// local worktree in p's repository rather than one cwd, since board
-// runs from outside any one lane (resumableFromAnyLane's own walk,
-// above). cache holds one repository's worktree list at a time, read
-// with gitwt.List once rather than once per held plan in it. false
-// for a repository the gather could not place, or one whose list
-// could not be read.
+// host, carries no token. A matured or confirmed-dead hold is
+// excluded, unprovenHeld's own reason — board's Ask and legend
+// already name the correct next step for either, and pairing
+// NextAction with them would print contradictory guidance on the same
+// row (code review, plan 2609050854 phase 3).
+//
+// cache holds, per repository, the ids this host's own checkouts
+// carry with no token — resolved once per repository by
+// tokenlessIDs, never once per held plan in it. false for a
+// repository the gather could not place.
 func boardUnproven(
-	rt *runtime, res fleet.Result, p discovery.Plan,
-	cache map[string][]gitwt.Worktree,
+	rt *runtime, res fleet.Result, p discovery.Plan, cache map[string]map[int64]bool,
 ) bool {
-	if !p.Held {
+	if !p.Held || p.Stale || p.Dead {
 		return false
 	}
-	coord, ok := res.Coords[p.Repo]
-	if !ok {
-		return false
-	}
-	worktrees, cached := cache[p.Repo]
+	ids, cached := cache[p.Repo]
 	if !cached {
-		worktrees, _ = gitwt.List(coord.Path, rt.git)
-		cache[p.Repo] = worktrees
+		coord, ok := res.Coords[p.Repo]
+		if !ok {
+			return false
+		}
+		ids = tokenlessIDs(rt, coord.Path)
+		cache[p.Repo] = ids
 	}
+
+	return ids[p.ID]
+}
+
+// tokenlessIDs resolves, once, every plan id this host's own
+// checkouts hold with no token, off gitwt.List's own worktree paths
+// and branches — unprovenHeld's own join, shared here rather than
+// duplicated. nil when the worktree list itself could not be read.
+func tokenlessIDs(rt *runtime, repoPath string) map[int64]bool {
+	worktrees, err := gitwt.List(repoPath, rt.git)
+	if err != nil {
+		return nil
+	}
+	ids := make(map[int64]bool, len(worktrees))
 	for _, wt := range worktrees {
-		if tokenlessOwnLane(rt, p, wt.Path) {
-			return true
+		id, ok := holdsForRoot(wt.Path).Match(wt.Branch)
+		if !ok {
+			continue
+		}
+		if claim.ReadToken(wt.Path, id, rt.git) == "" {
+			ids[id] = true
 		}
 	}
 
-	return false
+	return ids
 }
 
 // localPanes reads this host's herdr panes, nil when herdr is unset or
@@ -2093,11 +2130,11 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewBoard(c.Root, liveErr == nil)
 	carryProblems(doc, res.Problems, c.All)
 	carryHostProblems(doc, hostProbs)
-	worktreeCache := map[string][]gitwt.Worktree{}
+	unprovenCache := map[string]map[int64]bool{}
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status, unknown)
-		if boardUnproven(rt, res, p, worktreeCache) {
+		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
 	}
