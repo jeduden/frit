@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
@@ -340,6 +341,32 @@ func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
 	assert.NotContains(t, out.String(), "refused",
 		"a released hold is not held live by another lane")
 	assert.Contains(t, out.String(), "yielded plan 7")
+}
+
+// TestForeignYieldRefusal pins foreignYieldRefusal's own dispatch
+// directly, without going through the full command: ok is true only
+// for a held plan with nothing local to park, false for every plan
+// nobody holds (or holds only via a stale HoldTip) and for any plan
+// with a local copy of the ref, fenced or not, for claim.Yield's own
+// checks to sort out.
+func TestForeignYieldRefusal(t *testing.T) {
+	held := discovery.Plan{Held: true, Holds: []string{"plan/7@elsewhere"}}
+
+	reason, ok := foreignYieldRefusal(held, "")
+	assert.True(t, ok, "a held plan with nothing local to park refuses")
+	assert.Equal(t, foreignHoldRefusal(held), reason)
+
+	_, ok = foreignYieldRefusal(held, "deadbeef")
+	assert.False(t, ok, "a non-empty local is left to claim.Yield's own checks")
+
+	unheld := discovery.Plan{Held: false, HoldTip: "deadbeef"}
+	_, ok = foreignYieldRefusal(unheld, "")
+	assert.False(t, ok,
+		"a released or landed hold is not held live by another lane")
+
+	nobody := discovery.Plan{}
+	_, ok = foreignYieldRefusal(nobody, "")
+	assert.False(t, ok, "a plan nobody holds keeps its clean no-op")
 }
 
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still

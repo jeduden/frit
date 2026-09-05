@@ -38,10 +38,11 @@ verb that matches — never raw git.
 - **A deserted row**, acted on from outside its lane — herdr confirms
   the session gone, none can resume it → `go run ./cmd/frit yield <id>` parks
   any unparked suffix, then `go run ./cmd/frit claim <id>` (or `start <id>`)
-  takes it over at the next epoch. Both refuse until yield has parked
-  it. First check `go run ./cmd/frit board --json`: a row whose `ask` is
-  non-empty still has an agent on it — run that command and wait for
-  its answer before yielding.
+  takes it over at the next epoch. With nothing fetched locally to
+  park, yield refuses instead and names `frit claim` directly. First
+  check `go run ./cmd/frit board --json`: a row whose `ask` is non-empty still
+  has an agent on it — run that command and wait for its answer before
+  yielding.
 
 ## Notes
 
@@ -49,5 +50,6 @@ verb that matches — never raw git.
   branch -D` throw away the divergence a rescue ref keeps, and neither
   touches the claim ref — the hold outlives the worktree.
 - `go run ./cmd/frit board --json` shows who holds what, for the wider picture.
-- A foreign hold is `yield`'s job; `release` only ends this lane's own
-  lease.
+- A foreign hold this lane is fenced under is `yield`'s job; one with
+  nothing local to park refuses like `release`, which only ever ends
+  this lane's own lease.

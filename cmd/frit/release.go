@@ -191,9 +191,7 @@ func printRelease(out io.Writer, doc *report.ReleaseDoc) {
 			"plan %d: hold already landed; scavenged %s\n",
 			doc.Plan.ID, doc.Scavenged)
 	}
-	if doc.NextAction != "" {
-		_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
-	}
+	printNextAction(out, doc.NextAction)
 	if doc.Rescue != "" {
 		_, _ = fmt.Fprintf(out, "  rescued: %s\n", doc.Rescue)
 	}

@@ -1401,6 +1401,19 @@ func printGather(out io.Writer, g report.Gather) {
 	_, _ = fmt.Fprintln(out, g.StatusLine())
 }
 
+// printNextAction writes a refusal's way out, indented under the
+// refusal line it follows, when there is one. yield, release and start
+// each carry a NextAction of this same unadorned shape on a refusal
+// their own doc cannot otherwise prove past (open's printOpenNextStep
+// words its NextAction per hold kind instead, so it stays its own
+// function).
+func printNextAction(out io.Writer, nextAction string) {
+	if nextAction == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  %s\n", nextAction)
+}
+
 // observeHolds folds this run's view of every held work ref into the
 // per-host observation store and marks the plans whose takeover window
 // has matured. Observation piggybacks on every fleet-reading verb —

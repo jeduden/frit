@@ -176,11 +176,11 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 // refuse a no-op with the false claim that it is "held live by
 // another lane".
 func foreignYieldRefusal(plan discovery.Plan, local string) (string, bool) {
-	if !plan.Held || local != "" {
-		return "", false
+	if plan.Held && local == "" {
+		return foreignHoldRefusal(plan), true
 	}
 
-	return foreignHoldRefusal(plan), true
+	return "", false
 }
 
 // tearDownLane hands the calling pane's own worktree to herdr for
@@ -242,9 +242,7 @@ func printYield(out io.Writer, doc *report.YieldDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
-		if doc.NextAction != "" {
-			_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
-		}
+		printNextAction(out, doc.NextAction)
 		return
 	}
 
