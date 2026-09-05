@@ -289,8 +289,14 @@ type NextDoc struct {
 	// Rescue lists the plan's rescue refs — where a scavenge or a
 	// yield parked work that never landed — so stranded commits are
 	// found again. Empty when nothing has ever been parked.
-	Rescue   []string  `json:"rescue"`
-	Problems []Problem `json:"problems"`
+	Rescue []string `json:"rescue"`
+	// NextAction is the way out for a plan whose own lane, read from
+	// inside it (SourceLane), carries no token — the same
+	// wait-or-take-over wording open/release/start already give an
+	// identical unprovable hold, set only through MarkUnproven. Empty
+	// for a plan read off the default branch, or whose token proves.
+	NextAction string    `json:"next_action"`
+	Problems   []Problem `json:"problems"`
 }
 
 // NewNext opens a next-phase report for one resolved plan.
@@ -335,6 +341,11 @@ func (d *NextDoc) SetRescue(refs []string) { d.Rescue = refs }
 // SetSource records where the reported plan and phase came from.
 func (d *NextDoc) SetSource(source string) { d.Source = source }
 
+// MarkUnproven records that this plan's own lane, on this host,
+// carries no token — release/start's own S49 shape, found from inside
+// the lane rather than assumed.
+func (d *NextDoc) MarkUnproven(id int64) { d.NextAction = unprovenNextAction(id) }
+
 // phaseCard projects a phase into its wire shape.
 func phaseCard(p planmeta.Phase) PhaseCard {
 	return PhaseCard{
@@ -376,8 +387,12 @@ type ShowDoc struct {
 	// a yield parked work that never landed — so stranded commits are
 	// found again. Like Goal, it is a fact about the shown plan, not
 	// the dependency tree beneath it.
-	Rescue   []string  `json:"rescue"`
-	Problems []Problem `json:"problems"`
+	Rescue []string `json:"rescue"`
+	// NextAction is next's own field, ShowDoc's twin: the way out for
+	// a shown plan whose own lane, read from inside it, carries no
+	// token, set only through MarkUnproven.
+	NextAction string    `json:"next_action"`
+	Problems   []Problem `json:"problems"`
 }
 
 // NewShow opens a dependency-walk report from a resolved tree.
@@ -403,6 +418,9 @@ func (d *ShowDoc) SetRescue(refs []string) { d.Rescue = refs }
 
 // SetSource records where the reported Goal and Tree came from.
 func (d *ShowDoc) SetSource(source string) { d.Source = source }
+
+// MarkUnproven is NextDoc.MarkUnproven's twin for show.
+func (d *ShowDoc) MarkUnproven(id int64) { d.NextAction = unprovenNextAction(id) }
 
 // depCard projects a dependency node and its subtree into wire shape,
 // keeping the list empty rather than null at every level.

@@ -285,6 +285,8 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 		}
 		doc.AddRepo(repo.Name, lanes.Find(built, repo.Worktrees))
 		doc.AddStale(repo.Name, staleHeld(res.Plans, repo.Name))
+		doc.AddUnproven(repo.Name, unprovenHeld(
+			rt, res.Plans, repo.Name, repo.Worktrees))
 		// Without a coordinate there is no origin to compare a token
 		// against, so a repository the gather could not place — the
 		// ambiguous-name case — contributes no deserted candidates or
@@ -376,6 +378,65 @@ func resumableFromAnyLane(
 			live = herdr.LiveRoots(localPanes(rt), rt.git)
 		}
 		if live[lane] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// unprovenHeld filters one repository's held plans whose checkout, on
+// this host, carries no token at all — the S49 shape a claim-only
+// lane leaves when its stand-up write never landed, or a legacy lane
+// stood up before phase 1 of plan 2609050854. Unlike desertedHeld,
+// this reads no herdr socket, and no origin coordinate either:
+// tokenlessOwnLane's own check is pure local git, so an ambiguous
+// repository, or a plan with no local checkout, costs nothing extra.
+func unprovenHeld(
+	rt *runtime, plans []discovery.Plan, repo string, worktrees []gitwt.Worktree,
+) []discovery.Plan {
+	out := make([]discovery.Plan, 0)
+	for _, p := range plans {
+		if p.Repo != repo || !p.Held {
+			continue
+		}
+		for _, wt := range worktrees {
+			if tokenlessOwnLane(rt, p, wt.Path) {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+// boardUnproven reports whether p's own checkout, somewhere on this
+// host, carries no token — reusing tokenlessOwnLane against every
+// local worktree in p's repository rather than one cwd, since board
+// runs from outside any one lane (resumableFromAnyLane's own walk,
+// above). cache holds one repository's worktree list at a time, read
+// with gitwt.List once rather than once per held plan in it. false
+// for a repository the gather could not place, or one whose list
+// could not be read.
+func boardUnproven(
+	rt *runtime, res fleet.Result, p discovery.Plan,
+	cache map[string][]gitwt.Worktree,
+) bool {
+	if !p.Held {
+		return false
+	}
+	coord, ok := res.Coords[p.Repo]
+	if !ok {
+		return false
+	}
+	worktrees, cached := cache[p.Repo]
+	if !cached {
+		worktrees, _ = gitwt.List(coord.Path, rt.git)
+		cache[p.Repo] = worktrees
+	}
+	for _, wt := range worktrees {
+		if tokenlessOwnLane(rt, p, wt.Path) {
 			return true
 		}
 	}
@@ -508,6 +569,10 @@ func printOrphans(out io.Writer, doc *report.OrphansDoc) {
 		for _, d := range repo.Deserted {
 			_, _ = fmt.Fprintf(tw, "  deserted, session gone\tplan %d\t%s\n",
 				d.PlanID, d.Branch)
+		}
+		for _, u := range repo.Unproven {
+			_, _ = fmt.Fprintf(tw, "  claimed here, no token\tplan %d\t%s — %s\n",
+				u.PlanID, u.Branch, u.NextAction)
 		}
 		for _, r := range repo.Rescued {
 			_, _ = fmt.Fprintf(tw, "  rescued%s\tplan %d\t%s\n",
@@ -1534,7 +1599,10 @@ func resolveSelector(
 // work has merged, where the fleet's default-branch copy still reads a
 // closed phase as open, or misses an edge the lane added. The returned
 // source names which copy won: report.SourceLane when the override
-// applied, report.SourceDefaultBranch otherwise.
+// applied, report.SourceDefaultBranch otherwise. root is that lane's
+// own path, "" alongside SourceDefaultBranch — next and show pass it
+// to claim.ReadToken, so a token-less lane's next_action costs no
+// second resolve of the same cwd.
 //
 // It applies regardless of how the plan was resolved: an id typed
 // explicitly while standing in that plan's own lane is overridden the
@@ -1546,25 +1614,25 @@ func resolveSelector(
 // that is missing or fails to parse, all leave the plan as the fleet
 // reported it: the override only ever narrows to a copy it could
 // actually read.
-func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string) {
+func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string, string) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return plan, report.SourceDefaultBranch
+		return plan, report.SourceDefaultBranch, ""
 	}
 
 	repo, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
 	if !ok || repo != plan.Repo || id != plan.ID {
-		return plan, report.SourceDefaultBranch
+		return plan, report.SourceDefaultBranch, ""
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, plan.Path))
 	if err != nil {
-		return plan, report.SourceDefaultBranch
+		return plan, report.SourceDefaultBranch, ""
 	}
 
 	local, err := planmeta.Parse(data)
 	if err != nil {
-		return plan, report.SourceDefaultBranch
+		return plan, report.SourceDefaultBranch, ""
 	}
 
 	plan.Status = local.Status
@@ -1572,7 +1640,24 @@ func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string) {
 	plan.Goal = local.Goal
 	plan.DependsOn = local.DependsOn
 
-	return plan, report.SourceLane
+	return plan, report.SourceLane, root
+}
+
+// markUnprovenFromLane calls mark when the plan is held and root's own
+// checkout — the lane laneOverride just resolved cwd to — carries no
+// token: the S49 shape found from inside the lane rather than assumed,
+// the same wait-or-take-over wording open already gives the identical
+// hold read from outside one. A no-op for a default-branch read
+// (root == ""), or a lane whose lease already ended.
+func markUnprovenFromLane(
+	rt *runtime, plan discovery.Plan, root string, mark func(int64),
+) {
+	if root == "" || !plan.Held {
+		return
+	}
+	if claim.ReadToken(root, plan.ID, rt.git) == "" {
+		mark(plan.ID)
+	}
 }
 
 // folderPlanPhases returns the phases frit next and phase report for a
@@ -1838,12 +1923,13 @@ func (n *nextCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, source := laneOverride(rt, plan)
+	plan, source, root := laneOverride(rt, plan)
 
 	doc := report.NewNext(c.Root, plan)
 	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
+	markUnprovenFromLane(rt, plan, root, doc.MarkUnproven)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1873,13 +1959,14 @@ func (s *showCmd) Run(c *cli, rt *runtime) error {
 	if err != nil {
 		return err
 	}
-	plan, source := laneOverride(rt, plan)
+	plan, source, root := laneOverride(rt, plan)
 
 	doc := report.NewShow(c.Root,
 		discovery.Dependencies(plan, replacePlan(res.Plans, plan)))
 	doc.SetSource(source)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetRescue(rescueRefsFor(rt, res, plan))
+	markUnprovenFromLane(rt, plan, root, doc.MarkUnproven)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1960,6 +2047,7 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewPhase(c.Root, plan, bundle)
 	carryProblems(doc, res.Problems, c.All)
+	markUnprovenFromLane(rt, plan, root, doc.MarkUnproven)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -2005,9 +2093,13 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewBoard(c.Root, liveErr == nil)
 	carryProblems(doc, res.Problems, c.All)
 	carryHostProblems(doc, hostProbs)
+	worktreeCache := map[string][]gitwt.Worktree{}
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status, unknown)
+		if boardUnproven(rt, res, p, worktreeCache) {
+			doc.MarkUnproven(p.Repo, p.ID)
+		}
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2277,6 +2369,28 @@ func printBoard(
 		// is exactly the unrunnable pointer it exists to replace.
 		_, _ = fmt.Fprintln(out, line)
 	}
+	for _, line := range boardUnprovenLines(doc.Plans) {
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// boardUnprovenLines names, one line per plan, the way out for a held
+// lane whose checkout on this host carries no token — boardAsks' own
+// shape, rendered whatever columns are shown, so a reader is pointed
+// at the wait or the takeover rather than left to read next_action
+// out of --json. Empty when no row carries one.
+func boardUnprovenLines(plans []report.BoardPlan) []string {
+	var lines []string
+	for _, p := range plans {
+		if p.NextAction == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf(
+			"%d: this lane's checkout carries no token to prove it; %s",
+			p.ID, p.NextAction))
+	}
+
+	return lines
 }
 
 // boardAsks names, one line per plan, the ask-the-agent remedy for
@@ -2601,6 +2715,7 @@ func printNext(out io.Writer, doc *report.NextDoc) {
 		_, _ = fmt.Fprintf(out, "\n%s\n", doc.Phase.Body)
 	}
 	printRescue(out, doc.Rescue)
+	printUnproven(out, doc.NextAction)
 }
 
 // printPhase writes the working bundle for a plan's open phase: its
@@ -2638,6 +2753,7 @@ func printPhase(out io.Writer, doc *report.PhaseDoc) {
 	if doc.Phase.ResultPath != "" {
 		_, _ = fmt.Fprintf(out, "\nWrite the handoff to %s\n", doc.Phase.ResultPath)
 	}
+	printUnproven(out, doc.NextAction)
 }
 
 // printRescue lists a plan's rescue refs, so stranded commits a
@@ -2651,6 +2767,17 @@ func printRescue(out io.Writer, refs []string) {
 	for _, ref := range refs {
 		_, _ = fmt.Fprintf(out, "  %s\n", ref)
 	}
+}
+
+// printUnproven names the way out for a plan whose own lane, read from
+// inside it, carries no token — next, show and phase's shared trailer,
+// silent when there is nothing to say.
+func printUnproven(out io.Writer, nextAction string) {
+	if nextAction == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out,
+		"\nthis lane's checkout carries no token to prove it; %s\n", nextAction)
 }
 
 // orDash names an empty string as a dash, so a blank cell reads as
@@ -2684,6 +2811,7 @@ func printShow(out io.Writer, doc *report.ShowDoc, all bool) {
 	}
 	_ = tw.Flush()
 	printRescue(out, doc.Rescue)
+	printUnproven(out, doc.NextAction)
 }
 
 // printDep writes one dependency node and recurses into its upstreams.

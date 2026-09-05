@@ -36,5 +36,6 @@
     "result_path": "phase-2.result.md"
   },
   "has_phase": true,
+  "next_action": "",
   "problems": []
 }

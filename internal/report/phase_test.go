@@ -54,3 +54,14 @@ func TestPhaseDocAddProblemRecordsIt(t *testing.T) {
 	assert.Len(t, doc.Problems, 1)
 	assert.Equal(t, "atlas", doc.Problems[0].Repo)
 }
+
+// TestPhaseMarkUnprovenNamesTheWayOut is NextDoc.MarkUnproven's twin
+// for phase, which always runs from inside the plan's own lane.
+func TestPhaseMarkUnprovenNamesTheWayOut(t *testing.T) {
+	doc := NewPhase("/fleet", discovery.Plan{Repo: "atlas", ID: 100},
+		planmeta.Bundle{})
+	assert.Empty(t, doc.NextAction)
+
+	doc.MarkUnproven(100)
+	assert.Equal(t, unprovenNextAction(100), doc.NextAction)
+}

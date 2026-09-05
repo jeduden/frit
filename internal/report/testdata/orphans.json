@@ -120,7 +120,8 @@
             "refs/frit/rescue/12/box-a"
           ]
         }
-      ]
+      ],
+      "unproven": []
     },
     {
       "name": "clean",
@@ -132,7 +133,8 @@
       "foreign": [],
       "stale_holds": [],
       "deserted": [],
-      "rescued": []
+      "rescued": [],
+      "unproven": []
     }
   ],
   "problems": [

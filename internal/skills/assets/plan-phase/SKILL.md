@@ -27,7 +27,9 @@ commit, so the ledger can never go stale.
 2. **Honor the answers.** "already done" means stop and report, not
    redo. A plan already held live (`held: true`, `dead: false`) is
    already running somewhere — report it, never start a second runner
-   there. Honor the tier `phase` names.
+   there. A non-empty `next_action` from `phase` or `show` means this
+   lane cannot resume itself — report it and stop, the same as those
+   two. Honor the tier `phase` names.
 3. **Red then green.** Commit the failing test first, then the code
    that passes it. Verify with the narrowest instrument, then the
    phase's gate. Park a follow-up or a side quest in the result file

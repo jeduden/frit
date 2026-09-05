@@ -17,7 +17,8 @@ verb that matches — never raw git.
 
 - `go run ./cmd/frit orphans --json` — claims and checkouts that no longer add
   up: claimed but unstaffed, prepared but unstarted, held past its
-  takeover window, or gone.
+  takeover window, claimed here but never proved (`unproven`,
+  `next_action` names the wait or the takeover), or gone.
 - `go run ./cmd/frit stale --days N --json` — worktrees whose tip has not moved.
 
 ## Match the verb
