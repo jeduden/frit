@@ -166,6 +166,41 @@ func TestStartResumesAClaimOnlyLaneWithoutWaitingTheWindow(t *testing.T) {
 	assert.NotContains(t, out.String(), "refused")
 }
 
+// TestStartWarnsWhenTheTokenCannotBeWritten: laneStandUpPane's own
+// worktree.create branch writes this lane's token the same way claim's
+// standUpClaimWorktree does, so a write that fails once the worktree
+// genuinely exists — not the routine "nothing on disk yet" skip —
+// surfaces the same way here: a warning on start's own document,
+// never a swallowed no-op, since the lane stood up fine either way.
+func TestStartWarnsWhenTheTokenCannotBeWritten(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			path, ok := flagValue(args, "--path")
+			require.True(t, ok, "worktree create carried no --path: %v", args)
+			git(t, repo, "worktree", "add", "-q", path, claim.Branch(7))
+			gitDir, err := gitwt.GitDir(path, gitwt.Exec)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(
+				filepath.Join(gitDir, "frit"), []byte("blocked"), 0o600))
+
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7",
+		"the lane itself stood up fine")
+	assert.Contains(t, out.String(), "warning: token:",
+		"the token write failure surfaces as a warning")
+}
+
 // leftoverWorktree reproduces the exact shape Release leaves behind:
 // a plan claimed, worked and released. Release deletes nothing, so
 // the branch and its worktree persist after the lease that authorized

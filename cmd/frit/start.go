@@ -714,7 +714,7 @@ func startExecute(
 		return err
 	}
 
-	pane, session, err := standUpLane(rt, plan, sp, sc.repoPath, text, rs, lease.Tip)
+	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
 	if err != nil {
 		if rs.active() {
 			// startAcquire's own renewal above already stands — this
@@ -1081,17 +1081,14 @@ func livePaneOn(rt *runtime, root string) (string, bool, error) {
 //
 // A fresh acquire or takeover's own worktree.create is the one branch
 // that persists tip as this lane's token, once herdr reports the
-// worktree stood up: startAcquire's own persist ran before sp.Lane had
+// worktree stood up (persistLaneToken, shared with claim's own
+// stand-up): startAcquire's own persist ran before sp.Lane had
 // anything on disk. Neither resume needs it — a self-resume already
 // holds a matching token, and a reattach renews from the marker's own
 // lane, both proven again by bindSession's later renewal, which is a
-// no-op on the same tip when this write already landed. Its error is
-// dropped rather than warned on start's own document: the lease is
-// already on the remote and the checkout is up either way, and
-// bindSession's own renewal — best-effort for the very same reason —
-// is the only report a token miss here would echo.
+// no-op on the same tip when this write already landed.
 func laneStandUpPane(
-	rt *runtime, plan discovery.Plan, sp report.StartPlan,
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
 	repoPath, tip string, rs startResumption,
 ) (string, error) {
 	if rs.Reattach {
@@ -1125,7 +1122,7 @@ func laneStandUpPane(
 	if err != nil {
 		return "", fmt.Errorf("worktree create: %w", err)
 	}
-	_ = claim.WriteToken(sp.Lane, plan.ID, tip, rt.git)
+	persistLaneToken(rt.git, sp.Lane, plan.ID, tip, doc.Warn)
 
 	return pane, nil
 }
@@ -1148,12 +1145,14 @@ func laneLabel(plan discovery.Plan) string {
 // it names rather than creating a worktree at a path the lane's own
 // checkout already occupies. tip is startAcquire's own lease tip,
 // carried through to laneStandUpPane's fresh-worktree branch so the
-// token it persists needs no later renewal to exist.
+// token it persists needs no later renewal to exist. doc is where a
+// token write failure there surfaces as a warning, the same rung
+// claim's own stand-up already reports it on.
 func standUpLane(
-	rt *runtime, plan discovery.Plan, sp report.StartPlan,
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
 	repoPath, text string, rs startResumption, tip string,
 ) (string, string, error) {
-	pane, err := laneStandUpPane(rt, plan, sp, repoPath, tip, rs)
+	pane, err := laneStandUpPane(rt, doc, plan, sp, repoPath, tip, rs)
 	if err != nil {
 		return "", "", err
 	}
@@ -1283,6 +1282,9 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
 	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
 		doc.Kind, modelLabel(doc.Tier))
+	if doc.Warning != "" {
+		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
 	if doc.Started {
 		_, _ = fmt.Fprintf(out, "  running:  %s\n", doc.Prompt)
 		_, _ = fmt.Fprintf(out, "  focus:    %s\n", doc.Pane)

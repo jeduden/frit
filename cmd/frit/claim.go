@@ -263,16 +263,14 @@ func currentSession(rt *runtime) string {
 // minted tip is written as this lane's own token — mintClaim's own
 // persist ran too early to land anywhere, since path named nothing on
 // disk yet — so a claim-only lane resumes and releases exactly the way
-// a lane `start` created does, with no window to wait out. A write
-// that fails here is a warning on the claim document, never an error:
-// the checkout stood up fine and the lease is already on the remote,
-// so only the resume shortcut is lost, the same cost WriteToken's own
-// routine skip carries. A herdr that cannot stand the worktree up
-// releases the lease claim just minted instead (unwindFailedStandUp):
-// nothing was ever stood up to persist a token into, so a hold left
-// standing here would have nothing behind it and only a takeover
-// window could end it. The agent and its prompt stay start's rung —
-// claim stands up the checkout only.
+// a lane `start` created does, with no window to wait out
+// (persistLaneToken, shared with start's own fresh-worktree branch). A
+// herdr that cannot stand the worktree up releases the lease claim
+// just minted instead (unwindFailedStandUp): nothing was ever stood up
+// to persist a token into, so a hold left standing here would have
+// nothing behind it and only a takeover window could end it. The agent
+// and its prompt stay start's rung — claim stands up the checkout
+// only.
 func standUpClaimWorktree(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, branch string, coord fleet.Coord, tip string,
@@ -288,10 +286,25 @@ func standUpClaimWorktree(
 		unwindFailedStandUp(rt, doc, plan, coord, branch, path, tip, err)
 		return
 	}
-	if err := claim.WriteToken(path, plan.ID, tip, rt.git); err != nil {
-		doc.Warn(fmt.Sprintf("token: %v", err))
-	}
+	persistLaneToken(rt.git, path, plan.ID, tip, doc.Warn)
 	doc.Stood(path)
+}
+
+// persistLaneToken writes tip as a lane's own token the moment herdr
+// reports its worktree stood up — claim's own stand-up and start's
+// fresh-worktree branch both reach this the same way, right after the
+// same herdr.WorktreeCreate call succeeds, so the pairing lives once
+// here rather than twice. A write that fails is a warning on the
+// caller's document, never an error: the checkout stood up fine and
+// the lease is already on the remote, so only the resume shortcut is
+// lost, the same cost WriteToken's own routine "nothing on disk yet"
+// skip already carries.
+func persistLaneToken(
+	run gitwt.Runner, lane string, planID int64, tip string, warn func(string),
+) {
+	if err := claim.WriteToken(lane, planID, tip, run); err != nil {
+		warn(fmt.Sprintf("token: %v", err))
+	}
 }
 
 // unwindFailedStandUp releases the lease standUpClaimWorktree just
