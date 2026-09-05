@@ -39,7 +39,8 @@ beside the repository. `frit release` from inside that worktree then
 refused with "is held live by another lane (plan/<id>); only its own
 lane can release it". No `frit/token-<id>` file existed under the
 lane's git directory. `frit start <id>` from the same lane refused
-with "already held, not takeable until the window matures".
+with "already held (plan/<id>); seen unchanged for … of the … takeover
+window; not takeable until the window matures".
 
 **Why the token is missing.** `pushClaimMarker` in
 [internal/claim/lease.go](../../internal/claim/lease.go) calls
@@ -61,29 +62,44 @@ into the worktree that now exists.
 **Why the check must stay.** The token is the identity. The
 [lease protocol](../../docs/research/lease-protocol.md) rejects
 recognising a lane by its holder string or path, because a cloned
-machine or a reused path shares both with no race (A1, S49). So
+machine (S49) or a reused path (S46) shares both with no race (A1). So
 `release` is right to refuse a lane without a token. It is wrong only
 in what it says: `foreignHoldRefusal` in
 [cmd/frit/release.go](../../cmd/frit/release.go) words every unproved
 hold as another lane's, while `inOwnLane` in
 [cmd/frit/claim.go](../../cmd/frit/claim.go) already tells "not my
-lane" from "my lane with no token" (S77).
+lane" from "my lane, whose token cannot resume it" (S77). The
+token-less own-host lane is S49, whose step and the `start` tests
+assert the wording "not takeable until the window matures"; phase 2
+moves those assertions with the sentence.
 
-**Reuse first.** The write exists: `persistToken` takes a lane path
-and a tip, and `claim.Resume` and `RenewToBind` both call it after
-a CAS. Phase 1 adds no new proof and no new transition; it calls the
-write again once the worktree stands, from the one place that knows it
-does. The next-step field exists: `NextAction` on the dispatch
-documents in
+**Reuse first.** The write exists. `persistToken` takes the lease
+options, lane path and plan id, plus a tip. `Renew`, `RenewToBind`,
+`Takeover` and `pushClaimMarker` all call it after a winning CAS.
+Phase 1 adds no new proof and no new transition. It calls the write
+again once the worktree stands, from the place that knows it does.
+
+The next-step projection exists. `holdKindFor` in
+[cmd/frit/dispatch.go](../../cmd/frit/dispatch.go) already classes a
+hold with no proving token as `HoldUnproven`. `openNextAction` in
 [internal/report/dispatch.go](../../internal/report/dispatch.go)
-carries the exact command for `open`, `nudge`, `start` and
-`pick`, and `Ask` on
+already words it: "wait for the takeover window, or take it over once
+it matures with frit start N". The field `next_action` is carried by
+the `open` and `start` documents only. On `start` it is a projection
+of the handoff, empty on a refusal. The release document has no such
+field. Phase 2 adds the field to `release` and a refusal branch to
+`start`'s projection. Both are fed from `HoldUnproven` through the
+existing wording, not from a new string.
+
+The category does not exist yet. `Ask` on
 [internal/report/board.go](../../internal/report/board.go) carries the
-`frit message` line for a deserted lane. The categories exist:
+`frit message` line for a deserted lane and is the model for phase 3.
 `OrphansDoc` in
-[internal/report/orphans.go](../../internal/report/orphans.go) already
-lists a hold with no worktree behind it. Nothing here adds a second
-mechanism for any of the three.
+[internal/report/orphans.go](../../internal/report/orphans.go) lists a
+hold with no checkout behind it, and a lane whose session died. A
+claim-only lane fits neither: it has a checkout and never bound a
+session. Phase 3 adds the token-less category rather than finding it
+there.
 
 **Out of scope.** Loosening the token rule. A lane with no token still
 waits the window or is taken over from another checkout, whatever its
@@ -119,13 +135,18 @@ guarantees they are told so.
 <?catalog
 glob:
   - "phase-*.md"
-  - "!phase-*.result.md"
+  - "phase-*.result.md"
 sort: numeric:n
 header: |
 
   | # | Status | Phase |
   |---|--------|-------|
-row: "| {n} | {status} | [{title}](phase-{n}.md) |"
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
 footer: |
 
 ?>

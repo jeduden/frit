@@ -18,8 +18,11 @@ from inside itself and resumes through `start` with no window.
 unexported and takes `LeaseOptions` plus a tip; it resolves the git
 directory of the lane and skips silently when it cannot. `ownToken`
 and `resumeToken` in claim.go read that file back. The claim tests
-already script a herdr fake that creates a real worktree, and the
-release tests run from inside a lane fixture.
+script `startHerdr`. That fake answers `worktree create` with canned
+JSON and touches no disk. The fake that runs `git worktree add` at the
+path frit supplies is `liveLaneHerdr`, in
+[the host-death BDD file](../../cmd/frit/bdd_host_death_and_races_test.go).
+The release tests run from inside a lane fixture.
 
 **Value.** The one lane frit stands up without an agent stops being a
 lane frit cannot prove. `release` and `start` from inside it work the
@@ -28,14 +31,22 @@ and no new proof. Every later phase is about the lanes that still lack
 a token; this phase makes that set the legacy set alone.
 
 **RED.** In [cmd/frit/claim_test.go](../../cmd/frit/claim_test.go),
-against the herdr fake that creates a worktree:
+against `liveLaneHerdr`, lifted into a shared fixture if the BDD file
+will not lend it:
 
-- `TestClaimPersistsTheTokenOnceTheWorktreeStands`: after `claim --go`
-  reports the worktree, the token file under that worktree's git
-  directory holds the minted tip.
+- `TestClaimPersistsTheTokenOnceTheWorktreeStands`: after
+  `frit claim <id>` reports the worktree, the token file under that
+  worktree's git directory holds the minted tip.
 - `TestClaimLeavesNoTokenWhenTheStandUpFails`: a fake that refuses
   `worktree.create` unwinds the lease as today, and no token file
   exists anywhere under the repository.
+
+In [cmd/frit/start_test.go](../../cmd/frit/start_test.go):
+
+- `TestStartPersistsTheTokenBeforeTheSessionBinds`: a fake whose pane
+  session lookup fails still leaves the token file under the worktree,
+  since `bindSession` returns before renewing when the session is
+  empty.
 
 In [cmd/frit/release_test.go](../../cmd/frit/release_test.go):
 
@@ -52,17 +63,21 @@ so the matrix and the feature stay in bijection.
 
 **GREEN.** Export a token writer from `internal/claim` that takes a
 lane path, a plan id and a tip, shared with `persistToken` rather than
-copied. Call it from `standUpClaimWorktree` after `WorktreeCreate`
-returns, with `minted.Tip`. A failed write is reported as a warning on
-the claim document, never an error: the lease is on the remote and the
-CAS is the fence. Update the comment on `unwindFailedStandUp`, which
-says no lane ever persisted a token for a claim.
+copied. Call it once `WorktreeCreate` returns, from
+`standUpClaimWorktree` with `minted.Tip` and from `laneStandUpPane` in
+[cmd/frit/start.go](../../cmd/frit/start.go) with the lease tip, so
+neither verb's token depends on a later renewal. A failed write is
+reported as a warning on the claim document, never an error: the lease
+is on the remote and the CAS is the fence. Update the doc comment on
+`standUpClaimWorktree`, and the matching comment in claim_test.go,
+which say no lane ever persisted a token for a claim.
 
-**Guard the edges.** `start --go` keeps its own persist through
-`bindSession`; the second write of the same tip is a no-op. A claim
-that resumes an existing lease through `claim.Resume` already persists
-into a lane that exists, and is untouched. The unwind path writes
-nothing.
+**Guard the edges.** `bindSession` persists again on renewal, but only
+when herdr answered the best-effort session lookup, which is why the
+stand-up write comes first; the second write of the same tip is a
+no-op. A claim that resumes an existing lease through `claim.Resume`
+already persists into a lane that exists, and is untouched. The unwind
+path writes nothing.
 
 **Gate.** Against the built frit in a scratch fleet with a bare remote:
 `frit claim <id>`, then `frit release` from inside the new worktree,
