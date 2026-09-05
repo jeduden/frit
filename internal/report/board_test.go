@@ -66,3 +66,20 @@ func TestBoardAddPlanWithholdsAskOnIncompletePresenceWithoutRewritingStatus(t *t
 	assert.Empty(t, doc.Plans[0].Ask,
 		"a configured host went unread, so no ask is offered off this read")
 }
+
+// TestBoardMarkUnprovenNamesTheWayOut: MarkUnproven reprojects a
+// row's NextAction to the same wait-or-take-over wording open already
+// gives an unprovable hold, matched on (repo, id) since two
+// repositories can share a plan id (S74) — a mismatch is a no-op,
+// leaving every other row untouched.
+func TestBoardMarkUnprovenNamesTheWayOut(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "", "", false)
+	assert.Empty(t, doc.Plans[0].NextAction)
+
+	doc.MarkUnproven("wrong-repo", deadHeldPlan.ID)
+	assert.Empty(t, doc.Plans[0].NextAction, "a repo mismatch is a no-op")
+
+	doc.MarkUnproven(deadHeldPlan.Repo, deadHeldPlan.ID)
+	assert.Equal(t, unprovenNextAction(deadHeldPlan.ID), doc.Plans[0].NextAction)
+}

@@ -112,6 +112,7 @@ func TestOrphansKeepsCleanRepositories(t *testing.T) {
 	assert.Equal(t, "broken", doc.Problems[0].Repo)
 	assert.NotNil(t, doc.Repos[0].Deserted)
 	assert.NotNil(t, doc.Repos[0].Rescued)
+	assert.NotNil(t, doc.Repos[0].Unproven)
 }
 
 func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
@@ -126,6 +127,7 @@ func TestOrphanRepoAnyReportsWhateverWasFound(t *testing.T) {
 	assert.True(t, OrphanRepo{Deserted: []Deserted{{}}}.Any())
 	assert.True(t, OrphanRepo{Rescued: []Rescued{{}}}.Any(),
 		"a repository whose only finding is a rescue ref still renders")
+	assert.True(t, OrphanRepo{Unproven: []Unproven{{}}}.Any())
 }
 
 // TestOrphansAddDesertedRecordsADeadEnd: the deserted cell of the
@@ -214,6 +216,37 @@ func TestOrphansAddRescuedIsANoOpForAnUnknownRepo(t *testing.T) {
 	doc := NewOrphans("/fleet")
 
 	doc.AddRescued("ghost", []Rescued{{PlanID: 1}})
+
+	assert.Empty(t, doc.Repos)
+}
+
+// TestOrphansAddUnprovenNamesTheWayOut: the unproven cell of the
+// verb-state table — a hold claimed here whose checkout carries no
+// token, distinct from Deserted (a bound session confirmed gone) and
+// StaleHolds (a matured window) — carries the same wait-or-take-over
+// wording open already gives an identical unprovable hold.
+func TestOrphansAddUnprovenNamesTheWayOut(t *testing.T) {
+	doc := NewOrphans("/fleet")
+	doc.AddRepo("atlas", lanes.Orphans{})
+
+	doc.AddUnproven("atlas", []discovery.Plan{
+		{ID: 42, Holds: []string{"plan/42"}},
+	})
+
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Unproven, 1)
+	assert.Equal(t, int64(42), doc.Repos[0].Unproven[0].PlanID)
+	assert.Equal(t, "plan/42", doc.Repos[0].Unproven[0].Branch)
+	assert.Equal(t, unprovenNextAction(42), doc.Repos[0].Unproven[0].NextAction)
+	assert.True(t, doc.Repos[0].Any())
+}
+
+// TestOrphansAddUnprovenIsANoOpForAnUnknownRepo mirrors AddStale's own
+// guard.
+func TestOrphansAddUnprovenIsANoOpForAnUnknownRepo(t *testing.T) {
+	doc := NewOrphans("/fleet")
+
+	doc.AddUnproven("ghost", []discovery.Plan{{ID: 1}})
 
 	assert.Empty(t, doc.Repos)
 }

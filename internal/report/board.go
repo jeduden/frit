@@ -55,6 +55,12 @@ type BoardPlan struct {
 	// cannot classify, whose work may be open as a PR. Empty for a
 	// lane with no agent, and for one whose bound session is live.
 	Ask string `json:"ask"`
+	// NextAction is the way out for a held plan whose lane, on this
+	// host, carries no token — the same wait-or-take-over wording
+	// open/release/start already give an identical unprovable hold
+	// (unprovenNextAction), set only through MarkUnproven. Empty for a
+	// plan whose checkout lives elsewhere, or that is not this shape.
+	NextAction string `json:"next_action"`
 }
 
 // NewBoard opens a status board. presence carries whether herdr was
@@ -105,6 +111,20 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string, unknown bool)
 // AddProblem records a repository whose plans could not be read.
 func (d *BoardDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// MarkUnproven records that the row already added for (repo, id)'s
+// own checkout, on this host, carries no token — release/start's own
+// S49 shape, found locally rather than assumed. Matched on the pair
+// rather than id alone, since two repositories can share a plan id
+// (S74); a no-op when no row matches. Call it after AddPlan.
+func (d *BoardDoc) MarkUnproven(repo string, id int64) {
+	for i := range d.Plans {
+		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
+			d.Plans[i].NextAction = unprovenNextAction(id)
+			return
+		}
+	}
 }
 
 // hostOf pulls the machine out of a host:repo:id key, so each row names

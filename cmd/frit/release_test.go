@@ -185,6 +185,46 @@ func TestReleaseEndsALaneClaimAloneStoodUp(t *testing.T) {
 	assert.Contains(t, body, "plan 7: release")
 }
 
+// TestReleaseNamesTheWayOutForATokenlessOwnLane: run from inside a
+// lane this host claimed and stood up, its token then dropped — the
+// S49 shape a legacy claim-only lane, or one whose token write never
+// landed, leaves behind. release refuses, but never claims the hold is
+// "held live by another lane": it is this very lane, just unable to
+// prove itself. The refusal's own next_action names the honest way
+// out — the same wording open already gives the identical hold.
+func TestReleaseNamesTheWayOutForATokenlessOwnLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "held live",
+		"this is the lane's own checkout, not a stranger's")
+	assert.Contains(t, out.String(), "takeover window",
+		"the table names the way out too")
+
+	var doc struct {
+		Refused    string `json:"refused"`
+		NextAction string `json:"next_action"`
+	}
+	emit(t, &doc, "release", "7", "--root", root)
+
+	assert.NotContains(t, doc.Refused, "held live",
+		"this is the lane's own checkout, not a stranger's")
+	assert.NotEmpty(t, doc.NextAction)
+	assert.Contains(t, doc.NextAction, "takeover window")
+}
+
 // TestReleaseRecognizesALaneWhoseOwnCommitsAdvancedTheTip: the
 // prescribed workflow is raw git commit/push on plan/<id>, with no
 // frit transition between — origin's tip ends up a descendant of the

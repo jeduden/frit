@@ -930,6 +930,10 @@ func (w *world) startRefusesAlreadyHeldNotTakeable() error {
 	if !strings.Contains(st.out, "not takeable until the window matures") {
 		return fmt.Errorf("the refusal does not name the window: %s", st.out)
 	}
+	if !strings.Contains(st.out, "take it over once it matures with frit start") {
+		return fmt.Errorf(
+			"the refusal does not carry the way out: %s", st.out)
+	}
 	if got := remoteWorkTip(w.t, st.repo); got != st.held {
 		return fmt.Errorf("origin's tip is %s, want the untouched hold %s", got, st.held)
 	}

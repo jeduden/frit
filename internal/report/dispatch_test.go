@@ -45,12 +45,28 @@ func TestOpenNextActionSurvivesANonPresenceProblem(t *testing.T) {
 // TestStartNextActionIsAPureProjectionOfHandoff pins the derivation the
 // handoff setter and both renderers share, independent of the transition
 // methods: the running handoff yields frit open <id>, every other
-// handoff yields "". next_action cannot disagree with handoff because it
-// is this function of it.
+// handoff yields "" unless the hold is unproven. next_action cannot
+// disagree with handoff and kind because it is this function of them.
 func TestStartNextActionIsAPureProjectionOfHandoff(t *testing.T) {
-	assert.Equal(t, "frit open 7", startNextAction(HandoffRunning, 7))
-	assert.Equal(t, "", startNextAction(HandoffPreview, 7))
-	assert.Equal(t, "", startNextAction(HandoffNone, 7))
+	assert.Equal(t, "frit open 7", startNextAction(HandoffRunning, HoldNone, 7))
+	assert.Equal(t, "", startNextAction(HandoffPreview, HoldNone, 7))
+	assert.Equal(t, "", startNextAction(HandoffNone, HoldNone, 7))
+}
+
+// TestStartNextActionNamesTheWaitForAnUnprovenRefusal pins phase 2's
+// own addition: a refusal (HandoffNone) whose hold reads HoldUnproven
+// carries the same wait-or-take-over wording open already gives the
+// identical hold, so an agent branches on next_action rather than
+// parsing the refusal's own sentence. Every other kind leaves it
+// empty — a live or unparked hold already names its own way out
+// elsewhere, and naming this wording there would be dishonest.
+func TestStartNextActionNamesTheWaitForAnUnprovenRefusal(t *testing.T) {
+	got := startNextAction(HandoffNone, HoldUnproven, 7)
+	assert.Equal(t, openNextAction(false, false, HoldUnproven, 7), got,
+		"start's refusal names the same wording open already gives")
+
+	assert.Equal(t, "", startNextAction(HandoffNone, HoldLive, 7),
+		"a live hold names its own way out elsewhere, not this wording")
 }
 
 // TestOpenNextActionIsAPureProjection pins open's derivation: the start
@@ -180,6 +196,41 @@ func TestStartPromptDispatchedTracksTheThreeTransitions(t *testing.T) {
 	refused.Refuse("already held")
 	assert.False(t, refused.PromptDispatched,
 		"a refusal never dispatched its prompt")
+}
+
+// TestStartSetHoldKindNamesTheWaitOnAnUnprovenRefusal pins the setter a
+// refused StartDoc's caller uses once it has read the hold's true kind
+// off the same marker and token reads open runs (#122): NextAction
+// reprojects to the wait-or-take-over wording for HoldUnproven, and
+// stays empty for a kind that already names its own way out (HoldLive).
+func TestStartSetHoldKindNamesTheWaitOnAnUnprovenRefusal(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	doc.Refuse("already held")
+	assert.Equal(t, "", doc.NextAction, "unset until the kind is known")
+
+	doc.SetHoldKind(HoldUnproven)
+	assert.Equal(t, openNextAction(false, false, HoldUnproven, 7), doc.NextAction)
+
+	live := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	live.Refuse("already held")
+	live.SetHoldKind(HoldLive)
+	assert.Equal(t, "", live.NextAction,
+		"a live hold names its own way out elsewhere")
+}
+
+// TestReleaseRefuseUnprovenNamesTheWaitForATokenlessOwnLane pins
+// release's own new way out: a refusal for a hold this lane cannot
+// prove — its own checkout, no token — carries the same wording open
+// already gives HoldUnproven, in one call alongside the refusal
+// itself.
+func TestReleaseRefuseUnprovenNamesTheWaitForATokenlessOwnLane(t *testing.T) {
+	doc := NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	doc.RefuseUnproven("carries no token to prove its own lease", 7)
+
+	assert.Equal(t, "carries no token to prove its own lease", doc.Refused)
+	assert.Equal(t, openNextAction(false, false, HoldUnproven, 7), doc.NextAction)
 }
 
 // TestNewStartRendersAnEmptyPhaseAsWholePlan: a phase-less plan is

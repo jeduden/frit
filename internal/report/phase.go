@@ -37,7 +37,11 @@ type PhaseDoc struct {
 	Plan     PlanCard        `json:"plan"`
 	Phase    PhaseBundleCard `json:"phase"`
 	HasPhase bool            `json:"has_phase"`
-	Problems []Problem       `json:"problems"`
+	// NextAction is next's and show's own field, PhaseDoc's twin: the
+	// way out for a plan whose own lane — the only place phase ever
+	// runs — carries no token, set only through MarkUnproven.
+	NextAction string    `json:"next_action"`
+	Problems   []Problem `json:"problems"`
 }
 
 // NewPhase opens a phase-bundle report for one resolved plan and its
@@ -61,6 +65,9 @@ func NewPhase(root string, plan discovery.Plan, bundle planmeta.Bundle) *PhaseDo
 func (d *PhaseDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// MarkUnproven is NextDoc.MarkUnproven's twin for phase.
+func (d *PhaseDoc) MarkUnproven(id int64) { d.NextAction = unprovenNextAction(id) }
 
 // phaseBundleCard projects a resume bundle into its wire shape.
 func phaseBundleCard(b planmeta.Bundle) PhaseBundleCard {

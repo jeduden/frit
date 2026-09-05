@@ -127,6 +127,29 @@ func TestShowCarriesRescueRefsForStrandedCommits(t *testing.T) {
 	assert.Equal(t, []string{"refs/frit/rescue/7/box-a"}, doc.Rescue)
 }
 
+// TestNextMarkUnprovenNamesTheWayOut: a next document for a lane this
+// machine cannot prove carries the same wait-or-take-over wording
+// open already gives an identical unprovable hold.
+func TestNextMarkUnprovenNamesTheWayOut(t *testing.T) {
+	doc := NewNext("/fleet", discovery.Plan{Repo: "atlas", ID: 7})
+	assert.Empty(t, doc.NextAction)
+
+	doc.MarkUnproven(7)
+	assert.Equal(t, unprovenNextAction(7), doc.NextAction)
+}
+
+// TestShowMarkUnprovenNamesTheWayOut is TestNextMarkUnprovenNamesTheWayOut's
+// twin for show.
+func TestShowMarkUnprovenNamesTheWayOut(t *testing.T) {
+	doc := NewShow("/fleet", discovery.DepNode{
+		Plan: discovery.Plan{Repo: "atlas", ID: 7}, Found: true,
+	})
+	assert.Empty(t, doc.NextAction)
+
+	doc.MarkUnproven(7)
+	assert.Equal(t, unprovenNextAction(7), doc.NextAction)
+}
+
 // attendedLane is the presence callback a working pane on the lane
 // answers with.
 func attendedLane(discovery.Plan) string { return herdr.StatusWorking }

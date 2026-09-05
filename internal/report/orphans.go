@@ -51,6 +51,13 @@ type OrphanRepo struct {
 	// scavenge or yield could not clean up after, found before anyone
 	// triggers the blocked park itself.
 	Rescued []Rescued `json:"rescued"`
+	// Unproven are held plans claimed on this host whose checkout
+	// carries no token at all — the S49 shape a claim-only lane leaves
+	// when its stand-up write never landed, or a legacy lane stood up
+	// before it existed. Distinct from Deserted (a bound session
+	// confirmed gone) and StaleHolds (a matured window): this lane
+	// never bound a session, so deadSession never marks it Dead.
+	Unproven []Unproven `json:"unproven"`
 }
 
 // StaleHold is one held plan ready for a takeover: its window matured
@@ -98,6 +105,16 @@ type Rescued struct {
 	Refs   []string `json:"refs"`
 }
 
+// Unproven is one held plan claimed on this host whose checkout
+// carries no token proving it — release/start's own S49 shape, named
+// with the same wording open already gives an identical unprovable
+// hold.
+type Unproven struct {
+	PlanID     int64  `json:"plan_id"`
+	Branch     string `json:"branch"`
+	NextAction string `json:"next_action"`
+}
+
 // Lane is one plan and the refs claiming it.
 type Lane struct {
 	PlanID int64  `json:"plan_id"`
@@ -125,7 +142,8 @@ func (r OrphanRepo) Any() bool {
 	return len(r.Unstaffed) > 0 || len(r.Stranded) > 0 ||
 		len(r.Empty) > 0 || len(r.Prunable) > 0 || len(r.Migratable) > 0 ||
 		len(r.Foreign) > 0 ||
-		len(r.StaleHolds) > 0 || len(r.Deserted) > 0 || len(r.Rescued) > 0
+		len(r.StaleHolds) > 0 || len(r.Deserted) > 0 || len(r.Rescued) > 0 ||
+		len(r.Unproven) > 0
 }
 
 // NewOrphans opens an orphan report.
@@ -151,6 +169,7 @@ func (d *OrphansDoc) AddRepo(name string, found lanes.Orphans) {
 		StaleHolds: []StaleHold{},
 		Deserted:   []Deserted{},
 		Rescued:    []Rescued{},
+		Unproven:   []Unproven{},
 	}
 
 	for _, lane := range found.Unstaffed {
@@ -231,6 +250,29 @@ func (d *OrphansDoc) AddDeserted(name string, plans []discovery.Plan) {
 // desertedOf projects a deserted plan into its wire shape.
 func desertedOf(p discovery.Plan) Deserted {
 	return Deserted{PlanID: p.ID, Branch: firstHold(p)}
+}
+
+// AddUnproven records the plans in one repository claimed on this host
+// whose checkout carries no token, beside the kinds AddRepo already
+// recorded for it — its own cell of the verb-state table, distinct
+// from the matured StaleHolds cell and the session-confirmed-gone
+// Deserted cell. A no-op when AddRepo was never called for the name.
+func (d *OrphansDoc) AddUnproven(name string, plans []discovery.Plan) {
+	i, ok := d.repoIndex(name)
+	if !ok {
+		return
+	}
+	for _, p := range plans {
+		d.Repos[i].Unproven = append(d.Repos[i].Unproven, unprovenOf(p))
+	}
+}
+
+// unprovenOf projects a token-less held plan into its wire shape.
+func unprovenOf(p discovery.Plan) Unproven {
+	return Unproven{
+		PlanID: p.ID, Branch: firstHold(p),
+		NextAction: unprovenNextAction(p.ID),
+	}
 }
 
 // firstHold is the branch a plan's report rows name it by: the first
