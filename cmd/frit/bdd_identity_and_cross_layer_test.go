@@ -162,6 +162,10 @@ func (w *world) registerVerbLevelIdentityAndCrossLayer(sc *godog.ScenarioContext
 		w.aTakeoverBoundToASessionAtANewEpochLandsOnPlan)
 	sc.Step(`^the lane runs start --go for plan (\d+)$`, w.theLaneRunsStartGoForPlan)
 	sc.Step(`^start refuses and names yield$`, w.startRefusesAndNamesYield)
+
+	sc.Step(`^plan (\d+) is claimed by frit claim on this machine$`,
+		w.planIsClaimedByFritClaimOnThisMachine)
+	sc.Step(`^the lease ends$`, w.theLeaseEnds)
 }
 
 // registerObservationAndBoundaryIdentityAndCrossLayer registers
@@ -581,6 +585,69 @@ func (w *world) itIsRefusedAndTheTakeoverStands() error {
 	}
 	if tip != st.takeover {
 		return fmt.Errorf("origin holds %s, want the takeover %s left untouched", tip, st.takeover)
+	}
+
+	return nil
+}
+
+// planIsClaimedByFritClaimOnThisMachine runs `frit claim` for real
+// against a fresh claimable plan — S92's own Given. liveLaneHerdr, not
+// startHerdr, answers worktree.create, so the claim's own stand-up
+// leaves a real git dir behind for the token phase 1 teaches it to
+// persist there; the lane it reports is recorded the same way
+// buildLiveLane's own callers do, so the shared "the lane runs release
+// for plan" step can run from inside it next.
+func (w *world) planIsClaimedByFritClaimOnThisMachine(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.clones[w.holder] = repo
+
+	runner, _ := liveLaneHerdr(w.t, repo, claim.Branch(int64(planID)))
+	withHerdr(w.t, runner)
+	var out, errb strings.Builder
+	code := run([]string{
+		"claim", strconv.Itoa(planID), "--root", root, "--json",
+	}, &out, &errb)
+	if code != 0 {
+		return fmt.Errorf("claim exited %d: %s", code, errb.String())
+	}
+	var doc struct {
+		Claimed  bool   `json:"claimed"`
+		Worktree string `json:"worktree"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		return fmt.Errorf("decode claim json: %w: %s", err, out.String())
+	}
+	if !doc.Claimed || doc.Worktree == "" {
+		return fmt.Errorf("claim did not stand a lane up: %s", out.String())
+	}
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo, st.lane = root, repo, doc.Worktree
+
+	return nil
+}
+
+// theLeaseEnds checks S92's own outcome: release, run from the
+// claim-only lane the prior step stood up, ended the lease cleanly —
+// no foreign-hold refusal in between, and origin's tip a release
+// marker.
+func (w *world) theLeaseEnds() error {
+	st := section[identityAndCrossLayerState](w)
+	if strings.Contains(st.out, "refused") {
+		return fmt.Errorf("release refused: %s", st.out)
+	}
+	if !strings.Contains(st.out, "released plan") {
+		return fmt.Errorf("release did not report success: %s", st.out)
+	}
+	tip, err := gitCapture(w.t, st.repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	if !claim.Released(st.repo, tip, int64(w.planID), gitwt.Exec) {
+		return fmt.Errorf("origin's tip %s is not a release marker", tip)
 	}
 
 	return nil

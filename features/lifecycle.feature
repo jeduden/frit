@@ -83,3 +83,9 @@ Feature: Lifecycle anomalies — claims and refs
     When origin renames its default branch to "quay"
     And the clone re-reads origin's HEAD
     Then DefaultRef answers "refs/remotes/origin/quay"
+
+  @S92
+  Scenario: a claim-only lane releases its own lease
+    Given plan 7 is claimed by frit claim on this machine
+    When the lane runs release for plan 7
+    Then the lease ends

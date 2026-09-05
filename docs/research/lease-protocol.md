@@ -449,6 +449,7 @@ dies with the host.
 | S84 | local default branch normally lags origin, so it is never authoritative for evidence | landed evidence — status glyph and `--merged` ancestry — reads origin's default branch via its remote-tracking ref, never a local `main` that normally trails (SCAV; the invariant of S13, S75) |
 | S85 | `origin/HEAD` unset, so `DefaultRef` falls back to a local default branch            | `DefaultRef` reaches `refs/remotes/origin/<default>` before any local `main`, so a squash-landed `✅` is seen however far `main` lags (SCAV; see S54, S80, S84)                                 |
 | S87 | read verb reads landed evidence off a checkout unfetched since a PR merged           | `Gather` fetches `--prune` before reading, gated by `--fetch` (default on); `--no-fetch` or an offline fetch falls back to the local view, naming staleness when a remote exists (S80/S84)      |
+| S92 | plan claimed by `frit claim` alone, released from its own lane                       | claim persists the minted tip as the lane's own token once herdr stands the worktree up, the same proof `start` leaves; release resumes on it unaided, no window (RESUME)                       |
 
 S87 was numbered S86 until plan 2609012000 found that id shared with
 the own-token row in the cross-layer table below; commit 85cee2e and

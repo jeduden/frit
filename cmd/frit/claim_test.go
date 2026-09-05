@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,13 +123,108 @@ func TestClaimStandsUpItsWorktree(t *testing.T) {
 		"the report names the isolated checkout to work in")
 }
 
+// TestClaimPersistsTheTokenOnceTheWorktreeStands: once herdr reports
+// the worktree stood up, the minted tip is written as the lane's own
+// token, so a claim-only lane resumes and releases the same way a lane
+// `start` created does. liveLaneHerdr, not startHerdr, is used here
+// since it actually runs `git worktree add` at the path frit supplies,
+// leaving a real git dir behind for the token to live in.
+func TestClaimPersistsTheTokenOnceTheWorktreeStands(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var doc struct {
+		Claimed  bool   `json:"claimed"`
+		Worktree string `json:"worktree"`
+	}
+
+	emit(t, &doc, "claim", "7", "--root", root)
+
+	require.True(t, doc.Claimed)
+	require.NotEmpty(t, doc.Worktree)
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, tip, claim.ReadToken(doc.Worktree, 7, gitwt.Exec),
+		"the token file holds the minted tip")
+}
+
+// TestClaimWarnsWhenTheTokenCannotBeWritten: the worktree itself stood
+// up fine, but a plain file already sits where the token directory
+// would go inside its git dir — a genuine write failure, not the
+// routine "nothing on disk yet" skip, so the claim still reports
+// success and names the failure as a warning rather than swallowing
+// it or refusing a lane that is, in fact, up and working.
+func TestClaimWarnsWhenTheTokenCannotBeWritten(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			path, ok := flagValue(args, "--path")
+			require.True(t, ok, "worktree create carried no --path: %v", args)
+			git(t, repo, "worktree", "add", "-q", path, claim.Branch(7))
+			gitDir, err := gitwt.GitDir(path, gitwt.Exec)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(
+				filepath.Join(gitDir, "frit"), []byte("blocked"), 0o600))
+
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		return nil, nil
+	})
+	var doc struct {
+		Claimed  bool   `json:"claimed"`
+		Warning  string `json:"warning"`
+		Worktree string `json:"worktree"`
+	}
+
+	emit(t, &doc, "claim", "7", "--root", root)
+
+	require.True(t, doc.Claimed, "the worktree itself stood up fine")
+	assert.NotEmpty(t, doc.Warning, "the token write failure surfaces as a warning")
+	assert.Empty(t, claim.ReadToken(doc.Worktree, 7, gitwt.Exec))
+}
+
+// TestClaimLeavesNoTokenWhenTheStandUpFails: a herdr that refuses
+// worktree.create unwinds the lease as today, with nothing left behind
+// to persist a token into anywhere under the repository.
+func TestClaimLeavesNoTokenWhenTheStandUpFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return nil, errors.New("herdr down")
+		}
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused: plan 7")
+
+	found := false
+	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr == nil && strings.HasPrefix(d.Name(), "token-") {
+			found = true
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.False(t, found, "no token file exists anywhere under the repository")
+}
+
 // TestClaimReleasesTheLeaseWhenTheWorktreeStandUpFails: a claim whose
 // worktree stand-up fails must not leave an atomic hold standing with
-// no token behind it — no lane ever persisted one, since standing the
-// lane up is exactly what failed. The lease claim just minted is
-// released — a release marker, never a delete — and the report reads
-// as an ordinary refusal naming the stand-up cause, not "claimed:
-// true" with a warning.
+// no token behind it — nothing was ever stood up to persist one into,
+// since standing the lane up is exactly what failed. The lease claim
+// just minted is released — a release marker, never a delete — and the
+// report reads as an ordinary refusal naming the stand-up cause, not
+// "claimed: true" with a warning.
 func TestClaimReleasesTheLeaseWhenTheWorktreeStandUpFails(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -314,12 +410,15 @@ func TestClaimResumesAnUnheldInProgressPlan(t *testing.T) {
 }
 
 // TestClaimEmitsJSON decodes the document a consumer reads back to learn
-// the branch it now holds.
+// the branch it now holds. liveLaneHerdr, not startHerdr, answers
+// worktree.create here: the Warning assertion below needs a worktree
+// that genuinely stood up on disk, not startHerdr's canned success
+// over nothing.
 func TestClaimEmitsJSON(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	claimableRepo(t, root, "atlas", 7, "Shader unit")
-	runner, _ := startHerdr()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
 	withHerdr(t, runner)
 	var doc report.ClaimDoc
 

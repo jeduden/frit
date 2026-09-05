@@ -102,6 +102,70 @@ func TestStartGoDispatchesAPhaselessPlan(t *testing.T) {
 		"a fresh acquire, with no persisted token, still creates the worktree")
 }
 
+// TestStartPersistsTheTokenBeforeTheSessionBinds: liveLaneHerdr's own
+// agent.list answers with no agent_session at all, so PaneSession
+// reads back "" and bindSession returns before it ever renews. The
+// token must still survive on the lane laneStandUpPane's own
+// worktree.create stood up, since that write runs first and does not
+// depend on the bind that follows it.
+func TestStartPersistsTheTokenBeforeTheSessionBinds(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "started plan 7")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: claim",
+		"the bind never ran, so the tip is still the fresh claim marker")
+
+	list, err := gitCapture(t, repo, "worktree", "list", "--porcelain")
+	require.NoError(t, err)
+	var lane string
+	for _, w := range gitwt.ParseWorktreeList([]byte(list)) {
+		if w.Branch == "plan/7" {
+			lane = w.Path
+		}
+	}
+	require.NotEmpty(t, lane, "the stood-up lane is on disk")
+	assert.Equal(t, tip, claim.ReadToken(lane, 7, gitwt.Exec),
+		"the token survives even though the session lookup answered empty")
+}
+
+// TestStartResumesAClaimOnlyLaneWithoutWaitingTheWindow: the token
+// `frit claim` now persists the moment its own worktree stands is the
+// same proof `start`'s own self-resume reads, so a claim-only lane
+// resumes through `start` at once — no takeover window to wait out.
+func TestStartResumesAClaimOnlyLaneWithoutWaitingTheWindow(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var claimed struct {
+		Worktree string `json:"worktree"`
+	}
+	emit(t, &claimed, "claim", "7", "--root", root)
+	require.NotEmpty(t, claimed.Worktree)
+	t.Chdir(claimed.Worktree)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "resumed plan 7")
+	assert.NotContains(t, out.String(), "refused")
+}
+
 // leftoverWorktree reproduces the exact shape Release leaves behind:
 // a plan claimed, worked and released. Release deletes nothing, so
 // the branch and its worktree persist after the lease that authorized
