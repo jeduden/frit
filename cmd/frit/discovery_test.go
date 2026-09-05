@@ -92,6 +92,7 @@ func TestDiscoveryCarriesABrokenRepoAsAProblem(t *testing.T) {
 	broken := initRepo(t, root, "busted")
 	require.NoError(t, os.WriteFile(filepath.Join(broken, ".frit.yml"),
 		[]byte("holds: [\n"), 0o600))
+	withHerdr(t, herdrReturning())
 	var doc report.ReadyDoc
 
 	stderr := emit(t, &doc, "ready", "--root", root)
@@ -212,6 +213,7 @@ func TestNotAPlanIsAbsentFromJSONUntilAll(t *testing.T) {
 	repo := initRepo(t, root, "atlas")
 	commitPlan(t, repo, 1, "🔲", "Real plan", nil, "")
 	commitNonPlan(t, repo, "PLAN.md")
+	withHerdr(t, herdrReturning())
 
 	var plain report.ReadyDoc
 	emit(t, &plain, "ready", "--root", root)
