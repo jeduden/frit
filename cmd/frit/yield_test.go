@@ -309,6 +309,37 @@ func TestYieldOnAnUnheldPlanIsStillACleanNoOp(t *testing.T) {
 	assert.Contains(t, out.String(), "yielded plan 7")
 }
 
+// TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp: a plan
+// another lane released, with nothing ever fetched or minted locally
+// — plan.HoldTip still points at the release marker, but plan.Held is
+// false. foreignYieldRefusal must key on plan.Held, not plan.HoldTip
+// == "", or this reads as "held live by another lane", a claim that is
+// false of a lease that already ended.
+func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	other := cloneAgain(t, repo)
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(other, opts, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = claim.Release(other, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = gitCapture(t, repo, "rev-parse", "--verify", "--quiet",
+		"refs/heads/plan/7")
+	require.Error(t, err, "nothing was ever fetched or minted locally")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.NotContains(t, out.String(), "refused",
+		"a released hold is not held live by another lane")
+	assert.Contains(t, out.String(), "yielded plan 7")
+}
+
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still
 // matches origin's is not fenced — yield refuses rather than treat
 // itself as an alias for release, and nothing is parked or torn down.

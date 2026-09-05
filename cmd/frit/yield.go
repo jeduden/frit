@@ -158,12 +158,17 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 // same way release words it, rather than let claim.Yield's own
 // empty-local no-op read as a success it never performed. ok is false
 // when yield should proceed to claim.Yield as usual: a plan nobody
-// holds (plan.HoldTip == "") keeps its existing empty-local no-op and
-// its cleanup of a stray local branch nobody holds remotely, and a
-// non-empty local is this lane's own copy of the ref — fenced or
-// still current — for claim.Yield's own checks to sort out.
+// holds, or one whose hold already reads as released or landed
+// (plan.Held == false — the same fact release's own switch dispatches
+// on) keeps its existing empty-local no-op, and a non-empty local is
+// this lane's own copy of the ref — fenced or still current — for
+// claim.Yield's own checks to sort out. Checking plan.Held rather than
+// plan.HoldTip == "" matters: a released or landed hold still leaves
+// HoldTip pointing at its last tip, and reading that as "held" would
+// refuse a no-op with the false claim that it is "held live by
+// another lane".
 func foreignYieldRefusal(plan discovery.Plan, local string) (string, bool) {
-	if plan.HoldTip == "" || local != "" {
+	if !plan.Held || local != "" {
 		return "", false
 	}
 
