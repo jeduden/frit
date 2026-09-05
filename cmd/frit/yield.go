@@ -66,28 +66,16 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	if reason, ok := foreignYieldRefusal(plan, local); ok {
-		if plan.Stale || plan.Dead {
-			// A matured or confirmed-dead hold already names its own way
-			// out — `frit claim` — inside reason; the wait-or-take-over
-			// NextAction would contradict that by telling the caller to
-			// wait for a window that has already matured.
-			doc.Refuse(reason)
-		} else {
-			doc.RefuseUnproven(reason, plan.ID)
-		}
-		return renderYield(c, rt, doc)
-	}
-
 	return performYield(c, rt, doc, coord, plan, local)
 }
 
-// performYield runs claim.Yield for a lane that is either fenced —
-// local diverges from the remote lease — or holds nothing anyone else
-// claims, and reports what it did: parked and torn down, a refusal,
-// or a non-fatal warning. Split out of Run so the dispatch above it —
-// the ambiguous-repo, foreign-hold and fenced/no-op cases — reads as
-// one flat sequence of early returns.
+// performYield runs claim.Yield for the resolved plan and reports what
+// it did: parked and torn down when the lane was fenced, or one of the
+// refusals and no-ops yieldError sorts a failure into. The empty-local
+// case — nothing of this lane's own to park — no longer needs a
+// gather-fact pre-check here: claim.Yield itself now signals it as an
+// EmptyLocalError rather than a false success, so every outcome flows
+// through this one call and its error handling.
 func performYield(
 	c *cli, rt *runtime, doc *report.YieldDoc, coord fleet.Coord,
 	plan discovery.Plan, local string,
@@ -100,37 +88,70 @@ func performYield(
 		Lane:   defaultLanePath(coord.Path, plan.Path),
 	}, local, rt.git)
 	if err != nil {
-		var still *claim.StillHeldError
-		if errors.As(err, &still) {
-			doc.Refuse("is still held by this lane; yield is for a " +
-				"fenced lane, use release instead")
-			return renderYield(c, rt, doc)
-		}
-		var unconfirmed *claim.UnconfirmedYieldError
-		if errors.As(err, &unconfirmed) {
-			// The still-held read itself failed, before park was ever
-			// attempted — nothing was parked or torn down, the same as
-			// StillHeldError, so this is a refusal too, not a warning
-			// tacked onto a "yielded" that never happened.
-			doc.Refuse(fmt.Sprintf(
-				"could not confirm whether it is still held: %v",
-				unconfirmed.Err))
-			return renderYield(c, rt, doc)
-		}
-		// A park conflict is a warning, not a command failure, the same
-		// way scavengeRef treats it: the document still renders, and
-		// under --json nothing is lost to stderr. The lane is left
-		// standing rather than torn down — parking did not succeed, so
-		// tearing the worktree down would discard exactly what it
-		// failed to save.
-		doc.Warn(fmt.Sprintf("park: %v", err))
-		return renderYield(c, rt, doc)
+		return yieldError(c, rt, doc, plan, err)
 	}
 	doc.Parked(sc.Rescue)
 
 	tearDownLane(rt, doc)
 
 	return renderYield(c, rt, doc)
+}
+
+// yieldError renders what a claim.Yield failure means for the command.
+// An empty local is nothing of this lane's own to park, so
+// yieldNothingLocal decides refusal-vs-no-op from the gathered facts. A
+// still-held lane, or a still-held read that could not be confirmed, is
+// a refusal that parked nothing. Anything else is a park conflict:
+// reported as a warning, not a command failure, the same way scavengeRef
+// treats it — the document still renders, under --json nothing is lost
+// to stderr, and the lane is left standing rather than torn down, since
+// parking did not succeed and tearing down would discard what it failed
+// to save.
+func yieldError(
+	c *cli, rt *runtime, doc *report.YieldDoc, plan discovery.Plan, err error,
+) error {
+	var empty *claim.EmptyLocalError
+	if errors.As(err, &empty) {
+		yieldNothingLocal(rt, doc, plan)
+
+		return renderYield(c, rt, doc)
+	}
+	var still *claim.StillHeldError
+	if errors.As(err, &still) {
+		doc.Refuse("is still held by this lane; yield is for a " +
+			"fenced lane, use release instead")
+
+		return renderYield(c, rt, doc)
+	}
+	var unconfirmed *claim.UnconfirmedYieldError
+	if errors.As(err, &unconfirmed) {
+		doc.Refuse(fmt.Sprintf(
+			"could not confirm whether it is still held: %v",
+			unconfirmed.Err))
+
+		return renderYield(c, rt, doc)
+	}
+	doc.Warn(fmt.Sprintf("park: %v", err))
+
+	return renderYield(c, rt, doc)
+}
+
+// yieldNothingLocal reports a yield with no local copy of the work ref
+// to park. A plan another lane holds is refused the way release refuses
+// it — the shared refuseForeignHold words it and its way out; a plan
+// nobody holds is the honest clean no-op, parking nothing and handing
+// the calling lane's teardown to herdr as before. The held-or-not fact
+// is the gather's own (plan.Held), never a fresh remote read here:
+// claim.Yield already declined to guess it, and deciding holdership
+// from a local view is exactly what frit does not do.
+func yieldNothingLocal(rt *runtime, doc *report.YieldDoc, plan discovery.Plan) {
+	if plan.Held {
+		refuseForeignHold(doc, plan)
+
+		return
+	}
+	doc.Parked("")
+	tearDownLane(rt, doc)
 }
 
 // localRef reads the tip a plan's work ref carries in this repository's
@@ -159,28 +180,6 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(out)), nil
-}
-
-// foreignYieldRefusal reports why a foreign hold with nothing of this
-// lane's own to park must refuse, worded from foreignHoldRefusal the
-// same way release words it, rather than let claim.Yield's own
-// empty-local no-op read as a success it never performed. ok is false
-// when yield should proceed to claim.Yield as usual: a plan nobody
-// holds, or one whose hold already reads as released or landed
-// (plan.Held == false — the same fact release's own switch dispatches
-// on) keeps its existing empty-local no-op, and a non-empty local is
-// this lane's own copy of the ref — fenced or still current — for
-// claim.Yield's own checks to sort out. Checking plan.Held rather than
-// plan.HoldTip == "" matters: a released or landed hold still leaves
-// HoldTip pointing at its last tip, and reading that as "held" would
-// refuse a no-op with the false claim that it is "held live by
-// another lane".
-func foreignYieldRefusal(plan discovery.Plan, local string) (string, bool) {
-	if plan.Held && local == "" {
-		return foreignHoldRefusal(plan), true
-	}
-
-	return "", false
 }
 
 // tearDownLane hands the calling pane's own worktree to herdr for

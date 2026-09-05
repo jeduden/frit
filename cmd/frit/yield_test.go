@@ -11,6 +11,7 @@ import (
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -343,30 +344,35 @@ func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
 	assert.Contains(t, out.String(), "yielded plan 7")
 }
 
-// TestForeignYieldRefusal pins foreignYieldRefusal's own dispatch
-// directly, without going through the full command: ok is true only
-// for a held plan with nothing local to park, false for every plan
-// nobody holds (or holds only via a stale HoldTip) and for any plan
-// with a local copy of the ref, fenced or not, for claim.Yield's own
-// checks to sort out.
-func TestForeignYieldRefusal(t *testing.T) {
-	held := discovery.Plan{Held: true, Holds: []string{"plan/7@elsewhere"}}
+// TestRefuseForeignHold pins the one decision release and yield both
+// route a hold they cannot end through, so the two verbs cannot drift:
+// a live hold carries the wait-or-take-over next_action, a matured or
+// confirmed-dead hold carries none — its reason already names frit
+// claim, which a "wait" would contradict — and a YieldDoc and a
+// ReleaseDoc are worded identically for the same fact.
+func TestRefuseForeignHold(t *testing.T) {
+	live := discovery.Plan{Held: true, Holds: []string{"plan/7-x"}}
+	y := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(y, live)
+	assert.Contains(t, y.Refused, "held live by another lane")
+	assert.NotEmpty(t, y.NextAction, "a live hold names the way out")
 
-	reason, ok := foreignYieldRefusal(held, "")
-	assert.True(t, ok, "a held plan with nothing local to park refuses")
-	assert.Equal(t, foreignHoldRefusal(held), reason)
+	r := report.NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(r, live)
+	assert.Equal(t, y.Refused, r.Refused,
+		"release and yield word the same hold identically")
+	assert.Equal(t, y.NextAction, r.NextAction, "and give the same way out")
 
-	_, ok = foreignYieldRefusal(held, "deadbeef")
-	assert.False(t, ok, "a non-empty local is left to claim.Yield's own checks")
+	matured := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(matured, discovery.Plan{Held: true, Stale: true})
+	assert.Contains(t, matured.Refused, "frit claim")
+	assert.Empty(t, matured.NextAction,
+		"a matured hold already names claim; no contradicting wait")
 
-	unheld := discovery.Plan{Held: false, HoldTip: "deadbeef"}
-	_, ok = foreignYieldRefusal(unheld, "")
-	assert.False(t, ok,
-		"a released or landed hold is not held live by another lane")
-
-	nobody := discovery.Plan{}
-	_, ok = foreignYieldRefusal(nobody, "")
-	assert.False(t, ok, "a plan nobody holds keeps its clean no-op")
+	dead := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseForeignHold(dead, discovery.Plan{Held: true, Dead: true})
+	assert.Contains(t, dead.Refused, "frit claim")
+	assert.Empty(t, dead.NextAction)
 }
 
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still

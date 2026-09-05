@@ -111,15 +111,14 @@ func releaseHeld(
 }
 
 // refuseUnproved records why a hold ownToken could not prove is left
-// standing. A matured or confirmed-dead hold names claim's takeover
-// regardless of whose lane this is, so those two keep their existing
-// wording. Otherwise, a checkout that is genuinely this plan's own
-// lane but never carried a token — the S49 shape — gets its own
-// honest wording rather than foreignHoldRefusal's "held live by
-// another lane", which would be a lie about this very lane, plus the
-// same wait-or-take-over next_action open already gives that hold. A
-// token that exists but no longer proves the tip is a genuine foreign
-// move (S86's negative case) and stays on foreignHoldRefusal.
+// standing. A checkout that is genuinely this plan's own lane but never
+// carried a token — the S49 shape — gets its own honest wording rather
+// than foreignHoldRefusal's "held live by another lane", which would be
+// a lie about this very lane, plus the same wait-or-take-over
+// next_action open already gives that hold. Every other unproven hold —
+// a genuine foreign move (S86), a matured window, a confirmed-dead
+// session — is a hold this lane cannot end, worded and routed through
+// the shared refuseForeignHold so release and yield never drift.
 func refuseUnproved(
 	rt *runtime, doc *report.ReleaseDoc, plan discovery.Plan, cwd string,
 ) {
@@ -128,7 +127,36 @@ func refuseUnproved(
 
 		return
 	}
-	doc.Refuse(foreignHoldRefusal(plan))
+	refuseForeignHold(doc, plan)
+}
+
+// foreignRefuser is the pair of setters a dispatch doc offers for a
+// hold the calling verb cannot end: a plain refusal, and one that also
+// carries the wait-or-take-over next_action. ReleaseDoc and YieldDoc
+// both satisfy it, so refuseForeignHold words the refusal once for both
+// rather than each verb keeping its own copy that could drift.
+type foreignRefuser interface {
+	Refuse(reason string)
+	RefuseUnproven(reason string, id int64)
+}
+
+// refuseForeignHold records why a hold the calling verb cannot end is
+// left standing, with the way out — the one decision release and yield
+// share so they never diverge on either the wording or the next_action
+// for the same fact. A matured window or a confirmed-dead session
+// already names `frit claim` inside its reason (foreignHoldRefusal), so
+// it carries no next_action to contradict that. A hold still live
+// carries the wait-or-take-over next_action open gives the identical
+// fact, so a person or skill refused here is told the same way out
+// whichever verb they reached for.
+func refuseForeignHold(doc foreignRefuser, plan discovery.Plan) {
+	reason := foreignHoldRefusal(plan)
+	if plan.Stale || plan.Dead {
+		doc.Refuse(reason)
+
+		return
+	}
+	doc.RefuseUnproven(reason, plan.ID)
 }
 
 // tokenlessOwnLaneRefusal names release's own S49 case: the calling
