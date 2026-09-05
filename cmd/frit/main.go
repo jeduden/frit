@@ -1439,12 +1439,20 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		p := &res.Plans[i]
 		key := observe.Key(p.Repo, p.ID)
 		if p.HoldTip == "" {
-			// No work ref, no window; dropping the key keeps the state
-			// to what this host actually watches. A ref that exists is
-			// observed whether or not it counts as a hold — glyph
-			// evidence needs a matured window on a ref the hold
-			// filters already dropped.
-			delete(state, key)
+			// No work ref in this pass's view. Dropping the key keeps the
+			// state to what this host actually watches — but only when the
+			// pass was authoritative enough to confirm the ref gone. A
+			// pass that refreshed nothing (Fetched == 0) may simply have a
+			// stale or absent local view of a hold still live elsewhere;
+			// deleting the accrued window on that evidence would reset
+			// start's takeover clock to zero, so the hold could never
+			// mature. A fetching pass that finds no ref did confirm it
+			// gone, and drops it. A ref that exists is observed whether or
+			// not it counts as a hold — glyph evidence needs a matured
+			// window on a ref the hold filters already dropped.
+			if res.Summary.Fetched > 0 {
+				delete(state, key)
+			}
 			continue
 		}
 		window, sampleGap := staleClock(res, p.Repo)
