@@ -1,7 +1,7 @@
 ---
 n: 1
 title: the survey keys live lanes by repository
-status: "🔲"
+status: "✅"
 result: false
 ---
 Make the survey's live-lane map answer the question `liveLaneFor`

@@ -2003,37 +2003,61 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// liveByBranch keys every staffed lane by the branch its worktree is
-// on, so a plan can find the agent working one of its hold branches. A
-// missing socket yields no map and false, which the board reads as
-// "presence unknown".
+// repoBranch keys a live lane by its repository and hold branch. A
+// hold branch name is repo-local — a plan id is only unique within a
+// repository — so the branch name alone collides whenever two
+// repositories hold the same id: keying by the pair is what keeps
+// them apart.
+type repoBranch struct {
+	repo, branch string
+}
+
+// laneRepo resolves the repository a lane's worktree belongs to,
+// through the host's own git — the one resolution liveLaneFor already
+// made inline, now shared with liveByBranch's key so the survey and
+// the dispatch verbs agree on which repository a lane is in. A linked
+// worktree sits under its own directory, so the lane's own basename
+// (herdr.Lane.Repo) would name the lane, not the repository; this
+// walks the worktree list instead, exactly as fleet.RepoName does for
+// liveLaneFor.
+func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
+	return fleet.RepoName(lane.Root, gitForHost(git)(lane.Pane.Host))
+}
+
+// liveByBranch keys every staffed lane by its repository and the
+// branch its worktree is on, so a plan can find the agent working one
+// of its hold branches without being handed a same-named branch from
+// another repository. A missing socket yields no map and false, which
+// the board reads as "presence unknown".
 func liveByBranch(
 	c *cli, rt *runtime,
-) (map[string]herdr.Lane, bool, []hostProblem) {
+) (map[repoBranch]herdr.Lane, bool, []hostProblem) {
 	panes, probs, err := fleetPresence(c, rt)
 	if err != nil {
 		return nil, false, nil
 	}
 
-	live := map[string]herdr.Lane{}
+	live := map[repoBranch]herdr.Lane{}
 	for _, lane := range whoLanes(panes, rt.git) {
-		if lane.Branch != "" {
-			live[lane.Branch] = lane
+		if lane.Branch == "" {
+			continue
 		}
+		live[repoBranch{repo: laneRepo(lane, rt.git), branch: lane.Branch}] = lane
 	}
 
 	return live, true, probs
 }
 
-// laneFor finds the live lane on one of a plan's hold branches, if any
-// is live. A plan nobody holds has no lane to be worked on, so it
-// reports none. agentFor and attendedFor both ask this same question —
-// which of a plan's branches is live now — and differ only in what
-// they read off the answer, so they share this one walk of p.Holds
-// rather than each keeping its own copy.
-func laneFor(p discovery.Plan, live map[string]herdr.Lane) (herdr.Lane, bool) {
+// laneFor finds the live lane on one of a plan's hold branches, in the
+// plan's own repository, if any is live. A plan nobody holds has no
+// lane to be worked on, so it reports none. agentFor and attendedFor
+// both ask this same question — which of a plan's branches is live
+// now — and differ only in what they read off the answer, so they
+// share this one walk of p.Holds rather than each keeping its own
+// copy.
+func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool) {
 	for _, branch := range p.Holds {
-		if lane, ok := live[branch]; ok {
+		if lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]; ok {
 			return lane, true
 		}
 	}
@@ -2045,7 +2069,7 @@ func laneFor(p discovery.Plan, live map[string]herdr.Lane) (herdr.Lane, bool) {
 // any is live. A plan nobody holds has no lane to be worked on, so it
 // reports none.
 func agentFor(
-	p discovery.Plan, live map[string]herdr.Lane,
+	p discovery.Plan, live map[repoBranch]herdr.Lane,
 ) (agent, status string) {
 	if lane, ok := laneFor(p, live); ok {
 		return lane.Pane.Agent, lane.Pane.Presence()
@@ -2063,7 +2087,7 @@ func agentFor(
 // for. It reads lane presence directly rather than agentFor's returned
 // agent so that a live pane herdr ever reports with no agent attached
 // still counts as attended.
-func presenceFor(p discovery.Plan, live map[string]herdr.Lane) string {
+func presenceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) string {
 	if lane, ok := laneFor(p, live); ok {
 		return lane.Pane.Presence()
 	}

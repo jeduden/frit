@@ -1,7 +1,7 @@
 ---
 id: 2609050143
 title: the survey reads a live lane the way dispatch does
-status: "🔲"
+status: "🔳"
 summary: >-
   Plan 2609032048 made board, ready, pick and find offer `frit message`
   for a held lane whose bound session is gone but whose branch a live
@@ -130,9 +130,10 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                  |
-| --- | ------ | ------------------------------------------------------ |
-| 1   | 🔲     | [the survey keys live lanes by repository](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                 |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [the survey keys live lanes by repository](phase-1.md)                                                                                                                                                                                                                                                                                |
+|     | ↳      | liveByBranch now keys every staffed lane by `repoBranch{repo, branch}` rather than branch alone, through a new `laneRepo` helper in `cmd/frit/main.go` that `liveLaneFor` in `cmd/frit/dispatch.go` now calls too. Two repositories holding the same plan id on the same branch name no longer collide in board, ready, pick or find. |
 <?/catalog?>
 
 ## Acceptance Criteria

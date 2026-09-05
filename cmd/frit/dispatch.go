@@ -134,7 +134,7 @@ func liveLaneFor(
 		if lane.Root == "" || lane.Branch == "" || !holds[lane.Branch] {
 			continue
 		}
-		if fleet.RepoName(lane.Root, gitForHost(rt.git)(lane.Pane.Host)) == p.Repo {
+		if laneRepo(lane, rt.git) == p.Repo {
 			return lane, true, probs, nil
 		}
 	}
