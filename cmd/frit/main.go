@@ -1644,13 +1644,17 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewReady(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
+	if liveErr != nil {
+		doc.AddProblem("herdr", liveErr)
+	}
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1689,14 +1693,18 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
+	if liveErr != nil {
+		doc.AddProblem("herdr", liveErr)
+	}
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -1981,15 +1989,16 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, present, hostProbs := liveByBranch(c, rt)
-	doc := report.NewBoard(c.Root, present)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
+	doc := report.NewBoard(c.Root, liveErr == nil)
 	carryProblems(doc, res.Problems, c.All)
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
 	for _, p := range list {
 		agent, status := agentFor(p, live)
-		doc.AddPlan(p, agent, status)
+		doc.AddPlan(p, agent, status, unknown)
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2027,18 +2036,20 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // liveByBranch keys every staffed lane by its repository and the
 // branch its worktree is on, so a plan can find the agent working one
 // of its hold branches without being handed a same-named branch from
-// another repository. A missing socket yields no map and false, which
-// the board reads as "presence unknown". laneRepo's own walk of the
-// worktree list is resolved once per distinct root — two panes in the
-// same lane, e.g. two terminals on one worktree, share the answer
-// rather than each paying their own git call (an ssh round trip, for a
+// another repository. A missing socket hands the read's own error
+// straight back — never swallowed — so a caller can feed it to
+// presenceUnknown exactly as open, nudge and message already do off
+// liveLaneFor's matching shape. laneRepo's own walk of the worktree
+// list is resolved once per distinct root — two panes in the same
+// lane, e.g. two terminals on one worktree, share the answer rather
+// than each paying their own git call (an ssh round trip, for a
 // remote pane).
 func liveByBranch(
 	c *cli, rt *runtime,
-) (map[repoBranch]herdr.Lane, bool, []hostProblem) {
+) (map[repoBranch]herdr.Lane, []hostProblem, error) {
 	panes, probs, err := fleetPresence(c, rt)
 	if err != nil {
-		return nil, false, nil
+		return nil, nil, err
 	}
 
 	repos := map[string]string{}
@@ -2056,7 +2067,7 @@ func liveByBranch(
 		live[repoBranch{repo: repo, branch: lane.Branch}] = lane
 	}
 
-	return live, true, probs
+	return live, probs, nil
 }
 
 // laneFor finds the live lane on one of a plan's hold branches, in the
@@ -2097,7 +2108,11 @@ func agentFor(
 // pane can be asked, since message refuses one herdr cannot vouch
 // for. It reads lane presence directly rather than agentFor's returned
 // agent so that a live pane herdr ever reports with no agent attached
-// still counts as attended.
+// still counts as attended. It never rewrites the status itself —
+// board's agent_status column reports exactly what herdr saw whether
+// or not this call's presence read was complete; withholding the ask
+// on an incomplete read is askOf's own second input, not a reason to
+// misreport what a pane herdr did see is doing.
 func presenceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) string {
 	if lane, ok := laneFor(p, live); ok {
 		return lane.Pane.Presence()
@@ -2509,13 +2524,17 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	live, _, hostProbs := liveByBranch(c, rt)
+	live, hostProbs, liveErr := liveByBranch(c, rt)
+	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewFind(c.Root, hostname(), f.Query)
 	carryProblems(doc, res.Problems, c.All)
+	if liveErr != nil {
+		doc.AddProblem("herdr", liveErr)
+	}
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) })
+	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {

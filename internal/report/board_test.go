@@ -13,7 +13,7 @@ import (
 // can tell a PR-in-flight from an abandoned lane.
 func TestBoardAddPlanNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "working")
+	doc.AddPlan(deadHeldPlan, "claude", "working", false)
 
 	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
 	assert.False(t, doc.Plans[0].Dead, "the live agent still clears dead")
@@ -23,7 +23,7 @@ func TestBoardAddPlanNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 // lane means nobody to ask; the dead reading stands as before.
 func TestBoardAddPlanLeavesAskEmptyWhenNoAgentIsLive(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "", "")
+	doc.AddPlan(deadHeldPlan, "", "", false)
 
 	assert.Empty(t, doc.Plans[0].Ask)
 	assert.True(t, doc.Plans[0].Dead)
@@ -34,7 +34,7 @@ func TestBoardAddPlanLeavesAskEmptyWhenNoAgentIsLive(t *testing.T) {
 // but earns no ask, since message refuses exactly that pane.
 func TestBoardAddPlanLeavesAskEmptyForAnUnvouchedAgent(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "unknown")
+	doc.AddPlan(deadHeldPlan, "claude", "unknown", false)
 
 	assert.False(t, doc.Plans[0].Dead, "a pane there still disproves dead")
 	assert.Empty(t, doc.Plans[0].Ask, "but one message would refuse is not offered")
@@ -46,7 +46,23 @@ func TestBoardAddPlanLeavesAskEmptyForABoundLiveLane(t *testing.T) {
 	bound := deadHeldPlan
 	bound.Dead = false
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(bound, "claude", "working")
+	doc.AddPlan(bound, "claude", "working", false)
 
 	assert.Empty(t, doc.Plans[0].Ask)
+}
+
+// TestBoardAddPlanWithholdsAskOnIncompletePresenceWithoutRewritingStatus:
+// unknown withholds the ask the same way an unvouched status does, but
+// AgentStatus still carries the pane's real status — the fleet's own
+// presence read being incomplete is not a reason to misreport what
+// herdr actually saw a working pane doing.
+func TestBoardAddPlanWithholdsAskOnIncompletePresenceWithoutRewritingStatus(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "claude", "working", true)
+
+	assert.False(t, doc.Plans[0].Dead, "the live agent still clears dead")
+	assert.Equal(t, "working", doc.Plans[0].AgentStatus,
+		"agent_status reports what herdr saw, not what the ask gate withheld")
+	assert.Empty(t, doc.Plans[0].Ask,
+		"a configured host went unread, so no ask is offered off this read")
 }
