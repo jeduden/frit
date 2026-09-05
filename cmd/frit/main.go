@@ -1453,6 +1453,25 @@ func carryProblems(doc problemAdder, problems []fleet.Problem, all bool) {
 	}
 }
 
+// carryHostProblems moves liveByBranch's own per-host failures onto a
+// document — the identical loop board, ready, pick and find each ran
+// over hostProbs before this shared it.
+func carryHostProblems(doc problemAdder, hostProbs []hostProblem) {
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+}
+
+// carryHerdrProblem records liveByBranch's own herdr error under the
+// "herdr" name — the identical guard ready, pick and find each apply.
+// board carries the same fact through its own Presence field instead,
+// so it never calls this.
+func carryHerdrProblem(doc problemAdder, err error) {
+	if err != nil {
+		doc.AddProblem("herdr", err)
+	}
+}
+
 // resolveSelector turns a command's optional selector into one plan.
 //
 // A selector given on the command line is resolved by id or slug; an
@@ -1648,12 +1667,8 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewReady(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
-	if liveErr != nil {
-		doc.AddProblem("herdr", liveErr)
-	}
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
@@ -1698,12 +1713,8 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewPick(c.Root, hostname())
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
-	if liveErr != nil {
-		doc.AddProblem("herdr", liveErr)
-	}
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	if c.JSON {
@@ -1993,9 +2004,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewBoard(c.Root, liveErr == nil)
 	carryProblems(doc, res.Problems, c.All)
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
+	carryHostProblems(doc, hostProbs)
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status, unknown)
@@ -2528,12 +2537,8 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	unknown := presenceUnknown(liveErr, hostProbs)
 	doc := report.NewFind(c.Root, hostname(), f.Query)
 	carryProblems(doc, res.Problems, c.All)
-	if liveErr != nil {
-		doc.AddProblem("herdr", liveErr)
-	}
-	for _, p := range hostProbs {
-		doc.AddProblem(p.name, p.err)
-	}
+	carryHerdrProblem(doc, liveErr)
+	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
