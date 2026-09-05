@@ -65,3 +65,31 @@ tests updated to the new keyed map.
 **Gate.** `go test ./...` and `go tool -modfile=tools/go.mod
 golangci-lint run` are both clean. `who` is untouched — it never
 called `liveByBranch` or `laneFor`.
+
+**Addendum, post-landing.** `/code-review` found two real gaps in this
+phase's own diff, both fixed: `laneRepo` had no dedicated unit test of
+its own (only indirect coverage through `liveByBranch`/`liveLaneFor`'s
+integration tests) — `TestLaneRepoResolvesThroughTheMainWorktreeList`
+and `TestLaneRepoFallsBackToTheRootsBasenameWhenGitCannotAnswer` pin it
+directly now. And `liveByBranch` ran an uncached `git worktree list`
+(an ssh round trip for a remote pane) per staffed lane on every
+board/ready/pick/find call; it now resolves each distinct
+`(host, root)` pair once per call and shares the answer across every
+pane in the same lane, pinned by
+`TestLiveByBranchResolvesEachWorktreeRootOnlyOnce`. `liveLaneFor` was
+already at most one call per plan and needed no change. The review
+also flagged `boardPlanByID`/`boardPlanByRepo`/`planCardByRepo`'s
+identical find-loops in test code; folded onto one generic `findFirst`
+helper in `main_test.go`.
+
+**Left for a later plan, not this phase.** The review's other two
+findings are real but out of this phase's boundary: `herdr.Lane.Repo`
+(set in `herdr.Join` as the linked worktree's own basename) is the
+same wrong-repo-name bug this phase fixed for the survey, still read
+directly by `who`'s sort, print and `--json` output — `who` was
+deliberately left alone here, per the plan's own scope. And
+`fleet.RepoName`'s fallback to the root's basename on an unreadable
+worktree list can, in principle, silently reintroduce a same-named-
+branch collision or read a live lane as unknown; surfacing that
+properly would mean threading a new state through the join, a design
+change rather than a local fix.

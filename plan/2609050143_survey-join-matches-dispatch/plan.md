@@ -138,11 +138,11 @@ footer: |
 
 ## Acceptance Criteria
 
-- [ ] With two repositories each holding the same plan id on the same
+- [x] With two repositories each holding the same plan id on the same
       branch name and only one of them live, `board`, `ready`, `pick`
       and `find` clear `dead` and carry an `ask` only on the live
       repository's row; the other stays dead, ask empty, agent empty
-- [ ] The repository resolution the survey uses is the one
+- [x] The repository resolution the survey uses is the one
       `liveLaneFor` uses, written once and called from both joins
 - [ ] When a configured host went unread with no cache, every survey
       row carries `ask: ""` and the host rides in `problems[]`; a pane
