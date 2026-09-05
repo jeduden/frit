@@ -141,11 +141,13 @@ func tokenlessOwnLaneRefusal(plan discovery.Plan) string {
 		"token to prove it (" + heldLabel(plan.Holds) + ")"
 }
 
-// foreignHoldRefusal names why a hold this lane's own token does not
-// match is left standing: a live one names the holder, and a matured
-// window or a bound session herdr confirms gone both point at claim's
-// takeover instead — release never seizes a lease that is not its
-// own, whatever its window or session says.
+// foreignHoldRefusal names why a hold this lane cannot end is left
+// standing: a live one names the holder, and a matured window or a
+// bound session herdr confirms gone both point at claim's takeover
+// instead — neither release nor yield seizes a lease that is not its
+// own, whatever its window or session says. Shared by release and
+// yield so the two verbs never drift onto their own wording for the
+// same fact.
 func foreignHoldRefusal(plan discovery.Plan) string {
 	switch {
 	case plan.Stale:
@@ -157,7 +159,7 @@ func foreignHoldRefusal(plan discovery.Plan) string {
 	}
 
 	return "is held live by another lane (" + heldLabel(plan.Holds) +
-		"); only its own lane can release it"
+		"); only its own lane can end it"
 }
 
 // renderRelease prints the release as a table or emits it as JSON.

@@ -18,6 +18,7 @@
   "rescue": "refs/frit/rescue/2608161810/box-a",
   "torn_down": true,
   "refused": "",
+  "next_action": "",
   "warning": "",
   "problems": []
 }

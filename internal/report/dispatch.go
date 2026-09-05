@@ -469,6 +469,11 @@ type YieldDoc struct {
 	// Refused is why nothing was parked or torn down, empty when yield
 	// proceeded.
 	Refused string `json:"refused"`
+	// NextAction is the way out of a refusal this lane cannot prove its
+	// way past: the same wait-or-take-over wording release's own
+	// RefuseUnproven gives (unprovenNextAction), non-empty only when
+	// RefuseUnproven set it. Empty whenever yield proceeded.
+	NextAction string `json:"next_action"`
 	// Warning is a non-fatal failure that left the parked rescue
 	// standing — herdr could not be read, or could not tear the lane
 	// down. Empty when none.
@@ -496,6 +501,15 @@ func (d *YieldDoc) Torn() { d.TornDown = true }
 
 // Refuse records why nothing was parked or torn down.
 func (d *YieldDoc) Refuse(reason string) { d.Refused = reason }
+
+// RefuseUnproven records a refusal for a foreign hold with nothing
+// local to park — the way release's own RefuseUnproven does — and
+// carries the wait-or-take-over wording in NextAction instead of
+// leaving a consumer to parse Refused's own sentence.
+func (d *YieldDoc) RefuseUnproven(reason string, id int64) {
+	d.Refuse(reason)
+	d.NextAction = unprovenNextAction(id)
+}
 
 // Warn records a non-fatal failure that left the parked rescue
 // standing.

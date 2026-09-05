@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
@@ -24,9 +25,13 @@ type yieldCmd struct {
 // herdr, and it exits clean. The lane that still holds the live lease
 // is refused — yield is for the fenced, not an alias for release.
 //
-// It never guards a foreign hold the way claim, start, nudge and open
-// do: acting on a lane another host's claim now covers is exactly what
-// a fenced lane needs yield for.
+// A foreign hold this lane is genuinely fenced under — its own local
+// copy of the work ref still carries the divergence to park — is what
+// yield exists for, and is acted on the way claim, start, nudge and
+// open never act on a foreign hold. A foreign hold with nothing local
+// to park is a different case: this lane never fetched or minted the
+// ref at all, so there is nothing fenced here to end, and yield
+// refuses it the way release does.
 func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
@@ -61,6 +66,24 @@ func (yc *yieldCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
+	if reason, ok := foreignYieldRefusal(plan, local); ok {
+		doc.RefuseUnproven(reason, plan.ID)
+		return renderYield(c, rt, doc)
+	}
+
+	return performYield(c, rt, doc, coord, plan, local)
+}
+
+// performYield runs claim.Yield for a lane that is either fenced —
+// local diverges from the remote lease — or holds nothing anyone else
+// claims, and reports what it did: parked and torn down, a refusal,
+// or a non-fatal warning. Split out of Run so the dispatch above it —
+// the ambiguous-repo, foreign-hold and fenced/no-op cases — reads as
+// one flat sequence of early returns.
+func performYield(
+	c *cli, rt *runtime, doc *report.YieldDoc, coord fleet.Coord,
+	plan discovery.Plan, local string,
+) error {
 	sc, err := claim.Yield(coord.Path, claim.LeaseOptions{
 		PlanID: plan.ID,
 		Remote: coord.Remote,
@@ -130,6 +153,23 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// foreignYieldRefusal reports why a foreign hold with nothing of this
+// lane's own to park must refuse, worded from foreignHoldRefusal the
+// same way release words it, rather than let claim.Yield's own
+// empty-local no-op read as a success it never performed. ok is false
+// when yield should proceed to claim.Yield as usual: a plan nobody
+// holds (plan.HoldTip == "") keeps its existing empty-local no-op and
+// its cleanup of a stray local branch nobody holds remotely, and a
+// non-empty local is this lane's own copy of the ref — fenced or
+// still current — for claim.Yield's own checks to sort out.
+func foreignYieldRefusal(plan discovery.Plan, local string) (string, bool) {
+	if plan.HoldTip == "" || local != "" {
+		return "", false
+	}
+
+	return foreignHoldRefusal(plan), true
+}
+
 // tearDownLane hands the calling pane's own worktree to herdr for
 // removal. Yield acts on the lane it is itself running in, so the
 // workspace to tear down is read off the current pane, not looked up
@@ -189,6 +229,9 @@ func printYield(out io.Writer, doc *report.YieldDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
+		if doc.NextAction != "" {
+			_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
+		}
 		return
 	}
 
