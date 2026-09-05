@@ -1896,6 +1896,38 @@ func TestStartDoesNotResumeALaneWhoseTokenIsGone(t *testing.T) {
 		"a hold this machine cannot prove is left exactly as it stood")
 }
 
+// TestStartRefusalNamesTheWayOutForAnUnprovableHold: the same fixture
+// TestStartDoesNotResumeALaneWhoseTokenIsGone builds, read as JSON.
+// next_action names the honest way out — the same wording open
+// already gives the identical hold — non-empty exactly where the
+// existing "not takeable" wording already sits.
+func TestStartRefusalNamesTheWayOutForAnUnprovableHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane, _ := heldLaneOwnedBy(t, root, hostname(), "")
+	dropToken(t, lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "takeover window",
+		"the table names the way out too")
+
+	var doc struct {
+		Refused    string `json:"refused"`
+		NextAction string `json:"next_action"`
+	}
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
+
+	assert.Contains(t, doc.Refused, "already held")
+	assert.NotEmpty(t, doc.NextAction)
+	assert.Contains(t, doc.NextAction, "takeover window")
+}
+
 // TestStartResumesWhateverTheHolderStringSays: the holder trailer
 // names another machine, but the token in the lane's checkout matches
 // the hold — a hostname that changed since the lease was minted (S48).

@@ -223,6 +223,14 @@ func startRefusal(
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 		doc := refusedStart(c, res, plan, phase, doGo, reason)
 		scavengeGlyph(rt, doc, plan, res)
+		if plan.Held {
+			// open already runs this same read for the identical hold
+			// (#122); a live or unparked kind is already caught above
+			// when reattached, and contributes no wording here either
+			// way — only HoldUnproven's wait-or-take-over sentence
+			// rides into NextAction (phase 2 of plan 2609050854).
+			doc.SetHoldKind(holdKindFor(rt, plan, coord, coordOK))
+		}
 
 		return doc
 	}
@@ -1264,6 +1272,9 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	if doc.Refused != "" {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
+		if doc.NextAction != "" {
+			_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
+		}
 		if doc.Warning != "" {
 			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
 		}

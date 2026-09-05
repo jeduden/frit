@@ -121,9 +121,7 @@ func openNextAction(focused, presenceUnknown bool, kind HoldKind, id int64) stri
 
 	switch kind {
 	case HoldUnproven:
-		return fmt.Sprintf(
-			"wait for the takeover window, or take it over once it "+
-				"matures with frit start %d", id)
+		return unprovenNextAction(id)
 	case HoldLive:
 		return "a live agent is already on this lane"
 	case HoldUnparked:
@@ -132,6 +130,17 @@ func openNextAction(focused, presenceUnknown bool, kind HoldKind, id int64) stri
 	default:
 		return fmt.Sprintf("frit start %d", id)
 	}
+}
+
+// unprovenNextAction is the wait-or-take-over wording a hold this
+// machine cannot prove gets wherever HoldUnproven surfaces: open's own
+// projection above, a release refusal (RefuseUnproven) and a start
+// refusal (setHandoff, once SetHoldKind names the kind) alike, so the
+// three verbs never drift onto their own wording for the same fact.
+func unprovenNextAction(id int64) string {
+	return fmt.Sprintf(
+		"wait for the takeover window, or take it over once it "+
+			"matures with frit start %d", id)
 }
 
 // NewOpen opens a handoff report for a resolved plan. NextAction is
@@ -521,6 +530,14 @@ type ReleaseDoc struct {
 	// either — the plan was already free, or its hold already reads
 	// as released. Empty when release refused, released or scavenged.
 	NoOp string `json:"no_op"`
+	// NextAction is the way out of a refusal this lane cannot prove
+	// its way past: the same wait-or-take-over wording open already
+	// gives a hold this machine cannot prove (unprovenNextAction),
+	// non-empty only when RefuseUnproven set it. Empty whenever
+	// release proceeded, found nothing to do, scavenged, or refused a
+	// hold with a different way out — a live agent's own lane, or a
+	// matured hold, which already names frit claim in Refused itself.
+	NextAction string `json:"next_action"`
 	// Scavenged is the work ref release cleaned up on landed evidence,
 	// "" when nothing was scavenged; Rescue is where its unlanded work
 	// was parked, "" when the chain held nothing a delete could
@@ -551,6 +568,15 @@ func (d *ReleaseDoc) MarkReleased() { d.Released = true }
 
 // Refuse records why a foreign hold was left standing.
 func (d *ReleaseDoc) Refuse(reason string) { d.Refused = reason }
+
+// RefuseUnproven records a refusal for a hold this lane cannot prove
+// its own, alongside the way out: the same wait-or-take-over wording
+// open already gives the identical shape, so an agent branches on
+// NextAction instead of parsing Refused's own sentence.
+func (d *ReleaseDoc) RefuseUnproven(reason string, id int64) {
+	d.Refuse(reason)
+	d.NextAction = unprovenNextAction(id)
+}
 
 // Nothing records that release found nothing to do, and why.
 func (d *ReleaseDoc) Nothing(reason string) { d.NoOp = reason }
@@ -583,15 +609,22 @@ const (
 )
 
 // startNextAction derives the verb a consumer runs instead of the
-// dispatched prompt from the handoff alone. A running handoff hands over
-// frit open <id>, a look at the lane; every other handoff leaves the
-// prompt as the recipe and names nothing.
-func startNextAction(handoff string, id int64) string {
-	if handoff == HandoffRunning {
+// dispatched prompt from the handoff and, on a refusal, the hold's
+// kind. A running handoff hands over frit open <id>, a look at the
+// lane. A refusal (HandoffNone) whose hold reads HoldUnproven names
+// the same wait-or-take-over wording open already gives that hold
+// (#122, phase 2 of plan 2609050854) — the one refusal shape with an
+// honest way out to name. Every other handoff, and every other kind,
+// leaves the prompt as the recipe and names nothing.
+func startNextAction(handoff string, kind HoldKind, id int64) string {
+	switch {
+	case handoff == HandoffRunning:
 		return fmt.Sprintf("frit open %d", id)
+	case handoff == HandoffNone && kind == HoldUnproven:
+		return unprovenNextAction(id)
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 // StartDoc is the full escalation `frit start` composes: the claim it
@@ -663,6 +696,13 @@ type StartDoc struct {
 	// Warning is a non-fatal failure alongside a scavenge.
 	Warning  string    `json:"warning"`
 	Problems []Problem `json:"problems"`
+	// holdKind is the true kind of a held lane a refusal named, read
+	// through SetHoldKind off the same marker and token reads open's
+	// own holdKindFor runs (#122). Off the wire — NextAction is the
+	// field a consumer reads — it only ever adds wording for
+	// HoldUnproven, so a live or unparked kind, already named by its
+	// own refusal wording elsewhere, contributes nothing here.
+	holdKind HoldKind
 }
 
 // StartPlan carries the composed escalation into a StartDoc, so the
@@ -706,8 +746,17 @@ func NewStart(
 // and cannot part. It is the one writer of all three fields.
 func (d *StartDoc) setHandoff(handoff string) {
 	d.Handoff = handoff
-	d.NextAction = startNextAction(handoff, d.Plan.ID)
+	d.NextAction = startNextAction(handoff, d.holdKind, d.Plan.ID)
 	d.PromptDispatched = handoff == HandoffRunning
+}
+
+// SetHoldKind records the true kind of a held lane a refusal named,
+// letting the projection speak the same wait-or-take-over wording
+// open already gives an unprovable hold, rather than leaving
+// NextAction empty on a refusal that does have an honest next step.
+func (d *StartDoc) SetHoldKind(kind HoldKind) {
+	d.holdKind = kind
+	d.NextAction = startNextAction(d.Handoff, kind, d.Plan.ID)
 }
 
 // Refuse records why the escalation was withheld, leaving Started false.

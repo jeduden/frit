@@ -93,7 +93,7 @@ func releaseHeld(
 	cwd, _ := os.Getwd()
 	lane, tip, ok := ownToken(rt, plan, coord, cwd)
 	if !ok {
-		doc.Refuse(foreignHoldRefusal(plan))
+		refuseUnproved(rt, doc, plan, cwd)
 
 		return
 	}
@@ -108,6 +108,37 @@ func releaseHeld(
 		return
 	}
 	doc.MarkReleased()
+}
+
+// refuseUnproved records why a hold ownToken could not prove is left
+// standing. A matured or confirmed-dead hold names claim's takeover
+// regardless of whose lane this is, so those two keep their existing
+// wording. Otherwise, a checkout that is genuinely this plan's own
+// lane but never carried a token — the S49 shape — gets its own
+// honest wording rather than foreignHoldRefusal's "held live by
+// another lane", which would be a lie about this very lane, plus the
+// same wait-or-take-over next_action open already gives that hold. A
+// token that exists but no longer proves the tip is a genuine foreign
+// move (S86's negative case) and stays on foreignHoldRefusal.
+func refuseUnproved(
+	rt *runtime, doc *report.ReleaseDoc, plan discovery.Plan, cwd string,
+) {
+	if !plan.Stale && !plan.Dead && tokenlessOwnLane(rt, plan, cwd) {
+		doc.RefuseUnproven(tokenlessOwnLaneRefusal(plan), plan.ID)
+
+		return
+	}
+	doc.Refuse(foreignHoldRefusal(plan))
+}
+
+// tokenlessOwnLaneRefusal names release's own S49 case: the calling
+// lane is genuinely this plan's own — tokenlessOwnLane already
+// confirmed it — but carries no token proving it, so ownToken refuses
+// exactly as it would a stranger's. The way out rides in next_action
+// instead of being repeated here.
+func tokenlessOwnLaneRefusal(plan discovery.Plan) string {
+	return "is this lane's own hold, but its checkout carries no " +
+		"token to prove it (" + heldLabel(plan.Holds) + ")"
 }
 
 // foreignHoldRefusal names why a hold this lane's own token does not
@@ -157,6 +188,9 @@ func printRelease(out io.Writer, doc *report.ReleaseDoc) {
 		_, _ = fmt.Fprintf(out,
 			"plan %d: hold already landed; scavenged %s\n",
 			doc.Plan.ID, doc.Scavenged)
+	}
+	if doc.NextAction != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", doc.NextAction)
 	}
 	if doc.Rescue != "" {
 		_, _ = fmt.Fprintf(out, "  rescued: %s\n", doc.Rescue)

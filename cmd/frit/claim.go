@@ -244,6 +244,25 @@ func inOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
 	return idOK && repo == plan.Repo && id == plan.ID
 }
 
+// tokenlessOwnLane reports whether cwd is this plan's own lane whose
+// checkout carries no token at all — the S49 shape ownToken cannot
+// tell apart from a lane whose token simply no longer proves the tip,
+// since both read as ownToken's ok=false. Only a checkout with no
+// token to begin with is honestly this lane's own unprovable hold; one
+// whose token exists but fails tokenProves is a genuine foreign move
+// (S86's negative case) and must keep reading as foreign.
+func tokenlessOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
+	if !inOwnLane(rt, plan, cwd) {
+		return false
+	}
+	lane := herdr.Resolve(cwd, rt.git).Root
+	if lane == "" {
+		return false
+	}
+
+	return claim.ReadToken(lane, plan.ID, rt.git) == ""
+}
+
 // currentSession is the herdr session the calling pane runs, "" when
 // herdr is unreachable or no agent is on it. Best-effort: an unbound
 // lease still holds, it only forgoes the veto until a later renewal
