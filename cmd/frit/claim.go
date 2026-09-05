@@ -186,20 +186,8 @@ func resumeToken(
 func ownToken(
 	rt *runtime, plan discovery.Plan, coord fleet.Coord, cwd string,
 ) (lane, tip string, ok bool) {
-	// The guard against the CLI being invoked elsewhere: the same
-	// cwd-join-backwards yield's tearDownLane uses to confirm the
-	// calling directory is this exact plan's own lane before trusting
-	// anything local it finds there.
-	if !inOwnLane(rt, plan, cwd) {
-		return "", "", false
-	}
-
-	lane = herdr.Resolve(cwd, rt.git).Root
-	if lane == "" {
-		return "", "", false
-	}
-	token := claim.ReadToken(lane, plan.ID, rt.git)
-	if token == "" {
+	lane, token, ok := resolveOwnLane(rt, plan, cwd)
+	if !ok || token == "" {
 		return "", "", false
 	}
 	// Origin is read fresh rather than trusting plan.HoldTip, which is
@@ -211,6 +199,28 @@ func ownToken(
 	}
 
 	return lane, tip, true
+}
+
+// resolveOwnLane resolves cwd's lane path and its persisted token, once
+// cwd is confirmed to be this exact plan's own worktree — the identity
+// prefix ownToken and tokenlessOwnLane both need before they diverge on
+// what the token proves. ok is false when cwd is not this plan's own
+// lane (the guard against the CLI being invoked elsewhere, the same
+// cwd-join-backwards yield's tearDownLane uses), or herdr cannot
+// resolve it to a worktree root; token is "" whenever the lane's
+// checkout carries none.
+func resolveOwnLane(
+	rt *runtime, plan discovery.Plan, cwd string,
+) (lane, token string, ok bool) {
+	if !inOwnLane(rt, plan, cwd) {
+		return "", "", false
+	}
+	lane = herdr.Resolve(cwd, rt.git).Root
+	if lane == "" {
+		return "", "", false
+	}
+
+	return lane, claim.ReadToken(lane, plan.ID, rt.git), true
 }
 
 // tokenProves reports whether a lane's persisted token still proves
@@ -252,15 +262,9 @@ func inOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
 // whose token exists but fails tokenProves is a genuine foreign move
 // (S86's negative case) and must keep reading as foreign.
 func tokenlessOwnLane(rt *runtime, plan discovery.Plan, cwd string) bool {
-	if !inOwnLane(rt, plan, cwd) {
-		return false
-	}
-	lane := herdr.Resolve(cwd, rt.git).Root
-	if lane == "" {
-		return false
-	}
+	_, token, ok := resolveOwnLane(rt, plan, cwd)
 
-	return claim.ReadToken(lane, plan.ID, rt.git) == ""
+	return ok && token == ""
 }
 
 // currentSession is the herdr session the calling pane runs, "" when

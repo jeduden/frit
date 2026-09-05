@@ -742,8 +742,10 @@ func NewStart(
 }
 
 // setHandoff moves the handoff and reprojects NextAction and
-// PromptDispatched from it in the same step, so the three stay in sync
-// and cannot part. It is the one writer of all three fields.
+// PromptDispatched from it and the current hold kind in the same step,
+// so the three stay in sync and cannot part. It is the one place that
+// derives NextAction; SetHoldKind below re-enters it on the unchanged
+// handoff rather than deriving NextAction a second way.
 func (d *StartDoc) setHandoff(handoff string) {
 	d.Handoff = handoff
 	d.NextAction = startNextAction(handoff, d.holdKind, d.Plan.ID)
@@ -754,9 +756,12 @@ func (d *StartDoc) setHandoff(handoff string) {
 // letting the projection speak the same wait-or-take-over wording
 // open already gives an unprovable hold, rather than leaving
 // NextAction empty on a refusal that does have an honest next step.
+// It re-enters setHandoff on the handoff already recorded, so
+// NextAction reprojects through the one formula setHandoff owns
+// instead of a second copy of it here.
 func (d *StartDoc) SetHoldKind(kind HoldKind) {
 	d.holdKind = kind
-	d.NextAction = startNextAction(d.Handoff, kind, d.Plan.ID)
+	d.setHandoff(d.Handoff)
 }
 
 // Refuse records why the escalation was withheld, leaving Started false.

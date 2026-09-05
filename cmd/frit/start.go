@@ -214,8 +214,10 @@ func startRefusal(
 
 		return doc
 	}
-	if reattach {
-		if reason := liveHoldRefusal(rt, plan, coord, coordOK); reason != "" {
+	var kind report.HoldKind
+	if reattach && plan.Held {
+		kind = holdKindFor(rt, plan, coord, coordOK)
+		if reason := liveHoldRefusal(plan, kind); reason != "" {
 			return refusedStart(c, res, plan, phase, doGo, reason)
 		}
 	}
@@ -223,13 +225,19 @@ func startRefusal(
 	if reason := claimRefusal(plan, discovery.Ready(res.Plans), window); reason != "" {
 		doc := refusedStart(c, res, plan, phase, doGo, reason)
 		scavengeGlyph(rt, doc, plan, res)
-		if plan.Held {
+		if reattach && plan.Held {
 			// open already runs this same read for the identical hold
 			// (#122); a live or unparked kind is already caught above
-			// when reattached, and contributes no wording here either
-			// way — only HoldUnproven's wait-or-take-over sentence
-			// rides into NextAction (phase 2 of plan 2609050854).
-			doc.SetHoldKind(holdKindFor(rt, plan, coord, coordOK))
+			// and contributes no wording here either way — only
+			// HoldUnproven's wait-or-take-over sentence rides into
+			// NextAction (phase 2 of plan 2609050854). kind is the one
+			// resolved above, never a second holdKindFor call. pick
+			// --go's non-reattach walk never resolves it at all: a
+			// skipped candidate's doc is discarded wholesale
+			// (buildStart's own doc comment above), so reading it
+			// there would cost every held-and-refused candidate a
+			// RemoteTip fetch and a herdr.List round trip nobody reads.
+			doc.SetHoldKind(kind)
 		}
 
 		return doc
@@ -242,13 +250,16 @@ func startRefusal(
 // of the generic un-matured-takeover wording claimRefusal would
 // otherwise give it: waiting for the window will not free a lane
 // somebody is actively working, so the honest next step reads
-// differently (#122, plan 2609011941 phase 2). Read off the same
-// marker, token and liveness reads holdKindFor already runs for `open`.
-// "" for every other kind, leaving claimRefusal the arbiter — an
-// unprovable hold's own "not takeable until the window matures" wording
-// is already honest and stays untouched, and an ambiguous repository
-// (coordOK false) never reads as HoldLive either, since holdKindFor
-// itself falls back to HoldUnproven there.
+// differently (#122, plan 2609011941 phase 2). kind is read off the
+// same marker, token and liveness reads holdKindFor already runs for
+// `open` — the caller resolves it once and passes it in, rather than
+// this function re-running that read itself, so a single startRefusal
+// call never pays for it twice. "" for every other kind, leaving
+// claimRefusal the arbiter — an unprovable hold's own "not takeable
+// until the window matures" wording is already honest and stays
+// untouched, and an ambiguous repository (coordOK false) never reads
+// as HoldLive either, since holdKindFor itself falls back to
+// HoldUnproven there.
 //
 // startRefusal only calls this when the caller reattached — an explicit
 // `start <id>` naming the lane, where an operator is staring at the
@@ -259,10 +270,8 @@ func startRefusal(
 // ranks), and mintOrTakeOver's own live-session veto is what refuses
 // it, classified a lost race so the walk advances to the next
 // candidate rather than stopping on a static refusal.
-func liveHoldRefusal(
-	rt *runtime, plan discovery.Plan, coord fleet.Coord, coordOK bool,
-) string {
-	if !plan.Held || holdKindFor(rt, plan, coord, coordOK) != report.HoldLive {
+func liveHoldRefusal(plan discovery.Plan, kind report.HoldKind) string {
+	if kind != report.HoldLive {
 		return ""
 	}
 
