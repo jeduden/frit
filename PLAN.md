@@ -139,5 +139,5 @@ footer: |
 | 2609061129 | ✅     | sonnet | [The lane-facing skills tell an agent its plan id is inferred in-lane](plan/2609061129_skills-note-lane-selector-inference/plan.md)            |
 | 2609061156 | 🔲     | sonnet | [The README is a lean front page; its reference lives in docs/](plan/2609061156_readme-lean-front-page/plan.md)                                |
 | 2609061236 | 🔲     | sonnet | [plan-new ships a working Phases catalog directive an author can copy](plan/2609061236_plan-new-ships-a-working-catalog-directive/plan.md)     |
-| 2609061243 | 🔲     | sonnet | [A behavioral doc cites the scenario that proves it](plan/2609061243_docs-cite-the-scenario-that-proves-them/plan.md)                          |
+| 2609061243 | ✅     | sonnet | [A behavioral doc cites the scenario that proves it](plan/2609061243_docs-cite-the-scenario-that-proves-them/plan.md)                          |
 <?/catalog?>

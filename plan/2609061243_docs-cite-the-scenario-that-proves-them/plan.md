@@ -1,7 +1,7 @@
 ---
 id: 2609061243
 title: A behavioral doc cites the scenario that proves it
-status: "🔲"
+status: "✅"
 summary: >-
   frit's behavior is catalogued twice: once as prose in the docs, and
   once as an executable scenario matrix — S-rows in lease-protocol.md
@@ -111,19 +111,20 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                        |
-| --- | ------ | ------------------------------------------------------------ |
-| 1   | 🔲     | [claiming.md and the matrix point at each other](phase-1.md) |
+| #   | Status | Phase                                                                      |
+| --- | ------ | -------------------------------------------------------------------------- |
+| 1   | ✅     | [claiming.md and the matrix point at each other](phase-1.md)               |
+|     | ↳      | claiming.md cites its scenarios; lease-protocol.md links its feature files |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] claiming.md cites the scenario id for each concrete lease
+- [x] claiming.md cites the scenario id for each concrete lease
       behavior it describes, and the id exists as a matrix row
-- [ ] lease-protocol.md links each of its matrix sections to the
+- [x] lease-protocol.md links each of its matrix sections to the
       feature file that holds its scenarios
-- [ ] No citation is added to conceptual "why" prose or to the dated
+- [x] No citation is added to conceptual "why" prose or to the dated
       research notes
-- [ ] The bijection gate `go test ./internal/scenario` stays green —
+- [x] The bijection gate `go test ./internal/scenario` stays green —
       no cited id names a missing row
-- [ ] `mdsmith check .` is clean and every added link resolves
+- [x] `mdsmith check .` is clean and every added link resolves

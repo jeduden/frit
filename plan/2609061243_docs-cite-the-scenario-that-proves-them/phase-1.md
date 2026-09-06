@@ -1,7 +1,7 @@
 ---
 n: 1
 title: claiming.md and the matrix point at each other
-status: "🔲"
+status: "✅"
 result: false
 ---
 Wire claiming.md to the scenarios that prove it, and the matrix to its

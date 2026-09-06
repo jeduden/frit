@@ -334,6 +334,8 @@ defend against them).
 
 ### Process death, at every lifecycle step
 
+[process-death.feature](../../features/process-death.feature).
+
 | #   | Scenario                                 | Outcome and mechanism                                     |
 | --- | ---------------------------------------- | --------------------------------------------------------- |
 | S1  | killed before local ref write            | nothing shared happened; retry is clean (CAS)             |
@@ -355,6 +357,8 @@ dies with the host.
 
 ### Host death, suspension, zombies
 
+[host-death.feature](../../features/host-death.feature).
+
 | #   | Scenario                                      | Outcome and mechanism                                                                                                                    |
 | --- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | S14 | power loss mid-push                           | as S3; any local repo damage stays local                                                                                                 |
@@ -367,6 +371,8 @@ dies with the host.
 
 ### Partitions
 
+[partitions.feature](../../features/partitions.feature).
+
 | #   | Scenario                         | Outcome and mechanism                                             |
 | --- | -------------------------------- | ----------------------------------------------------------------- |
 | S20 | worker partitioned mid-work      | renewals fail → holder self-fences fast; OBS→TAKE; YIELD on heal  |
@@ -377,6 +383,8 @@ dies with the host.
 | S25 | stale unwind delete after heal   | no unleased deletes exist; release is CAS on own tip              |
 
 ### Races
+
+[races.feature](../../features/races.feature).
 
 | #   | Scenario                             | Outcome and mechanism                                       |
 | --- | ------------------------------------ | ----------------------------------------------------------- |
@@ -390,6 +398,8 @@ dies with the host.
 
 ### Clocks
 
+[clocks.feature](../../features/clocks.feature).
+
 | #   | Scenario                | Outcome and mechanism                                                   |
 | --- | ----------------------- | ----------------------------------------------------------------------- |
 | S33 | frozen clock on worker  | timestamps are decoration; liveness is tip change (OBS)                 |
@@ -398,6 +408,8 @@ dies with the host.
 | S36 | cross-host clock skew   | no cross-machine timestamp is ever compared (OBS)                       |
 
 ### Storage anomalies
+
+[storage.feature](../../features/storage.feature).
 
 | #   | Scenario                                | Outcome and mechanism                                                                                                                                                         |
 | --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -417,6 +429,8 @@ dies with the host.
 
 ### Identity anomalies
 
+[identity.feature](../../features/identity.feature).
+
 | #   | Scenario                          | Outcome and mechanism                                                                |
 | --- | --------------------------------- | ------------------------------------------------------------------------------------ |
 | S45 | two agents, one plan, one host    | one lease, one bound session; the other's verbs refuse (VETO)                        |
@@ -427,6 +441,10 @@ dies with the host.
 | S66 | NFS-shared clone across hosts     | unsupported, documented: a lane is one host's path                                   |
 
 ### Lifecycle anomalies
+
+[lifecycle.feature](../../features/lifecycle.feature) (claims);
+[landed-evidence.feature](../../features/landed-evidence.feature)
+(scavenge).
 
 | #   | Scenario                                                                             | Outcome and mechanism                                                                                                                                                                           |
 | --- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -457,6 +475,8 @@ the own-token row in the cross-layer table below; commit 85cee2e and
 PR #79 cite the fetch-before-read row by the old number.
 
 ### Cross-layer: herdr and frit disagree
+
+[cross-layer.feature](../../features/cross-layer.feature).
 
 | #   | Scenario                                                                  | Outcome and mechanism                                                                                                                                                                                |
 | --- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

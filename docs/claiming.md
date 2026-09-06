@@ -122,14 +122,14 @@ read its own local view before either pushed, so each thinks the plan
 is free. Both build a marker locally and push, CAS expecting the ref
 absent.
 
-The remote accepts the first push. The second finds the ref already
-there and its CAS fails. The loser re-reads what tip holds the ref
-now and reports "lost the race to another machine", naming it when
-the marker is readable. This arbitration only holds between machines
-pushing to the same remote, and it is the same read-the-tip
-classification every transition uses — a renewal that loses reports
-[fenced](#fencing-and-yield), a takeover that loses reports the live
-holder that beat it.
+The remote accepts the first push. The second finds the ref already there and
+its CAS fails. The loser re-reads what tip holds the ref now and reports "lost
+the race to another machine", naming it when the marker is readable. This
+arbitration only holds between machines pushing to the same remote, and it is
+the same read-the-tip classification every transition uses — a renewal that
+loses reports [fenced](#fencing-and-yield), a takeover that loses reports the
+live holder that beat it (`S26` in
+[races.feature](../features/races.feature)).
 
 ## Staleness and takeover
 
@@ -143,15 +143,14 @@ every observer rather than triggering a mass takeover on recovery.
 Losing the observer's state file only delays a takeover: an absent
 record reads as "first seen now".
 
-`frit claim` and `frit start` take a matured lease over: a takeover
-marker, epoch E+1, minted as a child of exactly the observed stale
-tip. A holder that was merely quiet renews first and wins the CAS. The
-takeover loses, re-reads, and reports the live holder instead; it
-never retries blindly. A takeover waits `k · T`, not `T`, where `k` is
-the number of takeover markers already in the ref's chain. Every
-observer computes the same `k` from the chain itself, so two
-quiet-but-live agents contending for the same lease damp out instead
-of ping-ponging.
+`frit claim` and `frit start` take a matured lease over: a takeover marker,
+epoch E+1, minted as a child of exactly the observed stale tip. A holder that
+was merely quiet renews first and wins the CAS. The takeover loses, re-reads,
+and reports the live holder instead; it never retries blindly. A takeover
+waits `k · T`, not `T`, where `k` is the number of takeover markers already in
+the ref's chain. Every observer computes the same `k` from the chain itself,
+so two quiet-but-live agents contending for the same lease damp out instead of
+ping-ponging (`S15` in [host-death.feature](../features/host-death.feature)).
 
 ### Liveness veto
 
@@ -159,16 +158,17 @@ Before any of that, a live herdr session bound to the lease vetoes the
 takeover outright, and renews the lease on the holder's behalf — but
 only a positive answer counts. An unreachable host, a dead daemon, or
 an unknown session is no veto, and the takeover proceeds; the window
-alone decides. A read-only verb never renews.
+alone decides. A read-only verb never renews (`S31` in
+[races.feature](../features/races.feature)).
 
 ### Self-resume
 
-A lane whose persisted token matches the work ref's current tip, with
-herdr confirming no live session owns that lane, resumes its own lease
-immediately — no window consulted at all. A fleet of one is a lane
-that just restarted, with nobody else around to renew it or vote for
-it. This is what lets it recover as soon as it comes back, rather than
-sit locked out by its own staleness window.
+A lane whose persisted token matches the work ref's current tip, with herdr
+confirming no live session owns that lane, resumes its own lease immediately —
+no window consulted at all. A fleet of one is a lane that just restarted, with
+nobody else around to renew it or vote for it. This is what lets it recover as
+soon as it comes back, rather than sit locked out by its own staleness window
+(`S3` in [process-death.feature](../features/process-death.feature)).
 
 ## Fencing and yield
 
@@ -189,7 +189,7 @@ lane's worktree down through herdr, and exits clean. It refuses when
 run from the lane that still holds the live lease — yield is for the
 fenced, not an alias for `frit release`. `frit next` and `frit show`
 list a plan's rescue refs, so parked commits are found again. `frit
-orphans` sweeps every repository's leftover rescue refs first.
+orphans` sweeps every repository's leftover rescue refs first (`S16`).
 
 ## When a claim is refused
 
@@ -206,11 +206,11 @@ failure: the command prints the reason and exits 0.
 | lost the race             | another machine's CAS landed first                                              |
 | repository name ambiguous | two checkouts under the root share this repo's name                             |
 
-"already held" and the live-session veto are checked before the
-status reasons, so a plan that is both held and done reports the
-hold. A 🔳 plan nobody holds is not refused: frit resumes it by
-re-acquiring the lease, and the push still arbitrates in case a live
-hold does exist.
+"already held" (`S18`) and the live-session veto (`S31`) are checked
+before the status reasons, so a plan that is both held and done
+reports the hold. A 🔳 plan nobody holds is not refused: frit resumes
+it by re-acquiring the lease, and the push still arbitrates in case a
+live hold does exist (`S26`).
 
 The last row is a safety stop. frit names each repository by its main
 worktree's directory name. If two repositories under the root have
