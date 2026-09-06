@@ -1,7 +1,7 @@
 ---
 id: 2609052303
 title: Plans declare and include their BDD scenario coverage
-status: "🔲"
+status: "🔳"
 summary: >-
   A behavior that touches the lease protocol can land with unit tests
   alone and no BDD scenario, because nothing in the planning path
@@ -122,16 +122,17 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                      |
-| --- | ------ | ---------------------------------------------------------- |
-| 1   | 🔲     | [The yield-honesty behavior gets scenario S93](phase-1.md) |
+| #   | Status | Phase                                                                      |
+| --- | ------ | -------------------------------------------------------------------------- |
+| 1   | ✅     | [The yield-honesty behavior gets scenario S93](phase-1.md)                 |
+|     | ↳      | S93 lands — matrix row, tagged scenario, dedicated steps — all gates green |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] The yield-honesty behavior of plan 2609052054 has a matrix row
+- [x] The yield-honesty behavior of plan 2609052054 has a matrix row
       and a tagged `@S93` scenario that runs green from `TestFeatures`
-- [ ] The S93 scenario drives the real `frit` command and asserts the
+- [x] The S93 scenario drives the real `frit` command and asserts the
       refusal, the named way out, the untouched lease and nothing parked
 - [ ] `CLAUDE.md`, `plan/proto.md` and the `plan-new` skill require a
       plan to decide its BDD coverage and each phase to state it

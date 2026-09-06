@@ -111,6 +111,22 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 		w.theStartSucceedsStandingLaneUp)
 	sc.Step(`^the second start is refused, naming the lane the first stood up$`,
 		w.theSecondStartIsRefusedNamingTheLane)
+	w.registerYieldHonesty(sc)
+}
+
+// registerYieldHonesty is S93's own step vocabulary: a distant host
+// that never fetched a plan's ref runs `frit yield` against another
+// lane's hold and is refused honestly. Split from
+// registerHostDeathAndRaces to keep that registrar under funlen.
+func (w *world) registerYieldHonesty(sc *godog.ScenarioContext) {
+	sc.Step(`^"([^"]+)" has never fetched plan (\d+)'s lease$`, w.hasNeverFetchedLease)
+	sc.Step(`^"([^"]+)" holds the lease for plan (\d+), unseen by "([^"]+)"$`,
+		w.holdsLeaseUnseenBy)
+	sc.Step(`^"([^"]+)" yields plan (\d+)$`, w.thisHostYieldsPlan)
+	sc.Step(`^the yield is refused, naming the takeover$`, w.theYieldIsRefusedNamingTakeover)
+	sc.Step(`^the refusal carries a way out$`, w.theRefusalCarriesAWayOut)
+	sc.Step(`^origin's lease for plan (\d+) is untouched$`, w.originsLeaseIsUntouched)
+	sc.Step(`^"([^"]+)" parked nothing$`, w.hostParkedNothing)
 }
 
 // attemptsClaim is a fresh claimant's Acquire: the first time a holder
@@ -514,6 +530,121 @@ func (w *world) yieldParksLeavingReclaim(holder, reclaimer string) error {
 	}
 
 	return w.originTipIs(holder, hs.reclaimed.Tip)
+}
+
+// hasNeverFetchedLease is S93's own setup: a claimable plan with no
+// lease minted yet, so this host's repo carries no work ref for it —
+// the state a distant host that never fetched or minted the ref
+// locally is left in, before any other machine claims it.
+func (w *world) hasNeverFetchedLease(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	repo := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
+	w.clones[holder] = repo
+
+	return nil
+}
+
+// holdsLeaseUnseenBy is S93's foreign-hold setup: the holder claims
+// from a fresh clone of origin taken off the "unseen" host before this
+// step runs, so the holder's own Acquire — and the work ref it mints
+// and pushes — never reaches the unseen host's local git state.
+func (w *world) holdsLeaseUnseenBy(holder string, planID int, unseen string) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, err := w.cloneAs(unseen, holder)
+	if err != nil {
+		return err
+	}
+	lease, err := claim.Acquire(repo, leaseFor(holder, planID), gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	w.holder, w.lease = holder, lease
+
+	return nil
+}
+
+// thisHostYieldsPlan drives `frit yield` through the CLI, the same way
+// thisHostClaimsPlan drives `frit claim`: the refusal this scenario
+// asserts on is yieldCmd's own, never a re-implementation at the lease
+// API level.
+func (w *world) thisHostYieldsPlan(holder string, planID int) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	cs := section[cliState](w)
+	cs.out.Reset()
+	cs.errb.Reset()
+	run([]string{"yield", strconv.Itoa(planID), "--root", filepath.Dir(repo)},
+		&cs.out, &cs.errb)
+
+	return nil
+}
+
+// theYieldIsRefusedNamingTakeover is S93's refusal: yieldNothingLocal
+// refuses a held-but-unfetched plan the way release refuses a foreign
+// hold, its way out naming claim's own takeover.
+func (w *world) theYieldIsRefusedNamingTakeover() error {
+	got := section[cliState](w).out.String()
+	if !strings.Contains(got, "refused") {
+		return fmt.Errorf("expected a refusal, got: %s", got)
+	}
+	if strings.Contains(got, "yielded plan") {
+		return fmt.Errorf("a refusal must not also read as a yield: %s", got)
+	}
+	if !strings.Contains(got, "another lane") {
+		return fmt.Errorf("the refusal does not name the foreign hold: %s", got)
+	}
+
+	return nil
+}
+
+// theRefusalCarriesAWayOut checks the refusal's next_action rides
+// alongside it — the unmatured window's own wording — rather than
+// leaving a caller with a refusal and no path forward.
+func (w *world) theRefusalCarriesAWayOut() error {
+	got := section[cliState](w).out.String()
+	if !strings.Contains(got, "wait for the takeover window") {
+		return fmt.Errorf("the refusal carries no way out: %s", got)
+	}
+
+	return nil
+}
+
+// originsLeaseIsUntouched confirms the foreign hold's tip on origin is
+// exactly what the setup step's Acquire minted — nothing yield's own
+// refusal path moved.
+func (w *world) originsLeaseIsUntouched(planID int) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	return w.originTipIs(w.holder, w.lease.Tip)
+}
+
+// hostParkedNothing confirms no rescue ref was written for this host's
+// yield: it never fetched the ref, so it had nothing of its own to
+// park, and the refusal path must leave no rescue behind.
+func (w *world) hostParkedNothing(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	rescue, err := gitCapture(w.t, repo, "ls-remote", "origin",
+		fmt.Sprintf("refs/frit/rescue/%d/*", w.planID))
+	if err != nil {
+		return fmt.Errorf("%s: %w", rescue, err)
+	}
+	if rescue != "" {
+		return fmt.Errorf("a rescue ref was parked: %q", rescue)
+	}
+
+	return nil
 }
 
 // thisHostHoldsBoundLease is S14's and S18's setup: this host holds
