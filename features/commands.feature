@@ -9,3 +9,10 @@ Feature: Command scenarios
     Given a plan nobody has ever held
     When it is released
     Then the release is a no-op, not a refusal
+
+  @C2
+  Scenario: a plan whose work merged is reported as landed
+    Given a plan in progress whose work has merged into main
+    When frit drift is run
+    Then drift reports the plan's work has landed
+    And drift names the commit that carries the plan's id
