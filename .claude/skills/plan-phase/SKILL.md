@@ -14,7 +14,9 @@ commit, so the ledger can never go stale.
 
 ## Inputs
 
-- Plan id, or enough of the title to resolve it.
+- Plan id, or enough of the title to resolve it. In the plan's own
+  lane the id is inferred from the branch, so `go run ./cmd/frit phase` needs
+  no selector; pass one only to act on another plan.
 - Optional phase `N`; default is the first phase not at ✅.
 
 ## Method
