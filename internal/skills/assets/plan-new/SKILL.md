@@ -38,9 +38,8 @@ an editor, not a frit verb.
    (`id`, `title`, `status: "🔲"`, `summary`, `model`, `depends-on` —
    no `phases:` ledger, since each phase file's front matter is its
    status), then `## Goal`, `## Context`, `## Tasks`, `## Execution`, a
-   `## Phases` `<?catalog?>` over both `phase-*.md` and
-   `phase-*.result.md` with a `row-expr` interleaving each spec row
-   with its result's summary row, and `## Acceptance Criteria`.
+   `## Phases` catalog copied verbatim from `plan/proto.md`'s literal
+   directive, and `## Acceptance Criteria`.
 6. **Tier per phase** in the Execution table: the cheapest tier a loud
    gate makes safe. Design stays opus; implementing from a written
    assertion is cheap. Set frontmatter `model:` to the dominant
