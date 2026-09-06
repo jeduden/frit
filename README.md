@@ -154,52 +154,9 @@ frit board             # shows the hold and, once one runs, the agent
 ## Commands
 
 `frit --help` lists every verb, and `frit <verb> --help` its flags.
-Grouped by what they do:
-
-| Group    | Verb                 | What it does                                                                                                           |
-| -------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| survey   | `repos`              | list repositories and their worktrees                                                                                  |
-| survey   | `plans [--detail]`   | count plan files on every ref, or list them                                                                            |
-| survey   | `board [--wip]`      | outstanding plans: status, holder, agent; `--columns` picks columns, `description` and `lane` alias `title` and `held` |
-| survey   | `who`                | which lane has a live agent, read from herdr                                                                           |
-| survey   | `stale --days N`     | worktrees whose branch has not moved                                                                                   |
-| survey   | `orphans`            | claims, checkouts and rescue refs that no longer add up                                                                |
-| survey   | `doctor`             | plans with a semantic gap: missing Goal, tier, Execution row                                                           |
-| survey   | `drift`              | not-done plans whose work has landed, with the commit evidence                                                         |
-| discover | `ready`              | plans startable now: deps done, nobody holds; `--all` adds files that are not plans                                    |
-| discover | `pick [-n N]`        | the same, ranked by how many plans each unblocks; `--go` starts one                                                    |
-| discover | `next <plan>`        | the first phase of a plan not yet done                                                                                 |
-| discover | `phase [<plan>]`     | the open phase's bundle; runs only from inside the plan's lane                                                         |
-| discover | `show <plan>`        | a plan and everything that blocks it; `--all` adds deps already done                                                   |
-| discover | `find <text>`        | search titles and summaries across every ref                                                                           |
-| lease    | `claim <plan>`       | mint the atomic hold on a startable plan                                                                               |
-| lease    | `release <plan>`     | end this lane's own lease with a release marker                                                                        |
-| lease    | `yield <plan>`       | end a fenced lane: park its commits to a rescue ref, tear it down                                                      |
-| drive    | `open <plan>`        | focus the pane a plan's lane runs in; sends no text                                                                    |
-| drive    | `nudge <plan>`       | prompt the next open phase into an idle lane                                                                           |
-| drive    | `message <plan> ...` | send text to a live lane, working or idle                                                                              |
-| drive    | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR`  |
-| clean    | `reap [<plan>]`      | tear down what `orphans` reports                                                                                       |
-| setup    | `init [<dir>]`       | write `.frit.yml` with every default; `--mdsmith` adds the schema                                                      |
-| setup    | `skills [<dir>]`     | install the bundled agent skills into `.claude/skills`                                                                 |
-
-Three conventions hold across the table:
-
-- **A `<plan>` is named three ways.** An exact id, a fragment of its
-  title or branch, or nothing when you stand inside its worktree, as
-  [UX principles](docs/ux-principles.md#naming-a-plan) describe.
-- **Verbs that act are dry runs until `--go`.** `nudge`, `message`,
-  `start`, `reap` and `pick` print what they would do and stop. `claim`,
-  `release` and `yield` act at once, since the push is the whole verb.
-- **A refusal is not an error.** When frit will not claim a plan it
-  prints the reason and exits 0. Every reason is listed in
-  [the refusal table](docs/claiming.md#when-a-claim-is-refused).
-
-`board`, `ready`, `pick` and `find` take `--sort status|repo|id|held`
-and `--reverse`; `id` is creation time, `held` puts claimed lanes
-first. Tables trim titles to the terminal width only on a TTY; a pipe
-gets the full text, and `--width N` sets the width where none can be
-measured. Global flags may sit before or after the verb.
+The full reference — every verb grouped as survey, discover, lease,
+drive, clean and setup, with the conventions that hold across them —
+is in [docs/commands.md](docs/commands.md).
 
 ## Scripting with JSON
 
@@ -284,6 +241,7 @@ binaries, and creates the tag only once they exist.
 | [PLAN.md](PLAN.md)                                   | what is planned, in progress and done                          |
 | [docs/architecture.md](docs/architecture.md)         | what frit, mdsmith and herdr each own                          |
 | [docs/claiming.md](docs/claiming.md)                 | how a lease is made, kept, taken over, yielded and scavenged   |
+| [docs/commands.md](docs/commands.md)                 | every verb, grouped, and the conventions across them           |
 | [docs/reaping.md](docs/reaping.md)                   | the orphan categories and what `reap` may delete               |
 | [docs/ux-principles.md](docs/ux-principles.md)       | why the verbs, flags and JSON behave as they do                |
 | [docs/development.md](docs/development.md)           | build, test, lint, the scenario matrix, skills, CI and release |
