@@ -37,9 +37,13 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
 // lease ever minted for it — the state `frit release` sees when
-// nothing has ever claimed the plan it names.
+// nothing has ever claimed the plan it names. withHerdr fakes the
+// herdr socket so a command reaching for it — as C2's yield does,
+// tearing its own pane down — never shells out to a real herdr
+// subprocess in this single-host, no-agent fixture.
 func (w *world) aPlanNobodyHasEverHeld() error {
 	isolate(w.t)
+	withHerdr(w.t, herdrReturning())
 	w.planID = 7
 	root := w.t.TempDir()
 	cs := section[commandState](w)
@@ -88,7 +92,11 @@ func (w *world) itIsYielded() error {
 // reports the clean no-op — no "refused:" line and no "parked:" line,
 // read off the command's own output rather than an internal call.
 func (w *world) yieldParksNothingAndRefusesNothing() error {
-	got := section[commandState](w).out.String()
+	cs := section[commandState](w)
+	got := cs.out.String()
+	if !strings.Contains(got, "yielded plan") {
+		return fmt.Errorf("expected the command to report yielding, got: %s", got)
+	}
 	if strings.Contains(got, "refused") {
 		return fmt.Errorf("expected nothing refused, got a refusal: %s", got)
 	}
