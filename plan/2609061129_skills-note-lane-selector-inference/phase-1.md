@@ -1,7 +1,7 @@
 ---
 n: 1
 title: plan-phase names the in-lane inference
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give plan-phase the one fact it withholds: run in the plan's own lane,

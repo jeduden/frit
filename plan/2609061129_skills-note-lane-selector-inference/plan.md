@@ -1,7 +1,7 @@
 ---
 id: 2609061129
 title: The lane-facing skills tell an agent its plan id is inferred in-lane
-status: "🔲"
+status: "✅"
 summary: >-
   frit infers a plan from the cwd whenever a verb runs in that plan's
   own lane: the worktree's branch is matched back to the id through
@@ -105,20 +105,21 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                |
-| --- | ------ | ---------------------------------------------------- |
-| 1   | 🔲     | [plan-phase names the in-lane inference](phase-1.md) |
+| #   | Status | Phase                                                                                                                   |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [plan-phase names the in-lane inference](phase-1.md)                                                                    |
+|     | ↳      | plan-phase's Inputs now names the in-lane inference; dogfood copy regenerated; gate confirmed against the built binary. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] plan-phase's canonical asset states that, in the plan's own
+- [x] plan-phase's canonical asset states that, in the plan's own
       lane, the selector is inferred and the id can be omitted
-- [ ] The claim is confirmed against the built frit: `frit phase` with
+- [x] The claim is confirmed against the built frit: `frit phase` with
       no selector, run from inside a lane, resolves that lane's plan
-- [ ] The dogfood copy is regenerated, not hand-edited, and
+- [x] The dogfood copy is regenerated, not hand-edited, and
       `TestDogfoodCopiesMatchCanonical` is green
-- [ ] Every touched skill stays within its 650-token budget
+- [x] Every touched skill stays within its 650-token budget
       (`mdsmith check`)
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
