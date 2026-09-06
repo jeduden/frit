@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A plan whose final phase landed surfaces as drift
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove `frit drift`'s phase-level signal with a command scenario. A

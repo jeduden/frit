@@ -22,3 +22,9 @@ Feature: Command scenarios
     Given a plan nobody has ever held
     When it is yielded
     Then yield parks nothing and refuses nothing
+
+  @C4
+  Scenario: a plan whose final phase landed surfaces as drift
+    Given a multi-phase plan in progress whose last phase's commit is on main
+    When frit drift is run
+    Then drift reports that a commit names the plan's final phase

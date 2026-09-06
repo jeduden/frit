@@ -40,6 +40,10 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^drift names the commit that carries the plan's id$`, w.driftNamesTheCommitThatCarriesThePlansID)
 	sc.Step(`^it is yielded$`, w.itIsYielded)
 	sc.Step(`^yield parks nothing and refuses nothing$`, w.yieldParksNothingAndRefusesNothing)
+	sc.Step(`^a multi-phase plan in progress whose last phase's commit is on main$`,
+		w.aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain)
+	sc.Step(`^drift reports that a commit names the plan's final phase$`,
+		w.driftReportsThatACommitNamesThePlansFinalPhase)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
@@ -189,6 +193,39 @@ func (w *world) yieldParksNothingAndRefusesNothing() error {
 	}
 	if strings.Contains(got, "parked:") {
 		return fmt.Errorf("expected nothing parked: %s", got)
+	}
+
+	return nil
+}
+
+// aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain is C4's own
+// setup: a plan still marked in progress whose phase ledger names a
+// final phase, with a commit naming that phase already on main — the
+// namesLastPhase signal drift's phase-level check reads. The fixture
+// is shared with drift_test.go's own unit test, so the two layers
+// cannot drift apart on what "the last phase landed" means.
+func (w *world) aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain() error {
+	isolate(w.t)
+	w.planID = 800
+	root := w.t.TempDir()
+
+	cs := section[commandState](w)
+	cs.repo, cs.subject = lastPhasePlanRepo(w.t, root, w.planID)
+
+	return nil
+}
+
+// driftReportsThatACommitNamesThePlansFinalPhase is C4's own Then:
+// the row for the plan built in Given carries the last-phase flag,
+// read from drift's own --json output rather than an internal call.
+func (w *world) driftReportsThatACommitNamesThePlansFinalPhase() error {
+	row, err := driftRowFor(w)
+	if err != nil {
+		return err
+	}
+	if !row.LastPhaseCommit {
+		return fmt.Errorf("expected plan %d to name its final phase, got: %s",
+			w.planID, section[commandState](w).out.String())
 	}
 
 	return nil
