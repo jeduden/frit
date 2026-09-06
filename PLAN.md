@@ -134,7 +134,7 @@ footer: |
 | 2609052054 | ✅     | sonnet | [frit yield is honest on a lane it cannot end, and never drops it from sampling](plan/2609052054_yield-honest-on-a-foreign-lane/plan.md)       |
 | 2609052303 | ✅     | sonnet | [Plans declare and include their BDD scenario coverage](plan/2609052303_plans-declare-bdd-coverage/plan.md)                                    |
 | 2609061023 | ✅     | sonnet | [frit drift proves its landed-vs-stale reconciliation with command scenarios](plan/2609061023_drift-landed-vs-stale-command-scenarios/plan.md) |
-| 2609061024 | 🔲     | sonnet | [frit drift proves its phase-level drift and its silence](plan/2609061024_drift-phase-drift-and-silence/plan.md)                               |
+| 2609061024 | ✅     | sonnet | [frit drift proves its phase-level drift and its silence](plan/2609061024_drift-phase-drift-and-silence/plan.md)                               |
 | 2609061025 | 🔳     | sonnet | [frit yield's command-surface outcomes are proven by command scenarios](plan/2609061025_yield-command-surface-scenarios/plan.md)               |
 | 2609061129 | ✅     | sonnet | [The lane-facing skills tell an agent its plan id is inferred in-lane](plan/2609061129_skills-note-lane-selector-inference/plan.md)            |
 <?/catalog?>
