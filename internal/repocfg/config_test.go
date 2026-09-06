@@ -191,6 +191,18 @@ func TestLoadFailsOnMalformedYAML(t *testing.T) {
 	assert.Contains(t, err.Error(), FileName)
 }
 
+// TestLoadFailsWhenTheConfigFileIsADirectory: os.ReadFile's failure on
+// a directory is not fs.ErrNotExist, so it must surface as Load's own
+// error rather than read as "no file, use the defaults".
+func TestLoadFailsWhenTheConfigFileIsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, FileName), 0o755))
+
+	_, err := Load(dir)
+
+	require.Error(t, err)
+}
+
 func TestCompiledSurfacesABadPattern(t *testing.T) {
 	cfg := Config{Holds: []string{"plan/{id}-*", "broken"}}
 
