@@ -1,7 +1,7 @@
 ---
 id: 2609061023
 title: frit drift proves its landed-vs-stale reconciliation with command scenarios
-status: "🔲"
+status: "✅"
 summary: >-
   A BDD-only run leaves frit drift entirely dark — the whole verb at
   zero coverage — while it is the verb a developer trusts to tell
@@ -104,18 +104,19 @@ footer: |
 
 | #   | Status | Phase                                                                    |
 | --- | ------ | ------------------------------------------------------------------------ |
-| 1   | 🔲     | [A merged plan drift reports as landed, named by its commit](phase-1.md) |
+| 1   | ✅     | [A merged plan drift reports as landed, named by its commit](phase-1.md) |
+|     | ↳      | C2 proves drift's core signal end to end — landed, named by its commit.  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A `C<n>` row in
+- [x] A `C<n>` row in
       [command-scenarios.md](../../docs/research/command-scenarios.md)
       names the landed-but-not-flipped case, with a tagged scenario in
       [features/commands.feature](../../features/commands.feature)
-- [ ] The scenario drives the real `frit drift` command, and drift
+- [x] The scenario drives the real `frit drift` command, and drift
       reports the plan's work landed and names the commit
-- [ ] The bijection gate `go test ./internal/scenario` is green — the
+- [x] The bijection gate `go test ./internal/scenario` is green — the
       new `C<n>` maps to its row and back
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,26 @@ func driftRow(t *testing.T, doc report.DriftDoc, id int64) report.DriftRow {
 	return report.DriftRow{}
 }
 
+// mergedPlanRepo builds a repository holding a plan still marked in
+// progress whose hold branch has already merged into main by an
+// ordinary merge commit — the ancestor-merge signal drift's landed
+// check reads, with the plan's own creation commit as the only
+// evidence naming its id. It returns the repository path and that
+// commit's subject, shared by the unit test below and by C2's own
+// command-scenario fixture in bdd_commands_test.go.
+func mergedPlanRepo(t *testing.T, root string, id int) (repo, subject string) {
+	t.Helper()
+	repo = initRepo(t, root, "atlas")
+	commitPlan(t, repo, id, "🔳", "Underway", nil, "")
+	branch := fmt.Sprintf("plan/%d-underway", id)
+	git(t, repo, "checkout", "-q", "-b", branch)
+	git(t, repo, "commit", "--allow-empty", "-q", "-m", "wip")
+	git(t, repo, "checkout", "-q", "main")
+	git(t, repo, "merge", "--no-ff", "-q", "-m", "merge lane", branch)
+
+	return repo, fmt.Sprintf("plan %d", id)
+}
+
 // TestDriftReportsLandedAndNamingCommits is the load-bearing slice:
 // a plan whose hold branch merged into the default branch reads
 // landed, with the commit that names its id as evidence; a plan with
@@ -32,17 +53,11 @@ func driftRow(t *testing.T, doc report.DriftDoc, id int64) report.DriftRow {
 func TestDriftReportsLandedAndNamingCommits(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo := initRepo(t, root, "atlas")
 
 	// Plan 100: its creation commit names the id ("plan 100"), and its
 	// hold branch merges into main without ever touching the id again —
 	// the drift a ledger left behind.
-	commitPlan(t, repo, 100, "🔳", "Underway", nil, "")
-	git(t, repo, "checkout", "-q", "-b", "plan/100-underway")
-	git(t, repo, "commit", "--allow-empty", "-q", "-m", "wip")
-	git(t, repo, "checkout", "-q", "main")
-	git(t, repo, "merge", "--no-ff", "-q", "-m", "merge lane",
-		"plan/100-underway")
+	repo, subject := mergedPlanRepo(t, root, 100)
 
 	// Plan 200: no commit ever names it, and no branch of it exists.
 	writePlanFile(t, repo, 200, "🔲", "Untouched", nil, "", "")
@@ -57,7 +72,7 @@ func TestDriftReportsLandedAndNamingCommits(t *testing.T) {
 	row100 := driftRow(t, doc, 100)
 	assert.True(t, row100.Landed)
 	require.Len(t, row100.Commits, 1)
-	assert.Equal(t, "plan 100", row100.Commits[0].Subject)
+	assert.Equal(t, subject, row100.Commits[0].Subject)
 	assert.NotEmpty(t, row100.Commits[0].SHA)
 
 	row200 := driftRow(t, doc, 200)
