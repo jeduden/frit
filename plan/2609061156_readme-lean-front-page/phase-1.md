@@ -1,7 +1,7 @@
 ---
 n: 1
 title: First run becomes a getting-started page
-status: "🔲"
+status: "✅"
 result: false
 ---
 Move the README's First run walkthrough to a focused `docs/`

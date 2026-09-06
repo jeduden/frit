@@ -1,7 +1,7 @@
 ---
 id: 2609061156
 title: The README is a lean front page; its reference lives in docs/
-status: "🔲"
+status: "🔳"
 summary: >-
   The README was pinned against its 300-line lint cap because it
   carried both the pitch and the full reference. The command reference
@@ -106,18 +106,19 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                  |
-| --- | ------ | ------------------------------------------------------ |
-| 1   | 🔲     | [First run becomes a getting-started page](phase-1.md) |
+| #   | Status | Phase                                                                                                                           |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [First run becomes a getting-started page](phase-1.md)                                                                          |
+|     | ↳      | First run moved to docs/getting-started.md; the README keeps a two-line quickstart and a pointer, plus a Documentation map row. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] The First run walkthrough lives on a focused `docs/` page, linked
+- [x] The First run walkthrough lives on a focused `docs/` page, linked
       from the README body and its Documentation map
-- [ ] The README keeps a minimal quickstart and points at that page
+- [x] The README keeps a minimal quickstart and points at that page
       for the full walkthrough
-- [ ] The README stays within the 300-line cap (`mdsmith check`)
+- [x] The README stays within the 300-line cap (`mdsmith check`)
 - [ ] Configuration and Scripting with JSON are moved or folded, each
       leaving a pointer, in later phases
 - [ ] `mdsmith check .` is clean and every moved link resolves
