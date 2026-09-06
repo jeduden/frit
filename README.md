@@ -203,15 +203,15 @@ frit's own settings, such as `--root`, resolve most specific first;
 frit ships the instructions an agent needs to drive it. `frit skills`
 writes seven Claude Code skills into a repository's `.claude/skills`:
 
-| Skill          | What the agent does with it                                                |
-| -------------- | -------------------------------------------------------------------------- |
-| `plan-pick`    | find the next unheld plan, claim it, start its lane                        |
-| `plan-phase`   | execute one phase of a plan, test first, and close it                      |
-| `plan-handoff` | close a phase: write the handoff, flip its status                          |
-| `plan-new`     | write a plan that passes the schema on the first try                       |
-| `plan-sync`    | reconcile plan statuses against what `drift` found                         |
-| `plan-tidy`    | read `orphans` and `stale`, then act with `yield`, `release`, `reap`       |
-| `plan-drive`   | survey the board and drive one lane up the `open`, `nudge`, `start` ladder |
+| Skill          | What the agent does with it                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `plan-pick`    | find the next unheld plan, claim it, start its lane                                                                                        |
+| `plan-phase`   | execute one phase of a plan, test first, and close it                                                                                      |
+| `plan-handoff` | close a phase: write the handoff, flip its status                                                                                          |
+| `plan-new`     | write a plan that passes the schema on the first try                                                                                       |
+| `plan-sync`    | reconcile plan statuses against what `drift` found                                                                                         |
+| `plan-tidy`    | read `orphans` and `stale`, then act with `yield`, `release`, `reap`                                                                       |
+| `plan-drive`   | survey the board and drive a lane up the [ladder](docs/commands.md#drive--steer-a-lane-up-the-ladder): `open`, `nudge`, `message`, `start` |
 
 The skills are embedded in the binary, and `--via "go run ./cmd/frit"`
 changes how they invoke frit. The prompt frit composes for a pane is

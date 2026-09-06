@@ -37,6 +37,15 @@ Grouped by what they do.
 
 ## Drive — steer a lane up the ladder
 
+The drive verbs are a ladder — ways to move an idle or stuck lane, from
+the gentlest to the most forceful. `open` only raises the lane's pane
+so you can read it. `nudge` prompts its next open phase back to life.
+`message` sends the lane your own words. `start` stands a fresh lane up
+from nothing. Climb only as far as a lane needs: read it before you
+prompt it, prompt it before you write to it. The rungs that send are
+dry runs until `--go` — the
+[why](ux-principles.md#an-act-previews-before-it-commits).
+
 | Verb                 | What it does                                                                                                          |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `open <plan>`        | focus the pane a plan's lane runs in; reads only, sends no text                                                       |
