@@ -158,28 +158,11 @@ Golden files in [internal/report](internal/report) pin every document;
 
 ## Configuration
 
-Per-repository settings travel with the project in a committed
-`.frit.yml`. `frit init` writes every key with its default and a
-comment. A repository with no file gets the defaults.
-
-```yaml
-plan-dir: plan          # where plan files live
-holds:                  # ref names that count as a claim; {id} is the plan id
-  - "plan/{id}"
-  - "plan/{id}-*"
-remote: origin          # where the lease is pushed
-takeover-window: 2h     # how long a lease sits unchanged before it reads stale
-sample-gap: 30m         # a gap between looks wider than this restarts the window
-# base: origin/main     # pin the ref a lease is dated against
-```
-
-frit's own settings, such as `--root`, resolve most specific first;
-[CLAUDE.md](CLAUDE.md#configuration) pins the order with a test.
-
-1. the command line, `--root`
-2. the environment, `FRIT_ROOT`
-3. `.frit.yml` beside the work, or the file `$FRIT_CONFIG` names
-4. the user config, `$XDG_CONFIG_HOME/frit/config.yml`
+`.frit.yml` holds per-repository settings; frit's own settings, such
+as `--root`, resolve from the command line, the environment, a config
+file and the user config, most specific first.
+[docs/configuration.md](docs/configuration.md) has the keys and the
+exact order.
 
 ## Working with agents
 
@@ -223,6 +206,7 @@ binaries, and creates the tag only once they exist.
 | [CLAUDE.md](CLAUDE.md)                               | the rules the code and its agents follow; the current record   |
 | [PLAN.md](PLAN.md)                                   | what is planned, in progress and done                          |
 | [docs/getting-started.md](docs/getting-started.md)   | init to first claimed lane, one command at a time              |
+| [docs/configuration.md](docs/configuration.md)       | the `.frit.yml` keys, with defaults and comments               |
 | [docs/architecture.md](docs/architecture.md)         | what frit, mdsmith and herdr each own                          |
 | [docs/claiming.md](docs/claiming.md)                 | how a lease is made, kept, taken over, yielded and scavenged   |
 | [docs/commands.md](docs/commands.md)                 | every verb, grouped, and the conventions across them           |

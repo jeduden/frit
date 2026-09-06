@@ -81,9 +81,10 @@ already extracted.
 
 ## Execution
 
-| Phase | Title                                    | Tier   | Gate                                                                                                                                      |
-| ----- | ---------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | First run becomes a getting-started page | sonnet | the walkthrough lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean |
+| Phase | Title                                     | Tier   | Gate                                                                                                                                                |
+| ----- | ----------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | First run becomes a getting-started page  | sonnet | the walkthrough lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean           |
+| 2     | Configuration becomes a focused docs page | sonnet | the `.frit.yml` reference lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean |
 
 ## Phases
 
@@ -106,10 +107,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                           |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [First run becomes a getting-started page](phase-1.md)                                                                          |
-|     | ↳      | First run moved to docs/getting-started.md; the README keeps a two-line quickstart and a pointer, plus a Documentation map row. |
+| #   | Status | Phase                                                                                                                                                                                                        |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [First run becomes a getting-started page](phase-1.md)                                                                                                                                                       |
+|     | ↳      | First run moved to docs/getting-started.md; the README keeps a two-line quickstart and a pointer, plus a Documentation map row.                                                                              |
+| 2   | ✅     | [Configuration becomes a focused docs page](phase-2.md)                                                                                                                                                      |
+|     | ↳      | Configuration moved to docs/configuration.md, pointing at CLAUDE.md and ux-principles.md for the precedence order instead of restating it; the README keeps a one-line pointer plus a Documentation map row. |
 <?/catalog?>
 
 ## Acceptance Criteria
