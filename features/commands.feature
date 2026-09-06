@@ -36,3 +36,9 @@ Feature: Command scenarios
     When frit drift is run
     Then drift raises nothing for the mid-flight plan
     And drift does not list the done plan
+
+  @C6
+  Scenario: yielding one's own live lane is refused toward release
+    Given a plan freshly claimed by this lane
+    When it is yielded
+    Then yield refuses it, naming release as the way out

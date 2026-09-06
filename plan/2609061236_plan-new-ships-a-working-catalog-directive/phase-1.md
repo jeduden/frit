@@ -1,7 +1,7 @@
 ---
 n: 1
 title: plan-new shows a catalog directive that does not double
-status: "🔲"
+status: "✅"
 result: false
 ---
 Ship the working Phases catalog directive as a literal an author

@@ -1,7 +1,7 @@
 ---
 id: 2609061236
 title: plan-new ships a working Phases catalog directive an author can copy
-status: "🔲"
+status: "✅"
 summary: >-
   plan-new describes the Phases catalog in prose but ships no working
   directive, so an author reaches for the obvious shape — glob
@@ -115,21 +115,22 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                 |
-| --- | ------ | --------------------------------------------------------------------- |
-| 1   | 🔲     | [plan-new shows a catalog directive that does not double](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [plan-new shows a catalog directive that does not double](phase-1.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+|     | ↳      | `plan/proto.md` now carries the working `## Phases` catalog directive as a literal, fenced so mdsmith shows it rather than runs it, globbing both `phase-*.md` and `phase-*.result.md` with a `row-expr` that branches on `result` — the same form every closed-out plan already uses. A trailing paragraph names the trap: a closed phase's `phase-N.result.md` also matches `phase-*.md` and carries the same `n`, so the naive single-glob form renders that phase's row twice. `internal/skills/assets/plan-new/SKILL.md` points its "Write `plan.md`" step at that literal instead of re-describing it in prose, since the skill was already at 612 of its 650-token budget with no room for the ~20-line directive itself; the dogfood copy is regenerated via `frit skills --via "go run ./cmd/frit"`, not hand-edited. A scratch folder plan built from the naive glob reproduced issue #155 (a doubled row once `phase-1.result.md` appeared); the same plan built from the shipped directive rendered one row before the phase closed and one spec row plus one indented summary row after, with no duplicate. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] plan-new ships the working catalog directive as a literal
+- [x] plan-new ships the working catalog directive as a literal
       an author can copy, inside a fence so mdsmith shows it
-- [ ] The skill or `proto.md` warns that `phase-N.result.md` matches
+- [x] The skill or `proto.md` warns that `phase-N.result.md` matches
       `phase-*.md`, the trap the naive glob falls into
-- [ ] A folder plan built from the shipped directive renders one row
+- [x] A folder plan built from the shipped directive renders one row
       per open phase and no duplicate after a phase closes, confirmed
       against the built mdsmith
-- [ ] The dogfood copy is regenerated, not hand-edited, and
+- [x] The dogfood copy is regenerated, not hand-edited, and
       `TestDogfoodCopiesMatchCanonical` is green
-- [ ] Every touched skill stays within its 650-token budget
-- [ ] `mdsmith check .` and `go test ./...` are green
+- [x] Every touched skill stays within its 650-token budget
+- [x] `mdsmith check .` and `go test ./...` are green
