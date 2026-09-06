@@ -82,22 +82,16 @@ func (w *world) theReleaseIsANoOpNotARefusal() error {
 // still marked in progress whose hold branch already merged into main
 // by an ordinary merge commit — the ancestor-merge signal drift's
 // landed check reads — with the plan's own creation commit as the
-// only evidence naming its id.
+// only evidence naming its id. The fixture itself is shared with
+// drift_test.go's own unit test, so the two layers cannot drift apart
+// on what "landed" means.
 func (w *world) aPlanInProgressWhoseWorkHasMergedIntoMain() error {
 	isolate(w.t)
 	w.planID = 100
 	root := w.t.TempDir()
-	repo := initRepo(w.t, root, "atlas")
-	commitPlan(w.t, repo, w.planID, "🔳", "Underway", nil, "")
-	branch := fmt.Sprintf("plan/%d-underway", w.planID)
-	git(w.t, repo, "checkout", "-q", "-b", branch)
-	git(w.t, repo, "commit", "--allow-empty", "-q", "-m", "wip")
-	git(w.t, repo, "checkout", "-q", "main")
-	git(w.t, repo, "merge", "--no-ff", "-q", "-m", "merge lane", branch)
 
 	cs := section[commandState](w)
-	cs.repo = repo
-	cs.subject = fmt.Sprintf("plan %d", w.planID)
+	cs.repo, cs.subject = mergedPlanRepo(w.t, root, w.planID)
 
 	return nil
 }
