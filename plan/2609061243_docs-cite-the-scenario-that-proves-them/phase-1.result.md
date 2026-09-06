@@ -11,9 +11,12 @@ summary: claiming.md cites its scenarios; lease-protocol.md links its feature fi
 claiming.md's six behavioral sections — two machines at once, staleness
 and takeover, liveness veto, self-resume, fencing and yield, and when a
 claim is refused — each now cite the matrix id that proves them (`S26`,
-`S15`, `S31`, `S3`, `S16`, `S18`), with a link to the id's feature file
+`S15`, `S31`, `S3`, `S78`, `S18`), with a link to the id's feature file
 at each file's first mention in the document. Every id was confirmed
-against lease-protocol.md's matrix by grep before citing it.
+against lease-protocol.md's matrix by grep before citing it, and one
+early pick — `S16` for the `orphans` rescue-ref sweep — was swapped for
+`S78` on review: `S16` never exercises `orphans`, while `S78`'s own
+scenario text says "orphans lists both tips as rescued".
 
 lease-protocol.md's nine `### `-level matrix sections (Process death
 through Cross-layer, with Lifecycle anomalies linking both

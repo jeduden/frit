@@ -183,13 +183,13 @@ fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
 `frit yield <plan>` is that way out: it pushes the fenced lane's local
-divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>-<tip>`
-(create-only, since a fenced lane holds no lease to CAS on), tears the
-lane's worktree down through herdr, and exits clean. It refuses when
-run from the lane that still holds the live lease — yield is for the
-fenced, not an alias for `frit release`. `frit next` and `frit show`
-list a plan's rescue refs, so parked commits are found again. `frit
-orphans` sweeps every repository's leftover rescue refs first (`S16`).
+divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>-<tip>` (create-only,
+since a fenced lane holds no lease to CAS on), tears the lane's worktree down
+through herdr, and exits clean. It refuses when run from the lane that still
+holds the live lease — yield is for the fenced, not an alias for `frit release`.
+`frit next` and `frit show` list a plan's rescue refs, so parked commits are
+found again. `frit orphans` sweeps every repository's leftover rescue refs first
+(`S78` in [storage.feature](../features/storage.feature)).
 
 ## When a claim is refused
 
