@@ -83,19 +83,43 @@ filename: "*.md"
     record carries `result: true` plus a non-empty
     `summary` line once the phase closes.
   - Such a plan may add an optional `## Phases`
-    catalog that regenerates from those files with a
-    `<?catalog?>` over both `phase-*.md` and
-    `phase-*.result.md`, sorted numerically by `n`,
-    interleaving each phase's spec row directly above
-    its result's summary row via a `row-expr` that
-    branches on `result`. A phase then closes by
-    flipping its own file's `status` and writing its
-    record's `summary`; the table follows.
+    catalog that regenerates from those files. The
+    working directive — the one every closed-out plan
+    already carries — sits below, ready to copy.
   - The section is optional: the `## ...` slot above
     admits it, so a plan without it still validates.
     See this repo's plan 2608310418 for a live one.
 
 -->
+
+Working `## Phases` catalog directive, copied verbatim into a plan:
+
+```yaml
+<?catalog
+glob:
+  - "phase-*.md"
+  - "phase-*.result.md"
+sort: numeric:n
+header: |
+
+  | # | Status | Phase |
+  |---|--------|-------|
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
+footer: |
+
+?>
+```
+
+Glob both files, not just `phase-*.md` alone: a closed phase's
+`phase-N.result.md` also matches `phase-*.md` and carries the same
+`n`, so the naive single-glob form renders that phase's row twice.
+The `row-expr` above branches on `result` instead, so a
+`phase-N.result.md` contributes a summary row, not a second spec row.
 
 ## ...
 
