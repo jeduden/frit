@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                                            |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 2609061025 | sonnet | [frit yield's command-surface outcomes are proven by command scenarios](plan/2609061025_yield-command-surface-scenarios/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -133,5 +135,5 @@ footer: |
 | 2609052303 | ✅     | sonnet | [Plans declare and include their BDD scenario coverage](plan/2609052303_plans-declare-bdd-coverage/plan.md)                                    |
 | 2609061023 | 🔲     | sonnet | [frit drift proves its landed-vs-stale reconciliation with command scenarios](plan/2609061023_drift-landed-vs-stale-command-scenarios/plan.md) |
 | 2609061024 | 🔲     | sonnet | [frit drift proves its phase-level drift and its silence](plan/2609061024_drift-phase-drift-and-silence/plan.md)                               |
-| 2609061025 | 🔲     | sonnet | [frit yield's command-surface outcomes are proven by command scenarios](plan/2609061025_yield-command-surface-scenarios/plan.md)               |
+| 2609061025 | 🔳     | sonnet | [frit yield's command-surface outcomes are proven by command scenarios](plan/2609061025_yield-command-surface-scenarios/plan.md)               |
 <?/catalog?>

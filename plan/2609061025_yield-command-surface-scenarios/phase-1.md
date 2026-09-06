@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Yield on a plan nobody holds is a clean no-op
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove `frit yield`'s clean no-op with a command scenario. A `frit
