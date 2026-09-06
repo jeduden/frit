@@ -126,30 +126,13 @@ a source build. Three other tools matter:
 
 ## First run
 
-Point frit at your repositories, then give one the files it reads:
-
 ```sh
 export FRIT_ROOT=~/git
-cd ~/git/myrepo
-frit init --mdsmith .   # writes .frit.yml, .mdsmith.yml, plan/proto.md, PLAN.md
+cd ~/git/myrepo && frit init --mdsmith .
 ```
 
-Write a plan as `plan/<id>_<slug>.md`, or as
-`plan/<id>_<slug>/plan.md` with one `phase-N.md` per phase, following
-the template in [plan/proto.md](plan/proto.md). The id is the creation
-minute in UTC, from `date -u +%y%m%d%H%M`. Regenerate the index with
-`mdsmith fix PLAN.md`, commit both and push. Then:
-
-```sh
-mdsmith check .        # the plan passes the schema, the index is current
-frit doctor            # no missing Goal, tier or Execution row
-frit ready             # the plan is listed: deps done, nobody holds
-frit claim <id>        # pushes plan/<id>, stands up a worktree beside the repo
-frit board             # shows the hold and, once one runs, the agent
-```
-
-`frit start <id> --go` claims and starts an agent in one step;
-`frit pick --go` does the same for the best plan nobody holds.
+[Getting started](docs/getting-started.md) carries the rest: writing
+a plan, checking it, claiming it, and watching it run.
 
 ## Commands
 
@@ -167,36 +150,17 @@ model, so they never disagree.
 frit orphans --json | jq '.repos[] | select(.unstaffed | length > 0)'
 ```
 
-Three rules make the document safe to write against. Every key is
-always present. A list is `[]` and never null. A repository frit could
-not read is carried in `problems`, so stdout is the whole report.
-Golden files in [internal/report](internal/report) pin every document;
-[UX principles](docs/ux-principles.md#the-json-contract) explain them.
+[UX principles](docs/ux-principles.md#the-json-contract) has the
+rules that make the document safe to write against, and the golden
+files that pin them.
 
 ## Configuration
 
-Per-repository settings travel with the project in a committed
-`.frit.yml`. `frit init` writes every key with its default and a
-comment. A repository with no file gets the defaults.
-
-```yaml
-plan-dir: plan          # where plan files live
-holds:                  # ref names that count as a claim; {id} is the plan id
-  - "plan/{id}"
-  - "plan/{id}-*"
-remote: origin          # where the lease is pushed
-takeover-window: 2h     # how long a lease sits unchanged before it reads stale
-sample-gap: 30m         # a gap between looks wider than this restarts the window
-# base: origin/main     # pin the ref a lease is dated against
-```
-
-frit's own settings, such as `--root`, resolve most specific first;
-[CLAUDE.md](CLAUDE.md#configuration) pins the order with a test.
-
-1. the command line, `--root`
-2. the environment, `FRIT_ROOT`
-3. `.frit.yml` beside the work, or the file `$FRIT_CONFIG` names
-4. the user config, `$XDG_CONFIG_HOME/frit/config.yml`
+`.frit.yml` holds per-repository settings; frit's own settings, such
+as `--root`, resolve from the command line, the environment, a config
+file and the user config, most specific first.
+[docs/configuration.md](docs/configuration.md) has the keys and the
+exact order.
 
 ## Working with agents
 
@@ -239,6 +203,8 @@ binaries, and creates the tag only once they exist.
 | ---------------------------------------------------- | -------------------------------------------------------------- |
 | [CLAUDE.md](CLAUDE.md)                               | the rules the code and its agents follow; the current record   |
 | [PLAN.md](PLAN.md)                                   | what is planned, in progress and done                          |
+| [docs/getting-started.md](docs/getting-started.md)   | init to first claimed lane, one command at a time              |
+| [docs/configuration.md](docs/configuration.md)       | the `.frit.yml` keys, with defaults and comments               |
 | [docs/architecture.md](docs/architecture.md)         | what frit, mdsmith and herdr each own                          |
 | [docs/claiming.md](docs/claiming.md)                 | how a lease is made, kept, taken over, yielded and scavenged   |
 | [docs/commands.md](docs/commands.md)                 | every verb, grouped, and the conventions across them           |
