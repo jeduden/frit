@@ -52,6 +52,8 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^a plan already marked done$`, w.aPlanAlreadyMarkedDone)
 	sc.Step(`^drift raises nothing for the mid-flight plan$`, w.driftRaisesNothingForTheMidFlightPlan)
 	sc.Step(`^drift does not list the done plan$`, w.driftDoesNotListTheDonePlan)
+	sc.Step(`^a plan freshly claimed by this lane$`, w.aPlanFreshlyClaimedByThisLane)
+	sc.Step(`^yield refuses it, naming release as the way out$`, w.yieldRefusesItNamingReleaseAsTheWayOut)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
@@ -313,6 +315,50 @@ func (w *world) driftDoesNotListTheDonePlan() error {
 		if r.ID == int64(cs.doneID) {
 			return fmt.Errorf("expected no drift row for done plan %d, got one: %v", cs.doneID, r)
 		}
+	}
+
+	return nil
+}
+
+// aPlanFreshlyClaimedByThisLane is C6's own setup: this lane claims a
+// plan first, the same way TestClaimMintsAPickablePlan does, leaving
+// the lease branch at origin's own tip — no divergence yet, the shape
+// claim.Yield reads as still held rather than fenced.
+// herdrReturningWithWorktree fakes the worktree.create call claim's
+// own stand-up needs, the same fake TestClaimStandsUpItsWorktree uses.
+func (w *world) aPlanFreshlyClaimedByThisLane() error {
+	isolate(w.t)
+	withHerdr(w.t, herdrReturningWithWorktree())
+	w.planID = 7
+	root := w.t.TempDir()
+	cs := section[commandState](w)
+	cs.repo = claimableRepo(w.t, root, "atlas", w.planID, "Shader unit")
+
+	runCLI(&cs.out, &cs.errb, "claim", strconv.Itoa(w.planID), "--root", root)
+	if !strings.Contains(cs.out.String(), "claimed plan") {
+		return fmt.Errorf("expected the claim to succeed, got: %s%s",
+			cs.out.String(), cs.errb.String())
+	}
+
+	return nil
+}
+
+// yieldRefusesItNamingReleaseAsTheWayOut is C6's own Then: the live
+// holder's own yield is refused, not silently parked, and the
+// refusal names release as the way out — read from the command's own
+// stdout, never an internal call. Nothing was parked: the still-held
+// case returns before park ever runs.
+func (w *world) yieldRefusesItNamingReleaseAsTheWayOut() error {
+	cs := section[commandState](w)
+	got := cs.out.String()
+	if !strings.Contains(got, "refused") {
+		return fmt.Errorf("expected the command to report a refusal, got: %s", got)
+	}
+	if !strings.Contains(got, "release") {
+		return fmt.Errorf("expected the refusal to name release, got: %s", got)
+	}
+	if strings.Contains(got, "parked:") {
+		return fmt.Errorf("expected nothing parked: %s", got)
 	}
 
 	return nil
