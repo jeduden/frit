@@ -100,13 +100,14 @@ justified; it is not a place to hide untested logic.
 
 ## Execution
 
-| Phase | Title                                                          | Tier   | Gate                                                                                                                   |
-| ----- | -------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
-| 1     | internal/report reaches 100% line coverage and is locked there | sonnet | `go test ./internal/report -cover` reports 100%; the new gate reddens on an added untested line; `go test ./...` green |
-| 2     | internal/claim reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/claim -cover` reports 100%; the gate covers both packages; `go test ./...` and lint stay green     |
-| 3     | internal/fleet reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/fleet -cover` reports 100%; the gate covers three packages; `go test ./...` and lint stay green    |
-| 4     | internal/observe reaches 100% line coverage and joins the gate | sonnet | `go test ./internal/observe -cover` reports 100%; the gate covers four packages; `go test ./...` and lint stay green   |
-| 5     | internal/repocfg reaches 100% line coverage and joins the gate | sonnet | `go test ./internal/repocfg -cover` reports 100%; the gate covers five packages; `go test ./...` and lint stay green   |
+| Phase | Title                                                          | Tier   | Gate                                                                                     |
+| ----- | -------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| 1     | internal/report reaches 100% line coverage and is locked there | sonnet | `go test ./internal/report -cover`: 100%; new gate; suite green                          |
+| 2     | internal/claim reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/claim -cover`: 100%; gate covers every closed package; suite green   |
+| 3     | internal/fleet reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/fleet -cover`: 100%; gate covers every closed package; suite green   |
+| 4     | internal/observe reaches 100% line coverage and joins the gate | sonnet | `go test ./internal/observe -cover`: 100%; gate covers every closed package; suite green |
+| 5     | internal/repocfg reaches 100% line coverage and joins the gate | sonnet | `go test ./internal/repocfg -cover`: 100%; gate covers every closed package; suite green |
+| 6     | internal/herdr reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/herdr -cover`: 100%; gate covers every closed package; suite green   |
 
 ## Phases
 
@@ -129,18 +130,20 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                   |
-| --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [internal/report reaches 100% line coverage and is locked there](phase-1.md)                                                                                                            |
-|     | ↳      | internal/report reached 100% line coverage and gained a hard CI gate that reddens the moment it drops.                                                                                  |
-| 2   | ✅     | [internal/claim reaches 100% line coverage and joins the gate](phase-2.md)                                                                                                              |
-|     | ↳      | internal/claim reached 100% line coverage — one seam, thirty-odd new tests — and joined the hard CI gate beside internal/report.                                                        |
-| 3   | ✅     | [internal/fleet reaches 100% line coverage and joins the gate](phase-3.md)                                                                                                              |
-|     | ↳      | internal/fleet reached 100% line coverage — twenty-five new tests, no seam needed — and joined the hard CI gate beside internal/report and internal/claim.                              |
-| 4   | ✅     | [internal/observe reaches 100% line coverage and joins the gate](phase-4.md)                                                                                                            |
-|     | ↳      | internal/observe reached 100% line coverage — one seam over its atomic write, seven new tests — and joined the hard CI gate beside internal/report, internal/claim and internal/fleet.  |
-| 5   | ✅     | [internal/repocfg reaches 100% line coverage and joins the gate](phase-5.md)                                                                                                            |
-|     | ↳      | internal/repocfg reached 100% line coverage — four new tests, no seam needed — and joined the hard CI gate beside internal/report, internal/claim, internal/fleet and internal/observe. |
+| #   | Status | Phase                                                                                                                                                                                                                   |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [internal/report reaches 100% line coverage and is locked there](phase-1.md)                                                                                                                                            |
+|     | ↳      | internal/report reached 100% line coverage and gained a hard CI gate that reddens the moment it drops.                                                                                                                  |
+| 2   | ✅     | [internal/claim reaches 100% line coverage and joins the gate](phase-2.md)                                                                                                                                              |
+|     | ↳      | internal/claim reached 100% line coverage — one seam, thirty-odd new tests — and joined the hard CI gate beside internal/report.                                                                                        |
+| 3   | ✅     | [internal/fleet reaches 100% line coverage and joins the gate](phase-3.md)                                                                                                                                              |
+|     | ↳      | internal/fleet reached 100% line coverage — twenty-five new tests, no seam needed — and joined the hard CI gate beside internal/report and internal/claim.                                                              |
+| 4   | ✅     | [internal/observe reaches 100% line coverage and joins the gate](phase-4.md)                                                                                                                                            |
+|     | ↳      | internal/observe reached 100% line coverage — one seam over its atomic write, seven new tests — and joined the hard CI gate beside internal/report, internal/claim and internal/fleet.                                  |
+| 5   | ✅     | [internal/repocfg reaches 100% line coverage and joins the gate](phase-5.md)                                                                                                                                            |
+|     | ↳      | internal/repocfg reached 100% line coverage — four new tests, no seam needed — and joined the hard CI gate beside internal/report, internal/claim, internal/fleet and internal/observe.                                 |
+| 6   | ✅     | [internal/herdr reaches 100% line coverage and joins the gate](phase-6.md)                                                                                                                                              |
+|     | ↳      | internal/herdr reached 100% line coverage — six new tests, no seam and no exclusion needed — and joined the hard CI gate beside internal/report, internal/claim, internal/fleet, internal/observe and internal/repocfg. |
 <?/catalog?>
 
 ## Acceptance Criteria
