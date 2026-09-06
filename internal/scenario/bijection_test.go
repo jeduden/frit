@@ -8,18 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	matrixPath   = "../../docs/research/lease-protocol.md"
-	featuresPath = "../../features"
-)
+const featuresPath = "../../features"
 
-// TestMatrixAndFeaturesAreInBijection keeps the lease-protocol matrix
-// and the godog feature tags the only two sources for a scenario's
-// existence: a matrix row documented without a tagged scenario, or a
-// tag naming no matrix row, fails the build rather than passing
+// matrixPaths are the catalog documents kept in bijection with
+// features/: the lease protocol's cross-host matrix, and the command
+// catalog for a behavior that is not one.
+var matrixPaths = []string{
+	"../../docs/research/lease-protocol.md",
+	"../../docs/research/command-scenarios.md",
+}
+
+// TestMatrixAndFeaturesAreInBijection keeps every matrix document and
+// the godog feature tags the only sources for a scenario's existence:
+// a matrix row documented without a tagged scenario, or a tag naming
+// no matrix row in any document, fails the build rather than passing
 // silently, and the failure lists the ids in a stable order.
 func TestMatrixAndFeaturesAreInBijection(t *testing.T) {
-	matrix, err := MatrixIDs(matrixPath)
+	matrix, err := MatrixIDsAll(matrixPaths...)
 	require.NoError(t, err)
 
 	features, err := FeatureTagIDs(featuresPath)

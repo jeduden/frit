@@ -8,9 +8,11 @@ import (
 	messages "github.com/cucumber/messages/go/v34"
 )
 
-// featureTag is the shape of a scenario's id tag: "@S" and a number in
-// the same form a matrix row's id takes, so "@S016" names nothing.
-var featureTag = regexp.MustCompile(`^@(S` + idNumber + `)$`)
+// featureTag is the shape of a scenario's id tag: "@S" or "@C" and a
+// number in the same form a matrix row's id takes, so "@S016" names
+// nothing. S is the lease-protocol catalog; C is the command-scenario
+// one.
+var featureTag = regexp.MustCompile(`^@([SC]` + idNumber + `)$`)
 
 // Scenario is one scenario godog would run, as both the gate and the
 // runner see it: where it sits, what it is called, the matrix id its

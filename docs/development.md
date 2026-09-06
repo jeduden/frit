@@ -74,6 +74,14 @@ row, or a malformed or duplicate id on either side fails
   to S19
 - `go test ./internal/scenario` — the matrix/features gate alone
 
+A command behavior worth a scenario but not a lease-protocol one has
+its own catalog instead — a refusal's wording, a `--json` shape, a
+`next_action` computed on one host, no lease race in sight.
+[command-scenarios.md](research/command-scenarios.md) tags its rows
+`@C<n>` rather than `@S<n>`, in the same `features/` tree.
+`MatrixIDsAll` in `internal/scenario` merges both documents' ids into
+the one bijection gate above, refusing an id the two ever both claim.
+
 To add a scenario, add its row to the matrix and a tagged scenario to
 the section's feature file. Tag it `@pending` until its steps exist.
 To write one, drop `@pending` and write its Given/When/Then. Bind the

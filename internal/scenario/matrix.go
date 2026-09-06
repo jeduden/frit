@@ -16,9 +16,9 @@ import (
 // can never name one row twice.
 const idNumber = `[1-9][0-9]*`
 
-// rowID is the shape every id cell in a matrix table takes: an S
+// rowID is the shape every id cell in a matrix table takes: an S or C
 // scenario, or an F liveness / A safety attacker row, so numbered.
-var rowID = regexp.MustCompile(`^[SFA]` + idNumber + `$`)
+var rowID = regexp.MustCompile(`^[SFAC]` + idNumber + `$`)
 
 // MatrixIDs reads the S-scenario ids off the matrix tables in path —
 // the tables whose header leads with "#", the shape every S, F and A
@@ -52,8 +52,10 @@ func MatrixIDs(path string) (map[string]bool, error) {
 	return ids, nil
 }
 
-// collectRowID records the S id a matrix row leads with, passes an F or
-// A attacker id by, and reports a leading cell that is no id at all.
+// collectRowID records the S or C id a matrix row leads with, passes
+// an F or A attacker id by, and reports a leading cell that is no id
+// at all. S is the lease-protocol catalog; C is the command-scenario
+// one — both need a tagged scenario, unlike F and A.
 func collectRowID(path string, row planmeta.TableRow, ids map[string]bool) error {
 	first := ""
 	if len(row.Cells) > 0 {
@@ -62,7 +64,7 @@ func collectRowID(path string, row planmeta.TableRow, ids map[string]bool) error
 	if !rowID.MatchString(first) {
 		return fmt.Errorf("scenario: %s:%d: malformed scenario id %q", path, row.Line, first)
 	}
-	if first[0] != 'S' {
+	if first[0] != 'S' && first[0] != 'C' {
 		return nil
 	}
 	if ids[first] {
@@ -71,4 +73,28 @@ func collectRowID(path string, row planmeta.TableRow, ids map[string]bool) error
 	ids[first] = true
 
 	return nil
+}
+
+// MatrixIDsAll merges the scenario ids MatrixIDs reads off every
+// document in paths, so more than one catalog — the lease protocol's
+// and a command's own — can share one bijection gate. An id two
+// documents both claim is reported rather than silently kept from
+// whichever was read first: two catalogs must never overlap.
+func MatrixIDsAll(paths ...string) (map[string]bool, error) {
+	ids := map[string]bool{}
+	for _, path := range paths {
+		got, err := MatrixIDs(path)
+		if err != nil {
+			return nil, err
+		}
+		for id := range got {
+			if ids[id] {
+				return nil, fmt.Errorf(
+					"scenario: %s: id %q already claimed by another matrix document", path, id)
+			}
+			ids[id] = true
+		}
+	}
+
+	return ids, nil
 }

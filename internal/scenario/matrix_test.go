@@ -80,17 +80,48 @@ func TestMatrixIDsRejectsAMissingFile(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestCollectRowIDKeepsSAndPassesAttackersBy pins the three answers a
-// row can get: an S id is recorded, an F or A id is passed by without
-// being recorded, and an empty cell is malformed.
+// TestCollectRowIDKeepsSAndPassesAttackersBy pins the answers a row
+// can get: an S or C id is recorded, an F or A id is passed by
+// without being recorded, and an empty cell is malformed.
 func TestCollectRowIDKeepsSAndPassesAttackersBy(t *testing.T) {
 	ids := map[string]bool{}
 	require.NoError(t, collectRowID("m.md", planmeta.TableRow{Line: 3, Cells: []string{"S7"}}, ids))
 	require.NoError(t, collectRowID("m.md", planmeta.TableRow{Line: 4, Cells: []string{"F2"}}, ids))
 	require.NoError(t, collectRowID("m.md", planmeta.TableRow{Line: 5, Cells: []string{"A1"}}, ids))
-	assert.Equal(t, map[string]bool{"S7": true}, ids)
+	require.NoError(t, collectRowID("m.md", planmeta.TableRow{Line: 6, Cells: []string{"C1"}}, ids))
+	assert.Equal(t, map[string]bool{"S7": true, "C1": true}, ids)
 
-	err := collectRowID("m.md", planmeta.TableRow{Line: 6}, ids)
+	err := collectRowID("m.md", planmeta.TableRow{Line: 7}, ids)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "m.md:6:")
+	assert.Contains(t, err.Error(), "m.md:7:")
+}
+
+// TestMatrixIDsAllMergesEveryDocument: two catalogs' ids combine into
+// one set, so one bijection gate can cover both.
+func TestMatrixIDsAllMergesEveryDocument(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.md")
+	b := filepath.Join(dir, "b.md")
+	require.NoError(t, os.WriteFile(a, []byte("| # | x |\n| - | - |\n| S1 | y |\n"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("| # | x |\n| - | - |\n| C1 | y |\n"), 0o600))
+
+	ids, err := MatrixIDsAll(a, b)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"S1": true, "C1": true}, ids)
+}
+
+// TestMatrixIDsAllRefusesAnIDTwoDocumentsBothClaim: two catalogs must
+// never silently share a scenario id.
+func TestMatrixIDsAllRefusesAnIDTwoDocumentsBothClaim(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.md")
+	b := filepath.Join(dir, "b.md")
+	require.NoError(t, os.WriteFile(a, []byte("| # | x |\n| - | - |\n| S1 | y |\n"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("| # | x |\n| - | - |\n| S1 | y |\n"), 0o600))
+
+	_, err := MatrixIDsAll(a, b)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "S1")
 }

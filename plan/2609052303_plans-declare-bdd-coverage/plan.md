@@ -1,7 +1,7 @@
 ---
 id: 2609052303
 title: Plans declare and include their BDD scenario coverage
-status: "🔳"
+status: "✅"
 summary: >-
   A behavior that touches the lease protocol can land with unit tests
   alone and no BDD scenario, because nothing in the planning path
@@ -128,6 +128,8 @@ footer: |
 |     | ↳      | S93 lands — matrix row, tagged scenario, dedicated steps — all gates green |
 | 2   | ✅     | [Plan authoring names its BDD coverage](phase-2.md)                        |
 |     | ↳      | CLAUDE.md, plan/proto.md and plan-new all name the S93-worked BDD decision |
+| 3   | ✅     | [A command behavior gets a BDD home of its own](phase-3.md)                |
+|     | ↳      | C1 proves a second catalog; MatrixIDsAll keeps both in one bijection gate  |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -140,7 +142,7 @@ footer: |
       plan to decide its BDD coverage and each phase to state it
 - [x] The `plan-new` instruction is in the built `frit skills` output,
       with `TestDogfoodCopiesMatchCanonical` green
-- [ ] A command behavior that is not a lease-protocol scenario can
+- [x] A command behavior that is not a lease-protocol scenario can
       carry a BDD scenario without a lease-protocol matrix row
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
