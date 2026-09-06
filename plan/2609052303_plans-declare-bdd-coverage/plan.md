@@ -126,6 +126,8 @@ footer: |
 | --- | ------ | -------------------------------------------------------------------------- |
 | 1   | ✅     | [The yield-honesty behavior gets scenario S93](phase-1.md)                 |
 |     | ↳      | S93 lands — matrix row, tagged scenario, dedicated steps — all gates green |
+| 2   | ✅     | [Plan authoring names its BDD coverage](phase-2.md)                        |
+|     | ↳      | CLAUDE.md, plan/proto.md and plan-new all name the S93-worked BDD decision |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -134,9 +136,9 @@ footer: |
       and a tagged `@S93` scenario that runs green from `TestFeatures`
 - [x] The S93 scenario drives the real `frit` command and asserts the
       refusal, the named way out, the untouched lease and nothing parked
-- [ ] `CLAUDE.md`, `plan/proto.md` and the `plan-new` skill require a
+- [x] `CLAUDE.md`, `plan/proto.md` and the `plan-new` skill require a
       plan to decide its BDD coverage and each phase to state it
-- [ ] The `plan-new` instruction is in the built `frit skills` output,
+- [x] The `plan-new` instruction is in the built `frit skills` output,
       with `TestDogfoodCopiesMatchCanonical` green
 - [ ] A command behavior that is not a lease-protocol scenario can
       carry a BDD scenario without a lease-protocol matrix row
