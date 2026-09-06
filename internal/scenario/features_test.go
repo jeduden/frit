@@ -172,11 +172,11 @@ func TestScenarioOfReadsTheOneIDAndWhetherPending(t *testing.T) {
 
 	_, err = scenarioOf("a.feature", 9, tagged("@S1", "@S2"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "a.feature:9: scenario \"one\" carries 2 S tags")
+	assert.Contains(t, err.Error(), "a.feature:9: scenario \"one\" carries 2 S/C tags")
 
 	_, err = scenarioOf("a.feature", 12, tagged("@wip"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "carries 0 S tags")
+	assert.Contains(t, err.Error(), "carries 0 S/C tags")
 }
 
 // TestRecordIDReportsASecondSighting pins the two outcomes: a first

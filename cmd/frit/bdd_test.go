@@ -42,6 +42,16 @@ func TestFeatures(t *testing.T) {
 	}
 }
 
+// runCLI drives one CLI invocation the way every command-scenario step
+// does: clear whatever the last run left in out and errb, then run
+// args against the built dispatch and capture its output there. The
+// "reset both buffers, then run" idiom every such step shares.
+func runCLI(out, errb *bytes.Buffer, args ...string) {
+	out.Reset()
+	errb.Reset()
+	run(args, out, errb)
+}
+
 // registrar binds one section's step texts to the scenario's world.
 type registrar func(*world, *godog.ScenarioContext)
 

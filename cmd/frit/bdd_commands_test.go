@@ -51,10 +51,7 @@ func (w *world) aPlanNobodyHasEverHeld() error {
 // test is the command's own dispatch, never a re-implementation.
 func (w *world) itIsReleased() error {
 	cs := section[commandState](w)
-	cs.out.Reset()
-	cs.errb.Reset()
-	run([]string{"release", strconv.Itoa(w.planID), "--root", filepath.Dir(cs.repo)},
-		&cs.out, &cs.errb)
+	runCLI(&cs.out, &cs.errb, "release", strconv.Itoa(w.planID), "--root", filepath.Dir(cs.repo))
 
 	return nil
 }

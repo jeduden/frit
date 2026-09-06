@@ -579,10 +579,7 @@ func (w *world) thisHostYieldsPlan(holder string, planID int) error {
 		return err
 	}
 	cs := section[cliState](w)
-	cs.out.Reset()
-	cs.errb.Reset()
-	run([]string{"yield", strconv.Itoa(planID), "--root", filepath.Dir(repo)},
-		&cs.out, &cs.errb)
+	runCLI(&cs.out, &cs.errb, "yield", strconv.Itoa(planID), "--root", filepath.Dir(repo))
 
 	return nil
 }
@@ -635,12 +632,7 @@ func (w *world) hostParkedNothing(holder string) error {
 	if err != nil {
 		return err
 	}
-	rescue, err := gitCapture(w.t, repo, "ls-remote", "origin",
-		fmt.Sprintf("refs/frit/rescue/%d/*", w.planID))
-	if err != nil {
-		return fmt.Errorf("%s: %w", rescue, err)
-	}
-	if rescue != "" {
+	if rescue := claim.RescueRefs(repo, "origin", int64(w.planID), gitwt.Exec); len(rescue) > 0 {
 		return fmt.Errorf("a rescue ref was parked: %q", rescue)
 	}
 
@@ -745,10 +737,7 @@ func (w *world) thisHostClaimsPlan(planID int) error {
 		withHerdr(w.t, runner)
 		cs.herdrSet = true
 	}
-	cs.out.Reset()
-	cs.errb.Reset()
-	run([]string{"claim", strconv.Itoa(planID), "--root", filepath.Dir(repo)},
-		&cs.out, &cs.errb)
+	runCLI(&cs.out, &cs.errb, "claim", strconv.Itoa(planID), "--root", filepath.Dir(repo))
 
 	return nil
 }
@@ -1163,12 +1152,8 @@ func (w *world) thisHostStartsPlan(holder string, planID int) error {
 		return err
 	}
 	cs := section[cliState](w)
-	cs.out.Reset()
-	cs.errb.Reset()
-	run([]string{
-		"start", strconv.Itoa(planID), "--phase", "3", "--go",
-		"--root", filepath.Dir(repo),
-	}, &cs.out, &cs.errb)
+	runCLI(&cs.out, &cs.errb, "start", strconv.Itoa(planID), "--phase", "3", "--go",
+		"--root", filepath.Dir(repo))
 	if tip := claim.RemoteTip(repo, "origin", int64(planID), gitwt.Exec); tip != "" {
 		w.lease.Tip = tip
 	}
