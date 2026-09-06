@@ -355,14 +355,15 @@ dies with the host.
 
 ### Host death, suspension, zombies
 
-| #   | Scenario                              | Outcome and mechanism                                              |
-| --- | ------------------------------------- | ------------------------------------------------------------------ |
-| S14 | power loss mid-push                   | as S3; any local repo damage stays local                           |
-| S15 | host dies holding a claim, never back | OBS→TAKE after T; no human needed                                  |
-| S16 | host resurrected days later           | FENCE: sibling history, every push rejected; YIELD                 |
-| S17 | suspended weeks, plan re-claimed      | FENCE as S16; divergence parked by YIELD                           |
-| S18 | zombie re-runs its own claim          | RESUME only when no live session owns the lane; else refuse (VETO) |
-| S19 | zombie pushes to a completed plan     | verb CAS fails (ref absent ≠ own tip); raw push is TRUST           |
+| #   | Scenario                                      | Outcome and mechanism                                                                                                                    |
+| --- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| S14 | power loss mid-push                           | as S3; any local repo damage stays local                                                                                                 |
+| S15 | host dies holding a claim, never back         | OBS→TAKE after T; no human needed                                                                                                        |
+| S16 | host resurrected days later                   | FENCE: sibling history, every push rejected; YIELD                                                                                       |
+| S17 | suspended weeks, plan re-claimed              | FENCE as S16; divergence parked by YIELD                                                                                                 |
+| S18 | zombie re-runs its own claim                  | RESUME only when no live session owns the lane; else refuse (VETO)                                                                       |
+| S19 | zombie pushes to a completed plan             | verb CAS fails (ref absent ≠ own tip); raw push is TRUST                                                                                 |
+| S93 | distant host `yield`s a hold it never fetched | nothing local to park refuses like release's foreign hold, naming the takeover and its way out; origin's lease is left untouched (YIELD) |
 
 ### Partitions
 

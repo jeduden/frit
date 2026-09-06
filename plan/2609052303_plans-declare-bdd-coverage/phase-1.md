@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The yield-honesty behavior gets scenario S93
-status: "🔲"
+status: "✅"
 result: false
 ---
 Give the yield-honesty behavior of plan 2609052054 its place in the

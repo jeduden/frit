@@ -8,9 +8,10 @@ import (
 	messages "github.com/cucumber/messages/go/v34"
 )
 
-// featureTag is the shape of a scenario's id tag: "@S" and a number in
-// the same form a matrix row's id takes, so "@S016" names nothing.
-var featureTag = regexp.MustCompile(`^@(S` + idNumber + `)$`)
+// featureTag is the shape of a scenario's id tag: one of
+// scenarioLetters (matrix.go) and a number in the same form a matrix
+// row's id takes, so "@S016" names nothing.
+var featureTag = regexp.MustCompile(`^@([` + scenarioLetters + `]` + idNumber + `)$`)
 
 // Scenario is one scenario godog would run, as both the gate and the
 // runner see it: where it sits, what it is called, the matrix id its
@@ -31,8 +32,8 @@ type Scenario struct {
 // scenario however many Examples rows it has; godog compiles a pickle
 // per row and every one carries the outline's tags, so the rows are
 // folded back onto the outline they came from. Every scenario must
-// carry exactly one S tag: one with none or several is reported with
-// its place rather than listed with an empty or arbitrary id.
+// carry exactly one S or C tag: one with none or several is reported
+// with its place rather than listed with an empty or arbitrary id.
 func Scenarios(dir string) ([]Scenario, error) {
 	suite := godog.TestSuite{Options: &godog.Options{Paths: []string{dir}}}
 	features, err := suite.RetrieveFeatures()
@@ -61,8 +62,8 @@ func Scenarios(dir string) ([]Scenario, error) {
 	return out, nil
 }
 
-// FeatureTagIDs reads the "@S<n>" tag off every scenario under dir,
-// keyed by the id each names. A tag repeated across scenarios is
+// FeatureTagIDs reads the "@S<n>" or "@C<n>" tag off every scenario
+// under dir, keyed by the id each names. A tag repeated across scenarios is
 // reported rather than merged, since two scenarios sharing one id
 // would otherwise both count as the matrix row's coverage.
 func FeatureTagIDs(dir string) (map[string]bool, error) {
@@ -81,8 +82,8 @@ func FeatureTagIDs(dir string) (map[string]bool, error) {
 	return ids, nil
 }
 
-// scenarioOf reads one pickle's tags for the S id it names and whether
-// it is pending, reporting a scenario with no id or several.
+// scenarioOf reads one pickle's tags for the S or C id it names and
+// whether it is pending, reporting a scenario with no id or several.
 func scenarioOf(uri string, line int64, p *messages.Pickle) (Scenario, error) {
 	sc := Scenario{Path: uri, Line: line, Name: p.Name}
 	var found []string
@@ -95,7 +96,8 @@ func scenarioOf(uri string, line int64, p *messages.Pickle) (Scenario, error) {
 		}
 	}
 	if len(found) != 1 {
-		return Scenario{}, fmt.Errorf("scenario: %s:%d: scenario %q carries %d S tags, want exactly one",
+		return Scenario{}, fmt.Errorf(
+			"scenario: %s:%d: scenario %q carries %d S/C tags, want exactly one",
 			uri, line, p.Name, len(found))
 	}
 	sc.ID = found[0]

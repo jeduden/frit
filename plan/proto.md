@@ -65,6 +65,12 @@ filename: "*.md"
     confirming the output matches the claim. Lint
     and the dogfood-match test pass on a false one,
     so neither is that gate.
+  - Each phase states its BDD scenario coverage in
+    its own spec: an `@S<n>` it adds or extends, or
+    plainly that none applies. Follow the procedure
+    in docs/development.md's executable scenario
+    matrix; S93 (plan 2609052303 phase 1) is the
+    worked example.
   - Both sections are optional for a plan small
     enough to land in one go.
 

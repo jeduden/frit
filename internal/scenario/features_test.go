@@ -19,18 +19,20 @@ func writeFeature(t *testing.T, dir, name, body string) {
 
 // TestFeatureTagIDsCollectsEveryScenarioGodogWouldRun: a tag on its
 // own line, one sharing a line with "@wip" and "@pending", one under a
-// Rule, one in a subdirectory, and one on a scenario with no steps yet
-// all count — the same set of scenarios godog itself walks.
+// Rule, one in a subdirectory, one on a scenario with no steps yet,
+// and a command-catalog "@C" tag all count — the same set of
+// scenarios godog itself walks.
 func TestFeatureTagIDsCollectsEveryScenarioGodogWouldRun(t *testing.T) {
 	dir := t.TempDir()
 	writeFeature(t, dir, "a.feature", "Feature: a\n\n  @S1\n  Scenario: one\n    Given a\n\n"+
 		"  Rule: r\n\n    @S3\n    Scenario: three\n      Given a\n")
 	writeFeature(t, dir, "b.feature", "Feature: b\n\n  @wip @S2 @pending\n  Scenario: two\n")
 	writeFeature(t, dir, filepath.Join("nested", "c.feature"), "Feature: c\n\n  @S4\n  Scenario: four\n    Given c\n")
+	writeFeature(t, dir, "d.feature", "Feature: d\n\n  @C1\n  Scenario: five\n    Given d\n")
 
 	ids, err := FeatureTagIDs(dir)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"S1": true, "S2": true, "S3": true, "S4": true}, ids)
+	assert.Equal(t, map[string]bool{"S1": true, "S2": true, "S3": true, "S4": true, "C1": true}, ids)
 }
 
 // TestFeatureTagIDsCountsAnOutlineOnce: a Scenario Outline compiles to
@@ -170,11 +172,11 @@ func TestScenarioOfReadsTheOneIDAndWhetherPending(t *testing.T) {
 
 	_, err = scenarioOf("a.feature", 9, tagged("@S1", "@S2"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "a.feature:9: scenario \"one\" carries 2 S tags")
+	assert.Contains(t, err.Error(), "a.feature:9: scenario \"one\" carries 2 S/C tags")
 
 	_, err = scenarioOf("a.feature", 12, tagged("@wip"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "carries 0 S tags")
+	assert.Contains(t, err.Error(), "carries 0 S/C tags")
 }
 
 // TestRecordIDReportsASecondSighting pins the two outcomes: a first

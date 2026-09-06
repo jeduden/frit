@@ -64,3 +64,13 @@ Feature: Host death, suspension, zombies
     And origin still has no work ref
     When "box-a" pushes its tip raw
     Then origin accepts it
+
+  @S93
+  Scenario: distant host yields a hold it never fetched
+    Given "this host" has never fetched plan 7's lease
+    And "elsewhere" holds the lease for plan 7, unseen by "this host"
+    When "this host" yields plan 7
+    Then the yield is refused, naming the takeover
+    And the refusal carries a way out
+    And origin's lease for plan 7 is untouched
+    And "this host" parked nothing

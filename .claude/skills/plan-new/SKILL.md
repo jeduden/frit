@@ -20,10 +20,12 @@ an editor, not a frit verb.
    name: `plan/<id>_<kebab-slug>/plan.md`, with each phase's own
    `phase-N.md` spec beside it. A trivial, single-phase plan may stay
    flat instead — `plan/<id>_<kebab-slug>.md`, `## Tasks` alone.
-2. **Reuse first.** Search for machinery that already does what the
-   plan needs; `## Context` names what was searched and why each
-   candidate was or was not reused.
-3. **Phase 1 is a proving slice** — a minimal end-to-end slice that
+2. **Reuse first.** Search for existing machinery; `## Context` names
+   what was searched and why each candidate was or was not reused.
+3. **Decide BDD coverage.** A cross-host or lease-protocol behavior
+   needs an `@S<n>` scenario (`docs/development.md`'s matrix; S93 is
+   the worked example) — state the decision in each phase spec.
+4. **Phase 1 is a proving slice** — a minimal end-to-end slice that
    demonstrates the Goal and fixes the test approach later phases copy.
    Write it as `phase-1.md`: `{n, title, status, result: false}` front
    matter (the `phase-spec` kind requires it), then freeform prose —
@@ -32,24 +34,24 @@ an editor, not a frit verb.
    shape. Closing a phase writes its `phase-N.result.md` with
    `result: true` and a non-empty `summary` line alongside `{n, title,
    status}`, the `phase-record` kind's own requirement.
-4. **Write `plan.md`** to the `plan/proto.md` shape: frontmatter
+5. **Write `plan.md`** to the `plan/proto.md` shape: frontmatter
    (`id`, `title`, `status: "🔲"`, `summary`, `model`, `depends-on` —
    no `phases:` ledger, since each phase file's front matter is its
    status), then `## Goal`, `## Context`, `## Tasks`, `## Execution`, a
    `## Phases` `<?catalog?>` over both `phase-*.md` and
    `phase-*.result.md` with a `row-expr` interleaving each spec row
    with its result's summary row, and `## Acceptance Criteria`.
-5. **Tier per phase** in the Execution table: the cheapest tier a loud
+6. **Tier per phase** in the Execution table: the cheapest tier a loud
    gate makes safe. Design stays opus; implementing from a written
    assertion is cheap. Set frontmatter `model:` to the dominant
    implement tier.
-6. **Lint and index.** `mdsmith check plan/<id>_<slug>` (fix line
+7. **Lint and index.** `mdsmith check plan/<id>_<slug>` (fix line
    length 80 and long sentences), `mdsmith fix PLAN.md`, then
    `mdsmith check .`.
-7. **Health-check.** `go run ./cmd/frit doctor` scans every plan on disk; find
+8. **Health-check.** `go run ./cmd/frit doctor` scans every plan on disk; find
    this id in its output — no missing Goal, no Execution row short of a
    phase, no tier `plan/proto.md` rejects. Fix the plan, not the check.
-8. **Commit** the plan folder and PLAN.md together: `plan <id>: <title>`.
+9. **Commit** the plan folder and PLAN.md together: `plan <id>: <title>`.
 
 ## Notes
 
