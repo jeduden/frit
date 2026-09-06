@@ -1,7 +1,7 @@
 ---
 id: 2609061156
 title: The README is a lean front page; its reference lives in docs/
-status: "🔳"
+status: "✅"
 summary: >-
   The README was pinned against its 300-line lint cap because it
   carried both the pitch and the full reference. The command reference
@@ -81,10 +81,11 @@ already extracted.
 
 ## Execution
 
-| Phase | Title                                     | Tier   | Gate                                                                                                                                                |
-| ----- | ----------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | First run becomes a getting-started page  | sonnet | the walkthrough lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean           |
-| 2     | Configuration becomes a focused docs page | sonnet | the `.frit.yml` reference lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean |
+| Phase | Title                                                    | Tier   | Gate                                                                                                                                                       |
+| ----- | -------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | First run becomes a getting-started page                 | sonnet | the walkthrough lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean                  |
+| 2     | Configuration becomes a focused docs page                | sonnet | the `.frit.yml` reference lives on a docs page linked from the README and its map; the README stays under the 300-line cap; `mdsmith check .` clean        |
+| 3     | Scripting with JSON shrinks to a pointer and one example | sonnet | the README's JSON section keeps one example and points at ux-principles.md for the rules; the README stays under the 300-line cap; `mdsmith check .` clean |
 
 ## Phases
 
@@ -113,6 +114,8 @@ footer: |
 |     | ↳      | First run moved to docs/getting-started.md; the README keeps a two-line quickstart and a pointer, plus a Documentation map row.                                                                              |
 | 2   | ✅     | [Configuration becomes a focused docs page](phase-2.md)                                                                                                                                                      |
 |     | ↳      | Configuration moved to docs/configuration.md, pointing at CLAUDE.md and ux-principles.md for the precedence order instead of restating it; the README keeps a one-line pointer plus a Documentation map row. |
+| 3   | ✅     | [Scripting with JSON shrinks to a pointer and one example](phase-3.md)                                                                                                                                       |
+|     | ↳      | Scripting with JSON keeps its one-line claim and one example; the duplicated "Three rules" paragraph is gone, replaced by a pointer to ux-principles.md's JSON contract.                                     |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -122,7 +125,7 @@ footer: |
 - [x] The README keeps a minimal quickstart and points at that page
       for the full walkthrough
 - [x] The README stays within the 300-line cap (`mdsmith check`)
-- [ ] Configuration and Scripting with JSON are moved or folded, each
+- [x] Configuration and Scripting with JSON are moved or folded, each
       leaving a pointer, in later phases
-- [ ] `mdsmith check .` is clean and every moved link resolves
-- [ ] All tests pass: `go test ./...`
+- [x] `mdsmith check .` is clean and every moved link resolves
+- [x] All tests pass: `go test ./...`

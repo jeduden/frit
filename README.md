@@ -150,11 +150,9 @@ model, so they never disagree.
 frit orphans --json | jq '.repos[] | select(.unstaffed | length > 0)'
 ```
 
-Three rules make the document safe to write against. Every key is
-always present. A list is `[]` and never null. A repository frit could
-not read is carried in `problems`, so stdout is the whole report.
-Golden files in [internal/report](internal/report) pin every document;
-[UX principles](docs/ux-principles.md#the-json-contract) explain them.
+[UX principles](docs/ux-principles.md#the-json-contract) has the
+rules that make the document safe to write against, and the golden
+files that pin them.
 
 ## Configuration
 
