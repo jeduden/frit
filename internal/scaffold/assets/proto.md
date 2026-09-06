@@ -92,7 +92,9 @@ filename: "*.md"
 
 -->
 
-Working `## Phases` catalog directive, copied verbatim into a plan:
+Working `## Phases` catalog directive. Fenced below so mdsmith shows
+it rather than running it here; copy only the `<?catalog ... ?>` lines
+verbatim into a plan's own `## Phases` section, unfenced, so it runs:
 
 ```yaml
 <?catalog
