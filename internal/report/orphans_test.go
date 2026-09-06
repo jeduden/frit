@@ -169,6 +169,24 @@ func TestOrphansAddStaleRecordsAMaturedHold(t *testing.T) {
 	assert.True(t, doc.Repos[0].Any())
 }
 
+// TestOrphansAddStaleIsANoOpForAnUnknownRepo mirrors AddDeserted's
+// own guard: a plan for a repository AddRepo never recorded is
+// dropped rather than fabricating a repo entry out of order.
+func TestOrphansAddStaleIsANoOpForAnUnknownRepo(t *testing.T) {
+	doc := NewOrphans("/fleet")
+
+	doc.AddStale("ghost", []discovery.Plan{{ID: 1}})
+
+	assert.Empty(t, doc.Repos)
+}
+
+// TestFirstHoldReturnsEmptyForAPlanWithNoHolds: a held plan with no
+// recorded holds names no branch, rather than indexing an empty
+// slice.
+func TestFirstHoldReturnsEmptyForAPlanWithNoHolds(t *testing.T) {
+	assert.Empty(t, firstHold(discovery.Plan{ID: 42}))
+}
+
 // TestOrphansAddRescuedRecordsLeftoverParks: the rescued cell of the
 // verb-state table — a rescue ref found before anyone triggers the
 // blocked park it stands for, beside orphans' other kinds. A

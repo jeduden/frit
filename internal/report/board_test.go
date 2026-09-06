@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBoardAddPlanNamesTheAskForAnAttendedDeadLane: the board is the
@@ -65,6 +66,24 @@ func TestBoardAddPlanWithholdsAskOnIncompletePresenceWithoutRewritingStatus(t *t
 		"agent_status reports what herdr saw, not what the ask gate withheld")
 	assert.Empty(t, doc.Plans[0].Ask,
 		"a configured host went unread, so no ask is offered off this read")
+}
+
+// TestBoardAddProblemRecordsAnUnreadRepository: a repository whose
+// plans could not be read still surfaces on the board, alongside the
+// rows that were.
+func TestBoardAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
+// TestHostOfReturnsEmptyForAKeyWithNoColon: hostOf pulls the machine
+// out of a host:repo:id key; a key that never carries one names no
+// host rather than panicking on the missing separator.
+func TestHostOfReturnsEmptyForAKeyWithNoColon(t *testing.T) {
+	assert.Empty(t, hostOf("no-colon-here"))
 }
 
 // TestBoardMarkUnprovenNamesTheWayOut: MarkUnproven reprojects a

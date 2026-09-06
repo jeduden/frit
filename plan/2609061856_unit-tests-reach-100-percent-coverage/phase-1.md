@@ -1,7 +1,7 @@
 ---
 n: 1
 title: internal/report reaches 100% line coverage and is locked there
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive [internal/report](../../internal/report) to 100% line coverage
