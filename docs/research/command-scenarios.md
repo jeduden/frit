@@ -18,3 +18,4 @@ kept in bijection with `features/` the same way, by the same gate:
 | C3  | yield on a plan nobody holds                      | parks nothing and refuses nothing — the clean no-op, distinct from a fenced lane's refusal (yieldNothingLocal)                       |
 | C4  | a plan whose final phase landed surfaces as drift | drift reports that a commit names the plan's final phase — the phase-level signal, read from the command's own output                |
 | C5  | a plan mid-flight or already done raises no drift | drift raises nothing for unmerged work and never lists a done plan — the restraint a developer trusts before a status flip           |
+| C6  | yielding one's own live lane                      | refused toward `release` — a freshly claimed lease is the live holder, not fenced, so yield never discards it (StillHeldError)       |

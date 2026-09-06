@@ -69,9 +69,10 @@ free `C<n>`. Never a hardcoded id across lanes.
 
 ## Execution
 
-| Phase | Title                                         | Tier   | Gate                                                                                                                                      |
-| ----- | --------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Yield on a plan nobody holds is a clean no-op | sonnet | the new `C<n>` scenario runs against the built frit, yield parks nothing and refuses nothing; bijection gate green; `go test ./...` green |
+| Phase | Title                                                    | Tier   | Gate                                                                                                                                      |
+| ----- | -------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Yield on a plan nobody holds is a clean no-op            | sonnet | the new `C<n>` scenario runs against the built frit, yield parks nothing and refuses nothing; bijection gate green; `go test ./...` green |
+| 2     | Yielding one's own live lane is refused toward `release` | sonnet | the new `C<n>` scenario runs against the built frit, yield refuses and names `release`; bijection gate green; `go test ./...` green       |
 
 ## Phases
 
@@ -94,10 +95,11 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                       |
-| --- | ------ | ----------------------------------------------------------- |
-| 1   | ✅     | [Yield on a plan nobody holds is a clean no-op](phase-1.md) |
-|     | ↳      | C3 proves yield's clean no-op on a plan nobody holds        |
+| #   | Status | Phase                                                                |
+| --- | ------ | -------------------------------------------------------------------- |
+| 1   | ✅     | [Yield on a plan nobody holds is a clean no-op](phase-1.md)          |
+|     | ↳      | C3 proves yield's clean no-op on a plan nobody holds                 |
+| 2   | 🔲     | [Yielding one's own live lane is refused toward release](phase-2.md) |
 <?/catalog?>
 
 ## Acceptance Criteria
