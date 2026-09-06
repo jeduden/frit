@@ -67,15 +67,18 @@ the stronger gate laid over the line gate.
 
 **A few conditions sit on a process boundary.** `main` in
 [cmd/frit/main.go](../../cmd/frit/main.go) wires kong and calls
-`os.Exit`; `remoteGit` and `herdr.Exec` are the raw git and process
-syscalls every test replaces with a fake; the reporter in
-[internal/fleet/progress.go](../../internal/fleet/progress.go) writes
-to a terminal. Forcing a test through a real syscall proves nothing
-about frit's logic. Each gets one of two honest treatments: a thin seam
-that lets a test drive the logic while the one syscall stays out of
-reach, or an explicit entry in an ignore list with a one-line reason.
-The seam is preferred where cheap; the exclusion is for the irreducible
-boundary alone, and it is listed, not silent.
+`os.Exit`; `herdr.Exec` is a raw process syscall every test replaces
+with a fake; the reporter in
+[cmd/frit/progress.go](../../cmd/frit/progress.go) writes to a
+terminal. Forcing a test through a real syscall proves nothing about
+frit's logic. Each gets one of two honest treatments: a thin seam that
+lets a test drive the logic while the one syscall stays out of reach,
+or an explicit entry in an ignore list with a one-line reason. The seam
+is preferred where cheap; the exclusion is for the irreducible boundary
+alone, and it is listed, not silent. `remoteGit` turned out not to be
+one of these — like `herdr.Exec` before it, it resolves its subprocess
+name through `$PATH`, so a fake on `$PATH` drives it for real (plan
+phase 11a).
 
 **Out of scope.** No behavior change — this plan adds tests and a seam
 or two, never new features. The exclusion list stays minimal and
@@ -91,30 +94,33 @@ justified; it is not a place to hide untested logic.
    reaches 100% cleanly and fixes the pattern the later packages copy.
 2. Line-coverage phases: `internal/claim`, `internal/fleet`,
    `internal/observe`, `internal/repocfg` and `internal/herdr` to 100%;
-   then `cmd/frit`, one phase per file (`main.go`+`progress.go`,
-   `reap.go`, `release.go`, `start.go`, `yield.go` — the package's gap
-   is far wider than any package closed so far), where `main` and the
-   terminal-detection boundary get a listed exclusion and the target
-   is raised to 100% of the remainder.
+   then `cmd/frit`, one phase per file (`release.go`, `reap.go`,
+   `yield.go`, `start.go`, `main.go`+`progress.go` — the package's gap
+   is far wider than any package closed so far). `yield.go` builds and
+   proves the exclusion-list mechanism `scripts/check-coverage.sh`
+   needs; the later files add their own entries to it and, where a gap
+   turns out to be dead code rather than a missing test, delete the
+   branch instead. The last file adds `cmd/frit` to the gate.
 3. Branch-coverage phases: adopt and pin a branch-coverage tool, then
    drive each package so every reachable condition is taken both ways,
    with the tool's report as the stronger gate.
 
 ## Execution
 
-| Phase | Title                                                                       | Tier   | Gate                                                                                                              |
-| ----- | --------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
-| 1     | internal/report reaches 100% line coverage and is locked there              | sonnet | `go test ./internal/report -cover`: 100%; new gate; suite green                                                   |
-| 2     | internal/claim reaches 100% line coverage and joins the gate                | sonnet | `go test ./internal/claim -cover`: 100%; gate covers every closed package; suite green                            |
-| 3     | internal/fleet reaches 100% line coverage and joins the gate                | sonnet | `go test ./internal/fleet -cover`: 100%; gate covers every closed package; suite green                            |
-| 4     | internal/observe reaches 100% line coverage and joins the gate              | sonnet | `go test ./internal/observe -cover`: 100%; gate covers every closed package; suite green                          |
-| 5     | internal/repocfg reaches 100% line coverage and joins the gate              | sonnet | `go test ./internal/repocfg -cover`: 100%; gate covers every closed package; suite green                          |
-| 6     | internal/herdr reaches 100% line coverage and joins the gate                | sonnet | `go test ./internal/herdr -cover`: 100%; gate covers every closed package; suite green                            |
-| 7     | cmd/frit/main.go and progress.go reach 100% line coverage and join the gate | sonnet | `go test ./cmd/frit -cover`: 100% but for the listed terminal-detection exclusion; CI ratchet raised; suite green |
-| 8     | cmd/frit/reap.go reaches 100% line coverage and raises the cmd/frit gate    | sonnet | `go test ./cmd/frit -cover` rises over phase 7; CI ratchet raised; suite green                                    |
-| 9     | cmd/frit/release.go reaches 100% line coverage and raises the cmd/frit gate | sonnet | `go test ./cmd/frit -cover` rises over phase 8; CI ratchet raised; suite green                                    |
-| 10    | cmd/frit/start.go reaches 100% line coverage and raises the cmd/frit gate   | sonnet | `go test ./cmd/frit -cover` rises over phase 9; CI ratchet raised; suite green                                    |
-| 11    | cmd/frit/yield.go reaches 100% line coverage and closes the cmd/frit gate   | sonnet | `go test ./cmd/frit -cover`: 100% but for the one listed exclusion; CI ratchet at final ceiling; suite green      |
+| Phase | Title                                                                                            | Tier   | Gate                                                                                                                              |
+| ----- | ------------------------------------------------------------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | internal/report reaches 100% line coverage and is locked there                                   | sonnet | `go test ./internal/report -cover`: 100%; new gate; suite green                                                                   |
+| 2     | internal/claim reaches 100% line coverage and joins the gate                                     | sonnet | `go test ./internal/claim -cover`: 100%; gate covers every closed package; suite green                                            |
+| 3     | internal/fleet reaches 100% line coverage and joins the gate                                     | sonnet | `go test ./internal/fleet -cover`: 100%; gate covers every closed package; suite green                                            |
+| 4     | internal/observe reaches 100% line coverage and joins the gate                                   | sonnet | `go test ./internal/observe -cover`: 100%; gate covers every closed package; suite green                                          |
+| 5     | internal/repocfg reaches 100% line coverage and joins the gate                                   | sonnet | `go test ./internal/repocfg -cover`: 100%; gate covers every closed package; suite green                                          |
+| 6     | internal/herdr reaches 100% line coverage and joins the gate                                     | sonnet | `go test ./internal/herdr -cover`: 100%; gate covers every closed package; suite green                                            |
+| 7     | cmd/frit/release.go reaches 100% line coverage                                                   | sonnet | `go tool cover -func` filtered to release.go: 100%; suite green                                                                   |
+| 8     | cmd/frit/reap.go reaches 100% line coverage                                                      | sonnet | `go tool cover -func` filtered to reap.go: 100%; two dead branches removed; suite green                                           |
+| 9     | cmd/frit/yield.go reaches 100% of its reachable lines, check-coverage.sh gains an exclusion list | sonnet | `go tool cover -func` filtered to yield.go: 100% but one listed exclusion; exclusion mechanism proven red then green; suite green |
+| 10    | cmd/frit/start.go reaches 100% of its reachable lines                                            | sonnet | `go tool cover -func` filtered to start.go: 100% but one listed exclusion; suite green                                            |
+| 11a   | cmd/frit/main.go reaches 100% line coverage on its discovery, doctor and plans verbs             | sonnet | `go tool cover -func` filtered to main.go's first half: 100%; one dead branch removed; suite green                                |
+| 11b   | cmd/frit/main.go and progress.go close the package, which joins the gate                         | sonnet | `go test ./cmd/frit -cover`: 100% but for four listed exclusions; `cmd/frit` joins the CI gate; suite green                       |
 
 ## Phases
 
@@ -141,6 +147,9 @@ footer: |
 | --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [internal/report reaches 100% line coverage and is locked there](phase-1.md)                                                                                                                                            |
 |     | ↳      | internal/report reached 100% line coverage and gained a hard CI gate that reddens the moment it drops.                                                                                                                  |
+| 10  | 🔲     | [cmd/frit/start.go reaches 100% of its reachable lines](phase-10.md)                                                                                                                                                    |
+| 11a | 🔲     | [cmd/frit/main.go reaches 100% line coverage on its discovery, doctor and plans verbs](phase-11a.md)                                                                                                                    |
+| 11b | 🔲     | [cmd/frit/main.go and progress.go close the package, which joins the gate](phase-11b.md)                                                                                                                                |
 | 2   | ✅     | [internal/claim reaches 100% line coverage and joins the gate](phase-2.md)                                                                                                                                              |
 |     | ↳      | internal/claim reached 100% line coverage — one seam, thirty-odd new tests — and joined the hard CI gate beside internal/report.                                                                                        |
 | 3   | ✅     | [internal/fleet reaches 100% line coverage and joins the gate](phase-3.md)                                                                                                                                              |
@@ -151,11 +160,9 @@ footer: |
 |     | ↳      | internal/repocfg reached 100% line coverage — four new tests, no seam needed — and joined the hard CI gate beside internal/report, internal/claim, internal/fleet and internal/observe.                                 |
 | 6   | ✅     | [internal/herdr reaches 100% line coverage and joins the gate](phase-6.md)                                                                                                                                              |
 |     | ↳      | internal/herdr reached 100% line coverage — six new tests, no seam and no exclusion needed — and joined the hard CI gate beside internal/report, internal/claim, internal/fleet, internal/observe and internal/repocfg. |
-| 7   | 🔲     | [cmd/frit/main.go and progress.go reach 100% line coverage and join the gate](phase-7.md)                                                                                                                               |
-| 8   | 🔲     | [cmd/frit/reap.go reaches 100% line coverage and raises the cmd/frit gate](phase-8.md)                                                                                                                                  |
-| 9   | 🔲     | [cmd/frit/release.go reaches 100% line coverage and raises the cmd/frit gate](phase-9.md)                                                                                                                               |
-| 10  | 🔲     | [cmd/frit/start.go reaches 100% line coverage and raises the cmd/frit gate](phase-10.md)                                                                                                                                |
-| 11  | 🔲     | [cmd/frit/yield.go reaches 100% line coverage and closes the cmd/frit gate](phase-11.md)                                                                                                                                |
+| 7   | 🔲     | [cmd/frit/release.go reaches 100% line coverage](phase-7.md)                                                                                                                                                            |
+| 8   | 🔲     | [cmd/frit/reap.go reaches 100% line coverage](phase-8.md)                                                                                                                                                               |
+| 9   | 🔲     | [cmd/frit/yield.go reaches 100% of its reachable lines, and check-coverage.sh gains exclusions](phase-9.md)                                                                                                             |
 <?/catalog?>
 
 ## Acceptance Criteria

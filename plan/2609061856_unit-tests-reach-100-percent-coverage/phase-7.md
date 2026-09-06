@@ -1,114 +1,102 @@
 ---
 n: 7
-title: cmd/frit/main.go and progress.go reach 100% line coverage and join the gate
+title: cmd/frit/release.go reaches 100% line coverage
 status: "🔲"
 result: false
 ---
-Drive [cmd/frit/main.go](../../cmd/frit/main.go) and
-[cmd/frit/progress.go](../../cmd/frit/progress.go) to 100% line
-coverage. `cmd/frit` sits at 90.0% today, concentrated in these two
-files. Add `cmd/frit`'s testable set to `scripts/check-coverage.sh`'s
-CI call, alongside the six packages already there. This is the first
-of five `cmd/frit` phases, one per file. The package's gap is far
-wider than any package closed so far: main.go alone carries over a
-hundred uncovered ranges across roughly forty functions.
+Drive [cmd/frit/release.go](../../cmd/frit/release.go) to 100% line
+coverage. It sits at 87.5% today (6 of 64 statements uncovered, spread
+across three functions). This is the first slice of `cmd/frit`, the
+package the plan's own context names as carrying a process boundary —
+but nothing in this file touches one, so it closes the same way every
+`internal/*` package did: constructor-and-read tests plus one CLI
+fixture reuse, no seam and no exclusion.
 
-**BDD coverage.** None applies. This phase adds unit tests and, where
-named below, a small seam — no lease-protocol behavior changes, so no
-`@S<n>` scenario is needed per
-[docs/development.md](../../docs/development.md)'s matrix.
+**BDD coverage.** None applies. This phase adds unit tests only, no
+seam, no exclusion, no behavior change. No `@S<n>` scenario is needed
+per [docs/development.md](../../docs/development.md)'s matrix.
 
-**Assumes.** `main.go` already carries the seam the plan's own context
-expected to have to add. `main()` delegates everything to `run(args,
-stdout, stderr) int`, and every existing test already drives `run`
-directly. `main()` itself — three lines, `os.Exit(run(...))` — is the
-only line in the file that is a genuine process boundary. `remoteGit`
-looked like a second one, but it shells out through `herdr.Run("ssh",
-...)`. That is the same general-purpose runner `internal/herdr`'s
-`Exec` uses for `"herdr"`, and [phase 6](phase-6.md) already proved it
-testable by putting a throwaway script first on `$PATH`; the same
-trick reaches `remoteGit` with a fake `ssh`. `terminalWidth` and
-`progressFor`/`isTerminalWriter` in progress.go are the real boundary.
-The branch where the writer is a live interactive terminal needs a
-real tty, which this repo has no pty dependency for today — `creack/pty`
-sits in `go.sum` only as another tool's indirect dependency. That
-branch is a listed exclusion. The "writer is a plain `*os.File` that
-is not a terminal" branch (a temp file, `/dev/null`) is not a boundary
-and stays in scope.
+**Assumes.** `Run` reassigns `rt.git =
+gitwt.WithDeadline(gitwt.ExecContext, ...)` unconditionally near its
+top. That discards any runner a test injected into the `runtime` it
+was given — the same shape every other `cmd/frit` verb uses. It also
+forecloses injecting a fake git runner through the CLI entry point
+(`run([]string{"release", ...})`) for the push-failure gap below.
+Close that gap instead by calling the unexported `releaseHeld` directly
+with a hand-built `runtime`, the same pattern `claim_test.go` and
+`main_test.go` already use elsewhere in the package.
 
-**Value.** main.go wires every verb's fleet gather, board and report
-rendering — it is the widest single file in the codebase and the
-largest remaining slice of the plan's whole gap. Closing it (bar the
-one listed exclusion) proves the entrypoint pattern the remaining four
-`cmd/frit` phases repeat.
+**Value.** `scripts/check-coverage.sh` measures a package, not a file,
+so `cmd/frit` does not gate as a whole until every file in it is
+closed. This phase's own gate stays file-scoped (`go tool cover -func`
+filtered to `release.go`) rather than adding `./cmd/frit` to CI. It is
+the cleanest of the five remaining files: no seam, no exclusion. It
+proves the fixture-reuse approach that closed `internal/report`
+through `internal/herdr` extends into `cmd/frit`, before a later phase
+also has to stand up the exclusion mechanism the harder files need.
 
-**RED.** `go test ./cmd/frit -coverprofile` and the raw profile's
-zero-count ranges are the worklist, enumerated in this phase's result.
-They fall into four recurring shapes:
+**RED.** `go test ./cmd/frit -coverprofile`, then `go tool cover -func`
+filtered to `release.go` records the zero-count ranges:
 
-- **Sequential error guards.** Most gaps are an `if err != nil { return
-  ... }` after a call to an injected `rt.git`, `rt.gitPipe`, `rt.herdr`,
-  `repocfg.Load` or a `gitobj`/`plans`/`index` helper — `repoLanes`,
-  `gatherFleetOpts`, `printPlans`, `printDoctor`, `whoLanes`,
-  `holdsForRoot`, `laneOverride`, `folderPlanPhases`, `resolveSelector`,
-  `emptyStart`, `rescueRefsFor`, `liveByBranch`, `gitForHost` and
-  several `Run` methods among them — never exercised because every
-  existing test feeds a runner that succeeds. `bdd_landed_evidence_test
-  .go`'s `failingLsRemote` already shows the shape: wrap the runner and
-  fail one named subcommand, pass everything else through to the real
-  fake.
-- **JSON-vs-table and doc-state branches** in the `Run` methods and the
-  `print*` renderers (`printNext`, `printPhase`, `printRescue`,
-  `printDep`, `emptyDepsNote`, `statusLabel`, `order`): call the
-  function with the struct field or `c.JSON` value existing tests never
-  set, the same direct-input shape [phase 1](phase-1.md) used for
-  `internal/report`.
-- **Board layout edges** (`fitBoard`, `allocateFlex`, `selectBoardColumns`,
-  `printBoard`, `fitLastColumn`): a width, column count or overflow
-  existing golden tables never hit.
-- **The process boundary** above: `main`, `remoteGit`, `terminalWidth`,
-  `progressFor`/`isTerminalWriter`.
+- `Run` (30-32): the `gatherFleet` error branch never ran — every
+  existing `release_test.go` case points `--root` at a readable
+  directory.
+- `Run` (42-44): the `resolveSelector` error branch never ran — every
+  test passes selector `"7"` explicitly.
+- `Run` (52-56): the `!ok` branch on `res.Coords[plan.Repo]` — the
+  `ambiguousRepo` refusal — never ran — no test puts two repos under
+  root sharing a basename.
+- `releaseHeld` (105-109): the `claim.Release` push-failure branch
+  never ran — no test makes the CAS push fail once the lane's own
+  token is already proven.
+- `printRelease` (223-225): the `doc.Rescue != ""` branch never ran —
+  the existing scavenge test asserts on the `ReleaseDoc`'s own fields,
+  never calls `printRelease` to check its rendering.
+- `printRelease` (226-228): the `doc.Warning != ""` branch never ran,
+  same reason.
 
-**GREEN, the tests.** Cover each guard and branch by its own shape —
-a failing-subcommand runner fake for the git/herdr-fault branches, a
-`c.JSON`/struct-field variant for the rendering branches, a narrow or
-wide width for the board-layout branches. For `remoteGit`: a
-`t.TempDir()` script named `ssh` on `$PATH` via `t.Setenv`, mirroring
-phase 6's `herdr` fake, asserting the composed `ssh <host> git -C <dir>
-...` args reach it. For `terminalWidth`/`isTerminalWriter`'s
-non-terminal-`*os.File` branch: open a real file (`os.Open(os.DevNull)`
-or a `t.TempDir()` file) and pass it in — `term.IsTerminal` answers
-false for it without any tty. Re-run `go test ./cmd/frit -cover` and
-inspect `main.go`/`progress.go`'s own function list until each reports
-100% but for the listed exclusion.
+**GREEN, the tests.** Each gap gets a direct input that reaches it, no
+production code changes:
 
-**GREEN, the gate.** `scripts/check-coverage.sh` today requires exactly
-`100.0%`. `cmd/frit` is one package with five files' worth of gap. This
-phase closes one file, so `go test ./cmd/frit -cover` still reads
-below 100% afterward. reap.go, release.go, start.go and yield.go carry
-the rest, and the file's own listed exclusion caps the package under
-100% even once every file is done. Give the script a per-package
-minimum instead — a `pkg=pct` pair, defaulting to `100.0` when bare —
-rather than loosen the check for every package, so the six
-already-gated packages keep demanding exact 100%. Add `cmd/frit` to
-the CI call in
-[.github/workflows/ci.yml](../../.github/workflows/ci.yml) at whatever
-percentage it reads once this phase's tests land — a ratchet, not yet
-the ceiling — recorded in this phase's result; each of phases 8
-through 11 raises that same number as its file closes, and phase 11
-sets it at its final, post-exclusion value.
+- `Run`/gatherFleet: `run([]string{"release", "7", "--root",
+  filepath.Join(t.TempDir(), "missing")}, ...)` — a nonexistent root
+  fails `filepath.WalkDir` at the root itself, propagating through
+  `fleet.Gather`. Assert exit code 1 and the walk error in `errb`.
+- `Run`/resolveSelector: omit the selector and `t.Chdir` into a plain
+  `t.TempDir()` that is not a repo, so `fleet.CurrentPlanID` reads
+  `ok=false`. Assert exit code 1 and `"no plan given and none inferred
+  from the current directory"` in `errb`.
+- `Run`/ambiguousRepo: mirror `TestClaimRefusesAnAmbiguousRepoName`
+  (claim_test.go) — two repos under root sharing a basename — then
+  `run([]string{"release", "7", "--root", root})`; assert `"refused"`
+  and `"shared by another checkout"`.
+- `releaseHeld`/push failure: call `releaseHeld` directly with
+  `rt := &runtime{git: failPush}`, where `failPush` delegates every
+  call to `gitwt.Exec` except returns an error when `args[0]=="push"`.
+  Build a real own-lane first (`claim.Acquire` + worktree add +
+  `Renew`, the same shape `TestReleaseEndsTheLanesOwnLease` uses), then
+  assert `doc.Warning` carries the injected error and `doc.Released`
+  stays false.
+- `printRelease`/Rescue: `doc := report.NewRelease(...)`, call
+  `doc.ScavengedRef("plan/7", "refs/frit/rescue/7/host-abc")`, then
+  `printRelease(&out, doc)`; assert `"rescued: refs/frit/rescue/7/host-abc"`
+  in `out`.
+- `printRelease`/Warning: `doc.Warn("release: boom")`, call
+  `printRelease(&out, doc)`; assert `"warning: release: boom"` in
+  `out`.
 
-**Guard the edges.** One listed exclusion:
-`terminalWidth`/`progressFor`'s real-terminal branch in
-`cmd/frit/main.go` and `cmd/frit/progress.go`. Reaching
-`term.GetSize` succeeding needs a real interactive tty or a pty
-dependency this repo does not carry. `main()` itself is `os.Exit`
-wrapping the already-tested `run` seam, and is conventionally excluded
-the same way, not separately listed as a defect. Both get a one-line
-comment at the excluded line and an entry in this phase's result.
+Re-run `go test ./cmd/frit -coverprofile` and `go tool cover -func`
+filtered to `release.go` until every line reads 100.0%.
 
-**Gate.** `go test ./cmd/frit -cover` reports 100% but for the listed
-exclusion; the CI gate call covers `cmd/frit` alongside every package
-already there and reddens on an added untested line in any of them;
-`go test ./...` and `go tool -modfile=tools/go.mod golangci-lint run`
-are green.
+**Guard the edges.** No seam, no exclusion: every gap is reachable
+either through the CLI or by calling the unexported helper directly
+with a hand-built `runtime`/`report.ReleaseDoc`, both patterns already
+established elsewhere in the package. Branch coverage stays out of
+scope.
+
+**Gate.** `go test ./cmd/frit -coverprofile=cover.out && go tool cover
+-func=cover.out | grep release.go` shows every line at 100.0%; `go
+test ./...` and `go tool -modfile=tools/go.mod golangci-lint run` are
+green. `./cmd/frit` is not yet added to `scripts/check-coverage.sh`'s
+CI call — that waits for the last file in the package (plan task 2,
+[phase 11b](phase-11b.md)).

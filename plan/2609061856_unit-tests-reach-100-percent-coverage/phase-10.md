@@ -1,80 +1,148 @@
 ---
 n: 10
-title: cmd/frit/start.go reaches 100% line coverage and raises the cmd/frit gate
+title: cmd/frit/start.go reaches 100% of its reachable lines
 status: "🔲"
 result: false
 ---
 Drive [cmd/frit/start.go](../../cmd/frit/start.go) to 100% line
-coverage. Twenty-one zero-count ranges sit here today. Ten are in the
-ordinary worktree and fleet functions. Eleven cluster in
-`editInEditor`. Raise `cmd/frit`'s ratchet in
-`scripts/check-coverage.sh`'s CI call to match.
+coverage, minus one pair of lines that sit on a real OS boundary. It is
+at roughly 90% today across ten partial functions, the densest cluster
+in `editInEditor`. Reuses the exclusion mechanism
+[phase 9](phase-9.md) built.
 
-**BDD coverage.** None applies. `start` stands up a lease, but every
-gap here is an existing path fed an input its current tests never
-construct, not a new lease-protocol behavior. No `@S<n>` scenario is
-needed per [docs/development.md](../../docs/development.md)'s matrix.
+**BDD coverage.** None applies. Unit tests only, no behavior change.
+No `@S<n>` scenario is needed per
+[docs/development.md](../../docs/development.md)'s matrix.
 
-**Assumes.** `editInEditor` looks like a process boundary — it execs a
-real editor — but it is the general-purpose runner shape [phase
-6](phase-6.md) already proved testable: `$EDITOR`/`$VISUAL` names a
-binary resolved through `$PATH` at run time, the same mechanism a
-throwaway script exploits. `openEditor` is already the seam production
-code calls through (`var openEditor = editInEditor`); this phase tests
-`editInEditor` itself directly with `t.Setenv`, no new seam needed. The
-other ten gaps sit behind `rt.git`/`rt.herdr`, already faked elsewhere
-in the suite.
+**Assumes.** The package's existing fixtures cover every gap but one:
 
-**Value.** start is the widest verb — it stands up a worktree, a pane
-and a lease together — so its uncovered lines are spread across the
-most failure-prone joins in the codebase: a leftover worktree, a dead
-pane, an editor that fails or is misconfigured.
+- `withHerdr`/`startHerdr`/`recordingHerdr` script herdr's replies.
+- `claimableRepo`/`resumableRepo`/`liveLeaseLane`/`seedWindow` build
+  the git fixtures.
+- `unwindGit` fakes `rt.git` for direct calls.
+- `openEditor`/`agentStartPause` are already package-var seams built
+  for exactly this purpose, mirroring `internal/herdr`'s pattern from
+  [phase 6](phase-6.md).
+- `os.Chmod(dir, 0o555)` is the established fault-injection idiom
+  `internal/observe/observe_test.go` already uses for a
+  read-only-directory write failure.
 
-**RED.** `go test ./cmd/frit -coverprofile` and start.go's zero-count
-ranges are the worklist, enumerated in this phase's result:
+**Value.** Fourth of five `cmd/frit` files. `editInEditor`'s two
+lines — a failed `Write` and a failed `Close` on an already-open
+temp-file handle — are the one place in this plan a boundary is a raw
+OS fault rather than a git or herdr subprocess: once `os.CreateTemp`
+succeeds, POSIX permission checks already happened at open time, so no
+directory or file permission trick makes a later write or close fail on
+the same fd. Recording that finding, rather than forcing a flaky
+rlimit or quota trick, keeps the exclusion list honest.
 
-- **Sequential error guards** in `Run`, `startResume`,
-  `reconcileLeftoverWorktree`, `livePaneOn`, `laneStandUpPane` and
-  `standUpLane` — the same `rt.git`/`rt.herdr`-fault shape as the other
-  `cmd/frit` phases.
-- **`unparkedSuffix`** (75.0%, line 526): a branch its existing callers
-  never feed.
-- **`editInEditor`** (70.4%, lines 1213-1245): `strings.Fields`
-  returning empty (an editor value of pure whitespace), a
-  `os.CreateTemp` failure (point `$TMPDIR` at a nonexistent directory),
-  the file-write and close error paths, the editor command exiting
-  non-zero, and the post-edit `os.ReadFile` failing because the fake
-  editor deleted its own temp file — each a distinct input to the real
-  function, not a mock.
+**RED.** `go test ./cmd/frit -coverprofile`, then `go tool cover -func`
+filtered to `start.go`:
 
-**GREEN, the tests.** The ten ordinary gaps: a failing named git or
-herdr call, or the missing input `unparkedSuffix`'s callers do not yet
-construct. `editInEditor`'s cluster, each via `t.Setenv("EDITOR", ...)`
-pointing at a throwaway script in `t.TempDir()`:
+- `Run` (47-49): `resolveSelector`'s "no plan given" error uncovered.
+- `Run` (51-53): `gatherFleet`'s error uncovered.
+- `buildStart` (123-126): the `!coordOK` `ambiguousRepo` refusal
+  uncovered — tested for `claim`, not for `start`.
+- `startResume` (302-304): the same `!coordOK` early return, same root
+  cause — `startResume` runs before `buildStart`'s own check.
+- `unparkedSuffix` (526-528): the `local == "" || err != nil` branch
+  uncovered — every existing fixture creates the local `plan/<id>` ref
+  in the same repo it discovers from, so `local` is never empty.
+- `startExecute` (704-706): `openEditor` returning an error uncovered.
+- `startExecute` (769-771): `releaseLease` failing *inside* the unwind
+  (not `releaseLease` itself, already 100%) uncovered — no test moves
+  the ref between mint and release while the handoff also fails.
+- `agentStartPause` (947, its own literal): the default `time.Sleep`
+  closure body never runs — every retry test overrides the var.
+- `reconcileLeftoverWorktree` (1013-1015): `gitwt.List`'s error
+  uncovered.
+- `reconcileLeftoverWorktree` (1045-1047): `parkBranch`'s error
+  uncovered.
+- `reconcileLeftoverWorktree` (1048-1050): `worktree remove`'s error
+  uncovered.
+- `livePaneOn` (1069-1070): the `p.Host != ""` skip uncovered — every
+  existing pane fixture is local.
+- `laneStandUpPane` (1139-1141): `herdr.WorktreeCreate`'s error on a
+  fresh (non-resumed) start uncovered.
+- `standUpLane` (1190-1192): `herdr.Focus`'s error uncovered.
+- `editInEditor`: five reachable gaps (1213-1215, 1217-1219, 1222-1224,
+  1238-1240, 1243-1245) and one boundary pair (1226-1233).
 
-- `EDITOR=" "` (whitespace only) for the empty-`Fields` branch.
-- `TMPDIR` pointed at a path that does not exist, for `CreateTemp`'s
-  error.
-- A script that exits non-zero (`exit 1`), for the editor-failure
-  branch.
-- A script that deletes the file it is given (`rm "$1"`) before
-  exiting, for `ReadFile`'s error.
-- If the write/close error paths resist an honest trigger this way,
-  say so in this phase's result rather than force a fake filesystem in
-  — a defensive branch stays only if it can be driven red then green
-  per [CLAUDE.md](../../CLAUDE.md).
+**GREEN, the tests.** One test per gap:
 
-Re-run `go test ./cmd/frit -cover` and check start.go's own function
-list in `go tool cover -func`. Keep going until it reads 100%, or
-notes the one irreducible branch as a listed exclusion.
+- `Run`/resolveSelector: no selector, cwd outside any held checkout;
+  assert the "no plan given" error.
+- `Run`/gatherFleet: `--root` at a nonexistent path; assert exit 1.
+- `buildStart`+`startResume`/ambiguous repo: the
+  `TestClaimRefusesAnAmbiguousRepoName` fixture through `run(["start",
+  "7", "--root", root])`; one test closes both functions' gaps, since
+  `startResume`'s own check runs first.
+- `unparkedSuffix`: mint the hold from a *second* clone of the same
+  origin (never touching the discovered repo itself, mirroring
+  `liveLeaseLane`'s `git clone --branch` shape), then run `start 7 --go
+  --root root` from the discovered repo with the window seeded mature
+  (as `TestStartTakesOverAStaleLease` does); assert no "park it first"
+  refusal fires.
+- `startExecute`/openEditor error: `openEditor = func(string) (string,
+  error) { return "", errors.New("boom") }`; assert `run(...)` returns
+  the error.
+- `startExecute`/unwind-releaseLease failure: make `standUpLane` fail
+  (as `TestStartUnwindTearsDownTheLaneOnAFailedHandoff` already does)
+  *and* have the herdr fake's failing handler first push a real commit
+  to `origin`'s `plan/7` (via a second holder's `claim.Takeover`) so
+  the later `claim.Release` CAS on the stale tip fails; assert the
+  error names both the handoff cause and the orphaned remote ref.
+- `agentStartPause`: a direct test calling the unmocked
+  `agentStartPause()` and asserting elapsed time is roughly 500ms —
+  the one test in this phase that spends real wall-clock time, because
+  every other call site correctly overrides the var.
+- `reconcileLeftoverWorktree`/`gitwt.List` error: call the function
+  directly against a nonexistent `sc.repoPath`.
+- `reconcileLeftoverWorktree`/`parkBranch` error: the leftover-worktree
+  fixture, with the park's CAS made to fail (someone else already
+  parked or moved the branch first).
+- `reconcileLeftoverWorktree`/worktree-remove error: the same fixture,
+  with the herdr fake erroring on `worktree`/`remove` (or a real lock
+  file blocking it without `--force`).
+- `livePaneOn`: a leftover-worktree fixture whose fake `agent list`
+  answer includes `"host":"otherhost"` on a pane matching the leftover
+  path; assert the leftover is still parked, proving a same-path pane
+  on another host is ignored.
+- `laneStandUpPane`: a fresh `start --go` whose herdr fake errors on
+  `worktree`/`create` only; assert the lease still releases (pane is
+  empty, so the handoff teardown is skipped).
+- `standUpLane`: a fresh start whose fake errors on `agent`/`focus`
+  only (worktree/create, agent/start, prompt all succeed); assert
+  `"focus:"` in the error and the lease/pane unwind.
+- `editInEditor`, five reachable cases:
+  - default editor: `t.Setenv("VISUAL","")`, `t.Setenv("EDITOR","")`,
+    a non-interactive fake `vi` on `$PATH`; assert it ran.
+  - no editor set: `t.Setenv("EDITOR", "   ")` so `strings.Fields`
+    yields nothing; assert the error.
+  - `os.CreateTemp` error: `t.Setenv("TMPDIR", dir)` where `dir` is
+    `os.Chmod`'d `0o555`.
+  - `cmd.Run` error: a fake editor script `exit 1`.
+  - `os.ReadFile` error: a fake editor script that deletes its
+    argument before exiting 0.
 
-**Guard the edges.** No exclusion list entry expected; note one only
-if `editInEditor`'s write/close error paths turn out genuinely
-undrivable, with the one-line reason this phase's RED analysis
-surfaces.
+Re-run `go test ./cmd/frit -coverprofile` and `go tool cover -func`
+filtered to `start.go` until every line but 1226-1233 reads 100.0%.
 
-**Gate.** `go test ./cmd/frit -cover` reads higher than phase 9 left
-it; the CI ratchet in
-[.github/workflows/ci.yml](../../.github/workflows/ci.yml) is raised to
-match, recorded in this phase's result; `go test ./...` and `go tool
--modfile=tools/go.mod golangci-lint run` are green.
+**Guard the edges.** Add to `scripts/coverage-exclude.txt`:
+
+```text
+cmd/frit/start.go:1226-1233  # editInEditor's WriteString/Close on an already-open temp file: POSIX permission checks happen at open time, so no directory or file permission trick makes a write or close fail on an fd that already opened successfully; forcing it needs a resource limit or quota trick with no portable, deterministic form
+```
+
+No seam elsewhere in this file. `agentStartPause`'s real-sleep test is
+the one accepted cost of proving the default path runs at all; every
+other timing-sensitive call site keeps overriding the var, so it stays
+a single, isolated addition to the suite's wall-clock time. Branch
+coverage stays out of scope. `./cmd/frit` is not yet added to
+`scripts/check-coverage.sh`'s CI call — `main.go`/`progress.go` still
+carries gaps.
+
+**Gate.** `go test ./cmd/frit -coverprofile=cover.out && go tool cover
+-func=cover.out | grep start.go` shows every line but 1226-1233 at
+100.0%; `go test ./...` and `go tool -modfile=tools/go.mod
+golangci-lint run` are green.
