@@ -137,4 +137,5 @@ footer: |
 | 2609061024 | 🔲     | sonnet | [frit drift proves its phase-level drift and its silence](plan/2609061024_drift-phase-drift-and-silence/plan.md)                               |
 | 2609061025 | 🔳     | sonnet | [frit yield's command-surface outcomes are proven by command scenarios](plan/2609061025_yield-command-surface-scenarios/plan.md)               |
 | 2609061129 | 🔲     | sonnet | [The lane-facing skills tell an agent its plan id is inferred in-lane](plan/2609061129_skills-note-lane-selector-inference/plan.md)            |
+| 2609061156 | 🔲     | sonnet | [The README is a lean front page; its reference lives in docs/](plan/2609061156_readme-lean-front-page/plan.md)                                |
 <?/catalog?>
