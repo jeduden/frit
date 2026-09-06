@@ -64,9 +64,10 @@ signal is the sibling plan's.
 
 ## Execution
 
-| Phase | Title                                             | Tier   | Gate                                                                                                                          |
-| ----- | ------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| 1     | A plan whose final phase landed surfaces as drift | sonnet | the new `C<n>` scenario runs against the built frit, drift names the final phase; bijection gate green; `go test ./...` green |
+| Phase | Title                                             | Tier   | Gate                                                                                                                             |
+| ----- | ------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | A plan whose final phase landed surfaces as drift | sonnet | the new `C<n>` scenario runs against the built frit, drift names the final phase; bijection gate green; `go test ./...` green    |
+| 2     | A plan mid-flight or already done raises no drift | sonnet | the new `C<n>` scenario runs against the built frit, drift is quiet for both shapes; bijection gate green; `go test ./...` green |
 
 ## Phases
 
@@ -93,6 +94,7 @@ footer: |
 | --- | ------ | ----------------------------------------------------------------------------------------- |
 | 1   | ✅     | [A plan whose final phase landed surfaces as drift](phase-1.md)                           |
 |     | ↳      | C4 proves drift's phase-level signal end to end — a commit naming the plan's final phase. |
+| 2   | 🔲     | [A plan mid-flight or already done raises no drift](phase-2.md)                           |
 <?/catalog?>
 
 ## Acceptance Criteria
