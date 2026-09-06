@@ -1,7 +1,7 @@
 ---
 id: 2609061025
 title: frit yield's command-surface outcomes are proven by command scenarios
-status: "🔲"
+status: "🔳"
 summary: >-
   The BDD scenarios drive frit yield's fence-and-park lease mechanics
   across hosts, and plan 2609052303 added S93 for the cross-host
@@ -96,12 +96,13 @@ footer: |
 
 | #   | Status | Phase                                                       |
 | --- | ------ | ----------------------------------------------------------- |
-| 1   | 🔲     | [Yield on a plan nobody holds is a clean no-op](phase-1.md) |
+| 1   | ✅     | [Yield on a plan nobody holds is a clean no-op](phase-1.md) |
+|     | ↳      | C3 proves yield's clean no-op on a plan nobody holds        |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A `C<n>` scenario drives the real `frit yield` on a plan nobody
+- [x] A `C<n>` scenario drives the real `frit yield` on a plan nobody
       holds and shows it parking nothing and refusing nothing
 - [ ] A `C<n>` scenario shows `frit yield` on one's own live lane
       refused and pointed at `release`

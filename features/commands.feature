@@ -16,3 +16,9 @@ Feature: Command scenarios
     When frit drift is run
     Then drift reports the plan's work has landed
     And drift names the commit that carries the plan's id
+
+  @C3
+  Scenario: yield on a plan nobody holds is a clean no-op
+    Given a plan nobody has ever held
+    When it is yielded
+    Then yield parks nothing and refuses nothing

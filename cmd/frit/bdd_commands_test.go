@@ -38,13 +38,19 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^frit drift is run$`, w.fritDriftIsRun)
 	sc.Step(`^drift reports the plan's work has landed$`, w.driftReportsThePlansWorkHasLanded)
 	sc.Step(`^drift names the commit that carries the plan's id$`, w.driftNamesTheCommitThatCarriesThePlansID)
+	sc.Step(`^it is yielded$`, w.itIsYielded)
+	sc.Step(`^yield parks nothing and refuses nothing$`, w.yieldParksNothingAndRefusesNothing)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
 // lease ever minted for it — the state `frit release` sees when
-// nothing has ever claimed the plan it names.
+// nothing has ever claimed the plan it names. withHerdr fakes the
+// herdr socket so a command reaching for it — as C3's yield does,
+// tearing its own pane down — never shells out to a real herdr
+// subprocess in this single-host, no-agent fixture.
 func (w *world) aPlanNobodyHasEverHeld() error {
 	isolate(w.t)
+	withHerdr(w.t, herdrReturning())
 	w.planID = 7
 	root := w.t.TempDir()
 	cs := section[commandState](w)
@@ -156,4 +162,34 @@ func driftRowFor(w *world) (report.DriftRow, error) {
 	}
 
 	return report.DriftRow{}, fmt.Errorf("no drift row for plan %d in: %s", w.planID, cs.out.String())
+}
+
+// itIsYielded is C3's own When: drives the real `frit yield` CLI, the
+// same way itIsReleased drives release — the behavior under test is
+// the command's own dispatch, never a re-implementation.
+func (w *world) itIsYielded() error {
+	cs := section[commandState](w)
+	runCLI(&cs.out, &cs.errb, "yield", strconv.Itoa(w.planID), "--root", filepath.Dir(cs.repo))
+
+	return nil
+}
+
+// yieldParksNothingAndRefusesNothing is C3's own Then: a plan nobody
+// holds has nothing of this lane's own to park, so yieldNothingLocal
+// reports the clean no-op — no "refused:" line and no "parked:" line,
+// read off the command's own output rather than an internal call.
+func (w *world) yieldParksNothingAndRefusesNothing() error {
+	cs := section[commandState](w)
+	got := cs.out.String()
+	if !strings.Contains(got, "yielded plan") {
+		return fmt.Errorf("expected the command to report yielding, got: %s", got)
+	}
+	if strings.Contains(got, "refused") {
+		return fmt.Errorf("expected nothing refused, got a refusal: %s", got)
+	}
+	if strings.Contains(got, "parked:") {
+		return fmt.Errorf("expected nothing parked: %s", got)
+	}
+
+	return nil
 }
