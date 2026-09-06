@@ -1,7 +1,7 @@
 ---
 id: 2609061025
 title: frit yield's command-surface outcomes are proven by command scenarios
-status: "🔳"
+status: "✅"
 summary: >-
   The BDD scenarios drive frit yield's fence-and-park lease mechanics
   across hosts, and plan 2609052303 added S93 for the cross-host
@@ -99,17 +99,18 @@ footer: |
 | --- | ------ | -------------------------------------------------------------------- |
 | 1   | ✅     | [Yield on a plan nobody holds is a clean no-op](phase-1.md)          |
 |     | ↳      | C3 proves yield's clean no-op on a plan nobody holds                 |
-| 2   | 🔲     | [Yielding one's own live lane is refused toward release](phase-2.md) |
+| 2   | ✅     | [Yielding one's own live lane is refused toward release](phase-2.md) |
+|     | ↳      | C6 proves yield's live-lane refusal, pointed at release              |
 <?/catalog?>
 
 ## Acceptance Criteria
 
 - [x] A `C<n>` scenario drives the real `frit yield` on a plan nobody
       holds and shows it parking nothing and refusing nothing
-- [ ] A `C<n>` scenario shows `frit yield` on one's own live lane
+- [x] A `C<n>` scenario shows `frit yield` on one's own live lane
       refused and pointed at `release`
-- [ ] The scenarios do not duplicate `S93`'s cross-host foreign-hold
+- [x] The scenarios do not duplicate `S93`'s cross-host foreign-hold
       refusal
-- [ ] The bijection gate `go test ./internal/scenario` is green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The bijection gate `go test ./internal/scenario` is green
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

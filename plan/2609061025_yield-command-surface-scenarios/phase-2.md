@@ -1,7 +1,7 @@
 ---
 n: 2
 title: Yielding one's own live lane is refused toward release
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove `frit yield`'s live-lane refusal with a command scenario.
