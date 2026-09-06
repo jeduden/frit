@@ -1437,13 +1437,17 @@ func parseMarker(planID int64, body string) (Marker, bool) {
 	return m, true
 }
 
+// randRead is crypto/rand.Read, indirected so newNonce's read failure —
+// real entropy does not fail on command — can be forced in a test.
+var randRead = rand.Read
+
 // newNonce mints the random token that keeps every marker SHA unique.
 // The nonce is required for correctness (A3): SHA-based CAS is only
 // ABA-proof if no two commits can hash alike, and a deterministic
 // marker could be recreated at an old SHA.
 func newNonce() (string, error) {
 	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", err
 	}
 
