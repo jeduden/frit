@@ -138,4 +138,5 @@ footer: |
 | 2609061156 | ✅     | sonnet | [The README is a lean front page; its reference lives in docs/](plan/2609061156_readme-lean-front-page/plan.md)                                |
 | 2609061236 | ✅     | sonnet | [plan-new ships a working Phases catalog directive an author can copy](plan/2609061236_plan-new-ships-a-working-catalog-directive/plan.md)     |
 | 2609061243 | ✅     | sonnet | [A behavioral doc cites the scenario that proves it](plan/2609061243_docs-cite-the-scenario-that-proves-them/plan.md)                          |
+| 2609061856 | 🔲     | sonnet | [Unit tests exercise every branch, not just every statement](plan/2609061856_unit-tests-reach-100-percent-coverage/plan.md)                    |
 <?/catalog?>
