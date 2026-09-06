@@ -1,7 +1,7 @@
 ---
 n: 2
 title: A plan mid-flight or already done raises no drift
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove `frit drift`'s restraint with a command scenario. A plan still
@@ -18,13 +18,13 @@ established.
 
 **Assumes.** `Unfinished()` in
 [internal/planmeta](../../internal/planmeta) is the filter `drift`'s
-`Run` in [cmd/frit/drift.go](../../cmd/frit/drift.go) checks before a
-plan is walked at all — a done plan never reaches `driftRowFor` in the
-first place. A plan whose only evidence is its own creation commit,
-with no merge and no matching tip content, reads `Landed: false` and
-`LastPhaseCommit: false` — the same shape
+`Run` in [cmd/frit/drift.go](../../cmd/frit/drift.go) checks first. A
+done plan never reaches `driftRowFor` at all. A plan whose only
+evidence is its own creation commit, with no merge and no matching tip
+content, reads `Landed: false` and `LastPhaseCommit: false`. Both
+shapes are already proven at the unit level:
 `TestDriftReportsLandedAndNamingCommits`'s "Plan 200" and
-`TestDriftIgnoresADonePlan` already prove at the unit level.
+`TestDriftIgnoresADonePlan`.
 
 **Value.** A developer trusts `frit drift` not to cry wolf only if its
 silence is proven the same way its signal is — end to end, over the
