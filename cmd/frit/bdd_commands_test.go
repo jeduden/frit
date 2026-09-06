@@ -22,12 +22,15 @@ func init() {
 
 // commandState holds one command scenario's own state beside the
 // shared world: the repository a verb runs against, its CLI output,
-// and the commit subject C2 expects drift to name back.
+// the commit subject C2 and C4 expect drift to name back, and C5's
+// second plan id — done, so kept apart from the world's own planID,
+// which the mid-flight plan already claims.
 type commandState struct {
 	repo    string
 	out     bytes.Buffer
 	errb    bytes.Buffer
 	subject string
+	doneID  int
 }
 
 func (w *world) registerCommands(sc *godog.ScenarioContext) {
@@ -40,6 +43,15 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^drift names the commit that carries the plan's id$`, w.driftNamesTheCommitThatCarriesThePlansID)
 	sc.Step(`^it is yielded$`, w.itIsYielded)
 	sc.Step(`^yield parks nothing and refuses nothing$`, w.yieldParksNothingAndRefusesNothing)
+	sc.Step(`^a multi-phase plan in progress whose last phase's commit is on main$`,
+		w.aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain)
+	sc.Step(`^drift reports that a commit names the plan's final phase$`,
+		w.driftReportsThatACommitNamesThePlansFinalPhase)
+	sc.Step(`^a plan mid-flight whose work has not merged into main$`,
+		w.aPlanMidFlightWhoseWorkHasNotMergedIntoMain)
+	sc.Step(`^a plan already marked done$`, w.aPlanAlreadyMarkedDone)
+	sc.Step(`^drift raises nothing for the mid-flight plan$`, w.driftRaisesNothingForTheMidFlightPlan)
+	sc.Step(`^drift does not list the done plan$`, w.driftDoesNotListTheDonePlan)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
@@ -146,14 +158,26 @@ func (w *world) driftNamesTheCommitThatCarriesThePlansID() error {
 	return fmt.Errorf("no commit named %q among drift's commits: %v", cs.subject, row.Commits)
 }
 
+// driftDocFor decodes the whole drift document from the command's own
+// --json output, shared by driftRowFor and by any Then step that needs
+// to reason over the full row set rather than one plan's row alone.
+func driftDocFor(w *world) (report.DriftDoc, error) {
+	cs := section[commandState](w)
+	var doc report.DriftDoc
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return report.DriftDoc{}, fmt.Errorf("drift did not emit valid json: %w, got: %s", err, cs.out.String())
+	}
+
+	return doc, nil
+}
+
 // driftRowFor decodes the drift row for the world's plan from the
 // command's own --json output — the evidence a Then step reads,
 // never a re-derivation.
 func driftRowFor(w *world) (report.DriftRow, error) {
-	cs := section[commandState](w)
-	var doc report.DriftDoc
-	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
-		return report.DriftRow{}, fmt.Errorf("drift did not emit valid json: %w, got: %s", err, cs.out.String())
+	doc, err := driftDocFor(w)
+	if err != nil {
+		return report.DriftRow{}, err
 	}
 	for _, r := range doc.Rows {
 		if r.ID == int64(w.planID) {
@@ -161,7 +185,8 @@ func driftRowFor(w *world) (report.DriftRow, error) {
 		}
 	}
 
-	return report.DriftRow{}, fmt.Errorf("no drift row for plan %d in: %s", w.planID, cs.out.String())
+	return report.DriftRow{}, fmt.Errorf("no drift row for plan %d in: %s",
+		w.planID, section[commandState](w).out.String())
 }
 
 // itIsYielded is C3's own When: drives the real `frit yield` CLI, the
@@ -189,6 +214,105 @@ func (w *world) yieldParksNothingAndRefusesNothing() error {
 	}
 	if strings.Contains(got, "parked:") {
 		return fmt.Errorf("expected nothing parked: %s", got)
+	}
+
+	return nil
+}
+
+// aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain is C4's own
+// setup: a plan still marked in progress whose phase ledger names a
+// final phase, with a commit naming that phase already on main — the
+// namesLastPhase signal drift's phase-level check reads. The fixture
+// is shared with drift_test.go's own unit test, so the two layers
+// cannot drift apart on what "the last phase landed" means.
+func (w *world) aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain() error {
+	isolate(w.t)
+	w.planID = 800
+	root := w.t.TempDir()
+
+	cs := section[commandState](w)
+	cs.repo, cs.subject = lastPhasePlanRepo(w.t, root, w.planID)
+
+	return nil
+}
+
+// driftReportsThatACommitNamesThePlansFinalPhase is C4's own Then:
+// the row for the plan built in Given carries the last-phase flag,
+// read from drift's own --json output rather than an internal call.
+func (w *world) driftReportsThatACommitNamesThePlansFinalPhase() error {
+	row, err := driftRowFor(w)
+	if err != nil {
+		return err
+	}
+	if !row.LastPhaseCommit {
+		return fmt.Errorf("expected plan %d to name its final phase, got: %s",
+			w.planID, section[commandState](w).out.String())
+	}
+
+	return nil
+}
+
+// aPlanMidFlightWhoseWorkHasNotMergedIntoMain is C5's first Given: a
+// plan still marked in progress whose own creation commit is the only
+// evidence naming it — no branch merged, no tip content matching main
+// — the shape namesLastPhase and the landed check both read as quiet.
+func (w *world) aPlanMidFlightWhoseWorkHasNotMergedIntoMain() error {
+	isolate(w.t)
+	w.planID = 900
+	root := w.t.TempDir()
+
+	cs := section[commandState](w)
+	cs.repo = initRepo(w.t, root, "atlas")
+	commitPlan(w.t, cs.repo, w.planID, "🔳", "Underway", nil, "")
+
+	return nil
+}
+
+// aPlanAlreadyMarkedDone is C5's second Given: a second plan, marked
+// done, committed into the same repository the mid-flight plan
+// already lives in — its id kept in commandState.doneID, apart from
+// the world's own planID, so both Then steps read the right row.
+func (w *world) aPlanAlreadyMarkedDone() error {
+	cs := section[commandState](w)
+	cs.doneID = 950
+	commitPlan(w.t, cs.repo, cs.doneID, "✅", "Finished", nil, "")
+
+	return nil
+}
+
+// driftRaisesNothingForTheMidFlightPlan is C5's first Then: the
+// mid-flight plan's row carries neither the landed nor the last-phase
+// flag — present, but with nothing alarming to report.
+func (w *world) driftRaisesNothingForTheMidFlightPlan() error {
+	row, err := driftRowFor(w)
+	if err != nil {
+		return err
+	}
+	if row.Landed {
+		return fmt.Errorf("expected plan %d to read not landed, got landed: %s",
+			w.planID, section[commandState](w).out.String())
+	}
+	if row.LastPhaseCommit {
+		return fmt.Errorf("expected plan %d to name no final phase, got: %s",
+			w.planID, section[commandState](w).out.String())
+	}
+
+	return nil
+}
+
+// driftDoesNotListTheDonePlan is C5's second Then: the done plan's id
+// carries no row at all — Unfinished() skips it before drift ever
+// walks its evidence, not merely reports it quiet.
+func (w *world) driftDoesNotListTheDonePlan() error {
+	cs := section[commandState](w)
+	doc, err := driftDocFor(w)
+	if err != nil {
+		return err
+	}
+	for _, r := range doc.Rows {
+		if r.ID == int64(cs.doneID) {
+			return fmt.Errorf("expected no drift row for done plan %d, got one: %v", cs.doneID, r)
+		}
 	}
 
 	return nil

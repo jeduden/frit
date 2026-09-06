@@ -13,6 +13,32 @@ titles and branches, or nothing at all. The empty form is inferred
 from the worktree the command runs in, so a verb run inside a lane
 needs no argument.
 
+## An act previews before it commits
+
+Most verbs act the moment they run. The read verbs change nothing —
+`board`, `show`, and `open`, which only raises the pane a lane already
+runs in. The lease verbs `claim`, `release` and `yield` move one ref
+on origin and stop. The push is the whole verb, so there is nothing to
+preview: they report what they did.
+
+The verbs held back until `--go` are the ones that compose something
+and then send or tear it down. `nudge`, `message` and `start` compose
+a prompt and drive it into a lane, `start` standing the whole lane up
+first. `pick` claims and starts the top plan. `reap` tears a stranded
+lane down. Each, without `--go`, prints the whole composition — the
+claim it would mint, the agent and prompt it would spawn, the worktree
+it would remove — and does none of it. So an act with outward reach is
+read before it is run.
+
+`start` shows why the line falls here, not at "does it touch origin".
+`claim` touches origin too, yet acts at once, because its push is
+atomic and complete. `start` bundles that same claim with a worktree,
+an agent and a prompt. The claim inside it fences every other host off
+the plan. That is the boundary [CLAUDE.md](../CLAUDE.md) draws —
+steering is local, coordination is origin — and the further a verb
+reaches across it, the more a preview earns its place. `open` reaches
+nobody, so it needs a gate no more than `board` does.
+
 ## The JSON contract
 
 `--json` is global, so every command answers it. Both renderings are

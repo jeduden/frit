@@ -150,26 +150,44 @@ func TestDriftReadsSquashMergedWorkAsLanded(t *testing.T) {
 		"real work never reaching main reads not landed")
 }
 
+// lastPhasePhases is the two-phase ledger shape lastPhasePlanRepo and
+// TestDriftFlagsALastPhaseCommit's negative case both write: phase 2
+// is the highest-numbered, still-open phase namesLastPhase looks for.
+const lastPhasePhases = "phases:\n  - n: 1\n    title: setup\n    status: \"✅\"\n" +
+	"  - n: 2\n    title: finish\n    status: \"🔳\"\n"
+
+// lastPhasePlanRepo builds a repository holding a multi-phase plan
+// still marked in progress whose last phase's commit already sits on
+// main — the namesLastPhase signal drift's phase-level check reads.
+// It returns the repository path and that commit's subject, shared by
+// the unit test below and by C4's own command-scenario fixture in
+// bdd_commands_test.go.
+func lastPhasePlanRepo(t *testing.T, root string, id int) (repo, subject string) {
+	t.Helper()
+	repo = initRepo(t, root, "atlas")
+	writePlanFile(t, repo, id, "🔳", "Ladder", nil, lastPhasePhases, "")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d", id))
+	writeFile(t, repo, "leg.txt", "done\n")
+	git(t, repo, "add", "-A")
+	subject = fmt.Sprintf("plan %d phase 2: GREEN — wire the last leg", id)
+	git(t, repo, "commit", "-q", "-m", subject)
+
+	return repo, subject
+}
+
 // TestDriftFlagsALastPhaseCommit: a plan with a phase ledger carries
 // whether some naming commit also names its last phase — a plain
 // mechanical flag, not a verdict that the phase actually closed.
 func TestDriftFlagsALastPhaseCommit(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	repo := initRepo(t, root, "atlas")
-	phases := "phases:\n  - n: 1\n    title: setup\n    status: \"✅\"\n" +
-		"  - n: 2\n    title: finish\n    status: \"🔳\"\n"
 
 	// Plan 600: a later commit names both the plan and its last phase.
-	writePlanFile(t, repo, 600, "🔳", "Ladder", nil, phases, "")
-	git(t, repo, "add", "-A")
-	git(t, repo, "commit", "-q", "-m", "plan 600")
-	writeFile(t, repo, "leg.txt", "done\n")
-	git(t, repo, "add", "-A")
-	git(t, repo, "commit", "-q", "-m", "plan 600 phase 2: GREEN — wire the last leg")
+	repo, _ := lastPhasePlanRepo(t, root, 600)
 
 	// Plan 700: the same ledger shape, but no commit ever names phase 2.
-	writePlanFile(t, repo, 700, "🔳", "NoGreenYet", nil, phases, "")
+	writePlanFile(t, repo, 700, "🔳", "NoGreenYet", nil, lastPhasePhases, "")
 	git(t, repo, "add", "-A")
 	git(t, repo, "commit", "-q", "-m", "plan 700")
 

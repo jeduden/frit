@@ -1,7 +1,7 @@
 ---
 id: 2609061024
 title: frit drift proves its phase-level drift and its silence
-status: "🔲"
+status: "✅"
 summary: >-
   frit drift also reads a plan's final phase: a commit naming the
   last-numbered phase is the drift signal that a multi-phase plan's
@@ -64,9 +64,10 @@ signal is the sibling plan's.
 
 ## Execution
 
-| Phase | Title                                             | Tier   | Gate                                                                                                                          |
-| ----- | ------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| 1     | A plan whose final phase landed surfaces as drift | sonnet | the new `C<n>` scenario runs against the built frit, drift names the final phase; bijection gate green; `go test ./...` green |
+| Phase | Title                                             | Tier   | Gate                                                                                                                             |
+| ----- | ------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | A plan whose final phase landed surfaces as drift | sonnet | the new `C<n>` scenario runs against the built frit, drift names the final phase; bijection gate green; `go test ./...` green    |
+| 2     | A plan mid-flight or already done raises no drift | sonnet | the new `C<n>` scenario runs against the built frit, drift is quiet for both shapes; bijection gate green; `go test ./...` green |
 
 ## Phases
 
@@ -89,17 +90,20 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                           |
-| --- | ------ | --------------------------------------------------------------- |
-| 1   | 🔲     | [A plan whose final phase landed surfaces as drift](phase-1.md) |
+| #   | Status | Phase                                                                                     |
+| --- | ------ | ----------------------------------------------------------------------------------------- |
+| 1   | ✅     | [A plan whose final phase landed surfaces as drift](phase-1.md)                           |
+|     | ↳      | C4 proves drift's phase-level signal end to end — a commit naming the plan's final phase. |
+| 2   | ✅     | [A plan mid-flight or already done raises no drift](phase-2.md)                           |
+|     | ↳      | C5 proves drift's restraint end to end — quiet for unmerged work, silent on a done plan.  |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A `C<n>` scenario drives the real `frit drift` and shows it
+- [x] A `C<n>` scenario drives the real `frit drift` and shows it
       naming a plan's final phase from a commit on `main`
-- [ ] A `C<n>` scenario shows drift raising nothing for a plan whose
+- [x] A `C<n>` scenario shows drift raising nothing for a plan whose
       work has not merged, and not listing a done plan
-- [ ] The bijection gate `go test ./internal/scenario` is green
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] The bijection gate `go test ./internal/scenario` is green
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
