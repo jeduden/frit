@@ -111,6 +111,19 @@ func TestMatrixIDsAllMergesEveryDocument(t *testing.T) {
 	assert.Equal(t, map[string]bool{"S1": true, "C1": true}, ids)
 }
 
+// TestMatrixIDsAllPropagatesAReadError: a document MatrixIDs cannot
+// read fails MatrixIDsAll the same way, rather than silently skipping
+// it and reporting a partial bijection as complete.
+func TestMatrixIDsAllPropagatesAReadError(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.md")
+	require.NoError(t, os.WriteFile(a, []byte("| # | x |\n| - | - |\n| S1 | y |\n"), 0o600))
+
+	_, err := MatrixIDsAll(a, filepath.Join(dir, "missing.md"))
+
+	require.Error(t, err)
+}
+
 // TestMatrixIDsAllRefusesAnIDTwoDocumentsBothClaim: two catalogs must
 // never silently share a scenario id.
 func TestMatrixIDsAllRefusesAnIDTwoDocumentsBothClaim(t *testing.T) {
