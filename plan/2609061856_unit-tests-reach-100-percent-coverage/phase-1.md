@@ -1,61 +1,55 @@
 ---
 n: 1
-title: internal/report hits every branch, under a tool that proves it
+title: internal/report reaches 100% line coverage and is locked there
 status: "🔲"
 result: false
 ---
-Adopt a branch-coverage tool and prove it on one package. Drive
-[internal/report](../../internal/report) so every condition it holds is
-taken both ways, and make the tool's clean report a gate. This fixes
-the tool, the pinning and the pattern the later packages copy.
+Drive [internal/report](../../internal/report) to 100% line coverage
+with native `go test -cover`, and gate it so it holds. This closes the
+easiest, largest slice of the gap first and fixes the pattern the later
+line-coverage phases copy.
 
 **BDD coverage.** None applies. This phase adds unit tests and a
-coverage tool; its gate is the branch report and the suite, not a
+coverage gate; its measure is `go test -cover` and the suite, not a
 scenario.
 
-**Assumes.** The Go toolchain measures statements, not branches, so
-`go test -cover` cannot prove a condition was taken both ways.
+**Assumes.** `go test -cover` measures line coverage natively.
 [internal/report](../../internal/report) is pure document construction
-— no git, no herdr, no terminal — so it reaches full branch coverage
-with plain constructor-and-read tests. Its `AddProblem` and `Warn`
-helpers in `discovery.go` and `dispatch.go` are run by no test today.
-Other tools are version-pinned in
-[tools/go.mod](../../tools/go.mod) and run via
-`go tool -modfile=tools/go.mod`.
+— no git, no herdr, no terminal — so it reaches 100% with plain
+constructor-and-read tests. Its `AddProblem` and `Warn` helpers in
+`discovery.go` and `dispatch.go` are run by no test today, and several
+document methods are only partly run. Other tools are version-pinned in
+[tools/go.mod](../../tools/go.mod).
 
-**Value.** The package proves the ruler works: a tool that flags a
-one-sided condition, pinned and wired as a gate, on a package clean
-enough to reach zero one-sided conditions. Every later package copies
-the tool invocation and the gate; none has to re-litigate the
-approach.
+**Value.** The largest single-package slice of the gap closes first,
+with the native ruler and no new tooling. Every later line-coverage
+phase copies the constructor-and-read approach and the per-package
+gate; branch coverage is a later stage, not this one.
 
-**RED.** Evaluate `gobco` (github.com/rillig/gobco), or an equivalent
-that reports condition outcomes, against `internal/report`. Its first
-run is the RED: it lists the untested helpers and every condition taken
-only one way. Capture that list — it is the phase's worklist. Confirm
-`go test ./internal/report` is green first, so the branch report is the
-only thing changing.
+**RED.** Record the package's current line coverage: `go test
+./internal/report -coverprofile`, then `go tool cover -func` to list
+every function under 100% and every uncovered line. That list is the
+worklist. Confirm `go test ./internal/report` is green first, so
+coverage is the only thing changing.
 
-**GREEN.** Write unit tests that construct each report document and
-exercise both outcomes of every condition the tool flags — a problem
-carried and none carried, a warning set and unset, an empty list and a
-populated one. Cover `AddProblem` and `Warn` directly. Re-run the tool
-until it reports no one-sided condition in the package.
+**GREEN.** Write unit tests that construct each report document and run
+its uncovered lines — a problem carried and none, a warning set and
+unset, an empty list and a populated one. Cover `AddProblem` and `Warn`
+directly. Re-run `go test ./internal/report -cover` until it reports
+100%.
 
-**GREEN, the gate.** Pin the tool in [tools/go.mod](../../tools/go.mod)
-and add a CI step, or a `go test` wrapper, that runs it over
-`internal/report` and fails on any one-sided condition. Adding a throw
-away untested branch to the package must redden it; remove the throw
-away branch once seen.
+**GREEN, the gate.** Add a CI step, or a `go test` wrapper, that fails
+when `internal/report` drops below 100% line coverage. Adding a
+throwaway untested line to the package must redden it; remove the
+throwaway once seen.
 
-**Guard the edges.** Keep the tool's scope to `internal/report` in this
+**Guard the edges.** Keep the gate scoped to `internal/report` in this
 phase — the later packages are their own phases, and `cmd/frit`'s
-process boundary is not addressed here. Do not exclude anything in this
-package: it has no syscall, so a one-sided condition here is a missing
-test, not a boundary. Statement coverage for the package should read
-100% as a side effect; if it does not, a branch is still uncovered.
+process boundary is a later phase's problem. Do not exclude anything
+here: the package has no syscall, so an uncovered line is a missing
+test, not a boundary. Branch coverage is out of scope for this phase;
+100% lines is the target.
 
-**Gate.** The branch tool reports no one-sided condition in
-`internal/report`, and reddens when a throwaway untested branch is
-added. `go test ./...` and `go tool -modfile=tools/go.mod
-golangci-lint run` are green.
+**Gate.** `go test ./internal/report -cover` reports 100%, and the new
+gate reddens when a throwaway untested line is added. `go test ./...`
+and `go tool -modfile=tools/go.mod golangci-lint run` are green.
