@@ -173,3 +173,40 @@ func TestCurrentLaneReportsNoneOffTheConvention(t *testing.T) {
 
 	assert.False(t, ok)
 }
+
+// TestForeignHoldIsSilentOutsideAnyRepository: a cwd that resolves to
+// no worktree at all has no branch to match, so the preflight reads
+// not-foreign rather than erroring.
+func TestForeignHoldIsSilentOutsideAnyRepository(t *testing.T) {
+	holds := planHolds(t)
+
+	_, foreign := ForeignHold(t.TempDir(), "thisbox", gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.False(t, foreign, "no worktree at all is not a foreign hold")
+}
+
+// TestForeignHoldIsSilentOffTheConvention: a branch outside the holds
+// convention names no plan, so it cannot name a foreign holder either.
+func TestForeignHoldIsSilentOffTheConvention(t *testing.T) {
+	root := repoOnBranch(t, "feature/side-quest")
+	holds := planHolds(t)
+
+	_, foreign := ForeignHold(root, "thisbox", gitwt.Exec,
+		func(string) repocfg.Holds { return holds })
+
+	assert.False(t, foreign, "a branch off the convention is not a hold")
+}
+
+// TestRepoNameFallsBackToTheDirectoryBasenameOnAGitFault: when git
+// cannot list the worktrees, the directory's own basename is the
+// honest fallback, the same as an empty list.
+func TestRepoNameFallsBackToTheDirectoryBasenameOnAGitFault(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("worktree list: exit status 128")
+	}
+
+	name := RepoName("/some/root/myrepo", run)
+
+	assert.Equal(t, "myrepo", name)
+}

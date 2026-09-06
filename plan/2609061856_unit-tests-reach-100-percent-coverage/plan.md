@@ -100,10 +100,11 @@ justified; it is not a place to hide untested logic.
 
 ## Execution
 
-| Phase | Title                                                          | Tier   | Gate                                                                                                                                                                    |
-| ----- | -------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | internal/report reaches 100% line coverage and is locked there | sonnet | `go test ./internal/report -cover` reports 100%; the new gate reddens on an added untested line; `go test ./...` green                                                  |
-| 2     | internal/claim reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/claim -cover` reports 100%; the gate call covers both packages and reddens on an added untested line in either; `go test ./...` and lint stay green |
+| Phase | Title                                                          | Tier   | Gate                                                                                                                                                                      |
+| ----- | -------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | internal/report reaches 100% line coverage and is locked there | sonnet | `go test ./internal/report -cover` reports 100%; the new gate reddens on an added untested line; `go test ./...` green                                                    |
+| 2     | internal/claim reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/claim -cover` reports 100%; the gate call covers both packages and reddens on an added untested line in either; `go test ./...` and lint stay green   |
+| 3     | internal/fleet reaches 100% line coverage and joins the gate   | sonnet | `go test ./internal/fleet -cover` reports 100%; the gate call covers all three packages and reddens on an added untested line in any; `go test ./...` and lint stay green |
 
 ## Phases
 
@@ -126,12 +127,14 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                            |
-| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [internal/report reaches 100% line coverage and is locked there](phase-1.md)                                                     |
-|     | ↳      | internal/report reached 100% line coverage and gained a hard CI gate that reddens the moment it drops.                           |
-| 2   | ✅     | [internal/claim reaches 100% line coverage and joins the gate](phase-2.md)                                                       |
-|     | ↳      | internal/claim reached 100% line coverage — one seam, thirty-odd new tests — and joined the hard CI gate beside internal/report. |
+| #   | Status | Phase                                                                                                                                                      |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [internal/report reaches 100% line coverage and is locked there](phase-1.md)                                                                               |
+|     | ↳      | internal/report reached 100% line coverage and gained a hard CI gate that reddens the moment it drops.                                                     |
+| 2   | ✅     | [internal/claim reaches 100% line coverage and joins the gate](phase-2.md)                                                                                 |
+|     | ↳      | internal/claim reached 100% line coverage — one seam, thirty-odd new tests — and joined the hard CI gate beside internal/report.                           |
+| 3   | ✅     | [internal/fleet reaches 100% line coverage and joins the gate](phase-3.md)                                                                                 |
+|     | ↳      | internal/fleet reached 100% line coverage — twenty-five new tests, no seam needed — and joined the hard CI gate beside internal/report and internal/claim. |
 <?/catalog?>
 
 ## Acceptance Criteria

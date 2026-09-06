@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -714,4 +715,337 @@ func TestGatherReportsProgressAndSummary(t *testing.T) {
 		"the broken repo is the one problem, tallied on the summary")
 	assert.GreaterOrEqual(t, res.Summary.Elapsed, time.Duration(0),
 		"the walk reports a non-negative elapsed span")
+}
+
+// TestGatherSurfacesADiscoverFault: a root the walk itself cannot even
+// read — as opposed to one repository within it — fails Gather
+// outright rather than reporting an empty, silently misleading result.
+func TestGatherSurfacesADiscoverFault(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+
+	require.Error(t, err)
+}
+
+// TestGatherSurfacesAMalformedConfig: a repository whose .frit.yml
+// fails to parse is a problem, not a silent drop, and does not fail
+// the rest of the walk.
+func TestGatherSurfacesAMalformedConfig(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPlan(t, root, "atlas", 7)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".frit.yml"), []byte("holds: [\n"), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "break the config")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err, "one bad repo does not fail the whole walk")
+
+	var found bool
+	for _, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = true
+		}
+	}
+	assert.True(t, found, "a malformed config is a problem, not a silent drop")
+}
+
+// TestGatherRepoSurfacesAPlanWalkFault: a git fault during the plan
+// walk itself — plans.Collect's own ref list, distinct from the
+// gather's later, identical-looking call — is the repo's problem, not
+// a silent drop.
+func TestGatherRepoSurfacesAPlanWalkFault(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	failErr := errors.New("bad revision")
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "for-each-ref" {
+			return nil, failErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	res, err := Gather(root, "testhost", run, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err, "one bad repo does not fail the whole walk")
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.ErrorIs(t, found.Err, failErr)
+}
+
+// TestGatherRepoSurfacesARefListFaultAfterThePlanWalk: gatherRepo reads
+// the ref list a second time after the plan walk, to feed the
+// staleness and held-branch checks the plan walk itself does not need.
+// A fault on that second, otherwise identical call is the repo's
+// problem too, distinguished here by only failing from the second
+// occurrence on.
+func TestGatherRepoSurfacesARefListFaultAfterThePlanWalk(t *testing.T) {
+	root := t.TempDir()
+	repoWithPlan(t, root, "atlas", 7)
+
+	failErr := errors.New("connection reset")
+	var refCalls int
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "for-each-ref" {
+			refCalls++
+			if refCalls > 1 {
+				return nil, failErr
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	res, err := Gather(root, "testhost", run, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.ErrorIs(t, found.Err, failErr)
+}
+
+// TestGatherRepoSurfacesAnUncompilableHoldsConfig: a repository whose
+// holds pattern carries no {id} token cannot be compiled, and that
+// failure — reached through heldBranches, inside gatherRepo — is a
+// problem, not a silent drop.
+func TestGatherRepoSurfacesAnUncompilableHoldsConfig(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPlan(t, root, "atlas", 7)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".frit.yml"),
+		[]byte("holds:\n  - \"no-id-token\"\n"), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "declare an uncompilable hold pattern")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	var found bool
+	for _, p := range res.Problems {
+		if p.Repo == "atlas" {
+			found = true
+		}
+	}
+	assert.True(t, found,
+		"an uncompilable holds pattern is a problem, not a silent drop")
+}
+
+// TestGatherRecordsOneProblemForARepeatedCollision: a third repository
+// sharing an already-ambiguous name adds no second collision problem —
+// the guard that stops it is exercised only past the first collision.
+func TestGatherRecordsOneProblemForARepeatedCollision(t *testing.T) {
+	res := &Result{Coords: map[string]Coord{}}
+	ambiguous := map[string]bool{}
+
+	recordCoord(res, ambiguous, "frontend", Coord{Path: "/a"})
+	recordCoord(res, ambiguous, "frontend", Coord{Path: "/b"})
+	recordCoord(res, ambiguous, "frontend", Coord{Path: "/c"})
+
+	_, ok := res.Coords["frontend"]
+	assert.False(t, ok)
+	assert.Len(t, res.Problems, 1,
+		"a repeated collision records no second problem")
+}
+
+// TestGatherReportsAFrontMatterlessPlanAsANotPlanProblem: a file
+// sitting exactly where a plan belongs, but carrying no front matter,
+// is parsed and rejected by index.Build itself — distinct from a
+// mislaid file plans.Collect's own naming filter catches — and reads
+// as the benign not-a-plan kind.
+func TestGatherReportsAFrontMatterlessPlanAsANotPlanProblem(t *testing.T) {
+	root := t.TempDir()
+	dir := repoWithPlan(t, root, "atlas", 7)
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "plan", "9_bad.md"),
+		[]byte("# Not actually a plan\n"), 0o600))
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "drop a front-matterless plan file")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	var found *Problem
+	for i, p := range res.Problems {
+		if p.Repo == "atlas" && strings.Contains(p.Err.Error(), "9_bad.md") {
+			found = &res.Problems[i]
+		}
+	}
+	require.NotNil(t, found, "a front-matterless plan file is reported")
+	assert.True(t, found.NotPlan,
+		"missing front matter is the benign not-a-plan kind")
+}
+
+// TestHasRemoteTrackingIsFalseWithoutAMatchingRef: a ref list carrying
+// no refs/remotes/<remote>/* ref at all answers false, the same as a
+// remote that was never fetched.
+func TestHasRemoteTrackingIsFalseWithoutAMatchingRef(t *testing.T) {
+	refs := []gitobj.Ref{
+		{Name: "refs/heads/main"},
+		{Name: "refs/remotes/upstream/main"},
+	}
+
+	assert.False(t, hasRemoteTracking(refs, "origin"))
+}
+
+// TestLaggingDefaultBranchIsNilWithoutABranch: a preferred ref that
+// names no branch at all — no default resolved, or a tag — has
+// nothing to compare, so nothing is even asked of git.
+func TestLaggingDefaultBranchIsNilWithoutABranch(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		t.Fatalf("unexpected git call: %v", args)
+
+		return nil, nil
+	}
+
+	got := laggingDefaultBranch(
+		discover.Repo{Name: "atlas", Path: "/repo"}, "origin", "", nil, run)
+
+	assert.Nil(t, got)
+}
+
+// TestLaggingDefaultBranchIsNilWhenNotAnAncestor: a local default
+// branch that has simply diverged from its remote-tracking copy —
+// neither one an ancestor of the other — is not "behind", so nothing
+// is reported.
+func TestLaggingDefaultBranchIsNilWhenNotAnAncestor(t *testing.T) {
+	refs := []gitobj.Ref{
+		{Name: "refs/heads/main", OID: "local-sha"},
+		{Name: "refs/remotes/origin/main", OID: "remote-sha"},
+	}
+	run := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "merge-base" {
+			return nil, errors.New("not an ancestor")
+		}
+		t.Fatalf("unexpected git call: %v", args)
+
+		return nil, nil
+	}
+
+	got := laggingDefaultBranch(discover.Repo{Name: "atlas", Path: "/repo"},
+		"origin", "refs/heads/main", refs, run)
+
+	assert.Nil(t, got, "a diverged branch is not reported as behind")
+}
+
+// TestCommitsBehindReportsZeroOnAGitFault: a rev-list that fails
+// answers 0 rather than propagating the fault into the report's
+// wording.
+func TestCommitsBehindReportsZeroOnAGitFault(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		return nil, errors.New("bad revision")
+	}
+
+	assert.Equal(t, 0, commitsBehind("/repo", "a", "b", run))
+}
+
+// TestCommitsBehindReportsZeroOnUnparsableOutput: output rev-list
+// never actually produces, but which a report should not choke on
+// either.
+func TestCommitsBehindReportsZeroOnUnparsableOutput(t *testing.T) {
+	run := func(dir string, args ...string) ([]byte, error) {
+		return []byte("not-a-number\n"), nil
+	}
+
+	assert.Equal(t, 0, commitsBehind("/repo", "a", "b", run))
+}
+
+// TestReleasedRefsSkipsATagAndAnUnmatchedBranch: a ref that names no
+// branch at all, and one whose branch matches no hold pattern, are
+// both skipped before claim.LiveHold is ever asked about them.
+func TestReleasedRefsSkipsATagAndAnUnmatchedBranch(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{
+		{Name: "refs/tags/v1", OID: "tag-tip"},
+		{Name: "refs/heads/feature/side-quest", OID: "side-tip"},
+	}
+	run := func(string, ...string) ([]byte, error) {
+		return nil, errors.New("run must not be called for a ref with no plan id")
+	}
+
+	got := ReleasedRefs("/repo", refs, holds, nil, nil, run)
+
+	assert.Empty(t, got)
+}
+
+// TestHeldBranchesSurfacesAnUncompilableHoldPattern: a hold pattern
+// with no {id} token cannot be compiled, and heldBranches surfaces
+// that failure rather than reading git with a config it never checked.
+func TestHeldBranchesSurfacesAnUncompilableHoldPattern(t *testing.T) {
+	cfg := repocfg.Config{Holds: []string{"no-id-token"}}
+	run := func(dir string, args ...string) ([]byte, error) {
+		t.Fatalf("unexpected git call: %v", args)
+
+		return nil, nil
+	}
+
+	_, _, err := heldBranches(
+		discover.Repo{Name: "atlas", Path: "/repo"}, cfg,
+		"refs/heads/main", nil, nil, run)
+
+	require.Error(t, err)
+}
+
+// TestHeldBranchesSurfacesAMergedRefsFault: once the holds pattern
+// compiles, a git fault reading the merged-ref list is surfaced too.
+func TestHeldBranchesSurfacesAMergedRefsFault(t *testing.T) {
+	cfg := repocfg.Default()
+	failErr := errors.New("bad revision")
+	run := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 1 && args[1] == "--merged" {
+			return nil, failErr
+		}
+		t.Fatalf("unexpected git call: %v", args)
+
+		return nil, nil
+	}
+
+	_, _, err := heldBranches(
+		discover.Repo{Name: "atlas", Path: "/repo"}, cfg,
+		"refs/heads/main", nil, nil, run)
+
+	require.ErrorIs(t, err, failErr)
+}
+
+// TestGatherDedupesALocalAndRemoteTrackingCopyOfTheSameBranch: a claim
+// that exists as both a local branch and its remote-tracking copy is
+// one lane holding one branch, not two — the same branch pushed to a
+// forge must not read as two holds.
+func TestGatherDedupesALocalAndRemoteTrackingCopyOfTheSameBranch(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	tip := gitOut(t, repo, "rev-parse", "HEAD")
+	gitCmd(t, repo, "checkout", "-q", "main")
+	gitCmd(t, repo, "update-ref", "refs/remotes/origin/plan/7", tip)
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	plan := planByID(t, res, 7)
+	assert.True(t, plan.Held)
+	assert.Equal(t, []string{"plan/7"}, plan.Holds,
+		"the same branch is counted once though it exists both locally "+
+			"and as a remote-tracking ref")
 }
