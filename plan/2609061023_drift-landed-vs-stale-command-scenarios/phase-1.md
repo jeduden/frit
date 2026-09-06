@@ -1,7 +1,7 @@
 ---
 n: 1
 title: A merged plan drift reports as landed, named by its commit
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove `frit drift`'s core signal with a command scenario. A plan whose

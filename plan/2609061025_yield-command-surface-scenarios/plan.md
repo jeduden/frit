@@ -97,7 +97,7 @@ footer: |
 | #   | Status | Phase                                                       |
 | --- | ------ | ----------------------------------------------------------- |
 | 1   | ✅     | [Yield on a plan nobody holds is a clean no-op](phase-1.md) |
-|     | ↳      | C2 proves yield's clean no-op on a plan nobody holds        |
+|     | ↳      | C3 proves yield's clean no-op on a plan nobody holds        |
 <?/catalog?>
 
 ## Acceptance Criteria
