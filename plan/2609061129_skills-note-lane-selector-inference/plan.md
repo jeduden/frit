@@ -1,7 +1,7 @@
 ---
 id: 2609061129
 title: The lane-facing skills tell an agent its plan id is inferred in-lane
-status: "🔲"
+status: "✅"
 summary: >-
   frit infers a plan from the cwd whenever a verb runs in that plan's
   own lane: the worktree's branch is matched back to the id through
@@ -11,9 +11,11 @@ summary: >-
   agent looks. Every lane-facing skill — plan-phase, plan-handoff,
   plan-tidy, plan-drive — shows an explicit <id> on every command and
   never mentions inference, so an agent standing in its lane does not
-  know it can omit the id. Add one terse line to those skills, through
-  the canonical asset and its regenerated dogfood copy, so the surface
-  the agent reads carries the fact the reference docs already hold.
+  know it can omit the id. This plan proves the terse line on
+  plan-phase, through the canonical asset and its regenerated dogfood
+  copy, so the surface the agent reads carries the fact the reference
+  docs already hold; plan-handoff, plan-tidy and plan-drive get the
+  same line from a follow-on plan of their own.
 model: sonnet
 depends-on: []
 ---
@@ -75,8 +77,10 @@ already fits, not a new section in each skill.
    the branch, so the id can be omitted. Regenerate its dogfood copy.
    Prove `{{frit}} phase` with no selector resolves from inside a real
    lane, and the skill still passes its token budget.
-2. Later phase: the same terse note in plan-handoff, plan-tidy and
-   plan-drive, each within its own token budget.
+2. Later, in a plan of its own rather than a phase here: the same
+   terse note in plan-handoff, plan-tidy and plan-drive, each within
+   its own token budget — this plan's own Acceptance Criteria name
+   only plan-phase, closed as of Phase 1.
 
 ## Execution
 
@@ -105,20 +109,21 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                |
-| --- | ------ | ---------------------------------------------------- |
-| 1   | 🔲     | [plan-phase names the in-lane inference](phase-1.md) |
+| #   | Status | Phase                                                                                                                   |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [plan-phase names the in-lane inference](phase-1.md)                                                                    |
+|     | ↳      | plan-phase's Inputs now names the in-lane inference; dogfood copy regenerated; gate confirmed against the built binary. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] plan-phase's canonical asset states that, in the plan's own
+- [x] plan-phase's canonical asset states that, in the plan's own
       lane, the selector is inferred and the id can be omitted
-- [ ] The claim is confirmed against the built frit: `frit phase` with
+- [x] The claim is confirmed against the built frit: `frit phase` with
       no selector, run from inside a lane, resolves that lane's plan
-- [ ] The dogfood copy is regenerated, not hand-edited, and
+- [x] The dogfood copy is regenerated, not hand-edited, and
       `TestDogfoodCopiesMatchCanonical` is green
-- [ ] Every touched skill stays within its 650-token budget
+- [x] Every touched skill stays within its 650-token budget
       (`mdsmith check`)
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
