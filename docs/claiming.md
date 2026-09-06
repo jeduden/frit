@@ -144,13 +144,13 @@ Losing the observer's state file only delays a takeover: an absent
 record reads as "first seen now".
 
 `frit claim` and `frit start` take a matured lease over: a takeover marker,
-epoch E+1, minted as a child of exactly the observed stale tip. A holder that
-was merely quiet renews first and wins the CAS. The takeover loses, re-reads,
-and reports the live holder instead; it never retries blindly. A takeover
-waits `k · T`, not `T`, where `k` is the number of takeover markers already in
-the ref's chain. Every observer computes the same `k` from the chain itself,
-so two quiet-but-live agents contending for the same lease damp out instead of
-ping-ponging (`S15` in [host-death.feature](../features/host-death.feature)).
+epoch E+1, child of exactly the observed stale tip (`S15` in
+[host-death.feature](../features/host-death.feature)). A merely quiet holder
+renews first and wins the CAS. The takeover loses, re-reads, and reports the
+live holder instead; it never retries blindly. A takeover waits `k · T`, not
+`T`, where `k` counts the takeover markers already in the chain. Every observer
+computes the same `k`, so quiet-but-live agents contending for a lease damp out
+instead of ping-ponging (`S35` in [clocks.feature](../features/clocks.feature)).
 
 ### Liveness veto
 

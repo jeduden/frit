@@ -11,12 +11,19 @@ summary: claiming.md cites its scenarios; lease-protocol.md links its feature fi
 claiming.md's six behavioral sections — two machines at once, staleness
 and takeover, liveness veto, self-resume, fencing and yield, and when a
 claim is refused — each now cite the matrix id that proves them (`S26`,
-`S15`, `S31`, `S3`, `S78`, `S18`), with a link to the id's feature file
-at each file's first mention in the document. Every id was confirmed
-against lease-protocol.md's matrix by grep before citing it, and one
-early pick — `S16` for the `orphans` rescue-ref sweep — was swapped for
-`S78` on review: `S16` never exercises `orphans`, while `S78`'s own
-scenario text says "orphans lists both tips as rescued".
+`S15`, `S35`, `S31`, `S3`, `S78`, `S18`), with a link to the id's
+feature file at each file's first mention in the document. Every id
+was confirmed against lease-protocol.md's matrix by grep before citing
+it, and two early picks were swapped on review: `S16` for the
+`orphans` rescue-ref sweep became `S78` (`S16` never exercises
+`orphans`, while `S78`'s own scenario text says "orphans lists both
+tips as rescued"), and the staleness-and-takeover paragraph's single
+trailing `S15` grew a second citation, `S35`, once code review found
+`S15`'s scenario proves only the matured-takeover mint (epoch E+1,
+child of the stale tip) and never exercises the `k · T` backoff the
+same paragraph's closing clause claims — `S35` is lease-protocol.md's
+own citation for that backoff (`backoff damps it (S35)` in its
+Residual risks section).
 
 lease-protocol.md's nine `### `-level matrix sections (Process death
 through Cross-layer, with Lifecycle anomalies linking both
