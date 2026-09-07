@@ -1,7 +1,7 @@
 ---
 n: 7
 title: cmd/frit/release.go reaches 100% line coverage
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive [cmd/frit/release.go](../../cmd/frit/release.go) to 100% line
@@ -99,4 +99,4 @@ scope.
 test ./...` and `go tool -modfile=tools/go.mod golangci-lint run` are
 green. `./cmd/frit` is not yet added to `scripts/check-coverage.sh`'s
 CI call — that waits for the last file in the package (plan task 2,
-[phase 11b](phase-11b.md)).
+[phase 12](phase-12.md)).

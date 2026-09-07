@@ -34,7 +34,7 @@ from the same clock.
 **Value.** Third of five `cmd/frit` files. It also builds the exclusion
 mechanism the plan's context named from the start. `terminalWidth`,
 `progressFor` and `run`'s panic guard all need that mechanism in
-[phase 11b](phase-11b.md), so building and proving it here, against one
+[phase 12](phase-12.md), so building and proving it here, against one
 well-understood line, is cheaper than discovering it mid-way through
 the largest remaining file.
 

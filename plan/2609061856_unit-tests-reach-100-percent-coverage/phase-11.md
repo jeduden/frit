@@ -1,5 +1,5 @@
 ---
-n: 11a
+n: 11
 title: cmd/frit/main.go reaches 100% line coverage on its discovery, doctor and plans verbs
 status: "🔲"
 result: false
@@ -9,8 +9,8 @@ Drive the first half of [cmd/frit/main.go](../../cmd/frit/main.go) to
 the discovery, doctor, who and plans machinery. `main.go` alone carries
 roughly fifty partial functions across ~3200 lines. That is far more
 than one proving slice can hold under this plan's token budget, so it
-splits into 11a and [11b](phase-11b.md), the last two `cmd/frit`
-phases.
+splits into this phase and [phase 12](phase-12.md), the last two
+`cmd/frit` phases.
 
 **BDD coverage.** None applies. This phase adds unit tests, one small
 seam, and removes one structurally-dead branch; no lease-protocol
@@ -43,10 +43,10 @@ behavior changes. No `@S<n>` scenario is needed per
 
 **Value.** First of the two closing slices. Discovery, doctor and
 plans are the read-only verbs every other command's fixtures already
-lean on, so proving them first gives 11b's orchestration-heavy half a
-settled base.
+lean on, so proving them first gives phase 12's orchestration-heavy
+half a settled base.
 
-**Recipes**, named once and reused across this phase and 11b:
+**Recipes**, named once and reused across this phase and phase 12:
 
 - **R1 — missing root**: `run([]string{"<verb>", "--root",
   filepath.Join(t.TempDir(), "absent")}, ...)`. Closes the
@@ -129,6 +129,6 @@ changes no observable behavior: the branch could never fire.
 **Gate.** `go tool cover -func` filtered to `main.go` shows every
 function through `carryHostProblems` at 100.0%; `go test ./...` and
 `go tool -modfile=tools/go.mod golangci-lint run` are green. `main.go`
-is not yet fully closed — [phase 11b](phase-11b.md) carries the rest —
+is not yet fully closed — [phase 12](phase-12.md) carries the rest —
 so `./cmd/frit` is not yet added to `scripts/check-coverage.sh`'s CI
 call.

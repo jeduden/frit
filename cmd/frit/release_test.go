@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -333,6 +335,128 @@ func TestReleaseScavengesALandedRef(t *testing.T) {
 		"ls-remote", "origin", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Empty(t, gone, "the landed ref is scavenged from origin")
+}
+
+// TestReleaseFailsWhenTheFleetCannotBeGathered: a root that does not
+// exist fails the fleet walk itself, before release ever resolves a
+// plan.
+func TestReleaseFailsWhenTheFleetCannotBeGathered(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestReleaseRefusesWithNoPlanGivenAndNoneInferred: an empty selector
+// run outside any held checkout cannot infer a plan, and refuses
+// rather than guess.
+func TestReleaseRefusesWithNoPlanGivenAndNoneInferred(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	t.Chdir(t.TempDir())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(),
+		"no plan given and none inferred from the current directory")
+}
+
+// TestReleaseRefusesAnAmbiguousRepoName: two checkouts under root
+// sharing a basename leave the fleet unable to tell which one the
+// plan lives in, so release refuses rather than guess — the same
+// treatment claim already gives it.
+func TestReleaseRefusesAnAmbiguousRepoName(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := initRepo(t, filepath.Join(root, "a"), "frontend")
+	commitPlan(t, repoA, 7, "🔲", "Shader unit", nil, "")
+	repoB := initRepo(t, filepath.Join(root, "b"), "frontend")
+	commitPlan(t, repoB, 9, "🔲", "Other work", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "shared by another checkout")
+}
+
+// TestReleaseHeldWarnsWhenThePushFails: releaseHeld is called
+// directly, bypassing Run's unconditional rt.git reassignment, so a
+// runner that fails only the CAS push can be injected once the lane's
+// own token is already proven. The lease stays standing and the
+// failure is reported rather than swallowed.
+func TestReleaseHeldWarnsWhenThePushFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe,
+		herdr: herdrReturning()}
+	res, err := gatherFleet(&cli{Root: root}, rt)
+	require.NoError(t, err)
+	plan, err := resolveSelector(rt, "7", res.Plans, true)
+	require.NoError(t, err)
+	coord := res.Coords[plan.Repo]
+	doc := report.NewRelease(root, plan.Repo, plan.ID, plan.Title,
+		claim.Branch(plan.ID))
+	failPush := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("boom")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	rt.git = failPush
+
+	releaseHeld(rt, doc, plan, coord)
+
+	assert.False(t, doc.Released)
+	assert.Contains(t, doc.Warning, "release:",
+		"the CAS push's failure is reported, not swallowed")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, renewed.Tip, tip, "the lease is untouched by the failed push")
+}
+
+// TestPrintReleaseNamesARescuedRef: the rendering branch a scavenge's
+// rescue ref takes, direct-called against a hand-built doc.
+func TestPrintReleaseNamesARescuedRef(t *testing.T) {
+	doc := report.NewRelease("/root", "atlas", 7, "Shader unit", "plan/7")
+	doc.ScavengedRef("plan/7", "refs/frit/rescue/7/host-abc")
+	var out bytes.Buffer
+
+	printRelease(&out, doc)
+
+	assert.Contains(t, out.String(), "rescued: refs/frit/rescue/7/host-abc")
+}
+
+// TestPrintReleaseNamesAWarning: the rendering branch a non-fatal
+// failure takes alongside a scavenge, direct-called against a
+// hand-built doc.
+func TestPrintReleaseNamesAWarning(t *testing.T) {
+	doc := report.NewRelease("/root", "atlas", 7, "Shader unit", "plan/7")
+	doc.Warn("release: boom")
+	var out bytes.Buffer
+
+	printRelease(&out, doc)
+
+	assert.Contains(t, out.String(), "warning: release: boom")
 }
 
 // TestReleaseEmitsJSON decodes the report a consumer reads.

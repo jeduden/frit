@@ -1,5 +1,5 @@
 ---
-n: 11b
+n: 12
 title: cmd/frit/main.go and progress.go close the package, which joins the gate
 status: "🔲"
 result: false
@@ -12,7 +12,7 @@ its reachable lines. Do the same for
 `internal/report`, `internal/claim`, `internal/fleet`,
 `internal/observe`, `internal/repocfg` and `internal/herdr`. This
 closes plan task 2 in full. It reuses the recipes named in
-[phase 11a](phase-11a.md) and the exclusion mechanism
+[phase 11](phase-11.md) and the exclusion mechanism
 [phase 9](phase-9.md) built.
 
 **BDD coverage.** None applies. This phase adds unit tests, removes one
@@ -36,7 +36,7 @@ needed per [docs/development.md](../../docs/development.md)'s matrix.
 - `allocateFlex`'s `held<0` clamp (2588-2590) is arithmetically
   unreachable — `held` is only ever assigned a non-negative `maxw`
   entry, `0`, or a value a prior branch already established is
-  positive. Same category as [phase 11a](phase-11a.md)'s
+  positive. Same category as [phase 11](phase-11.md)'s
   `orphansCmd.Run` finding — remove it.
 - `run()`'s bare `panic(r)` re-raise (3076), the non-`exitCode` branch
   of the top-level recover, cannot be provoked without planting a fake
@@ -59,7 +59,7 @@ separate, unplanned stage.
 -func` filtered to `main.go`/`progress.go`. Re-verify against a fresh
 `-coverprofile` before writing each test — some may have shifted or
 already closed incidentally. Recipes R1-R7 are named in
-[phase 11a](phase-11a.md):
+[phase 11](phase-11.md):
 
 - `resolveSelector` 1624-1646 — R4; the "no plan given" branch,
   re-verify it is still uncovered before adding a test — an existing
@@ -149,7 +149,7 @@ citation to read `cmd/frit/progress.go`.
 **GREEN, the gate.** Add `./cmd/frit` to the `scripts/check-coverage.sh`
 call in [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
 beside the six packages already there. With `scripts/coverage-exclude.txt`
-now carrying every `cmd/frit` entry from phases 9 through 11b, the
+now carrying every `cmd/frit` entry from phases 9 through 12, the
 script reports 100% of the package's non-excluded statements. Verify
 red the same way earlier phases did: a throwaway untested line drops
 the package below its adjusted 100%, and the script exits non-zero;
