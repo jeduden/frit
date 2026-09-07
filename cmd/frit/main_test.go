@@ -1251,6 +1251,7 @@ func TestStaleNamesAnUnreadHostAsAProblem(t *testing.T) {
 	t.Setenv("HOME", "")
 	root := t.TempDir()
 	initRepo(t, root, "atlas")
+	withHerdr(t, herdrReturning())
 	var doc report.StaleDoc
 
 	emit(t, &doc, "stale", "--root", root, "--hosts", "box")
