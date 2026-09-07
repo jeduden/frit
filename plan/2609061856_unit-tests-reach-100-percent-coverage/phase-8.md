@@ -1,7 +1,7 @@
 ---
 n: 8
 title: cmd/frit/reap.go reaches 100% line coverage
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive [cmd/frit/reap.go](../../cmd/frit/reap.go) to 100% line coverage.
