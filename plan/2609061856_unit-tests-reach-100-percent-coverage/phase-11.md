@@ -1,7 +1,7 @@
 ---
 n: 11
 title: cmd/frit/main.go reaches 100% line coverage on its discovery, doctor and plans verbs
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive the first half of [cmd/frit/main.go](../../cmd/frit/main.go) to

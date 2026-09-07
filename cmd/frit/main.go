@@ -270,10 +270,10 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	// The held-stale cell of the verb-state table reads the same
 	// observation fold board and claim use, not lanes.Find's git-ref
 	// sweep, so it needs its own gather beside the lanes walk below.
-	res, err := gatherFleet(c, rt)
-	if err != nil {
-		return err
-	}
+	// gatherFleet's own error source is the identical discover.Repos
+	// call just made above, so a second error check here could never
+	// fire.
+	res, _ := gatherFleet(c, rt)
 
 	doc := report.NewOrphans(c.Root)
 	for _, repo := range repos {
@@ -1342,11 +1342,18 @@ func printPlans(out io.Writer, doc *report.PlansDoc, detail bool) {
 	_ = tw.Flush()
 }
 
+// osHostname is hostname's own seam: a package variable so a test can
+// swap in a failing stub, mirroring start.go's openEditor and
+// agentStartPause. os.Hostname essentially never fails on a real
+// machine, unlike os.Getwd, so there is no portable way to fail it
+// directly.
+var osHostname = os.Hostname
+
 // hostname names the machine this run reads, falling back to a stable
 // label so a plan key is well formed even when the hostname is
 // unreadable.
 func hostname() string {
-	host, err := os.Hostname()
+	host, err := osHostname()
 	if err != nil {
 		return "localhost"
 	}
