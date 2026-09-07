@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,6 +102,17 @@ func TestMarkerHost(t *testing.T) {
 		"a lease marker's holder trailer reads as the host")
 }
 
+// TestMarkerHostReturnsEmptyWhenNoMarkerIsReachable: a branch that
+// never carried a frit marker — a hand-made commit, or none at all —
+// fails open rather than surfacing holderMarker's own not-found signal,
+// so a guard reading it never mistakes an unreadable marker for a
+// refusal.
+func TestMarkerHostReturnsEmptyWhenNoMarkerIsReachable(t *testing.T) {
+	work := originAndClone(t)
+
+	assert.Empty(t, MarkerHost(work, "main", 7, gitwt.Exec))
+}
+
 // TestBaseBranch reduces every base-ref shape to the remote branch name a
 // fresh landed check fetches, and leaves a bare name unchanged.
 func TestBaseBranch(t *testing.T) {
@@ -118,6 +130,26 @@ func TestIsAncestor(t *testing.T) {
 	}
 	assert.True(t, isAncestor("/r", "a", "b", yes))
 	assert.False(t, isAncestor("/r", "a", "b", no))
+}
+
+// TestLandedTipReadsOrdinaryAncestryAsLanded: the common case — a
+// winner's tip merged into base by ordinary ancestry, no squash
+// involved — is landed on the ancestor check alone; hasWork and
+// landedByContent are never reached for it, so a fake failing every
+// other subcommand still proves the branch.
+func TestLandedTipReadsOrdinaryAncestryAsLanded(t *testing.T) {
+	fake := func(_ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "fetch":
+			return nil, errors.New("no network")
+		case "merge-base":
+			return nil, nil
+		default:
+			return nil, errors.New("unexpected git subcommand: " + args[0])
+		}
+	}
+
+	assert.True(t, landedTip("/r", 7, "origin/main", "origin", "tip", fake))
 }
 
 // fakeMergeTree returns a Runner that answers merge-tree with treeOID

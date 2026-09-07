@@ -227,3 +227,132 @@ func TestDoctorOutsideTheLaneStillReadsTheDefaultBranch(t *testing.T) {
 		"outside the lane, doctor still reads main's skipped handoff")
 	assert.Equal(t, int64(100), found[0].ID)
 }
+
+// TestDoctorFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before doctor ever reads a repository.
+func TestDoctorFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"doctor", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestDoctorNamesARepositoryWithABrokenConfig: a broken .frit.yml
+// fails that one repository's own repocfg.Load read; doctor steps
+// over it and names it as a problem.
+func TestDoctorNamesARepositoryWithABrokenConfig(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestDoctorNamesARepositoryWhoseScanFails: a plan-dir whose glob
+// pattern is malformed fails doctorpkg.Scan itself, distinct from the
+// ErrNoSchema a repository with no proto.md at all reports — this is
+// a genuine problem, not an accepted limitation.
+func TestDoctorNamesARepositoryWhoseScanFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("plan-dir: \"plans[\"\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "plans["), 0o750))
+	proto, err := os.ReadFile(filepath.Join(repoRoot, "plan", "proto.md"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "plans[", "proto.md"), proto, 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "bad plan-dir")
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestDoctorNamesALaneWhoseOwnScanFails: the lane's own working copy
+// is missing the schema doctorpkg needs to re-scan its one plan —
+// overrideLaneFindings' own ScanID error surfaces as a problem, rather
+// than silently keeping the fleet's default-branch findings.
+func TestDoctorNamesALaneWhoseOwnScanFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writeDoctorSchema(t, repo)
+	writePlanFile(t, repo, 100, "🔳", "Layered work", nil,
+		phasesBlock("✅", "🔳"), "## Goal\n\nShip it.")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan with a skipped handoff")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	// The lane's own working copy loses the schema doctorpkg needs to
+	// re-scan it — an untracked change, so the commit above still
+	// carries the schema for the default-branch scan.
+	require.NoError(t, os.Remove(filepath.Join(wt, "plan", "proto.md")))
+	t.Chdir(wt)
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestOverrideLaneFindingsKeepsFindingsFromOtherPlans: a fleet-scanned
+// finding on a different plan than the one the lane overrides is
+// retained rather than dropped alongside the plan being replaced.
+func TestOverrideLaneFindingsKeepsFindingsFromOtherPlans(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	writeDoctorSchema(t, repo)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "plan", "100_layered.md"),
+		[]byte(gappedPlan), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "two plans, one gapped")
+
+	wt := filepath.Join(root, "atlas-101")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/101-clean", wt)
+	t.Chdir(wt)
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.Len(t, doc.Findings, 1,
+		"plan 100's own finding survives overriding plan 101's")
+	assert.Equal(t, int64(100), doc.Findings[0].ID)
+}
+
+// TestPrintDoctorReportsNoGapsFound: printDoctor's own empty-findings
+// branch, through the table rendering no JSON-only test reaches.
+func TestPrintDoctorReportsNoGapsFound(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "plan"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "plan", "100_gapped.md"), []byte(gappedPlan), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan, no schema")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"doctor", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "no semantic gaps found")
+}

@@ -83,6 +83,26 @@ func TestCompileRejectsAnEmptyPattern(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestCompileRejectsInvalidUTF8: expandWildcards quotes every ASCII
+// regex metacharacter but passes an invalid UTF-8 byte through
+// unchanged, so regexp.Compile itself rejects the result — the one
+// way Compile's own regexp.Compile call can fail.
+func TestCompileRejectsInvalidUTF8(t *testing.T) {
+	_, err := Compile("\xff{id}")
+
+	require.Error(t, err)
+}
+
+// TestStringReturnsTheSourcePattern: String is read by error messages
+// naming the pattern that failed, so it must echo what was written,
+// wildcards and all.
+func TestStringReturnsTheSourcePattern(t *testing.T) {
+	p, err := Compile("plan/{id}-*")
+	require.NoError(t, err)
+
+	assert.Equal(t, "plan/{id}-*", p.String())
+}
+
 func TestHoldsTriesEveryPatternInOrder(t *testing.T) {
 	h, err := CompileAll([]string{
 		"plan/{id}-*",

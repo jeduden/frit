@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -402,4 +403,128 @@ func TestYieldRefusesTheCurrentHolder(t *testing.T) {
 	assert.Empty(t, rescue, "the live holder's lease is not parked")
 	assert.False(t, rec.verb("worktree", "remove"),
 		"a refusal tears nothing down")
+}
+
+// TestYieldFailsWhenTheFleetCannotBeGathered: a root that cannot be
+// walked fails before yield ever resolves a plan.
+func TestYieldFailsWhenTheFleetCannotBeGathered(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"yield", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestYieldRefusesWithNoPlanGivenAndNoneInferred: an empty selector
+// run outside any held checkout cannot infer a plan, and refuses
+// rather than guess.
+func TestYieldRefusesWithNoPlanGivenAndNoneInferred(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	t.Chdir(t.TempDir())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"yield", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(),
+		"no plan given and none inferred from the current directory")
+}
+
+// TestYieldRefusesAnAmbiguousRepoName: two checkouts under root
+// sharing a basename leave the fleet unable to tell which one the
+// plan lives in, so yield refuses rather than guess — the same
+// treatment claim and release already give it.
+func TestYieldRefusesAnAmbiguousRepoName(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := initRepo(t, filepath.Join(root, "a"), "frontend")
+	commitPlan(t, repoA, 7, "🔲", "Shader unit", nil, "")
+	repoB := initRepo(t, filepath.Join(root, "b"), "frontend")
+	commitPlan(t, repoB, 9, "🔲", "Other work", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "shared by another checkout")
+}
+
+// TestLocalRefSurfacesARealGitFault: a non-exit-1 failure from
+// rev-parse is a real fault, not an absent ref, and must propagate
+// rather than read as "".
+func TestLocalRefSurfacesARealGitFault(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, errors.New("boom")
+	}}
+
+	tip, err := localRef(rt, "/repo", "plan/7")
+
+	assert.Error(t, err)
+	assert.Empty(t, tip)
+}
+
+// TestTearDownLaneWarnsWhenTheCurrentPaneCannotBeRead: herdr
+// unreachable, or no pane open to answer, is a warning — the parked
+// rescue already stands regardless of whether the teardown can run.
+func TestTearDownLaneWarnsWhenTheCurrentPaneCannotBeRead(t *testing.T) {
+	doc := report.NewYield("/root", "atlas", 7, "Shader unit", "plan/7")
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		return nil, errors.New("no socket")
+	}}
+
+	tearDownLane(rt, doc)
+
+	assert.Contains(t, doc.Warning, "pane current")
+	assert.False(t, doc.TornDown)
+}
+
+// TestTearDownLaneWarnsWhenTheWorktreeRemoveFails: the pane resolves
+// back to this very plan's own lane, but herdr's own removal fails —
+// reported as a warning, the worktree left standing rather than a
+// silently incomplete teardown.
+func TestTearDownLaneWarnsWhenTheWorktreeRemoveFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	git(t, repo, "checkout", "-q", "plan/7")
+	doc := report.NewYield(root, "atlas", 7, "Shader unit", "plan/7")
+	rt := &runtime{git: gitwt.Exec,
+		herdr: func(args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+				return nil, errors.New("boom")
+			}
+
+			return []byte(fmt.Sprintf(
+				`{"result":{"pane":{"pane_id":"w1A:p1","workspace_id":%q,`+
+					`"cwd":%q}}}`, repo, repo)), nil
+		}}
+
+	tearDownLane(rt, doc)
+
+	assert.Contains(t, doc.Warning, "worktree remove")
+	assert.False(t, doc.TornDown)
+}
+
+// TestYieldEmitsJSON decodes the report a consumer reads.
+func TestYieldEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	var doc report.YieldDoc
+
+	stderr := emit(t, &doc, "yield", "7", "--root", root)
+
+	assert.Empty(t, stderr)
+	assert.Equal(t, "yield", doc.Command)
 }

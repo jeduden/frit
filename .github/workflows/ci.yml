@@ -41,6 +41,15 @@ jobs:
       # internal/claim would count for nothing there; with it, a hit is
       # attributed to the package whose code ran.
       - run: go test ./... -coverpkg=./... -coverprofile=cover.out
+      # codecov's project/patch thresholds above are a soft ratchet —
+      # a small dip is tolerated, and a fork PR with no upload passes
+      # by default. internal/report and internal/claim reached 100%
+      # line coverage (plan 2609061856, phases 1-2) and stay there by
+      # a hard gate instead: scripts/check-coverage.sh fails outright
+      # the moment any named package drops below it. Later
+      # line-coverage phases add their own package to this call once
+      # each reaches 100%.
+      - run: scripts/check-coverage.sh ./internal/report ./internal/claim ./internal/fleet ./internal/observe ./internal/repocfg ./internal/herdr ./cmd/frit
       # The profile is a measurement, not a gate, and is most wanted
       # from a run that failed — so the summary and the upload run on
       # any outcome short of a cancel. The explicit shell adds pipefail:

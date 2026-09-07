@@ -41,6 +41,19 @@ func Load(path string) State {
 	return s
 }
 
+// tempFile is the slice of *os.File that Save writes through — narrow
+// enough that a test can fake a Write or Close failure no real
+// temporary file will misbehave into on demand.
+type tempFile interface {
+	Write([]byte) (int, error)
+	Close() error
+	Name() string
+}
+
+var createTemp = func(dir, pattern string) (tempFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
 // Save writes the state to path as JSON, creating its directory.
 //
 // The write is atomic — a temp file renamed into place — so one frit
@@ -58,7 +71,7 @@ func Save(path string, s State) error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(dir, "observations-*.json")
+	tmp, err := createTemp(dir, "observations-*.json")
 	if err != nil {
 		return err
 	}

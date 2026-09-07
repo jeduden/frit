@@ -77,6 +77,20 @@ func TestInitFailsOnAMissingDirectory(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInitFailsWhenStatErrsWithoutNotExist: a parent path component
+// that is a plain file, not a directory, makes os.Stat fail with
+// "not a directory" — an error errors.Is(fs.ErrNotExist) reports
+// false for, unlike the missing-directory case above.
+func TestInitFailsWhenStatErrsWithoutNotExist(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "afile")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+
+	_, err := Init(filepath.Join(file, "sub"), false)
+
+	require.Error(t, err)
+}
+
 func TestTemplateDocumentsEveryKeyItWrites(t *testing.T) {
 	// A key that is written but not explained is how a config file
 	// rots, so both keys must appear as prose as well as settings.

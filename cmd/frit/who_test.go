@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -177,4 +180,106 @@ func TestWhoEmitsJSON(t *testing.T) {
 	assert.Equal(t, herdr.StatusWorking, doc.Lanes[0].Status)
 	assert.Equal(t, int64(2608161808), doc.Lanes[0].PlanID)
 	assert.Equal(t, "atlas", doc.Lanes[0].Repo)
+}
+
+// TestWhoNamesAnUnreadHostAsAProblem: fleetPresence can succeed for
+// the local socket while a configured host still goes unread — that
+// per-host failure travels as a problem alongside whatever the local
+// read found.
+func TestWhoNamesAnUnreadHostAsAProblem(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	withHerdr(t, herdrReturning())
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", t.TempDir(), "--hosts", "box")
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "host box", doc.Problems[0].Repo)
+}
+
+// TestWhoLanesTieBreaksOnPaneIDWithinTheSamePlan: two staffed panes on
+// the same repository and plan sort by pane id, so the board reads
+// the same way twice.
+func TestWhoLanesTieBreaksOnPaneIDWithinTheSamePlan(t *testing.T) {
+	isolate(t)
+	repo := repoOnPlan(t, t.TempDir(), "atlas", "plan/7-shader")
+	panes := []herdr.Pane{
+		{Agent: "claude", CWD: repo, PaneID: "wB:p1"},
+		{Agent: "claude", CWD: repo, PaneID: "wA:p1"},
+	}
+
+	lanes := whoLanes(panes, gitwt.Exec)
+
+	require.Len(t, lanes, 2)
+	assert.Equal(t, "wA:p1", lanes[0].Pane.PaneID)
+	assert.Equal(t, "wB:p1", lanes[1].Pane.PaneID)
+}
+
+// TestWhoLanesSortsByPlanIDWithinTheSameRepo: two staffed panes whose
+// checkouts share a repository name — the ambiguous-basename shape,
+// here two different plans rather than two claims of the same one —
+// sort by plan id, the return line the same-repo, same-plan tie-break
+// never reaches.
+func TestWhoLanesSortsByPlanIDWithinTheSameRepo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := repoOnPlan(t, filepath.Join(root, "a"), "atlas", "plan/9-later")
+	repoB := repoOnPlan(t, filepath.Join(root, "b"), "atlas", "plan/7-first")
+	panes := []herdr.Pane{
+		{Agent: "claude", CWD: repoA, PaneID: "wB:p1"},
+		{Agent: "claude", CWD: repoB, PaneID: "wA:p1"},
+	}
+
+	lanes := whoLanes(panes, gitwt.Exec)
+
+	require.Len(t, lanes, 2)
+	assert.Equal(t, int64(7), lanes[0].PlanID)
+	assert.Equal(t, int64(9), lanes[1].PlanID)
+}
+
+// TestWhoLanesSortsByRepositoryWhenRepositoriesDiffer: two staffed
+// panes in genuinely different repositories sort by repository name
+// first — the branch neither same-repo test above reaches, since both
+// give their two lanes the same basename on purpose.
+func TestWhoLanesSortsByRepositoryWhenRepositoriesDiffer(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	zeta := repoOnPlan(t, root, "zeta", "plan/1-first")
+	atlas := repoOnPlan(t, root, "atlas", "plan/9-later")
+	panes := []herdr.Pane{
+		{Agent: "claude", CWD: zeta, PaneID: "wA:p1"},
+		{Agent: "claude", CWD: atlas, PaneID: "wB:p1"},
+	}
+
+	lanes := whoLanes(panes, gitwt.Exec)
+
+	require.Len(t, lanes, 2)
+	assert.Equal(t, "atlas", lanes[0].Repo)
+	assert.Equal(t, "zeta", lanes[1].Repo)
+}
+
+// TestHoldsForRootIsNilWhenTheConfigCannotBeRead: holdsForRoot's own
+// repocfg.Load error, called directly against a broken .frit.yml.
+func TestHoldsForRootIsNilWhenTheConfigCannotBeRead(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+
+	assert.Nil(t, holdsForRoot(repo))
+}
+
+// TestHoldsForRootIsNilWhenThePatternCannotCompile: holdsForRoot's own
+// cfg.Compiled error, called directly against an uncompilable glob.
+func TestHoldsForRootIsNilWhenThePatternCannotCompile(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\"plan/[\"]\n"), 0o600))
+
+	assert.Nil(t, holdsForRoot(repo))
 }

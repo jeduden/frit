@@ -3,6 +3,8 @@ package herdr
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +41,58 @@ func TestRunShellsOutToTheNamedBinary(t *testing.T) {
 func TestRunSurfacesAFailingProcess(t *testing.T) {
 	_, err := Run("false")
 	assert.Error(t, err)
+}
+
+// TestRunSurfacesStderrAlongsideTheFailure: a failing process that
+// also writes to stderr must have that text folded into the error, the
+// branch neither TestRunSurfacesAMissingBinary (no process ever ran)
+// nor TestRunSurfacesAFailingProcess (a bare exit, no stderr) reaches.
+func TestRunSurfacesStderrAlongsideTheFailure(t *testing.T) {
+	_, err := runContext(context.Background(),
+		"sh", "-c", "echo boom >&2; exit 1")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
+// fakeHerdrOnPath puts a throwaway script named herdr first on $PATH,
+// so Exec and ExecContext — which hardcode "herdr" as the binary name
+// — run a real process without needing a herdr installation or a
+// socket, the same way runContext's own tests already stand in real
+// binaries (echo, false, sh) for the process this package would
+// otherwise shell out to.
+func fakeHerdrOnPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "herdr")
+	require.NoError(t, os.WriteFile(
+		script, []byte("#!/bin/sh\necho \"$@\"\n"), 0o755))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestExecShellsOutToTheLocalHerdrBinary drives Exec's real code path
+// — through ExecContext and runContext — against a fake herdr on
+// $PATH, since a real installation is not something a unit test can
+// rely on.
+func TestExecShellsOutToTheLocalHerdrBinary(t *testing.T) {
+	fakeHerdrOnPath(t)
+
+	out, err := Exec("agent", "list")
+
+	require.NoError(t, err)
+	assert.Equal(t, "agent list\n", string(out))
+}
+
+// TestExecContextShellsOutToTheLocalHerdrBinary covers ExecContext
+// directly: it is the ContextRunner cmd/frit wires as herdrRunner,
+// wrapped by WithTimeout, so it is exercised on its own rather than
+// only transitively through Exec.
+func TestExecContextShellsOutToTheLocalHerdrBinary(t *testing.T) {
+	fakeHerdrOnPath(t)
+
+	out, err := ExecContext(context.Background(), "pane", "current")
+
+	require.NoError(t, err)
+	assert.Equal(t, "pane current\n", string(out))
 }
 
 // TestListParsesWhatTheRunnerReturns joins the Runner seam to the

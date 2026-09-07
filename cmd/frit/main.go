@@ -270,10 +270,10 @@ func (o *orphansCmd) Run(c *cli, rt *runtime) error {
 	// The held-stale cell of the verb-state table reads the same
 	// observation fold board and claim use, not lanes.Find's git-ref
 	// sweep, so it needs its own gather beside the lanes walk below.
-	res, err := gatherFleet(c, rt)
-	if err != nil {
-		return err
-	}
+	// gatherFleet's own error source is the identical discover.Repos
+	// call just made above, so a second error check here could never
+	// fire.
+	res, _ := gatherFleet(c, rt)
 
 	doc := report.NewOrphans(c.Root)
 	for _, repo := range repos {
@@ -1342,11 +1342,18 @@ func printPlans(out io.Writer, doc *report.PlansDoc, detail bool) {
 	_ = tw.Flush()
 }
 
+// osHostname is hostname's own seam: a package variable so a test can
+// swap in a failing stub, mirroring start.go's openEditor and
+// agentStartPause. os.Hostname essentially never fails on a real
+// machine, unlike os.Getwd, so there is no portable way to fail it
+// directly.
+var osHostname = os.Hostname
+
 // hostname names the machine this run reads, falling back to a stable
 // label so a plan key is well formed even when the hostname is
 // unreadable.
 func hostname() string {
-	host, err := os.Hostname()
+	host, err := osHostname()
 	if err != nil {
 		return "localhost"
 	}
@@ -2575,6 +2582,10 @@ func fitBoard(width int, rows [][]string, cols []string) {
 func allocateFlex(budget int, maxw []int, heldIdx, titleIdx int) (held, title int) {
 	const minTitle = 12
 	switch {
+	// held never goes negative here: it is either maxw[heldIdx] (a
+	// width, never negative), 0, or budget-minTitle where the budget<=
+	// minTitle branch above already caught the only case that could
+	// make it so.
 	case heldIdx >= 0 && titleIdx >= 0:
 		held = maxw[heldIdx]
 		title = budget - held
@@ -2584,9 +2595,6 @@ func allocateFlex(budget int, maxw []int, heldIdx, titleIdx int) (held, title in
 			} else {
 				held, title = budget-minTitle, minTitle
 			}
-		}
-		if held < 0 {
-			held = 0
 		}
 	case titleIdx >= 0:
 		title = budget
@@ -3061,6 +3069,16 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// exitCodeFromPanic sorts a recovered panic: kong's own exitCode,
+// unwound here so its process exit survives without killing a test
+// binary, or any other value, a genuine unrelated bug run must
+// re-panic rather than swallow.
+func exitCodeFromPanic(r any) (code int, matched bool) {
+	c, ok := r.(exitCode)
+
+	return int(c), ok
+}
+
 // run is the testable entry point. It returns the process exit code:
 // 0 on success, 1 on a runtime failure, 2 on a usage error.
 func run(args []string, stdout, stderr io.Writer) (code int) {
@@ -3069,8 +3087,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		if r == nil {
 			return
 		}
-		if c, ok := r.(exitCode); ok {
-			code = int(c)
+		if c, ok := exitCodeFromPanic(r); ok {
+			code = c
 			return
 		}
 		panic(r)

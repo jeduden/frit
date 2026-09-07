@@ -89,6 +89,27 @@ func TestWorktreeCreateReportsAMissingPane(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestWorktreeCreateReturnsTheRunnerError surfaces a failed herdr call
+// rather than reporting an empty pane as a fact — worktreePane's own
+// runner-error branch, distinct from a response with no pane in it.
+func TestWorktreeCreateReturnsTheRunnerError(t *testing.T) {
+	want := errors.New("no socket")
+	_, err := WorktreeCreate(func(...string) ([]byte, error) {
+		return nil, want
+	}, WorktreeSpec{CWD: "/repo", Branch: "b", Base: "main", Path: "/p"})
+	assert.ErrorIs(t, err, want)
+}
+
+// TestWorktreeCreateReportsAnUnparsableResponse: a response herdr
+// itself could not have sent is an error, not a panic or a silent
+// empty pane — parseWorktreePane's json.Unmarshal failure.
+func TestWorktreeCreateReportsAnUnparsableResponse(t *testing.T) {
+	_, err := WorktreeCreate(func(...string) ([]byte, error) {
+		return []byte("{not json"), nil
+	}, WorktreeSpec{CWD: "/repo", Branch: "b", Base: "main", Path: "/p"})
+	assert.Error(t, err)
+}
+
 // TestWorktreeOpenReturnsTheRootPane reads the pane herdr put the
 // existing checkout back on screen in — the pane a reattached lane's
 // agent is then started in. There is no --base: nothing is being
@@ -205,6 +226,16 @@ func TestCurrentPaneReturnsTheRunnerError(t *testing.T) {
 		return nil, want
 	})
 	assert.ErrorIs(t, err, want)
+}
+
+// TestCurrentPaneReportsAnUnparsableResponse: a response herdr itself
+// could not have sent is an error — parseCurrentPane's json.Unmarshal
+// failure, distinct from the runner failing outright.
+func TestCurrentPaneReportsAnUnparsableResponse(t *testing.T) {
+	_, err := CurrentPane(func(...string) ([]byte, error) {
+		return []byte("{not json"), nil
+	})
+	assert.Error(t, err)
 }
 
 // TestWorktreeRemoveTargetsTheWorkspace tears a checkout down by the

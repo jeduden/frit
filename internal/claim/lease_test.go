@@ -24,6 +24,93 @@ func leaseOptions(holder, lane string) LeaseOptions {
 	}
 }
 
+// TestHeldErrorMessageNamesThePlan: the message is a fixed sentence
+// naming the plan, never a guess at the winner — the caller reads the
+// winner's facts off the typed fields (Marker, Known, ThisHolder,
+// Landed), not by parsing this string.
+func TestHeldErrorMessageNamesThePlan(t *testing.T) {
+	e := &HeldError{PlanID: 7}
+
+	assert.Contains(t, e.Error(), "plan 7")
+	assert.Contains(t, e.Error(), "held")
+}
+
+// TestFenceErrorMessageIsGenericWhenTheMoverIsUnknown: FenceError.Error
+// has two shapes — TestRenewAfterAForeignMoveIsFenced below already
+// pins the known-mover sentence naming the holder; this pins its
+// sibling, read when the mover's marker was never read at all or
+// carried no holder.
+func TestFenceErrorMessageIsGenericWhenTheMoverIsUnknown(t *testing.T) {
+	unread := &FenceError{PlanID: 7}
+	assert.NotContains(t, unread.Error(), "was moved by")
+	assert.Contains(t, unread.Error(), "yield")
+
+	noHolder := &FenceError{PlanID: 7, Known: true}
+	assert.NotContains(t, noHolder.Error(), "was moved by")
+}
+
+// TestVetoErrorMessageAndUnwrap: a veto's message names the plan and
+// carries the same lost-race sentinel every other lost-arbitration
+// error does, so a caller can tell it apart from a git fault the same
+// way.
+func TestVetoErrorMessageAndUnwrap(t *testing.T) {
+	e := &VetoError{PlanID: 7}
+
+	assert.Contains(t, e.Error(), "plan 7")
+	assert.Contains(t, e.Error(), "live session")
+	assert.ErrorIs(t, e, ErrLostRace)
+}
+
+// TestLocalDivergesErrorMessageNamesTheBranchAndItsTip: the message
+// names the branch and its unpushed tip, so a caller reads what to
+// push or rename without a second lookup.
+func TestLocalDivergesErrorMessageNamesTheBranchAndItsTip(t *testing.T) {
+	e := &LocalDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "abc123"}
+
+	msg := e.Error()
+	assert.Contains(t, msg, "plan/7")
+	assert.Contains(t, msg, "abc123")
+}
+
+// TestStillHeldErrorMessagePointsAtRelease: the message tells a caller
+// that ran yield on their own still-live lease to use release instead.
+func TestStillHeldErrorMessagePointsAtRelease(t *testing.T) {
+	e := &StillHeldError{PlanID: 7}
+
+	assert.Contains(t, e.Error(), "plan 7")
+	assert.Contains(t, e.Error(), "use release instead")
+}
+
+// TestUnconfirmedDeleteErrorMessageWrapsTheInnerFault: the message
+// carries the wrapped fault's own text, and Unwrap reaches it too, so
+// a caller can match on the underlying cause.
+func TestUnconfirmedDeleteErrorMessageWrapsTheInnerFault(t *testing.T) {
+	inner := errors.New("connection reset")
+	e := &UnconfirmedDeleteError{PlanID: 7, Ref: "refs/heads/plan/7", Err: inner}
+
+	assert.Contains(t, e.Error(), "connection reset")
+	assert.ErrorIs(t, e, inner)
+}
+
+// TestEmptyLocalErrorMessageNamesThePlan: the message says plainly
+// that this lane has nothing local to park, distinct from a refusal.
+func TestEmptyLocalErrorMessageNamesThePlan(t *testing.T) {
+	e := &EmptyLocalError{PlanID: 7}
+
+	assert.Contains(t, e.Error(), "plan 7")
+	assert.Contains(t, e.Error(), "no local copy")
+}
+
+// TestUnconfirmedYieldErrorMessageWrapsTheReadFault: the message
+// carries the still-held read's own fault, and Unwrap reaches it too.
+func TestUnconfirmedYieldErrorMessageWrapsTheReadFault(t *testing.T) {
+	inner := errors.New("git: timed out")
+	e := &UnconfirmedYieldError{PlanID: 7, Err: inner}
+
+	assert.Contains(t, e.Error(), "git: timed out")
+	assert.ErrorIs(t, e, inner)
+}
+
 // TestAcquireRaceHasOneWinnerAndNamesTheLease: two machines acquire one
 // plan id; the server-side CAS picks exactly one winner, and the
 // loser's error carries the winner's epoch, machine id and lane read
@@ -153,6 +240,114 @@ func TestAcquireStillWinsWhenLocalBranchIsAncestorOfBase(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestAcquireProceedsWhenTheLocalBranchIsAnAncestorOfBase: a local
+// plan/<id> branch that already exists but carries nothing beyond
+// base — the guard's own ancestor check, distinct from "no branch at
+// all" above — is not a divergence either, so the fresh acquire
+// proceeds exactly as if there were no local branch.
+func TestAcquireProceedsWhenTheLocalBranchIsAnAncestorOfBase(t *testing.T) {
+	work := originAndClone(t)
+	base := gitCmd(t, work, "rev-parse", "origin/main")
+	gitCmd(t, work, "branch", "plan/7", base)
+
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+
+	require.NoError(t, err)
+}
+
+// TestAcquireSurfacesABaseReadFault: a fresh claim reads the base sha
+// before it mints anything; a base git cannot resolve is surfaced
+// rather than minted against a guessed commit.
+func TestAcquireSurfacesABaseReadFault(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	opts.Base = "not-a-real-base"
+
+	_, err := Acquire(work, opts, gitwt.Exec)
+
+	require.Error(t, err)
+}
+
+// TestAcquireSurfacesAMintMarkerFaultOnAFreshClaim: the claim marker
+// is minted after the base is read and the diverging-branch guard
+// clears; a git fault minting it — here, reading the parent's own
+// tree — is surfaced rather than claimed on half a marker.
+func TestAcquireSurfacesAMintMarkerFaultOnAFreshClaim(t *testing.T) {
+	work := originAndClone(t)
+	failingTree := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 1 && args[0] == "rev-parse" &&
+			strings.HasSuffix(args[1], "^{tree}") {
+			return nil, errors.New("bad revision")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), failingTree)
+
+	require.Error(t, err)
+}
+
+// TestAcquireSurfacesACasPushFaultOnAFreshClaim: the push and its
+// follow-up confirmation read both fail — the same stalled connection
+// took out both calls — so the claim surfaces the unconfirmed push
+// rather than guess whether it landed.
+func TestAcquireSurfacesACasPushFaultOnAFreshClaim(t *testing.T) {
+	work := originAndClone(t)
+	readErr := errors.New("git: timed out")
+	failing := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("connection reset")
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, readErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), failing)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, readErr)
+}
+
+// TestAcquireSurfacesTheLostBranchOnAFreshClaimRace:
+// pushClaimMarker's own lost-CAS branch is distinct from the
+// already-tested pre-push lost race
+// (TestAcquireRaceHasOneWinnerAndNamesTheLease), where the second
+// caller's own initial read already sees the winner's tip and never
+// reaches pushClaimMarker at all. This pins the narrower race: the
+// second caller's initial read answers empty exactly once — faking
+// the window where it raced past the real claim landing — so it
+// takes the fresh-claim path and only discovers the real occupant
+// when its own push is rejected and it re-reads for real.
+func TestAcquireSurfacesTheLostBranchOnAFreshClaimRace(t *testing.T) {
+	first := originAndClone(t)
+	_, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+	calls := 0
+	onceEmpty := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			calls++
+			if calls == 1 {
+				return nil, nil
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Acquire(second, leaseOptions("box-b", "/lanes/b"), onceEmpty)
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the re-read after the lost CAS finds the real winner")
+	assert.Equal(t, "box-a", held.Marker.Holder)
+}
+
 // TestRenewAdvancesTheTipAndNothingElse: a renewal CASes from the
 // holder's recorded tip to a beat marker that is its child — same
 // epoch, fresh nonce — so the lease stays live without a second
@@ -214,6 +409,71 @@ func TestRenewAfterAForeignMoveIsFenced(t *testing.T) {
 	assert.Equal(t, lease.Tip,
 		gitCmd(t, first, "rev-parse", "refs/heads/plan/7"),
 		"the local ref is rolled back to the recorded tip")
+}
+
+// TestRenewErrsWhenNoMarkerIsReachableFromFrom: a renewal reads the
+// epoch beneath the recorded tip before it mints a beat; a tip with no
+// frit marker at all reachable from it — a hand-made commit — refuses
+// rather than renew on a guessed epoch.
+func TestRenewErrsWhenNoMarkerIsReachableFromFrom(t *testing.T) {
+	work := originAndClone(t)
+	tip := gitCmd(t, work, "rev-parse", "main")
+
+	_, err := Renew(work, leaseOptions("box-a", "/lanes/a"), tip, gitwt.Exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lease marker")
+}
+
+// TestRenewSurfacesAMintMarkerFault: the beat marker is minted after
+// the recorded tip's own marker is read; a git fault minting it —
+// here, reading the parent's tree — is surfaced rather than renewed on
+// half a marker.
+func TestRenewSurfacesAMintMarkerFault(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	failingRevParse := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "rev-parse" {
+			return nil, errors.New("bad revision")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Renew(work, opts, lease.Tip, failingRevParse)
+
+	require.Error(t, err)
+}
+
+// TestRenewSurfacesACasPushFault: the push and its follow-up
+// confirmation read both fail — the same stalled connection took out
+// both calls — so the renewal surfaces the unconfirmed push rather
+// than guess whether it landed.
+func TestRenewSurfacesACasPushFault(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+
+	readErr := errors.New("git: timed out")
+	failing := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("connection reset")
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, readErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Renew(work, opts, lease.Tip, failing)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, readErr)
 }
 
 // TestBindRenewReconcilesARefTheOwnHolderAdvanced: the lane commits and
@@ -474,6 +734,22 @@ func TestOwnAdvanceRefusesATokenThatIsNotAnAncestor(t *testing.T) {
 	assert.False(t, OwnAdvance(first, 7, "deadbeef", tip, gitwt.Exec))
 }
 
+// TestOwnAdvanceRefusesATokenThatIsNotItselfAMarker: the token is an
+// ancestor of tip, but the token commit's own message is not one of
+// frit's markers — not a shape a real lease ever leaves, but OwnAdvance
+// still answers false rather than read the governing marker on the
+// strength of ancestry alone.
+func TestOwnAdvanceRefusesATokenThatIsNotItselfAMarker(t *testing.T) {
+	first := originAndClone(t)
+	gitCmd(t, first, "checkout", "-q", "-b", "plan/7")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "not a marker")
+	token := gitCmd(t, first, "rev-parse", "HEAD")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	tip := gitCmd(t, first, "rev-parse", "HEAD")
+
+	assert.False(t, OwnAdvance(first, 7, token, tip, gitwt.Exec))
+}
+
 // TestTakeoverCountReadsTheMarkersAlreadyInTheChain: the backoff
 // factor k is read straight off the chain, so every observer computes
 // the same one (F3) — a fresh claim carries none, and each seized
@@ -711,6 +987,71 @@ func TestHeldAnswersFalseForAnUnreadableTip(t *testing.T) {
 		}))
 }
 
+// TestLiveHoldIsHeldUnderTheNameItsCallersReasonIn: LiveHold is Held,
+// exported under lanes.Build's own name for the same verdict — proven
+// once here rather than duplicating Held's own table of cases.
+func TestLiveHoldIsHeldUnderTheNameItsCallersReasonIn(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: claim")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+
+	assert.True(t, LiveHold(work, tip, 7, gitwt.Exec))
+}
+
+// TestMarkerSubjectRejectsAPrefixedSubjectNamingNoMarkerKind: a
+// subject carrying the "plan <id>: " prefix but naming something that
+// is none of frit's marker kinds — a plan-authoring commit's title,
+// say — is not a marker a delete may discard.
+func TestMarkerSubjectRejectsAPrefixedSubjectNamingNoMarkerKind(t *testing.T) {
+	assert.False(t, markerSubject("plan 7: a plan about markers", 7))
+}
+
+// TestRescuePlanIDReadsTheIDSegmentOrRefusesAMalformedRef: the id
+// segment of refs/frit/rescue/<id>/<rest> is read for a genuine rescue
+// ref; anything ls-remote's own pattern could not have produced — no
+// prefix, no rest segment, a non-numeric id — reads not-ok rather than
+// panicking.
+func TestRescuePlanIDReadsTheIDSegmentOrRefusesAMalformedRef(t *testing.T) {
+	id, ok := rescuePlanID("refs/frit/rescue/7/box-a-deadbeef")
+	require.True(t, ok)
+	assert.Equal(t, int64(7), id)
+
+	_, ok = rescuePlanID("refs/heads/plan/7")
+	assert.False(t, ok, "no refs/frit/rescue/ prefix")
+
+	_, ok = rescuePlanID("refs/frit/rescue/7")
+	assert.False(t, ok, "no rest segment after the id")
+
+	_, ok = rescuePlanID("refs/frit/rescue/not-a-number/box-a")
+	assert.False(t, ok, "a non-numeric id segment")
+}
+
+// TestFreshBaseFallsBackToTheGivenBaseWhenTheFetchFails: a fresh
+// landed check refreshes the base from the remote when it can, but an
+// unreadable remote must not fail the caller — it falls back to the
+// base exactly as given, the same fail-safe direction isAncestor
+// already takes for an unreadable read.
+func TestFreshBaseFallsBackToTheGivenBaseWhenTheFetchFails(t *testing.T) {
+	failingFetch := func(_ string, _ ...string) ([]byte, error) {
+		return nil, errors.New("could not resolve host")
+	}
+
+	assert.Equal(t, "origin/main",
+		freshBase("/r", "origin/main", "origin", failingFetch))
+}
+
+// TestCommitMarkerSurfacesAGitFault: a sha git cannot read answers
+// not-ok rather than propagate the read fault, the same tolerance
+// latestMarker's own log read gives an unreadable tip.
+func TestCommitMarkerSurfacesAGitFault(t *testing.T) {
+	_, ok := commitMarker("/r", 7, "bad-sha",
+		func(string, ...string) ([]byte, error) {
+			return nil, errors.New("bad object")
+		})
+
+	assert.False(t, ok)
+}
+
 // TestReleased reads the tip's subject and nothing else: a release
 // marker for this plan answers true; work commits, other kinds, other
 // plans and unreadable objects answer false.
@@ -740,6 +1081,51 @@ func TestNewNonce(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, a)
 	assert.NotEqual(t, a, b)
+}
+
+// TestNewNonceSurfacesAnEntropyFault: real entropy does not fail on
+// command, so newNonce reads through the randRead seam instead of
+// calling crypto/rand.Read directly, letting a test force the one
+// failure a marker mint must not swallow.
+func TestNewNonceSurfacesAnEntropyFault(t *testing.T) {
+	orig := randRead
+	t.Cleanup(func() { randRead = orig })
+	randRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy exhausted")
+	}
+
+	_, err := newNonce()
+
+	require.Error(t, err)
+}
+
+// TestMintMarkerSurfacesATreeReadFault: a marker mint reads the
+// parent's own tree before it commits anything; a parent git cannot
+// resolve is surfaced, not minted into a broken commit.
+func TestMintMarkerSurfacesATreeReadFault(t *testing.T) {
+	work := originAndClone(t)
+
+	_, err := mintMarker(work, markerClaim, "not-a-real-ref",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
+
+	require.Error(t, err)
+}
+
+// TestMintMarkerSurfacesANonceFault: the nonce is minted after the
+// tree is read and before the commit is written; an entropy fault
+// there is surfaced the same way, through the randRead seam.
+func TestMintMarkerSurfacesANonceFault(t *testing.T) {
+	work := originAndClone(t)
+	orig := randRead
+	t.Cleanup(func() { randRead = orig })
+	randRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy exhausted")
+	}
+
+	_, err := mintMarker(work, markerClaim, "main",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
+
+	require.Error(t, err)
 }
 
 // TestMarkerHostReadsALeaseMarker: the current-worktree guard reads
@@ -802,6 +1188,69 @@ func TestTakeoverRacesARenewalOneCASWins(t *testing.T) {
 	remote := gitCmd(t, second, "ls-remote", "origin", "refs/heads/plan/7")
 	assert.Contains(t, remote, renewed.Tip,
 		"the renewal stands; the loser moved nothing")
+}
+
+// TestTakeoverErrsWhenNoMarkerIsReachableFromFrom: a takeover needs a
+// lease marker to read the epoch it is seizing from; an observed tip
+// with no frit marker at all reachable from it — a hand-made commit —
+// refuses rather than seize on a guessed epoch.
+func TestTakeoverErrsWhenNoMarkerIsReachableFromFrom(t *testing.T) {
+	work := originAndClone(t)
+	tip := gitCmd(t, work, "rev-parse", "main")
+
+	_, err := Takeover(work, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no lease marker")
+}
+
+// TestTakeoverSurfacesAMintMarkerFault: the takeover marker is minted
+// after the observed tip's own marker is read; a git fault minting it
+// — here, reading the parent's tree — is surfaced rather than seized
+// on half a marker.
+func TestTakeoverSurfacesAMintMarkerFault(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	failingRevParse := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "rev-parse" {
+			return nil, errors.New("bad revision")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Takeover(first, leaseOptions("box-b", "/lanes/b"), lease.Tip, failingRevParse)
+
+	require.Error(t, err)
+}
+
+// TestTakeoverSurfacesACasPushFault: the push and its follow-up
+// confirmation read both fail — the same stalled connection took out
+// both calls — so the takeover surfaces the unconfirmed push rather
+// than guess whether it landed.
+func TestTakeoverSurfacesACasPushFault(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	readErr := errors.New("git: timed out")
+	failing := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("connection reset")
+		}
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, readErr
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Takeover(first, leaseOptions("box-b", "/lanes/b"), lease.Tip, failing)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, readErr)
 }
 
 // workOn commits one file on the plan's work ref and pushes it, so
@@ -1102,6 +1551,34 @@ func TestYieldParksLocalDivergenceOfAFencedLane(t *testing.T) {
 		"the takeover still holds the work ref; yield never CASes it")
 }
 
+// TestYieldSurfacesAParkFault: yield's own park call can fail exactly
+// the way ParkUnlanded's own does — a rescue ref sitting at the exact
+// content-addressed name this park would write, but holding a
+// different object — and that error is returned as-is, never masked
+// as a success.
+func TestYieldSurfacesAParkFault(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(first, opts, gitwt.Exec)
+	require.NoError(t, err)
+	local := localWork(t, first)
+
+	second := cloneAgain(t, first)
+	_, err = Takeover(
+		second, leaseOptions("box-b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	other := gitCmd(t, first, "rev-parse", "origin/main")
+	rescue := rescueRef(opts.PlanID, opts.Holder, local)
+	gitCmd(t, first, "push", "-q", "origin", other+":"+rescue)
+
+	_, err = Yield(first, opts, local, gitwt.Exec)
+
+	require.Error(t, err)
+	var conflict *RescueConflictError
+	require.ErrorAs(t, err, &conflict)
+}
+
 // TestYieldRefusesTheCurrentHolder: a lane whose local tip still
 // matches origin's is not fenced — yield is for the fenced, not an
 // alias for release — so it refuses and parks nothing.
@@ -1226,6 +1703,23 @@ func TestRescueRefsListsEveryMachinesParkedWork(t *testing.T) {
 		"another plan's rescue refs do not bleed in")
 }
 
+// TestRescueRefsIsEmptyWhenTheRemoteCannotBeRead: unlike AllRescueRefs'
+// batched sibling, which surfaces the fault, RescueRefs tolerates an
+// unreadable remote the same way every discovery read does — an empty
+// list, not a crash.
+func TestRescueRefsIsEmptyWhenTheRemoteCannotBeRead(t *testing.T) {
+	work := originAndClone(t)
+	deadRemote := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return nil, errors.New("could not resolve host")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	assert.Empty(t, RescueRefs(work, "origin", 7, deadRemote))
+}
+
 // TestAllRescueRefsBucketsByPlanID: the batched sibling of RescueRefs
 // reads every plan's rescue refs in one ls-remote, bucketed by the id
 // segment in the ref name — what orphans' sweep needs instead of one
@@ -1244,6 +1738,31 @@ func TestAllRescueRefsBucketsByPlanID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"refs/frit/rescue/7/box-b-" + tip}, buckets[7])
 	assert.Equal(t, []string{"refs/frit/rescue/8/box-c"}, buckets[8])
+}
+
+// TestAllRescueRefsSkipsAMalformedRefName: ls-remote's own pattern
+// could never produce a name outside refs/frit/rescue/<id>/<rest>, but
+// the sweep still guards against one rather than trust it — a
+// malformed entry is skipped, not bucketed under id 0 or panicked on.
+func TestAllRescueRefsSkipsAMalformedRefName(t *testing.T) {
+	work := originAndClone(t)
+	fake := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "ls-remote" {
+			return []byte(
+				"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" +
+					"\trefs/frit/rescue/not-a-number/box-a\n" +
+					"cafefeedcafefeedcafefeedcafefeedcafefeed" +
+					"\trefs/frit/rescue/7/box-b\n"), nil
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	buckets, err := AllRescueRefs(work, "origin", fake)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[int64][]string{7: {"refs/frit/rescue/7/box-b"}}, buckets,
+		"the malformed ref name skips rather than bucketing under a guessed id")
 }
 
 // TestAllRescueRefsIsEmptyWithNoRemoteConfigured: a repository that has
@@ -1302,6 +1821,34 @@ func TestScavengeErrsWhenTheRemoteCannotBeRead(t *testing.T) {
 	require.Error(t, err)
 	local := gitCmd(t, work, "rev-parse", "--verify", "refs/heads/plan/7")
 	assert.NotEmpty(t, local, "the local ref survives an unreadable remote")
+}
+
+// TestScavengeSurfacesANonConflictParkFault: the park half of a
+// scavenge can fail for a reason other than a foreign rescue ref — a
+// git fault reading the chain, here — and that plain fault is
+// surfaced as-is rather than reported as the typed RescueConflictError
+// its sibling test pins; the work ref is left standing either way.
+func TestScavengeSurfacesANonConflictParkFault(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	failingLog := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "log" {
+			return nil, errors.New("bad revision")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = Scavenge(work, leaseOptions("box-b", "/lanes/b"), tip, failingLog)
+
+	require.Error(t, err)
+	var conflict *RescueConflictError
+	assert.False(t, errors.As(err, &conflict),
+		"a plain git fault is not reported as a rescue conflict")
+	remote := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7")
+	assert.Contains(t, remote, tip, "the work ref is not deleted on a park fault")
 }
 
 // TestScavengeReportsAnUnconfirmedDeleteWhenTheConfirmationReadFails:
@@ -1436,6 +1983,27 @@ func TestParkUnlandedRefusesAForeignRescue(t *testing.T) {
 	require.Error(t, err)
 	rescue := gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/7/box-b-"+tip)
 	assert.Contains(t, rescue, other, "the foreign rescue is untouched")
+}
+
+// TestParkUnlandedSurfacesAHasUnlandedFault: whether a chain has work
+// to park is answered by reading it; a git fault doing so — here, the
+// chain read itself — is surfaced rather than parking on a guess.
+func TestParkUnlandedSurfacesAHasUnlandedFault(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+	tip := workOn(t, work)
+	failingLog := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "log" {
+			return nil, errors.New("bad revision")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err = ParkUnlanded(work, leaseOptions("box-b", "/lanes/b"), tip, failingLog)
+
+	require.Error(t, err)
 }
 
 // TestHasUnlandedTellsWorkFromMarkers: a marker-only chain has nothing

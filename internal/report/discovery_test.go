@@ -150,6 +150,59 @@ func TestShowMarkUnprovenNamesTheWayOut(t *testing.T) {
 	assert.Equal(t, unprovenNextAction(7), doc.NextAction)
 }
 
+// TestReadyAddProblemRecordsAnUnreadRepository: ready shares the same
+// AddProblem shape pick, find, next and show all carry, so a repository
+// frit could not read is never silently dropped.
+func TestReadyAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
+// TestPickAddProblemRecordsAnUnreadRepository is ready's own test,
+// pinned for pick.
+func TestPickAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewPick("/fleet", "forge")
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
+// TestFindAddProblemRecordsAnUnreadRepository is ready's own test,
+// pinned for find.
+func TestFindAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewFind("/fleet", "forge", "underway")
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
+// TestNextAddProblemRecordsAnUnreadRepository is ready's own test,
+// pinned for next.
+func TestNextAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewNext("/fleet", discovery.Plan{Repo: "atlas", ID: 7})
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
+// TestShowAddProblemRecordsAnUnreadRepository is ready's own test,
+// pinned for show.
+func TestShowAddProblemRecordsAnUnreadRepository(t *testing.T) {
+	doc := NewShow("/fleet", discovery.DepNode{
+		Plan: discovery.Plan{Repo: "atlas", ID: 7}, Found: true,
+	})
+	doc.AddProblem("broken", assert.AnError)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "broken", doc.Problems[0].Repo)
+}
+
 // attendedLane is the presence callback a working pane on the lane
 // answers with.
 func attendedLane(discovery.Plan) string { return herdr.StatusWorking }

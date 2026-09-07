@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
@@ -875,4 +876,194 @@ func TestMessageRefusesEmptyText(t *testing.T) {
 
 	assert.NotEqual(t, 0, code, "an empty text must be refused outright")
 	assert.False(t, rec.verb("agent", "prompt"))
+}
+
+// TestOpenFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before open ever resolves a plan.
+func TestOpenFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestOpenRefusesAnUnresolvableSelector: open's own resolveSelector
+// error, an id no plan in the fleet carries.
+func TestOpenRefusesAnUnresolvableSelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "99999", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestOpenNamesAnUnreadHostAsAProblem: open still names an unread
+// configured host as a problem even when nothing found live locally.
+func TestOpenNamesAnUnreadHostAsAProblem(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, herdrReturning())
+	var doc report.OpenDoc
+
+	emit(t, &doc, "open", "7", "--root", root, "--hosts", "box")
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "host box", doc.Problems[0].Repo)
+}
+
+// TestOpenSurfacesAFocusFailure: herdr.Focus's own error propagates
+// rather than reading as a successful open.
+func TestOpenSurfacesAFocusFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	base, _ := recordingHerdr(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repo,
+		"pane_id": "wC:p1",
+	})
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "focus" {
+			return nil, errors.New("boom")
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"open", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "focus")
+}
+
+// TestPrintOpenNextStepIsSilentWithNoNextAction:
+// printOpenNextStep's own guard, called directly.
+func TestPrintOpenNextStepIsSilentWithNoNextAction(t *testing.T) {
+	var out bytes.Buffer
+
+	printOpenNextStep(&out, &report.OpenDoc{})
+
+	assert.Empty(t, out.String())
+}
+
+// TestHoldKindForIsUnprovenWithoutACoordinate: holdKindFor's own
+// guard, called directly against a fleet result withholding a
+// coordinate.
+func TestHoldKindForIsUnprovenWithoutACoordinate(t *testing.T) {
+	got := holdKindFor(&runtime{}, discovery.Plan{}, fleet.Coord{}, false)
+
+	assert.Equal(t, report.HoldUnproven, got)
+}
+
+// TestNudgeFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before nudge ever resolves a plan.
+func TestNudgeFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestNudgeRefusesAnUnresolvableSelector: nudge's own resolveSelector
+// error.
+func TestNudgeRefusesAnUnresolvableSelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "99999", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestNudgeGoSurfacesAPromptFailure: herdr.Prompt's own error
+// propagates from nudgeSend through Run, rather than reading as sent.
+func TestNudgeGoSurfacesAPromptFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	base, _ := recordingHerdr(idleLane(repo))
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "prompt" {
+			return nil, errors.New("boom")
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"nudge", "7", "--phase", "2", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "prompt")
+}
+
+// TestMessageFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before message ever resolves a plan.
+func TestMessageFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "hello", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestMessageRefusesAnUnresolvableSelector: message's own
+// resolveSelector error.
+func TestMessageRefusesAnUnresolvableSelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "99999", "hello", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestMessageGoSurfacesAPromptFailure: herdr.Prompt's own error
+// propagates from messageSend through Run, rather than reading as
+// sent.
+func TestMessageGoSurfacesAPromptFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	base, _ := recordingHerdr(idleLane(repo))
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "prompt" {
+			return nil, errors.New("boom")
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "hello", "--go", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "prompt")
 }

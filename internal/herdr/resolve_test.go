@@ -166,6 +166,23 @@ func TestJoinResolvesEachPaneToItsPlan(t *testing.T) {
 		"a pane off the convention is kept, not dropped")
 }
 
+// TestMatchPlanSkipsASiteWithNoBranch: a detached HEAD or an unborn
+// branch names no ref a hold pattern could match, so matchPlan reports
+// no plan without even loading the root's holds — there is nothing a
+// pattern could match against.
+func TestMatchPlanSkipsASiteWithNoBranch(t *testing.T) {
+	called := false
+	holdsFor := func(string) repocfg.Holds {
+		called = true
+		return nil
+	}
+
+	id := matchPlan(Site{Root: "/repo"}, map[string]repocfg.Holds{}, holdsFor)
+
+	assert.Equal(t, int64(0), id)
+	assert.False(t, called, "no branch means no reason to load holds")
+}
+
 // TestLiveRootsCollectsOnlyStaffedResolvableRoots is what makes stale
 // agent-aware: only a pane with an agent that resolves to a root
 // contributes, and each root appears once however many panes sit in it.

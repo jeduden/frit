@@ -5,6 +5,7 @@ import (
 
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestOpenNextActionNamesStartOnlyWhenNoLaneIsLiveAndKnown pins the
@@ -271,4 +272,152 @@ func TestNewNudgeRendersAnEmptyPhaseAsWholePlan(t *testing.T) {
 func TestAskCommandNamesTheVerbAndSelector(t *testing.T) {
 	assert.Equal(t, `frit message 7 "what is your status?"`, AskCommand(7))
 	assert.Equal(t, "what is your status?", AskText)
+}
+
+// TestOpenSetHoldKindReprojectsNextAction pins the setter open's
+// caller uses once it has read a held lane's true kind off the
+// hold's own marker (#122): the refreshed projection speaks the
+// kind's own wording rather than leaving the empty starting state.
+func TestOpenSetHoldKindReprojectsNextAction(t *testing.T) {
+	doc := NewOpen("/fleet", "atlas", 7, "Shader unit")
+	doc.SetHoldKind(HoldUnproven)
+
+	assert.Equal(t, openNextAction(false, false, HoldUnproven, 7), doc.NextAction)
+}
+
+// TestNudgeTransitionsRecordSendOrRefusal pins nudge's own document
+// transitions: a send records the target and marks it sent, a
+// refusal records why nothing went, and a repository frit could not
+// read is carried alongside either.
+func TestNudgeTransitionsRecordSendOrRefusal(t *testing.T) {
+	doc := NewNudge("/fleet", "atlas", 7, "Shader unit",
+		"3", "sonnet", "/plan-phase 7 3", true)
+	doc.SetTarget("wZ:p1")
+	doc.MarkSent()
+	assert.Equal(t, "wZ:p1", doc.Target)
+	assert.True(t, doc.Sent)
+
+	refused := NewNudge("/fleet", "atlas", 7, "Shader unit",
+		"3", "sonnet", "/plan-phase 7 3", true)
+	refused.Refuse("lane is busy")
+	assert.Equal(t, "lane is busy", refused.Refused)
+	assert.False(t, refused.Sent)
+
+	refused.AddProblem("beacon", assert.AnError)
+	require.Len(t, refused.Problems, 1)
+	assert.Equal(t, "beacon", refused.Problems[0].Repo)
+}
+
+// TestMessageTransitionsRecordSendOrRefusal is nudge's own test,
+// pinned for message.
+func TestMessageTransitionsRecordSendOrRefusal(t *testing.T) {
+	doc := NewMessage("/fleet", "atlas", 7, "Shader unit", "status?", true)
+	doc.SetTarget("wZ:p1")
+	doc.MarkSent()
+	assert.Equal(t, "wZ:p1", doc.Target)
+	assert.True(t, doc.Sent)
+
+	refused := NewMessage("/fleet", "atlas", 7, "Shader unit", "status?", true)
+	refused.Refuse("no live lane")
+	assert.Equal(t, "no live lane", refused.Refused)
+	assert.False(t, refused.Sent)
+
+	refused.AddProblem("beacon", assert.AnError)
+	require.Len(t, refused.Problems, 1)
+	assert.Equal(t, "beacon", refused.Problems[0].Repo)
+}
+
+// TestClaimTransitionsRecordEveryOutcome pins claim's own document
+// transitions: a self-resumed lease, a worktree stood up, a
+// non-fatal warning alongside it, an ordinary refusal, an unwound
+// claim whose worktree stand-up failed, a scavenge, and a carried
+// repo-read problem.
+func TestClaimTransitionsRecordEveryOutcome(t *testing.T) {
+	doc := NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	doc.MarkResumed()
+	assert.True(t, doc.Claimed)
+	assert.True(t, doc.Resumed)
+
+	doc.Stood("/worktrees/atlas-7")
+	assert.Equal(t, "/worktrees/atlas-7", doc.Worktree)
+
+	doc.Warn("herdr could not stand the worktree up")
+	assert.Equal(t, "herdr could not stand the worktree up", doc.Warning)
+
+	refused := NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refused.Refuse("already held")
+	assert.Equal(t, "already held", refused.Refused)
+	assert.False(t, refused.Claimed)
+
+	unwound := NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	unwound.Minted("abc123")
+	unwound.Unwound("worktree stand-up failed")
+	assert.False(t, unwound.Claimed)
+	assert.Empty(t, unwound.Base)
+	assert.Equal(t, "worktree stand-up failed", unwound.Refused)
+
+	scavenged := NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	scavenged.ScavengedRef("frit/work/7", "refs/frit/rescue/7/box-a")
+	assert.Equal(t, "frit/work/7", scavenged.Scavenged)
+	assert.Equal(t, "refs/frit/rescue/7/box-a", scavenged.Rescue)
+
+	doc.AddProblem("beacon", assert.AnError)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "beacon", doc.Problems[0].Repo)
+}
+
+// TestYieldWarnAndAddProblemCarryNonFatalFailures pins yield's own
+// non-fatal warning and carried repo-read problem, alongside the
+// refusal path TestYieldRefuseUnprovenNamesTheWaitForAForeignHold
+// already covers.
+func TestYieldWarnAndAddProblemCarryNonFatalFailures(t *testing.T) {
+	doc := NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	doc.Warn("herdr could not tear the lane down")
+	assert.Equal(t, "herdr could not tear the lane down", doc.Warning)
+
+	doc.AddProblem("beacon", assert.AnError)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "beacon", doc.Problems[0].Repo)
+}
+
+// TestReleaseTransitionsRecordEveryOutcome pins release's own
+// no-op, scavenge, warning and carried repo-read problem, alongside
+// the refusal path TestReleaseRefuseUnprovenNamesTheWaitForATokenlessOwnLane
+// already covers.
+func TestReleaseTransitionsRecordEveryOutcome(t *testing.T) {
+	doc := NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	doc.Nothing("already free")
+	assert.Equal(t, "already free", doc.NoOp)
+
+	doc.ScavengedRef("frit/work/7", "refs/frit/rescue/7/box-a")
+	assert.Equal(t, "frit/work/7", doc.Scavenged)
+	assert.Equal(t, "refs/frit/rescue/7/box-a", doc.Rescue)
+
+	doc.Warn("ref delete failed")
+	assert.Equal(t, "ref delete failed", doc.Warning)
+
+	doc.AddProblem("beacon", assert.AnError)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "beacon", doc.Problems[0].Repo)
+}
+
+// TestStartTransitionsRecordEveryOutcome pins start's own resumed
+// lease, scavenge, warning and carried repo-read problem, alongside
+// the handoff transitions the tests above already cover.
+func TestStartTransitionsRecordEveryOutcome(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, true)
+	doc.MarkResumed()
+	assert.True(t, doc.Resumed)
+
+	doc.ScavengedRef("frit/work/7", "refs/frit/rescue/7/box-a")
+	assert.Equal(t, "frit/work/7", doc.Scavenged)
+	assert.Equal(t, "refs/frit/rescue/7/box-a", doc.Rescue)
+
+	doc.Warn("ref delete failed")
+	assert.Equal(t, "ref delete failed", doc.Warning)
+
+	doc.AddProblem("beacon", assert.AnError)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "beacon", doc.Problems[0].Repo)
 }

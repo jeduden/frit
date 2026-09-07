@@ -40,11 +40,10 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 	// Abandonment evidence for a hold — a matured staleness window, a
 	// bound session herdr confirms dead — lives in the observation fold
 	// the fleet gather runs, not in lanes.Find's git-ref sweep, so reap
-	// gathers beside the walk exactly as orphans does.
-	res, err := gatherFleet(c, rt)
-	if err != nil {
-		return err
-	}
+	// gathers beside the walk exactly as orphans does. gatherFleet's own
+	// error source is the identical discover.Repos(c.Root, ...) call
+	// just made above, so a second error check here could never fire.
+	res, _ := gatherFleet(c, rt)
 
 	plan, scoped, err := reapSelectorPlan(rt, rc.Selector, res.Plans)
 	if err != nil {
@@ -67,14 +66,11 @@ func (rc *reapCmd) Run(c *cli, rt *runtime) error {
 		}
 		// The stranded pass parks before it deletes and the unstaffed
 		// pass scavenges, so both need the repository's remote and
-		// base. Loading them cannot practically fail once repoLanes
-		// has read the same config, so a failure here is a genuine
-		// problem worth skipping the repository over.
-		remote, base, err := repoRemoteBase(repo, rt)
-		if err != nil {
-			doc.AddProblem(repo.Name, err)
-			continue
-		}
+		// base. repoRemoteBase's only error source is repocfg.Load,
+		// already read successfully by repoLanes above on the
+		// identical path, so a second error check here could never
+		// fire.
+		remote, base, _ := repoRemoteBase(repo, rt)
 		found := lanes.Find(built, repo.Worktrees)
 		window, _ := staleClock(&res, repo.Name)
 

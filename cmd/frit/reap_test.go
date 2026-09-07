@@ -2,14 +2,20 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discover"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/lanes"
+	"github.com/jeduden/frit/internal/reap"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -952,4 +958,197 @@ func TestReapRemovesAnEmptyWorktreeWithoutAlsoRefusingItAsStranded(t *testing.T)
 		"a worktree the Empty pass safely reaps is never also refused as stranded")
 	_, statErr := os.Stat(lane)
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// TestReapFailsWhenTheRootCannotBeWalked: a root that cannot be walked
+// fails before reap ever gathers the fleet.
+func TestReapFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reap", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestReapNamesARepositoryWhoseConfigCannotBeRead: a broken .frit.yml
+// fails that one repository's own repoLanes read; reap steps over it,
+// names it as a problem, and still reaps the rest of the fleet.
+func TestReapNamesARepositoryWhoseConfigCannotBeRead(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/2608142306-fleet-index"
+	strandedCheckout(t, root, repo, "atlas-landed", branch)
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "land", branch)
+	broken := initRepo(t, root, "busted")
+	require.NoError(t, os.WriteFile(filepath.Join(broken, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+	var doc report.ReapDoc
+
+	stderr := emit(t, &doc, "reap", "--go", "--root", root)
+
+	assert.Empty(t, stderr, "under --json the progress stays off stderr")
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "busted", doc.Problems[0].Repo)
+	require.Len(t, doc.Repos, 1, "the healthy repository is still reaped")
+	assert.Equal(t, "atlas", doc.Repos[0].Name)
+}
+
+// TestStrandedForPlanNarrowsToNothingForADifferentRepo: a selector
+// scoped to a plan in a different repository narrows to nothing in
+// this one, rather than falling through to the whole fleet.
+func TestStrandedForPlanNarrowsToNothingForADifferentRepo(t *testing.T) {
+	stranded := []lanes.Lane{{PlanID: 7}}
+
+	out := strandedForPlan(stranded, "other-repo",
+		discovery.Plan{Repo: "atlas", ID: 7})
+
+	assert.Empty(t, out)
+}
+
+// TestReapStrandedRefusesABranchNotConfirmedLanded: reapStranded's own
+// landed re-check, called directly against a lane whose evidence is
+// empty — the every-evidence-map-false shape reap.Decide reads as not
+// landed.
+func TestReapStrandedRefusesABranchNotConfirmedLanded(t *testing.T) {
+	wt := gitwt.Worktree{Path: "/lane", Branch: "plan/1", Head: "deadbeef"}
+	lane := lanes.Lane{PlanID: 1, Worktrees: []gitwt.Worktree{wt}}
+
+	reaped, refused := reapStranded(&runtime{}, discover.Repo{},
+		[]lanes.Lane{lane}, landedEvidence{}, "origin", "origin/main",
+		false, io.Discard)
+
+	assert.Empty(t, reaped)
+	require.Len(t, refused, 1)
+	assert.Equal(t, "frit does not read this branch as landed",
+		refused[0].Reason)
+}
+
+// TestParkBranchDoesNothingWhenTheBranchDoesNotExist: localRef reads
+// an absent branch as ("", nil), not a fault, so parkBranch previews
+// and parks nothing rather than erroring.
+func TestParkBranchDoesNothingWhenTheBranchDoesNotExist(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	rt := &runtime{git: gitwt.Exec}
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname()}
+
+	rescue, err := parkBranch(rt, discover.Repo{Path: repo}, opts,
+		"does-not-exist", false)
+
+	require.NoError(t, err)
+	assert.Empty(t, rescue)
+}
+
+// TestTearDownWorktreeSurfacesABranchDeleteFailure: the worktree
+// remove can succeed while the branch delete fails — git refuses to
+// delete a branch a lock file or a stray reflog reference still
+// blocks — and that failure must propagate rather than read as a
+// completed teardown.
+func TestTearDownWorktreeSurfacesABranchDeleteFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	branch := "plan/1-bad"
+	lane := strandedCheckout(t, root, repo, "atlas-bad", branch)
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "branch" {
+			return nil, errors.New("boom")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}}
+	d := reap.Decision{PlanID: 1, Branch: branch,
+		Worktree: gitwt.Worktree{Path: lane, Branch: branch}}
+
+	err := tearDownWorktree(rt, discover.Repo{Path: repo}, d)
+
+	assert.ErrorContains(t, err, "boom")
+}
+
+// TestReapDryRunPreviewsTheRescueRefForADeadSessionsHold: a dead
+// session's hold carrying unlanded work previews where a --go would
+// park it, the same way a stranded lane's dry run does.
+func TestReapDryRunPreviewsTheRescueRefForADeadSessionsHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	deadHold(t, repo)
+	git(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, "work.txt"), []byte("wip\n"), 0o600))
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "unlanded work")
+	git(t, repo, "push", "-q", "origin", "plan/7")
+	git(t, repo, "checkout", "-q", "main")
+	var doc report.ReapDoc
+
+	stderr := emit(t, &doc, "reap", "--root", root)
+
+	assert.Empty(t, stderr)
+	require.Len(t, doc.Repos, 1)
+	require.Len(t, doc.Repos[0].Dropped, 1)
+	assert.NotEmpty(t, doc.Repos[0].Dropped[0].Rescue,
+		"the dry run names where the unlanded work would be parked")
+	_, err := holdRef(t, repo, 7)
+	assert.NoError(t, err, "nothing is dropped without --go")
+}
+
+// TestReapRefusesADeadSessionsHoldWhenTheScavengePushFails: the drop
+// is a refusal, not a command failure, when the scavenge's own CAS
+// push cannot reach the remote — one plan's trouble must not stop the
+// rest of the fleet from reaping.
+func TestReapRefusesADeadSessionsHoldWhenTheScavengePushFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	deadHold(t, repo)
+	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"reap", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	tip, err := holdRef(t, repo, 7)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tip, "the hold is left standing when the scavenge cannot push")
+}
+
+// TestPlanForReportsNotFoundForAnUnknownPlan: planFor's own not-found
+// return, called directly.
+func TestPlanForReportsNotFoundForAnUnknownPlan(t *testing.T) {
+	_, ok := planFor(nil, "atlas", 999)
+
+	assert.False(t, ok)
+}
+
+// TestHoldRefusalNamesNoObservedStateForAnUnknownPlan: holdRefusal's
+// own gate on a plan the gathered fleet view never carried, called
+// directly.
+func TestHoldRefusalNamesNoObservedStateForAnUnknownPlan(t *testing.T) {
+	reason := holdRefusal(discovery.Plan{}, false, time.Hour)
+
+	assert.Contains(t, reason, "no observed lease state")
+}
+
+// TestRepoRemoteBaseSurfacesAnUnreadableConfig: repoRemoteBase's own
+// repocfg.Load error, called directly rather than through repoLanes,
+// which would already have stepped over the repository first.
+func TestRepoRemoteBaseSurfacesAnUnreadableConfig(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+	rt := &runtime{git: gitwt.Exec}
+
+	_, _, err := repoRemoteBase(discover.Repo{Path: repo}, rt)
+
+	assert.Error(t, err)
 }
