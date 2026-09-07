@@ -1,7 +1,7 @@
 ---
 n: 10
 title: cmd/frit/start.go reaches 100% of its reachable lines
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive [cmd/frit/start.go](../../cmd/frit/start.go) to 100% line

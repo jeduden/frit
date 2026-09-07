@@ -1053,22 +1053,22 @@ func reconcileLeftoverWorktree(
 }
 
 // livePaneOn reports whether a herdr pane is currently sitting in the
-// worktree rooted at root — a local pane only, the same guard
-// herdr.LiveRoots uses, since a remote pane's cwd is a path on another
-// host that could collide with a local one by coincidence. An
-// unreadable herdr answers with an error rather than "no pane": the
-// caller is about to park and delete a worktree on this verdict, and
-// reading a socket failure as "clear" would risk exactly the live lane
-// this check exists to protect.
+// worktree rooted at root. An unreadable herdr answers with an error
+// rather than "no pane": the caller is about to park and delete a
+// worktree on this verdict, and reading a socket failure as "clear"
+// would risk exactly the live lane this check exists to protect.
+//
+// rt.herdr always reads the local socket directly, never the
+// per-host fan-out herdr.ListHosts wraps, so every pane herdr.List
+// returns here is already local — unlike herdr.LiveRoots, which takes
+// its panes from a caller that may have merged in a remote host's own
+// answers, this has no such pane to skip.
 func livePaneOn(rt *runtime, root string) (string, bool, error) {
 	panes, err := herdr.List(rt.herdr)
 	if err != nil {
 		return "", false, err
 	}
 	for _, p := range panes {
-		if p.Host != "" {
-			continue
-		}
 		if site := herdr.Resolve(p.CWD, rt.git); site.Root == root {
 			return p.PaneID, true, nil
 		}

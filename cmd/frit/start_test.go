@@ -2376,3 +2376,351 @@ func TestLostRaceRefusalNamesAFencedResume(t *testing.T) {
 	assert.NotContains(t, unknown, "yield")
 	assert.NotContains(t, unknown, "()", "no empty holder is printed")
 }
+
+// TestStartRefusesWithNoPlanGivenAndNoneInferred: an empty selector
+// run outside any held checkout cannot infer a plan, and refuses
+// rather than guess.
+func TestStartRefusesWithNoPlanGivenAndNoneInferred(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	t.Chdir(t.TempDir())
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(),
+		"no plan given and none inferred from the current directory")
+}
+
+// TestStartFailsWhenTheFleetCannotBeGathered: a root that cannot be
+// walked fails before start ever resolves a plan.
+func TestStartFailsWhenTheFleetCannotBeGathered(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestStartRefusesAnAmbiguousRepoName: two checkouts under root
+// sharing a basename leave the fleet unable to tell which one the
+// plan lives in. startResume's own !coordOK early return runs before
+// buildStart's, so this one fixture closes both functions' gaps.
+func TestStartRefusesAnAmbiguousRepoName(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := initRepo(t, filepath.Join(root, "a"), "frontend")
+	commitPlan(t, repoA, 7, "🔲", "Shader unit", nil, "")
+	repoB := initRepo(t, filepath.Join(root, "b"), "frontend")
+	commitPlan(t, repoB, 9, "🔲", "Other work", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "1", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "shared by another checkout")
+}
+
+// TestUnparkedSuffixIsFalseWhenNoLocalBranchExists: unparkedSuffix's
+// own guard, called directly — every existing fixture creates the
+// local plan/<id> ref in the same repo it discovers from, so local is
+// never empty through the CLI.
+func TestUnparkedSuffixIsFalseWhenNoLocalBranchExists(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	rt := &runtime{git: gitwt.Exec}
+
+	got := unparkedSuffix(rt, repo, 7, "deadbeef")
+
+	assert.False(t, got)
+}
+
+// TestStartAbortsWhenTheEditorFails: an editor that fails to launch
+// aborts before anything is claimed or stood up, the same way an
+// empty edited prompt already does.
+func TestStartAbortsWhenTheEditorFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	prev := openEditor
+	openEditor = func(string) (string, error) { return "", errors.New("boom") }
+	t.Cleanup(func() { openEditor = prev })
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go", "--edit",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "boom")
+	assert.False(t, rec.verb("worktree", "create"),
+		"an editor failure aborts before anything is stood up")
+}
+
+// TestStartUnwindReportsWhenTheReleaseItselfAlsoFails: the unwind's own
+// release can fail too — a genuine takeover fenced it between the mint
+// and the release. buildStart's own lostRace(err) still sees the
+// FenceError through errors.Join, so the joined failure renders as the
+// ordinary lost-race refusal it is, not a raw command error — the
+// handoff cause that triggered the unwind is not separately named,
+// exactly as a plain lost race would not be.
+func TestStartUnwindReportsWhenTheReleaseItselfAlsoFails(t *testing.T) {
+	isolate(t)
+	prevPause := agentStartPause
+	agentStartPause = func() {}
+	t.Cleanup(func() { agentStartPause = prevPause })
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	fenced := false
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "start" {
+			if !fenced {
+				tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+				require.NoError(t, err)
+				other := cloneAgain(t, repo)
+				_, err = claim.Takeover(other, claim.LeaseOptions{
+					PlanID: 7, Remote: "origin", Base: "origin/main",
+					Holder: "elsewhere", Lane: "/lanes/x",
+				}, tip, gitwt.Exec)
+				require.NoError(t, err)
+				fenced = true
+			}
+
+			return nil, errors.New(
+				"agent target pane wZ:p1 is not an available shell")
+		}
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+			return []byte(`{}`), nil
+		}
+
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused")
+	assert.Contains(t, out.String(), "lost the lease to another machine",
+		"the joined error still classifies as a lost race")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.NotEmpty(t, tip, "the takeover's own lease is left standing")
+}
+
+// TestAgentStartPauseSleeps is the one test in this phase that spends
+// real wall-clock time: every retry test overrides this package var,
+// so its own unmocked default body never otherwise runs.
+func TestAgentStartPauseSleeps(t *testing.T) {
+	start := time.Now()
+
+	agentStartPause()
+
+	assert.GreaterOrEqual(t, time.Since(start), 400*time.Millisecond)
+}
+
+// TestReconcileLeftoverWorktreeSurfacesAListError: gitwt.List's own
+// error, called directly against a path with nothing to list.
+func TestReconcileLeftoverWorktreeSurfacesAListError(t *testing.T) {
+	sc := startContext{repoPath: filepath.Join(t.TempDir(), "missing")}
+	rt := &runtime{git: gitwt.Exec}
+
+	err := reconcileLeftoverWorktree(
+		rt, sc, report.StartPlan{Branch: "plan/7"}, 7)
+
+	assert.ErrorContains(t, err, "list worktrees")
+}
+
+// TestReconcileLeftoverWorktreeSurfacesAParkFailure: the park ahead of
+// the leftover's delete can fail too — an unreachable remote here —
+// and that failure must propagate rather than let the delete run over
+// unparked work.
+func TestReconcileLeftoverWorktreeSurfacesAParkFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+
+	assert.ErrorContains(t, err, "park:")
+	_, statErr := os.Stat(leftover)
+	assert.NoError(t, statErr, "the leftover is left standing when the park fails")
+}
+
+// TestReconcileLeftoverWorktreeSurfacesARemoveFailure: the leftover's
+// own worktree-remove can fail after a successful park, and that
+// failure must propagate rather than read as a completed reconcile.
+func TestReconcileLeftoverWorktreeSurfacesARemoveFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	rt := &runtime{herdr: herdrReturning(),
+		git: func(dir string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+				return nil, errors.New("boom")
+			}
+
+			return gitwt.Exec(dir, args...)
+		}}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+
+	assert.ErrorContains(t, err, "remove leftover worktree")
+	_, statErr := os.Stat(leftover)
+	assert.NoError(t, statErr, "the leftover is left standing when the remove fails")
+}
+
+// TestStartUnwindsWhenWorktreeCreateFails: a fresh acquire whose
+// herdr.WorktreeCreate itself fails never opens a pane, so the unwind
+// has nothing to tear down through herdr and releases the lease
+// directly.
+func TestStartUnwindsWhenWorktreeCreateFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			return nil, errors.New("boom")
+		}
+
+		return nil, nil
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "worktree create")
+	subject, err := gitCapture(t, repo,
+		"log", "-1", "--format=%s", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: release", subject,
+		"the lease still releases even though no pane was ever opened")
+}
+
+// TestStartUnwindsWhenFocusFails: herdr.Focus failing after the
+// prompt already sent still unwinds the lease and the pane, the way
+// any other stand-up failure does.
+func TestStartUnwindsWhenFocusFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	base, _ := startHerdr()
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "focus" {
+			return nil, errors.New("boom")
+		}
+
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "focus:")
+	subject, err := gitCapture(t, repo,
+		"log", "-1", "--format=%s", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, "plan 7: release", subject)
+}
+
+// TestEditInEditorDefaultsToVi: neither $VISUAL nor $EDITOR set falls
+// back to "vi" — a throwaway script on $PATH stands in for a real
+// editor, the same $PATH-resolution trick phase 6 proved for herdr.
+func TestEditInEditorDefaultsToVi(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+	fakeEditorOnPath(t, "vi", "exit 0")
+
+	_, err := editInEditor("draft")
+
+	assert.NoError(t, err)
+}
+
+// TestEditInEditorRefusesAWhitespaceOnlyEditor: an $EDITOR of pure
+// whitespace splits to no fields at all.
+func TestEditInEditorRefusesAWhitespaceOnlyEditor(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "   ")
+
+	_, err := editInEditor("draft")
+
+	assert.ErrorContains(t, err, "no editor set")
+}
+
+// TestEditInEditorSurfacesATempFileCreationFailure: os.CreateTemp
+// fails when $TMPDIR is not writable.
+func TestEditInEditorSurfacesATempFileCreationFailure(t *testing.T) {
+	t.Setenv("VISUAL", "vi")
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	t.Setenv("TMPDIR", dir)
+
+	_, err := editInEditor("draft")
+
+	assert.Error(t, err)
+}
+
+// TestEditInEditorSurfacesAFailedEditorCommand: the editor exiting
+// non-zero is reported rather than read as an empty edit.
+func TestEditInEditorSurfacesAFailedEditorCommand(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	fakeEditorOnPath(t, "frit-test-editor", "exit 1")
+	t.Setenv("EDITOR", "frit-test-editor")
+
+	_, err := editInEditor("draft")
+
+	assert.ErrorContains(t, err, "editor:")
+}
+
+// TestEditInEditorSurfacesAMissingEditedFile: an editor that deletes
+// its own argument before exiting leaves nothing for the read-back to
+// find.
+func TestEditInEditorSurfacesAMissingEditedFile(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	fakeEditorOnPath(t, "frit-test-editor", `rm "$1"`)
+	t.Setenv("EDITOR", "frit-test-editor")
+
+	_, err := editInEditor("draft")
+
+	assert.Error(t, err)
+}
+
+// fakeEditorOnPath puts a throwaway shell script named name first on
+// $PATH for the duration of the test, its body exactly script — the
+// $PATH-resolution trick phase 6 proved for herdr, reused here so
+// editInEditor's real body runs end to end with no real editor
+// installed.
+func fakeEditorOnPath(t *testing.T, name, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	body := "#!/bin/sh\n" + script + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
