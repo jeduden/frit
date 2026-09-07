@@ -18,6 +18,25 @@ set -euo pipefail
 
 exclude_file="$(dirname "$0")/coverage-exclude.txt"
 
+# The exclude file is small and shared by every statement block of
+# every gated package, so it is parsed once here into parallel arrays
+# rather than re-read from disk on every is_excluded call below.
+exclude_files=()
+exclude_starts=()
+exclude_ends=()
+if [ -f "$exclude_file" ]; then
+  while IFS= read -r entry; do
+    entry="${entry%%#*}"
+    # shellcheck disable=SC2086 # word-splitting trims surrounding blanks
+    entry=$(echo $entry)
+    [ -z "$entry" ] && continue
+    erange="${entry#*:}"
+    exclude_files+=("${entry%%:*}")
+    exclude_starts+=("${erange%-*}")
+    exclude_ends+=("${erange#*-}")
+  done <"$exclude_file"
+fi
+
 # is_excluded reports whether the statement block [start,end] in file
 # falls inside a declared exclusion's line range. A block only partly
 # inside a declared range is not excluded — the entry must name the
@@ -25,22 +44,14 @@ exclude_file="$(dirname "$0")/coverage-exclude.txt"
 # justified boundary is visible in the diff, not silently absorbed.
 is_excluded() {
   local file="$1" start="$2" end="$3"
-  [ -f "$exclude_file" ] || return 1
-  local entry efile erange estart eend
-  while IFS= read -r entry; do
-    entry="${entry%%#*}"
-    # shellcheck disable=SC2086 # word-splitting trims surrounding blanks
-    entry=$(echo $entry)
-    [ -z "$entry" ] && continue
-    efile="${entry%%:*}"
-    erange="${entry#*:}"
-    estart="${erange%-*}"
-    eend="${erange#*-}"
-    if [ "$file" = "$efile" ] && [ "$start" -ge "$estart" ] \
-      && [ "$end" -le "$eend" ]; then
+  local i
+  for i in "${!exclude_files[@]}"; do
+    if [ "$file" = "${exclude_files[$i]}" ] \
+      && [ "$start" -ge "${exclude_starts[$i]}" ] \
+      && [ "$end" -le "${exclude_ends[$i]}" ]; then
       return 0
     fi
-  done <"$exclude_file"
+  done
 
   return 1
 }
@@ -97,9 +108,9 @@ for pkg in "$@"; do
     status=1
     continue
   fi
-  pct=$(awk -v c="$covered" -v t="$total" 'BEGIN { printf "%.1f", (c / t) * 100 }')
-  if [ "$pct" != "100.0" ]; then
-    echo "check-coverage: $pkg is at $pct% of its non-excluded statements, want 100.0%" >&2
+  if [ "$covered" -ne "$total" ]; then
+    pct=$(awk -v c="$covered" -v t="$total" 'BEGIN { printf "%.1f", (c / t) * 100 }')
+    echo "check-coverage: $pkg is at $pct% ($covered/$total statements) of its non-excluded statements, want 100.0%" >&2
     status=1
   fi
 done
