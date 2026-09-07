@@ -1,7 +1,7 @@
 ---
 n: 9
 title: cmd/frit/yield.go reaches 100% of its reachable lines, and check-coverage.sh gains exclusions
-status: "🔲"
+status: "✅"
 result: false
 ---
 Drive [cmd/frit/yield.go](../../cmd/frit/yield.go) to 100% line

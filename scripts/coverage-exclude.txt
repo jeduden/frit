@@ -1,0 +1,7 @@
+# Declared line-coverage exclusions, one per statement range, read by
+# check-coverage.sh. Each entry is a pure process boundary — a unit
+# test cannot drive it without a real syscall, a real terminal, or a
+# corrupted object store mid-run — never a place to hide untested
+# logic. See plan/2609061856_unit-tests-reach-100-percent-coverage for
+# the plan that built this list.
+cmd/frit/yield.go:65-67  # localRef's real git-fault call site in Run: the object is confirmed present moments earlier in the same run, so a real failure here needs a corrupted object store mid-run, not an input a unit test can construct
