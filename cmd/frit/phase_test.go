@@ -351,3 +351,32 @@ func TestPhaseInsideItsOwnLaneReadsTheWorkingTreeStatus(t *testing.T) {
 	assert.Equal(t, "✅", doc.Plan.Status,
 		"phase must read the lane's own plan.md, not the fetched default-branch copy")
 }
+
+// TestPhaseSurfacesABrokenPhaseBundle: planmeta.Resume's own error —
+// phase-1.md is listed by the directory read planmeta.PhasesFromDir's
+// glob does, but cannot be read back, unlike a missing file entirely
+// pruned from that listing.
+func TestPhaseSurfacesABrokenPhaseBundle(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	dir := writeFolderPlan(t, repo, 100, "🔳", "Layered work",
+		"1 first | sonnet | sonnet | test one\n")
+	writePhaseCompanion(t, dir, "phase-1.md", "Do the first thing.")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "plan 100")
+
+	wt := filepath.Join(root, "atlas-100")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
+	wtDir := filepath.Join(wt, "plan", filepath.Base(dir))
+	spec := filepath.Join(wtDir, "phase-1.md")
+	require.NoError(t, os.Chmod(spec, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(spec, 0o600) })
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"phase", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}

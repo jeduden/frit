@@ -6,3 +6,7 @@
 # the plan that built this list.
 cmd/frit/yield.go:65-67  # localRef's real git-fault call site in Run: the object is confirmed present moments earlier in the same run, so a real failure here needs a corrupted object store mid-run, not an input a unit test can construct
 cmd/frit/start.go:1226-1233  # editInEditor's WriteString/Close on an already-open temp file: POSIX permission checks happen at open time, so no directory or file permission trick makes a write or close fail on an fd that already opened successfully; forcing it needs a resource limit or quota trick with no portable, deterministic form
+cmd/frit/main.go:3068-3070  # main(): reads real argv/stdio and calls os.Exit; run() is the tested substitute for everything else
+cmd/frit/main.go:2670-2675  # terminalWidth's term.GetSize tail: requires a real controlling terminal; no pty library is vendored
+cmd/frit/progress.go:26-26  # progressFor's real-terminal reporter path: same reason
+cmd/frit/main.go:3094-3094  # run()'s non-exitCode re-panic: re-raises a genuine unrelated bug; provoking it means planting a fake panic in a command's Run

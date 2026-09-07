@@ -775,3 +775,214 @@ func TestBoardAsks(t *testing.T) {
 			"ask before yielding: " + report.AskCommand(7),
 	}, boardAsks([]report.BoardPlan{quiet, asked}))
 }
+
+// TestPrintBoardTruncatesTheLegendToWidth: a legend line is trimmed to
+// the terminal width exactly like any other row, when one is given.
+func TestPrintBoardTruncatesTheLegendToWidth(t *testing.T) {
+	doc := report.NewBoard("/x", true)
+	doc.AddPlan(discovery.Plan{
+		Key: "forge:atlas:100", Repo: "atlas", ID: 100, Status: "🔳",
+		Title: "Underway", Held: true, Holds: []string{"plan/100"},
+		Stale: true, StaleFor: 3 * time.Hour,
+	}, "", "", false)
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 24, boardCols)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	legend := lines[len(lines)-1]
+	assert.LessOrEqual(t, textw.Width(legend), 24)
+}
+
+// TestFitBoardLeavesRowsUntouchedWithNeitherFlexColumn: with no held
+// and no title column selected, there is nothing to trim, and fitBoard
+// returns without touching the rows.
+func TestFitBoardLeavesRowsUntouchedWithNeitherFlexColumn(t *testing.T) {
+	rows := [][]string{{"very-long-repo-name-that-would-otherwise-be-trimmed"}}
+
+	fitBoard(10, rows, []string{"repo"})
+
+	assert.Equal(t, "very-long-repo-name-that-would-otherwise-be-trimmed", rows[0][0])
+}
+
+// TestFitBoardClampsTheBudgetToAtLeastOne: fixed columns wider than the
+// terminal itself would give the flexible columns a negative budget;
+// it is clamped to one rather than trimming to nothing or panicking.
+func TestFitBoardClampsTheBudgetToAtLeastOne(t *testing.T) {
+	rows := [][]string{{"aaaaaaaaaaaaaaaaaaaa", "held-lane", "a title"}}
+
+	assert.NotPanics(t, func() {
+		fitBoard(1, rows, []string{"repo", "held", "title"})
+	})
+}
+
+// TestAllocateFlexGivesTheWholeBudgetToTitleAlone: with no held column
+// selected, the title takes the whole budget.
+func TestAllocateFlexGivesTheWholeBudgetToTitleAlone(t *testing.T) {
+	held, title := allocateFlex(50, []int{0, 0}, -1, 1)
+
+	assert.Equal(t, 0, held)
+	assert.Equal(t, 50, title)
+}
+
+// TestAllocateFlexGivesTheWholeBudgetToHeldAlone: with no title column
+// selected, held takes the whole budget.
+func TestAllocateFlexGivesTheWholeBudgetToHeldAlone(t *testing.T) {
+	held, title := allocateFlex(50, []int{0, 0}, 0, -1)
+
+	assert.Equal(t, 50, held)
+	assert.Equal(t, 0, title)
+}
+
+// TestTerminalWidthIsZeroForARegularFile: a real *os.File that is not
+// a terminal — a plain temp file, unlike the bytes.Buffer the other
+// terminalWidth test uses — still answers zero.
+func TestTerminalWidthIsZeroForARegularFile(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "not-a-tty")
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+
+	assert.Equal(t, 0, terminalWidth(f))
+}
+
+// TestSelectBoardColumnsResolvesAliases: a column named by its alias
+// resolves to the canonical name, and blank entries in the spec are
+// skipped rather than rejected as unknown.
+func TestSelectBoardColumnsResolvesAliases(t *testing.T) {
+	cols, err := selectBoardColumns("lane,  ,machine")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"held", "host"}, cols)
+}
+
+// TestSelectBoardColumnsRejectsASpecThatTrimsToNothing: a spec made
+// entirely of commas and blanks selects no column at all, refused
+// rather than silently falling back to every column.
+func TestSelectBoardColumnsRejectsASpecThatTrimsToNothing(t *testing.T) {
+	_, err := selectBoardColumns(",  ,")
+
+	assert.ErrorContains(t, err, "no columns selected")
+}
+
+// TestLiveByBranchSkipsALaneWithNoBranch: a staffed pane in a detached
+// HEAD carries no branch to key a lane by, so it contributes nothing
+// to the live-by-branch index.
+func TestLiveByBranchSkipsALaneWithNoBranch(t *testing.T) {
+	isolate(t)
+	repo := repoOnPlan(t, t.TempDir(), "atlas", "plan/7-shader")
+	git(t, repo, "checkout", "-q", "--detach")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "working", "cwd": repo,
+		"pane_id": "wA:p1",
+	})}
+
+	live, _, err := liveByBranch(&cli{}, rt)
+
+	require.NoError(t, err)
+	assert.Empty(t, live)
+}
+
+// TestPrintNextNamesADonePlanWithNoOpenPhase: a done plan with no open
+// phase says so plainly, rather than naming a phase.
+func TestPrintNextNamesADonePlanWithNoOpenPhase(t *testing.T) {
+	doc := &report.NextDoc{}
+	doc.Plan.ID = 7
+	doc.Plan.Status = "✅"
+	var buf bytes.Buffer
+
+	printNext(&buf, doc)
+
+	assert.Contains(t, buf.String(), "plan 7 is done")
+}
+
+// TestPrintNextNamesAPlanWithNoPhaseLedgerAtAll: a plan neither done
+// nor carrying an open phase says it has no phase ledger, rather than
+// silently printing nothing.
+func TestPrintNextNamesAPlanWithNoPhaseLedgerAtAll(t *testing.T) {
+	doc := &report.NextDoc{}
+	doc.Plan.ID = 7
+	doc.Plan.Repo = "atlas"
+	doc.Plan.Title = "Shader unit"
+	doc.Plan.Status = "🔲"
+	var buf bytes.Buffer
+
+	printNext(&buf, doc)
+
+	assert.Contains(t, buf.String(), "(no phase ledger)")
+}
+
+// TestPrintPhaseNamesAPlanWithNoOpenPhase: printPhase's own
+// !doc.HasPhase branch, direct-called.
+func TestPrintPhaseNamesAPlanWithNoOpenPhase(t *testing.T) {
+	doc := &report.PhaseDoc{}
+	doc.Plan.ID = 7
+	doc.Plan.Repo = "atlas"
+	doc.Plan.Title = "Shader unit"
+	var buf bytes.Buffer
+
+	printPhase(&buf, doc)
+
+	assert.Contains(t, buf.String(), "(no open phase)")
+}
+
+// TestPrintRescueListsEveryRef: printRescue's own non-empty branch,
+// direct-called.
+func TestPrintRescueListsEveryRef(t *testing.T) {
+	var buf bytes.Buffer
+
+	printRescue(&buf, []string{"refs/frit/rescue/7/host-abc"})
+
+	assert.Contains(t, buf.String(), "rescue refs:")
+	assert.Contains(t, buf.String(), "refs/frit/rescue/7/host-abc")
+}
+
+// TestPrintDepNamesAnUnknownPlan: printDep's own !node.Found branch,
+// direct-called.
+func TestPrintDepNamesAnUnknownPlan(t *testing.T) {
+	var buf bytes.Buffer
+
+	printDep(&buf, report.DepCard{ID: 9}, 0, false)
+
+	assert.Contains(t, buf.String(), "(unknown plan)")
+}
+
+// TestEmptyDepsNoteNamesNoDependenciesForAll: emptyDepsNote's own
+// all=true branch, direct-called.
+func TestEmptyDepsNoteNamesNoDependenciesForAll(t *testing.T) {
+	assert.Equal(t, "(no dependencies)", emptyDepsNote(true))
+}
+
+// TestStatusLabelDashesAnEmptyStatus: statusLabel's own empty-string
+// branch, direct-called.
+func TestStatusLabelDashesAnEmptyStatus(t *testing.T) {
+	assert.Equal(t, "-", statusLabel(""))
+}
+
+// TestFitLastColumnDoesNothingWithNoRows: fitLastColumn's own
+// zero-rows guard, direct-called.
+func TestFitLastColumnDoesNothingWithNoRows(t *testing.T) {
+	assert.NotPanics(t, func() { fitLastColumn(40, nil) })
+}
+
+// TestFitLastColumnDoesNothingWithASingleColumnRow: a row with no
+// column before the last has nothing fixed to measure, so the guard
+// leaves it untouched.
+func TestFitLastColumnDoesNothingWithASingleColumnRow(t *testing.T) {
+	rows := [][]string{{"only-column-here"}}
+
+	fitLastColumn(10, rows)
+
+	assert.Equal(t, "only-column-here", rows[0][0])
+}
+
+// TestFitLastColumnClampsTheBudgetToTheMinimum: fixed columns wider
+// than the terminal itself would give the last column a budget below
+// the readable minimum; it is clamped up rather than trimming past it.
+func TestFitLastColumnClampsTheBudgetToTheMinimum(t *testing.T) {
+	rows := [][]string{{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"a title that is much longer than the clamp"}}
+
+	fitLastColumn(5, rows)
+
+	assert.LessOrEqual(t, textw.Width(rows[0][1]), 12)
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/lanes"
 	"github.com/jeduden/frit/internal/observe"
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1714,4 +1715,357 @@ func TestCarryHostProblemsAddsEachOne(t *testing.T) {
 
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "box", doc.Problems[0].Repo)
+}
+
+// TestResolveSelectorSurfacesAGetwdFailure: resolveSelector's own
+// os.Getwd error, called directly — going through the full CLI would
+// hit newParser's own identical Getwd call first, since that runs
+// before any command's Run does.
+func TestResolveSelectorSurfacesAGetwdFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.RemoveAll(dir))
+	rt := &runtime{git: gitwt.Exec}
+
+	_, err := resolveSelector(rt, "", nil, false)
+
+	assert.Error(t, err)
+}
+
+// TestLaneOverrideSurfacesAGetwdFailure: laneOverride's own os.Getwd
+// error falls back to the default-branch copy rather than failing the
+// whole command.
+func TestLaneOverrideSurfacesAGetwdFailure(t *testing.T) {
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.RemoveAll(dir))
+	rt := &runtime{git: gitwt.Exec}
+
+	plan, source, laneRoot := laneOverride(rt, discovery.Plan{Repo: "atlas", ID: 7})
+
+	assert.Equal(t, report.SourceDefaultBranch, source)
+	assert.Empty(t, laneRoot)
+	assert.Equal(t, int64(7), plan.ID)
+}
+
+// TestLaneOverrideKeepsTheDefaultBranchWhenThePlanFileIsMissing:
+// laneOverride's own os.ReadFile error — a lane the cwd genuinely
+// stands in, but whose plan file was removed since the fleet resolved
+// it.
+func TestLaneOverrideKeepsTheDefaultBranchWhenThePlanFileIsMissing(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	wt := filepath.Join(root, "atlas-7")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7-shader", wt)
+	require.NoError(t, os.Remove(filepath.Join(wt, "plan", "7_shader-unit.md")))
+	t.Chdir(wt)
+	rt := &runtime{git: gitwt.Exec}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Path: "plan/7_shader-unit.md"}
+
+	got, source, laneRoot := laneOverride(rt, plan)
+
+	assert.Equal(t, report.SourceDefaultBranch, source)
+	assert.Empty(t, laneRoot)
+	assert.Equal(t, plan, got)
+}
+
+// TestLaneOverrideKeepsTheDefaultBranchWhenThePlanFileIsMalformed:
+// laneOverride's own planmeta.Parse error — the lane's own copy of
+// the plan file exists but cannot be parsed.
+func TestLaneOverrideKeepsTheDefaultBranchWhenThePlanFileIsMalformed(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	wt := filepath.Join(root, "atlas-7")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7-shader", wt)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(wt, "plan", "7_shader-unit.md"), []byte("not a plan"), 0o600))
+	t.Chdir(wt)
+	rt := &runtime{git: gitwt.Exec}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Path: "plan/7_shader-unit.md"}
+
+	got, source, laneRoot := laneOverride(rt, plan)
+
+	assert.Equal(t, report.SourceDefaultBranch, source)
+	assert.Empty(t, laneRoot)
+	assert.Equal(t, plan, got)
+}
+
+// TestFolderPlanPhasesKeepsLocalWhenTheDirectoryCannotBeRead:
+// folderPlanPhases' own planmeta.PhasesFromDir error — a folder-plan
+// path whose directory does not exist.
+func TestFolderPlanPhasesKeepsLocalWhenTheDirectoryCannotBeRead(t *testing.T) {
+	got := folderPlanPhases(t.TempDir(),
+		filepath.Join("plan", "100_missing", "plan.md"), nil, planmeta.Plan{})
+
+	assert.Nil(t, got)
+}
+
+// TestOrderReversesWithNoSortKey: sortFlags.order's own empty-Sort
+// branch, direct-called.
+func TestOrderReversesWithNoSortKey(t *testing.T) {
+	plans := []discovery.Plan{{ID: 1}, {ID: 2}}
+	s := sortFlags{Reverse: true}
+
+	out, err := s.order(plans)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), out[0].ID)
+}
+
+// TestReadyFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before ready ever ranks a plan.
+func TestReadyFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"ready", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestPickFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before pick ever ranks a plan.
+func TestPickFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestPickRejectsAnUnknownSortKey: pick's own order error, without
+// --go.
+func TestPickRejectsAnUnknownSortKey(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--sort", "bogus", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "unknown sort")
+}
+
+// TestPickPrintsTheRankedListWithNeitherGoNorJSON: the plain pick
+// path — every existing pick test uses --go or --json.
+func TestPickPrintsTheRankedListWithNeitherGoNorJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "Shader unit")
+}
+
+// TestPickGoEmptyStartEmitsJSON: emptyStart's own --json branch —
+// every existing "nothing startable" pick --go test reads the table.
+func TestPickGoEmptyStartEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var doc report.PickDoc
+
+	emit(t, &doc, "pick", "--go", "--root", root)
+
+	assert.Empty(t, doc.Plans)
+}
+
+// TestRescueRefsForIsEmptyWithoutACoordinate: rescueRefsFor's own
+// guard, called directly against a fleet result withholding a
+// coordinate for the plan's repository.
+func TestRescueRefsForIsEmptyWithoutACoordinate(t *testing.T) {
+	res := fleet.Result{Coords: map[string]fleet.Coord{}}
+
+	got := rescueRefsFor(&runtime{}, res, discovery.Plan{Repo: "atlas"})
+
+	assert.Empty(t, got)
+}
+
+// TestNextFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before next ever resolves a plan.
+func TestNextFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"next", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestShowFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before show ever resolves a plan.
+func TestShowFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"show", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestPhaseFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before phase ever resolves a plan.
+func TestPhaseFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"phase", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestPhaseRefusesAnUnresolvableSelector: phase's own resolveSelector
+// error, an id no plan in the fleet carries.
+func TestPhaseRefusesAnUnresolvableSelector(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"phase", "99999", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestPhaseSurfacesAGetwdFailure: phase's own os.Getwd error, called
+// directly — going through the full CLI would hit newParser's own
+// identical Getwd call first, since that runs before any command's
+// Run does.
+func TestPhaseSurfacesAGetwdFailure(t *testing.T) {
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.RemoveAll(dir))
+	var out bytes.Buffer
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe,
+		herdr: herdrReturning(), stdout: &out}
+
+	err := (&phaseCmd{Selector: "7"}).Run(&cli{Root: root}, rt)
+
+	assert.Error(t, err)
+	_ = repo
+}
+
+// TestPhaseSurfacesAMissingPlanFile: the lane's plan file is removed
+// after fleet.CurrentLane already resolved cwd to it.
+func TestPhaseSurfacesAMissingPlanFile(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	commitPlan(t, repo, 7, "🔲", "Shader unit", nil, "")
+	wt := filepath.Join(root, "atlas-7")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7-shader", wt)
+	require.NoError(t, os.Remove(filepath.Join(wt, "plan", "7_shader-unit.md")))
+	t.Chdir(wt)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"phase", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestBoardFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before board ever ranks a plan.
+func TestBoardFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestBoardRejectsAnUnknownSortKey: board's own order error.
+func TestBoardRejectsAnUnknownSortKey(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"board", "--sort", "bogus", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "unknown sort")
+}
+
+// TestFindFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before find ever ranks a plan.
+func TestFindFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "anything", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestFindRejectsAnUnknownSortKey: find's own order error.
+func TestFindRejectsAnUnknownSortKey(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"find", "anything", "--sort", "bogus", "--root", root},
+		&out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), "unknown sort")
+}
+
+// TestRunFailsWhenTheWorkingDirectoryIsGone: run's own newParser
+// error, which is newParser's own os.Getwd failure — one test closes
+// both.
+func TestRunFailsWhenTheWorkingDirectoryIsGone(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.RemoveAll(dir))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"version"}, &out, &errb)
+
+	assert.Equal(t, 2, code)
+}
+
+// TestExitCodeFromPanicMatchesOnlyExitCode: exitCodeFromPanic's own
+// decision, direct-called.
+func TestExitCodeFromPanicMatchesOnlyExitCode(t *testing.T) {
+	code, ok := exitCodeFromPanic(exitCode(2))
+	assert.True(t, ok)
+	assert.Equal(t, 2, code)
+
+	_, ok = exitCodeFromPanic(errors.New("boom"))
+	assert.False(t, ok)
 }

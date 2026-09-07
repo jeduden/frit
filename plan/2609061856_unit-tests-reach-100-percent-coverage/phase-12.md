@@ -1,19 +1,23 @@
 ---
 n: 12
-title: cmd/frit/main.go and progress.go close the package, which joins the gate
-status: "🔲"
+title: cmd/frit/main.go and progress.go reach 100% of their reachable lines
+status: "✅"
 result: false
 ---
 Drive the rest of [cmd/frit/main.go](../../cmd/frit/main.go) —
 `resolveSelector` through `newParser` and `main` itself — to 100% of
 its reachable lines. Do the same for
-[cmd/frit/progress.go](../../cmd/frit/progress.go). Then add
-`./cmd/frit` to `scripts/check-coverage.sh`'s CI call, beside
-`internal/report`, `internal/claim`, `internal/fleet`,
-`internal/observe`, `internal/repocfg` and `internal/herdr`. This
-closes plan task 2 in full. It reuses the recipes named in
-[phase 11](phase-11.md) and the exclusion mechanism
+[cmd/frit/progress.go](../../cmd/frit/progress.go). It reuses the
+recipes named in [phase 11](phase-11.md) and the exclusion mechanism
 [phase 9](phase-9.md) built.
+
+This does not close `cmd/frit` or join the CI gate. `claim.go`,
+`dispatch.go` and `drift.go` are three more files in the package this
+plan's task list never enumerated when it named "one phase per file" —
+`release.go`, `reap.go`, `yield.go`, `start.go`,
+`main.go`+`progress.go`. `go test ./cmd/frit -cover` measures the
+whole package. So `scripts/check-coverage.sh` cannot gate it honestly
+until those three close too, in a phase 13 not yet written.
 
 **BDD coverage.** None applies. This phase adds unit tests, removes one
 structurally-dead branch, and extracts one decision into a testable
@@ -49,11 +53,12 @@ needed per [docs/development.md](../../docs/development.md)'s matrix.
   terminal" — that file does not exist in this repo. The reporter is
   `cmd/frit/progress.go`, covered by this phase.
 
-**Value.** The last file closes the package: `cmd/frit` reaches 100%
-of its reachable lines and, for the first time, is added to the CI
-gate — completing plan task 2 (every `internal/*` package plus
-`cmd/frit`). Task 3, adopting a branch-coverage tool, remains a
-separate, unplanned stage.
+**Value.** `main.go` is the widest single file in the plan; closing its
+second half, plus `progress.go`, proves the entrypoint and terminal-
+detection exclusions the plan's own context named from the start.
+`claim.go`, `dispatch.go` and `drift.go` — three files this plan's
+task list did not enumerate — carry the rest of `cmd/frit`'s gap;
+phase 13 closes them and joins the CI gate, completing plan task 2.
 
 **RED and GREEN, by function.** Line ranges come from `go tool cover
 -func` filtered to `main.go`/`progress.go`. Re-verify against a fresh
@@ -146,21 +151,14 @@ removal changes no observable behavior: the branch could never fire.
 Fix the plan.md Context section's `internal/fleet/progress.go`
 citation to read `cmd/frit/progress.go`.
 
-**GREEN, the gate.** Add `./cmd/frit` to the `scripts/check-coverage.sh`
-call in [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
-beside the six packages already there. With `scripts/coverage-exclude.txt`
-now carrying every `cmd/frit` entry from phases 9 through 12, the
-script reports 100% of the package's non-excluded statements. Verify
-red the same way earlier phases did: a throwaway untested line drops
-the package below its adjusted 100%, and the script exits non-zero;
-remove it once seen.
+**GREEN, the gate.** None yet: `./cmd/frit` is not added to
+`scripts/check-coverage.sh`'s CI call here — `claim.go`, `dispatch.go`
+and `drift.go` still carry gaps, and the whole-package check only
+makes sense once every file in it is closed. Phase 13 adds the CI
+entry once they do.
 
-**Gate.** `go test ./cmd/frit -coverprofile=cover.out && go tool cover
--func=cover.out` shows every line at 100.0% except the four declared
-exclusions. `scripts/check-coverage.sh ./internal/report
-./internal/claim ./internal/fleet ./internal/observe
-./internal/repocfg ./internal/herdr ./cmd/frit` passes. The CI call in
-`.github/workflows/ci.yml` carries all seven packages, and `go test
-./...` plus `go tool -modfile=tools/go.mod golangci-lint run` are
-green. Plan task 2 is complete; the branch-coverage criterion is all
-that task 3 still owns.
+**Gate.** `go tool cover -func` filtered to `main.go` and
+`progress.go` shows every line at 100.0% except the four declared
+exclusions. `go test ./...` and `go tool -modfile=tools/go.mod
+golangci-lint run` are green. Plan task 2 is not yet complete — it
+waits on phase 13.
