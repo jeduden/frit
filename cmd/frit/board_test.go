@@ -559,6 +559,7 @@ func TestWidthFlagOverridesDetection(t *testing.T) {
 	root := t.TempDir()
 	repo := initRepo(t, root, "atlas")
 	commitPlan(t, repo, 1, "🔳", strings.Repeat("very long title ", 6), nil, "")
+	withHerdr(t, herdrReturning())
 	var out, errb bytes.Buffer
 
 	code := run([]string{"--root", root, "--width", "50", "board"},

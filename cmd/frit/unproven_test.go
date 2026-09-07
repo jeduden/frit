@@ -239,6 +239,7 @@ func TestBoardNamesTheWayOutForATokenlessOwnLane(t *testing.T) {
 	_, err := claim.Acquire(repo, opts, gitwt.Exec)
 	require.NoError(t, err)
 	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	withHerdr(t, herdrReturning())
 	var out, errb bytes.Buffer
 
 	code := run([]string{"board", "--root", root}, &out, &errb)

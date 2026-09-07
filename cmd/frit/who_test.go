@@ -239,6 +239,27 @@ func TestWhoLanesSortsByPlanIDWithinTheSameRepo(t *testing.T) {
 	assert.Equal(t, int64(9), lanes[1].PlanID)
 }
 
+// TestWhoLanesSortsByRepositoryWhenRepositoriesDiffer: two staffed
+// panes in genuinely different repositories sort by repository name
+// first — the branch neither same-repo test above reaches, since both
+// give their two lanes the same basename on purpose.
+func TestWhoLanesSortsByRepositoryWhenRepositoriesDiffer(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	zeta := repoOnPlan(t, root, "zeta", "plan/1-first")
+	atlas := repoOnPlan(t, root, "atlas", "plan/9-later")
+	panes := []herdr.Pane{
+		{Agent: "claude", CWD: zeta, PaneID: "wA:p1"},
+		{Agent: "claude", CWD: atlas, PaneID: "wB:p1"},
+	}
+
+	lanes := whoLanes(panes, gitwt.Exec)
+
+	require.Len(t, lanes, 2)
+	assert.Equal(t, "atlas", lanes[0].Repo)
+	assert.Equal(t, "zeta", lanes[1].Repo)
+}
+
 // TestHoldsForRootIsNilWhenTheConfigCannotBeRead: holdsForRoot's own
 // repocfg.Load error, called directly against a broken .frit.yml.
 func TestHoldsForRootIsNilWhenTheConfigCannotBeRead(t *testing.T) {
