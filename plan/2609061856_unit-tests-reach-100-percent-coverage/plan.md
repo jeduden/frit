@@ -173,19 +173,30 @@ footer: |
 |     | ↳      | cmd/frit/main.go's first half — repoLanes through carryHostProblems — reached 100% line coverage: forty-plus new tests, one seam (hostname), one dead branch deleted, no exclusions.                                                                                                                                             |
 | 12  | ✅     | [cmd/frit/main.go and progress.go reach 100% of their reachable lines](phase-12.md)                                                                                                                                                                                                                                              |
 |     | ↳      | cmd/frit/main.go's second half and progress.go reached 100% of their reachable lines — fifty-plus new tests, one dead branch deleted, one decision extracted, four exclusions listed — but a scope gap surfaced: claim.go, dispatch.go and drift.go were never assigned to any phase, so cmd/frit does not join the CI gate yet. |
+| 13  | ✅     | [cmd/frit/claim.go, dispatch.go and drift.go close the package, which joins the gate](phase-13.md)                                                                                                                                                                                                                               |
+|     | ↳      | claim.go, dispatch.go and drift.go reached 100% of their reachable lines — thirty-five new tests, no seam or exclusion needed — and cmd/frit joined the CI gate, completing plan task 2.                                                                                                                                         |
 <?/catalog?>
 
 ## Acceptance Criteria
 
 - [ ] Every unit-testable line is covered; `go test ./...
-      -coverpkg=./...` reports 100% of the non-excluded set
-- [ ] Each package's line coverage is gated at 100% so a later
-      untested line reddens the check
+      -coverpkg=./...` reports 100% of the non-excluded set — not yet:
+      the whole repository reads 98.1%, since task 2 named
+      `internal/claim`, `internal/fleet`, `internal/observe`,
+      `internal/repocfg`, `internal/herdr` and `cmd/frit` specifically,
+      leaving roughly fifteen other `internal/*` packages
+      (`discover`, `discovery`, `internal/dispatch`, `doctor`,
+      `gitobj`, `gitwt`, `index`, `lanes`, `planmeta`, `plans`,
+      `presence`, `reap`, `scaffold`, `scenario`, `skills`, `textw`)
+      outside this plan's named scope
+- [x] Each package's line coverage is gated at 100% so a later
+      untested line reddens the check — true for the seven packages
+      task 2 names; the fifteen above are ungated
 - [ ] A branch-coverage tool is adopted and pinned, and every
       reachable condition outside the exclusion list is taken both ways
-- [ ] Each excluded item is a pure process boundary — the entrypoint or
+- [x] Each excluded item is a pure process boundary — the entrypoint or
       a raw syscall — listed with a one-line reason, and nothing else
-- [ ] Where a seam was cheaper than an exclusion, a test drives the
+- [x] Where a seam was cheaper than an exclusion, a test drives the
       logic and only the syscall stays out of reach
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

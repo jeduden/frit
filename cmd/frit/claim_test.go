@@ -13,6 +13,7 @@ import (
 
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
@@ -1090,4 +1091,258 @@ func TestDefaultLanePathStillNamesAFlatPlanFromItsFile(t *testing.T) {
 		"plan/2601020000_folder-plans.md")
 
 	assert.Equal(t, "/x/acme-folder-plans", got)
+}
+
+// TestClaimFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before claim ever resolves a plan.
+func TestClaimFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestResumeOwnLeaseFailsWhenTheResumePushFails: resumeOwnLease's own
+// claim.Resume error falls through to the ordinary claim path rather
+// than reporting a resume that did not land.
+func TestResumeOwnLeaseFailsWhenTheResumePushFails(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	_, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	require.NoError(t, claim.WriteToken(lane,
+		7, mustRevParse(t, repo, "refs/heads/plan/7"), gitwt.Exec))
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" {
+			return nil, errors.New("boom")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}, herdr: herdrReturning()}
+	doc := report.NewClaim(root, "atlas", 7, "Shader unit", "plan/7")
+
+	got := resumeOwnLease(rt, doc, discovery.Plan{Repo: "atlas", ID: 7},
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, lane)
+
+	assert.False(t, got)
+	assert.False(t, doc.Resumed)
+}
+
+// mustRevParse reads a ref's tip, failing the test on error.
+func mustRevParse(t *testing.T, repo, ref string) string {
+	t.Helper()
+	tip, err := gitCapture(t, repo, "rev-parse", ref)
+	require.NoError(t, err)
+
+	return tip
+}
+
+// TestResolveOwnLaneIsEmptyWhenHerdrCannotResolveASecondTime:
+// resolveOwnLane's own guard against herdr.Resolve answering
+// differently than the identity check it already passed through
+// inOwnLane — a stub git runner fails only the second
+// rev-parse --show-toplevel call in the same run.
+func TestResolveOwnLaneIsEmptyWhenHerdrCannotResolveASecondTime(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7", lane)
+	calls := 0
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+			calls++
+			if calls > 1 {
+				return nil, errors.New("boom")
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}}
+
+	gotLane, token, ok := resolveOwnLane(
+		rt, discovery.Plan{Repo: "atlas", ID: 7}, lane)
+
+	assert.False(t, ok)
+	assert.Empty(t, gotLane)
+	assert.Empty(t, token)
+}
+
+// TestInOwnLaneIsFalseForAnEmptyCwd: inOwnLane's own guard, called
+// directly.
+func TestInOwnLaneIsFalseForAnEmptyCwd(t *testing.T) {
+	assert.False(t, inOwnLane(&runtime{}, discovery.Plan{}, ""))
+}
+
+// TestUnwindFailedStandUpNamesTheReleaseFailureToo: the unwind's own
+// release can fail too, and both causes are named rather than one
+// swallowing the other.
+func TestUnwindFailedStandUpNamesTheReleaseFailureToo(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname()}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	other := cloneAgain(t, repo)
+	_, err = claim.Takeover(other, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x",
+	}, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	rt := &runtime{git: gitwt.Exec}
+	doc := report.NewClaim(root, "atlas", 7, "Shader unit", "plan/7")
+
+	unwindFailedStandUp(rt, doc, discovery.Plan{Repo: "atlas", ID: 7},
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"},
+		"plan/7", "/lanes/mine", lease.Tip, errors.New("worktree.create: boom"))
+
+	assert.False(t, doc.Claimed)
+	assert.Contains(t, doc.Refused, "worktree not stood up")
+	assert.Contains(t, doc.Refused, "could not be released")
+}
+
+// TestMintClaimSurfacesAGitFault: mintClaim's own non-lost-race error
+// path — a raw git fault, returned rather than folded into a refusal.
+func TestMintClaimSurfacesAGitFault(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, errors.New("boom")
+	}}
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+
+	_, err := mintClaim(rt, doc, discovery.Plan{Repo: "atlas", ID: 7},
+		fleet.Coord{Path: "/repo", Remote: "origin", Base: "origin/main"})
+
+	assert.Error(t, err)
+}
+
+// TestScavengeGlyphIsANoOpWithoutACoordinate: scavengeGlyph's own
+// guard, called directly against a fleet result withholding a
+// coordinate for the plan's repository.
+func TestScavengeGlyphIsANoOpWithoutACoordinate(t *testing.T) {
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Status: "✅",
+		Stale: true, HoldTip: "deadbeef"}
+
+	scavengeGlyph(&runtime{}, doc, plan, fleet.Result{Coords: map[string]fleet.Coord{}})
+
+	assert.Empty(t, doc.Scavenged)
+}
+
+// TestResetWindowIsANoOpWhenTheObservePathCannotBeResolved:
+// resetWindow's own observe.Path error, driven the same way
+// presence_test.go's cache-path failure is.
+func TestResetWindowIsANoOpWhenTheObservePathCannotBeResolved(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+
+	assert.NotPanics(t, func() {
+		resetWindow(discovery.Plan{Repo: "atlas", ID: 7}, "deadbeef", time.Now())
+	})
+}
+
+// TestVetoRefusalNamesAnotherMachineForAnUnnamedHolder: vetoRefusal's
+// own fallback naming, called directly against a marker with no
+// holder.
+func TestVetoRefusalNamesAnotherMachineForAnUnnamedHolder(t *testing.T) {
+	got := vetoRefusal(&claim.VetoError{Marker: claim.Marker{Holder: "-"}})
+
+	assert.Contains(t, got, "another machine")
+}
+
+// TestVetoRefusalWithoutARenewal: vetoRefusal's own not-renewed
+// branch, called directly.
+func TestVetoRefusalWithoutARenewal(t *testing.T) {
+	got := vetoRefusal(&claim.VetoError{
+		Marker: claim.Marker{Holder: "box-b"}, Renewed: false})
+
+	assert.Contains(t, got, "box-b")
+	assert.NotContains(t, got, "renewed")
+}
+
+// TestClaimRefusalNamesASupersededPlan: claimRefusal's own Superseded
+// case, called directly.
+func TestClaimRefusalNamesASupersededPlan(t *testing.T) {
+	got := claimRefusal(discovery.Plan{Status: "⛔"}, nil, time.Hour)
+
+	assert.Equal(t, "superseded", got)
+}
+
+// TestPrintClaimNamesARescueAndAWarningOnARefusal: printClaim's own
+// rendering, direct-called against a hand-built refused doc carrying
+// both a rescue ref and a warning.
+func TestPrintClaimNamesARescueAndAWarningOnARefusal(t *testing.T) {
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+	doc.Refuse("already held")
+	doc.ScavengedRef("plan/9", "refs/frit/rescue/9/host-abc")
+	doc.Warn("scavenge: boom")
+	var out bytes.Buffer
+
+	printClaim(&out, doc)
+
+	got := out.String()
+	assert.Contains(t, got, "rescued:   refs/frit/rescue/9/host-abc")
+	assert.Contains(t, got, "warning: scavenge: boom")
+}
+
+// TestMintOrTakeOverResetsTheWindowOnALostTakeover: a matured window's
+// takeover can still lose its CAS — another machine's own takeover
+// already moved the ref between the read and this push — and that
+// re-reads into resetWindow rather than trusting the stale marker.
+func TestMintOrTakeOverResetsTheWindowOnALostTakeover(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+
+	other := cloneAgain(t, repo)
+	_, err = claim.Takeover(other, claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "someone-else", Lane: "/lanes/y",
+	}, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true,
+		HoldTip: lease.Tip}
+	claimOpts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: "/lanes/mine"}
+
+	_, err = mintOrTakeOver(rt, plan,
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, claimOpts)
+
+	require.Error(t, err)
+	var held *claim.HeldError
+	require.ErrorAs(t, err, &held)
+	assert.NotEmpty(t, held.Tip)
+}
+
+// TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire: Run's own
+// mintClaim error path — a real push failure, not a lost race — an
+// unreachable origin on an otherwise fresh, claimable plan.
+func TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
 }

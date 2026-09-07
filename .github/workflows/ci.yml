@@ -49,7 +49,7 @@ jobs:
       # the moment any named package drops below it. Later
       # line-coverage phases add their own package to this call once
       # each reaches 100%.
-      - run: scripts/check-coverage.sh ./internal/report ./internal/claim ./internal/fleet ./internal/observe ./internal/repocfg ./internal/herdr
+      - run: scripts/check-coverage.sh ./internal/report ./internal/claim ./internal/fleet ./internal/observe ./internal/repocfg ./internal/herdr ./cmd/frit
       # The profile is a measurement, not a gate, and is most wanted
       # from a run that failed — so the summary and the upload run on
       # any outcome short of a cancel. The explicit shell adds pipefail:

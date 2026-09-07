@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -336,4 +339,173 @@ func writeFile(t *testing.T, repo, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
 		filepath.Join(repo, name), []byte(content), 0o600))
+}
+
+// TestDriftFailsWhenTheRootCannotBeWalked: a root that cannot be
+// walked fails before drift ever gathers the fleet.
+func TestDriftFailsWhenTheRootCannotBeWalked(t *testing.T) {
+	isolate(t)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"drift", "--root",
+		filepath.Join(t.TempDir(), "missing")}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.NotEmpty(t, errb.String())
+}
+
+// TestDriftSkipsAPlanWithNoCoordinate: two checkouts sharing a
+// repository name leave the fleet unable to place a not-done plan's
+// evidence, so drift reports no row for it rather than guessing a
+// repository.
+func TestDriftSkipsAPlanWithNoCoordinate(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repoA := initRepo(t, filepath.Join(root, "a"), "frontend")
+	commitPlan(t, repoA, 7, "🔲", "Shader unit", nil, "")
+	repoB := initRepo(t, filepath.Join(root, "b"), "frontend")
+	commitPlan(t, repoB, 9, "🔲", "Other work", nil, "")
+	var doc report.DriftDoc
+
+	emit(t, &doc, "drift", "--root", root)
+
+	assert.Empty(t, doc.Rows,
+		"an ambiguous repo name has nowhere to read drift evidence from")
+}
+
+// TestNewDriftRepoContextSurfacesAnUnreadableConfig:
+// newDriftRepoContext's own repocfg.Load error, called directly.
+func TestNewDriftRepoContextSurfacesAnUnreadableConfig(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\n"), 0o600))
+
+	_, err := newDriftRepoContext(repo, "main", gitwt.Exec)
+
+	assert.Error(t, err)
+}
+
+// TestNewDriftRepoContextSurfacesAnUncompilableHoldPattern:
+// newDriftRepoContext's own cfg.Compiled error, called directly.
+func TestNewDriftRepoContextSurfacesAnUncompilableHoldPattern(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holds: [\"plan/[\"]\n"), 0o600))
+
+	_, err := newDriftRepoContext(repo, "main", gitwt.Exec)
+
+	assert.Error(t, err)
+}
+
+// TestNewDriftRepoContextSurfacesAnUnreadableRefList:
+// newDriftRepoContext's own gitobj.Refs error, called directly
+// against a path with no git dir at all.
+func TestNewDriftRepoContextSurfacesAnUnreadableRefList(t *testing.T) {
+	_, err := newDriftRepoContext(
+		filepath.Join(t.TempDir(), "missing"), "main", gitwt.Exec)
+
+	assert.Error(t, err)
+}
+
+// TestNewDriftRepoContextSurfacesAnUnreadableCommitLog:
+// newDriftRepoContext's own allCommits error, called directly with a
+// stub runner that fails only the log call.
+func TestNewDriftRepoContextSurfacesAnUnreadableCommitLog(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	failLog := func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "log" {
+			return nil, errors.New("boom")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := newDriftRepoContext(repo, "main", failLog)
+
+	assert.Error(t, err)
+}
+
+// TestNewDriftRepoContextSkipsARefWithNoBranchName: a merged ref that
+// is not a branch — a tag, say — carries no plan id to read, so it is
+// skipped rather than misread.
+func TestNewDriftRepoContextSkipsARefWithNoBranchName(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "tag", "v1.0.0")
+
+	ctx, err := newDriftRepoContext(repo, "main", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Empty(t, ctx.ancestorLanded)
+}
+
+// TestBucketByIDSkipsADigitRunThatOverflows: bucketByID's own
+// strconv.ParseInt error, a digit run too long to fit an int64,
+// called directly.
+func TestBucketByIDSkipsADigitRunThatOverflows(t *testing.T) {
+	commits := []report.DriftCommit{
+		{SHA: "abc", Subject: "plan 99999999999999999999999: overflow"},
+	}
+
+	got := bucketByID(commits)
+
+	assert.Empty(t, got)
+}
+
+// TestAllCommitsSkipsALineWithNoUnitSeparator: allCommits' own guard
+// against a malformed log line, called directly with a stub runner
+// answering plain, un-delimited text.
+func TestAllCommitsSkipsALineWithNoUnitSeparator(t *testing.T) {
+	rt := func(string, ...string) ([]byte, error) {
+		return []byte("not a delimited line\n"), nil
+	}
+
+	got, err := allCommits("/repo", rt)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestLastPhaseNumberSkipsANonNumericPhase: lastPhaseNumber's own
+// strconv.Atoi error, called directly.
+func TestLastPhaseNumberSkipsANonNumericPhase(t *testing.T) {
+	got := lastPhaseNumber([]planmeta.Phase{{N: "abc"}, {N: "2"}})
+
+	assert.Equal(t, "2", got)
+}
+
+// TestLastPhaseNumberFallsBackToTheLastEntryWhenNoneParse:
+// lastPhaseNumber's own fallback, when no phase number parses as a
+// plain integer at all.
+func TestLastPhaseNumberFallsBackToTheLastEntryWhenNoneParse(t *testing.T) {
+	got := lastPhaseNumber([]planmeta.Phase{{N: "3a"}, {N: "3b"}})
+
+	assert.Equal(t, "3b", got)
+}
+
+// TestPrintDriftRendersLandedAndLastPhaseColumns: printDrift's own
+// rendering, direct-called against hand-built rows covering every
+// landed/last-phase combination — every existing drift test reads
+// --json, never the table.
+func TestPrintDriftRendersLandedAndLastPhaseColumns(t *testing.T) {
+	doc := &report.DriftDoc{Rows: []report.DriftRow{
+		{Repo: "atlas", ID: 7, Landed: true, LastPhaseCommit: true,
+			Commits: []report.DriftCommit{{SHA: "abc", Subject: "plan 7"}}},
+		{Repo: "atlas", ID: 9, Landed: false, LastPhaseCommit: false},
+	}}
+	var out bytes.Buffer
+
+	printDrift(&out, doc)
+
+	got := out.String()
+	assert.Contains(t, got, "landed")
+	assert.Contains(t, got, "last phase named")
+	assert.Contains(t, got, "not landed")
 }
