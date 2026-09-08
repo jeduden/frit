@@ -149,3 +149,17 @@ Feature: Cross-layer: herdr and frit disagree
     Then start refuses, naming frit message ahead of frit yield
     When the lane runs the ask for plan 7 with --go
     Then the text reaches the live pane
+
+  @S94 @pending
+  Scenario: a started lane resumes after ordinary commits advance its beat token
+    Given plan 7 was started through frit start --go and its lane persisted the bound beat token
+    And two ordinary work commits with plan-prefixed subjects are pushed from the lane
+    And the lane is clean and its beat token proves origin's current epoch
+    And herdr shows no agent on the lane
+    And the takeover window has not matured
+    When the lane runs start --go for plan 7
+    Then the plan is resumed
+    And the same checkout and pushed work are preserved
+    And the resume beat parents the work tip and retains its epoch
+    And one fresh agent receives one prompt in the lane
+    And the lane persists its renewed token

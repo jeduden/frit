@@ -42,3 +42,20 @@ Feature: Command scenarios
     Given a plan freshly claimed by this lane
     When it is yielded
     Then yield refuses it, naming release as the way out
+
+  @C7 @pending
+  Scenario: starting a named plan that is not top ranked
+    Given the bundled plan-start skill is installed with the built frit invocation
+    And plans 7 and 8 are ready with plan 8 ranked above plan 7
+    When the installed skill's start command runs for plan 7 with --go --json
+    Then plan 7 gains one lane and one dispatched agent
+    And the JSON handoff names plan 7 and its pane with prompt_dispatched true
+    And plan 8 remains unheld with no agent
+
+  @C8 @pending
+  Scenario: a named start refuses without choosing another plan
+    Given the bundled plan-start skill is installed with the built frit invocation
+    And plan 7 has an unmet dependency while plan 8 is ready
+    When the installed skill's start command runs for plan 7 with --go --json
+    Then the JSON refusal names plan 7 and its unmet dependency
+    And neither plan gains a hold or an agent
