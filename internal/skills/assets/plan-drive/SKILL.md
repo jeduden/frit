@@ -35,11 +35,11 @@ nothing until `--go`.
 2. **`{{frit}} nudge <id>`** — prompt the plan's next open phase into
    its idle lane. It refuses a lane that is working, not idle, and one
    with no live agent — neither is rung two.
-3. **`{{frit}} start <id>`** — compose the full escalation and, with
-   `--go`, stand the lane up and run it. `--phase` picks the phase,
-   `--note` folds in a rider, `--edit` opens the prompt first. A lane
-   whose checkout still holds its token, with no live agent, resumes
-   here — no takeover window to wait out.
+3. **`{{frit}} start <id>`** — resume a lane whose checkout still
+   holds its own token, with no live agent: no takeover window to
+   wait out. `--phase` picks the phase, `--note` folds in a rider,
+   `--edit` opens the prompt first. A plan with no lane yet is a fresh
+   start, not a resume — name it to `plan-start`.
 
 ## Ask directly
 
@@ -57,8 +57,8 @@ row whose `ask` is non-empty carries the exact message command to run.
 
 ## Notes
 
-- `open`, `nudge` and `message` need a lane that already exists;
-  `start` is the rung that creates one — a plan with no live lane
-  starts, not opens.
-- Claiming and beginning an unheld plan is `plan-pick`, not a rung
-  here.
+- `open`, `nudge` and `message` need a lane that already exists; this
+  rung of `start` resumes one, it never mints a fresh claim.
+- Claiming and beginning an unheld plan with no selector is
+  `plan-pick`; naming exactly which plan to start fresh is
+  `plan-start`. Neither is a rung here.

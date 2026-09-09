@@ -43,7 +43,7 @@ Feature: Command scenarios
     When it is yielded
     Then yield refuses it, naming release as the way out
 
-  @C7 @pending
+  @C7
   Scenario: starting a named plan that is not top ranked
     Given the bundled plan-start skill is installed with the built frit invocation
     And plans 7 and 8 are ready with plan 8 ranked above plan 7
@@ -52,7 +52,7 @@ Feature: Command scenarios
     And the JSON handoff names plan 7 and its pane with prompt_dispatched true
     And plan 8 remains unheld with no agent
 
-  @C8 @pending
+  @C8
   Scenario: a named start refuses without choosing another plan
     Given the bundled plan-start skill is installed with the built frit invocation
     And plan 7 has an unmet dependency while plan 8 is ready

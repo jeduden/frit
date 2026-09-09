@@ -10,7 +10,9 @@ description: >-
 
 The claim is a ref frit force-pushes, so the push — not a local look —
 settles who starts a plan. Script against `--json`; a table is for a
-person's eyes.
+person's eyes. A caller who already knows which plan to run names it
+to `plan-start` instead — this skill is for choosing, not for running
+a plan already chosen.
 
 ## Method
 

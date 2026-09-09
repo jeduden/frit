@@ -1,7 +1,7 @@
 ---
 id: 2609082011
 title: A plan-start skill opens the specific plan the caller names
-status: "🔲"
+status: "✅"
 summary: >-
   Front start with a thin plan-start skill for an explicit selector.
   Route named starts from plan-pick and plan-drive, install through
@@ -93,26 +93,27 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                              |
-| --- | ------ | -------------------------------------------------- |
-| 1   | 🔲     | [Ship and prove the named-start skill](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                                                  |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [Ship and prove the named-start skill](phase-1.md)                                                                                                                                                                                                     |
+|     | ↳      | plan-start ships in the bundle; a named start reaches it from plan-pick and plan-drive; C7 and C8 prove the installed command starts the selected plan regardless of rank and refuses without choosing another. All eight acceptance criteria are met. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] Installed plan-start names explicit-plan trigger phrases and
+- [x] Installed plan-start names explicit-plan trigger phrases and
       uses `start <selector> --go --json` with invocation substitution.
-- [ ] A named start opens that plan even when another ranks higher;
+- [x] A named start opens that plan even when another ranks higher;
       the other plan stays unheld, with no agent launched for it.
-- [ ] An unmet dependency is reported for the chosen plan without
+- [x] An unmet dependency is reported for the chosen plan without
       starting it or falling back to another ready plan.
-- [ ] The skill reads `prompt_dispatched` and the pane from JSON,
+- [x] The skill reads `prompt_dispatched` and the pane from JSON,
       reports the handoff and never launches a second phase runner.
-- [ ] plan-pick and plan-drive route named fresh starts to plan-start;
+- [x] plan-pick and plan-drive route named fresh starts to plan-start;
       the documented bundle and regenerated copies include it.
-- [ ] C7 and C8 run without `@pending`, using the installed command
+- [x] C7 and C8 run without `@pending`, using the installed command
       against the built binary in isolated fixtures.
-- [ ] Default and custom `--via` installs pass; edited-file refusal
+- [x] Default and custom `--via` installs pass; edited-file refusal
       remains intact and all changed skills meet the token budget.
-- [ ] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
+- [x] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
       and `mdsmith check .` pass.
