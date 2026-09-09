@@ -496,7 +496,7 @@ PR #79 cite the fetch-before-read row by the old number.
 | S89 | bound session gone, pane still attends                      | board and ready render the lane attended, not dead; start's deserted refusal names the pane, leading with resume — `frit yield` only the fallback (plan 2609031939) (RESUME, YIELD) |
 | S90 | a deserted top lane in pick's walk                          | `pick --go` treats `startRefusal`'s own refusals as a candidate to skip too: it advances to the next ready plan; an explicit `start <id>` still meets the refusal (plan 2609031951) |
 | S91 | bound session gone, pane still working, work unclassifiable | board and ready carry `ask` naming `frit message`; start's deserted refusal leads with it, `frit yield` trailing; `message --go` reaches the pane (plan 2609032048) (RESUME, YIELD) |
-| S94 | a started lane resumes after work advances its beat token   | pending — same checkout, pushed work and epoch preserved; one agent, no takeover wait (plan 2609082010, #186, RESUME, FENCE)                                                        |
+| S94 | a started lane resumes after work advances its beat token   | marker lookup walks past a work commit sharing the marker's own prefix; checkout, pushed work and epoch preserved (plan 2609082010, #186, RESUME, FENCE)                            |
 
 ### Liveness traps, from the blind liveness attack
 

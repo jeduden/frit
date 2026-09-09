@@ -88,10 +88,9 @@ frit tries to acquire a plan only when all of these hold:
 - its repository's name is not shared by another checkout under the
   root
 
-If a plan depends on an id frit cannot find, frit counts that
-dependency as not done. The refusal then reads "blocked by a
-dependency" whether the dependency is unfinished or the id does not
-exist. Run `frit show <id>` to tell the two apart.
+If a plan depends on an id frit cannot find, that dependency counts as
+not done — the refusal reads "blocked by a dependency" either way. Run
+`frit show <id>` to tell the two apart.
 
 Passing these checks is not the final word. The acquire still has to
 win the push, and another machine can take it first (see [Two machines
@@ -168,7 +167,8 @@ confirming no live session owns that lane, resumes its own lease immediately —
 no window consulted at all. A fleet of one is a lane that just restarted, with
 nobody else around to renew it or vote for it. This is what lets it recover as
 soon as it comes back, rather than sit locked out by its own staleness window
-(`S3` in [process-death.feature](../features/process-death.feature)).
+(`S3` in [process-death.feature](../features/process-death.feature); `S86`,
+`S94` in [cross-layer.feature](../features/cross-layer.feature)).
 
 ## Fencing and yield
 

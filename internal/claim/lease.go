@@ -1340,17 +1340,30 @@ func fetchedMarker(
 // latestMarker finds the most recent lease marker reachable from tip —
 // the tip itself, or the marker beneath a run of work commits — and
 // parses it. ok is false when no marker for this plan is reachable.
+//
+// The prescribed workflow's own commit convention titles a work
+// commit "plan <id>: <title>", the same "plan %d: " prefix a marker's
+// own subject carries. A single `git log -1 --grep` lands on the
+// *nearest* commit matching that prefix and stops there — if that
+// commit is a work commit rather than a genuine marker, parseMarker
+// fails it and the real marker further back in history is never seen
+// (issue #186). So every commit the grep would have matched is walked,
+// nearest first, until one actually parses as a marker.
 func latestMarker(
 	repoDir string, planID int64, tip string, run gitwt.Runner,
 ) (Marker, bool) {
 	pattern := fmt.Sprintf("^plan %d: ", planID)
-	body, err := trimmed(run(repoDir, "log", "-1",
-		"--grep="+pattern, "--format=%B", tip))
-	if err != nil || body == "" {
+	out, err := run(repoDir, "log", "--grep="+pattern, "--format=%H", tip)
+	if err != nil {
 		return Marker{}, false
 	}
+	for _, sha := range strings.Fields(string(out)) {
+		if m, ok := commitMarker(repoDir, planID, sha, run); ok {
+			return m, true
+		}
+	}
 
-	return parseMarker(planID, body)
+	return Marker{}, false
 }
 
 // commitMarker reads the lease marker a single commit carries — the

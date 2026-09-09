@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Resume after normal dispatch and pushed work
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove issue #186 with a real local origin and worktree, using the

@@ -1340,6 +1340,239 @@ func TestStartResumesALaneWhoseOwnCommitsAdvancedTheTip(t *testing.T) {
 		"the resume is CASed from origin's fresh tip, not the stale token")
 }
 
+// realLaneStartHerdr fakes a herdr that actually stands up a real
+// worktree via `git worktree add` when start's own escalation asks
+// for one — the genuine checkout issue #186's reproduction needs to
+// push work commits into and later resume from, not the placeholder
+// worktree.create the other fakes in this file answer with. The
+// started agent's session binds to "wOld:p1", the S77/S86 convention
+// for a session no later herdr fake ever reports live, so a lane
+// resumed under startHerdr's own fake reads as unattended. lane is
+// filled in once worktree.create runs.
+func realLaneStartHerdr(t *testing.T, repo, branch string) (herdr.Runner, *string) {
+	t.Helper()
+	var lane string
+
+	return func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "create" {
+			path, ok := flagValue(args, "--path")
+			if !ok {
+				return nil, fmt.Errorf("worktree create carried no --path: %v", args)
+			}
+			lane = path
+			git(t, repo, "worktree", "add", "-q", path, branch)
+
+			return []byte(`{"result":{"root_pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "pane" && args[1] == "current" {
+			return []byte(`{"result":{"pane":{"pane_id":"wZ:p1"}}}`), nil
+		}
+		if len(args) >= 2 && args[0] == "agent" && args[1] == "list" {
+			return []byte(`{"result":{"agents":[{"agent":"claude",` +
+				`"agent_status":"working","pane_id":"wZ:p1",` +
+				`"agent_session":{"value":"wOld:p1"}}]}}`), nil
+		}
+
+		return nil, nil
+	}, &lane
+}
+
+// startPlanThroughTheCLI dispatches plan 7 for real: `start --go`
+// itself acquires the lease, stands the worktree up through herdr and
+// binds the session, so the lane's persisted token is exactly what a
+// clean unattended lane carries in issue #186 — never a hand-built
+// lease. It returns the real checkout `start` stood up.
+func startPlanThroughTheCLI(t *testing.T, root, repo string) string {
+	t.Helper()
+	runner, lane := realLaneStartHerdr(t, repo, "plan/7")
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.NotEmpty(t, *lane, "start never stood a worktree up")
+	require.NotEmpty(t, claim.ReadToken(*lane, 7, gitwt.Exec),
+		"start never persisted the lane's own token")
+
+	return *lane
+}
+
+// TestStartResumesAfterNormalDispatchAndOrdinaryWorkCommits is the
+// control for TestStartResumesAfterNormalDispatchAndPlanPrefixedWorkCommits:
+// the same reproduction — a lane `start --go` itself dispatched, two
+// ordinary pushed work commits, herdr reporting the old session gone —
+// but with plain "red:"/"green:" subjects rather than the project's
+// own "plan <id>: ..." convention. This already passes before the
+// marker-masking fix, isolating that the regression is specific to a
+// work subject that shares the marker's own prefix.
+func TestStartResumesAfterNormalDispatchAndOrdinaryWorkCommits(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := startPlanThroughTheCLI(t, root, repo)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "red: add failing test")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "green: make it pass")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	workTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "resumed plan 7")
+	assert.True(t, rec.verb("agent", "start", "plan-7"),
+		"a resumed lease still stands a fresh agent up")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	resumeBody, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, resumeBody, "plan 7: beat")
+	assert.Contains(t, resumeBody, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, workTip, parent,
+		"the resume is CASed from the pushed work tip, not the stale token")
+}
+
+// TestStartResumesAfterNormalDispatchAndPlanPrefixedWorkCommits is
+// issue #186's own reproduction: a lane `start --go` itself
+// dispatched — acquisition, worktree stand-up and session bind all
+// through the CLI, never a hand-built lease — with two ordinary work
+// commits pushed on top carrying the project's own "plan <id>: <title>"
+// convention, the shape that masks the marker beneath it if lookup
+// stops at the first commit whose subject merely shares the prefix. A
+// resumed `start --go`, run from inside the lane once herdr reports
+// the old session gone, must still succeed rather than fall through to
+// the takeover window.
+func TestStartResumesAfterNormalDispatchAndPlanPrefixedWorkCommits(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := startPlanThroughTheCLI(t, root, repo)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	workTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go",
+		"--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.NotContains(t, got, "refused")
+	assert.Contains(t, got, "resumed plan 7")
+	assert.True(t, rec.verb("agent", "start", "plan-7"),
+		"a resumed lease still stands a fresh agent up")
+
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	resumeTip, err := gitCapture(t, repo, "rev-parse", tip+"^")
+	require.NoError(t, err)
+	resumeBody, err := gitCapture(t, repo, "log", "-1", "--format=%B", resumeTip)
+	require.NoError(t, err)
+	assert.Contains(t, resumeBody, "plan 7: beat")
+	assert.Contains(t, resumeBody, "epoch:   1", "a resume never bumps the epoch")
+	parent, err := gitCapture(t, repo, "rev-parse", resumeTip+"^")
+	require.NoError(t, err)
+	assert.Equal(t, workTip, parent,
+		"the resume is CASed from the pushed work tip, not the stale token")
+}
+
+// TestStartResumeAfterPlanPrefixedWorkCommitsEmitsJSON is the --json
+// counterpart to TestStartResumesAfterNormalDispatchAndPlanPrefixedWorkCommits:
+// the same reproduction, read back as the document a consumer actually
+// branches on rather than the table's own wording.
+func TestStartResumeAfterPlanPrefixedWorkCommitsEmitsJSON(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := startPlanThroughTheCLI(t, root, repo)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+
+	t.Chdir(lane)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
+
+	assert.Empty(t, doc.Refused)
+	assert.True(t, doc.Started)
+	assert.True(t, doc.Resumed, "the escalation ran on the lane's own persisted lease")
+	assert.Equal(t, "wZ:p1", doc.Pane)
+	assert.True(t, doc.PromptDispatched)
+}
+
+// TestStartDryRunAfterPlanPrefixedWorkCommitsMutatesNothing: a dry run
+// computes the very same resume proof --go would act on — startResume
+// runs whether or not --go was given — so it must read the lane as
+// resumable too, without pushing a beat, touching the herdr fake, or
+// dispatching anything.
+func TestStartDryRunAfterPlanPrefixedWorkCommitsMutatesNothing(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := startPlanThroughTheCLI(t, root, repo)
+
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	git(t, lane, "push", "-q", "origin", "plan/7")
+	beforeTip, err := gitCapture(t, lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+
+	t.Chdir(lane)
+	rec := &herdrCalls{}
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		rec.mu.Lock()
+		rec.calls = append(rec.calls, append([]string(nil), args...))
+		rec.mu.Unlock()
+
+		return nil, nil
+	})
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--root", root)
+
+	assert.Empty(t, doc.Refused)
+	assert.False(t, doc.Started, "no --go, so the escalation never runs")
+	assert.True(t, doc.Resumed, "the resume proof is computed whether or not --go was given")
+	assert.Empty(t, doc.Pane)
+	assert.False(t, rec.verb("worktree", "create"), "a dry run stands nothing up")
+	assert.False(t, rec.verb("agent", "start"), "a dry run starts no agent")
+	assert.False(t, rec.verb("agent", "prompt"), "a dry run sends no prompt")
+	assert.False(t, rec.verb("agent", "focus"), "a dry run focuses no pane")
+
+	afterTip, err := gitCapture(t, lane, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, beforeTip, afterTip, "a dry run pushes no beat")
+	remote := remoteWorkTip(t, repo)
+	assert.Equal(t, beforeTip, remote, "a dry run never touches origin's tip")
+}
+
 // TestStartScavengesALandedRef: the landed cell of the verb-state
 // table for start — a claim lost to a ref whose work already merged
 // keeps the refusal claim gives, and cleans the leftover ref up the
