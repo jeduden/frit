@@ -55,12 +55,18 @@ When implementing work tracked by `plan/`:
 - Move front-matter `status`: `🔲` → `🔳` on start, `✅` when done
 - If implementation deviates, update plan text to match
 - Run `mdsmith fix PLAN.md` after editing front matter
-- A plan or phase touching the lease protocol — a cross-host claim,
-  release, yield or takeover behavior — decides whether it needs an
-  `@S<n>` scenario, and states that decision in the phase's own spec
-  rather than leaving it implicit. Follow the procedure in
-  [docs/development.md](docs/development.md)'s executable scenario
-  matrix; S93 (plan 2609052303 phase 1) is the worked example.
+- A plan or phase touching behavior worth a BDD scenario — lease
+  protocol (`@S<n>`) or command-level (`@C<n>`, see
+  [command-scenarios.md](docs/research/command-scenarios.md)) — decides
+  whether it needs one, and states that decision in the phase's own
+  spec rather than leaving it implicit. This applies to behavior
+  surfaced mid-execution too, not only the phase's planned scope — a
+  bug consequence found while fixing something else, a reproduction
+  volunteered mid-turn — checked against the matrix before being
+  judged already covered, never folded silently into unit tests alone.
+  Follow the procedure in [docs/development.md](docs/development.md)'s
+  executable scenario matrix; S93 (plan 2609052303 phase 1) is the
+  worked example.
 
 ## Reporting
 
