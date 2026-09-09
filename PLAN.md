@@ -22,9 +22,7 @@ empty: |
 
 ?>
 
-| ID         | Model  | Title                                                                                                                            |
-| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 2609061856 | sonnet | [Unit tests reach 100% line coverage, then exercise every branch](plan/2609061856_unit-tests-reach-100-percent-coverage/plan.md) |
+Nothing in progress.
 <?/catalog?>
 
 ## All plans
@@ -140,7 +138,7 @@ footer: |
 | 2609061156 | ✅     | sonnet | [The README is a lean front page; its reference lives in docs/](plan/2609061156_readme-lean-front-page/plan.md)                                |
 | 2609061236 | ✅     | sonnet | [plan-new ships a working Phases catalog directive an author can copy](plan/2609061236_plan-new-ships-a-working-catalog-directive/plan.md)     |
 | 2609061243 | ✅     | sonnet | [A behavioral doc cites the scenario that proves it](plan/2609061243_docs-cite-the-scenario-that-proves-them/plan.md)                          |
-| 2609061856 | 🔳     | sonnet | [Unit tests reach 100% line coverage, then exercise every branch](plan/2609061856_unit-tests-reach-100-percent-coverage/plan.md)               |
+| 2609061856 | ✅     | sonnet | [Unit tests reach 100% line coverage, then exercise every branch](plan/2609061856_unit-tests-reach-100-percent-coverage/plan.md)               |
 | 2609082010 | 🔲     | sonnet | [Resume a started lane after work commits advance its token](plan/2609082010_resume-a-started-lane-after-work-commits/plan.md)                 |
 | 2609082011 | 🔲     | sonnet | [A plan-start skill opens the specific plan the caller names](plan/2609082011_start-a-named-plan-through-a-skill/plan.md)                      |
 <?/catalog?>

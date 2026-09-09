@@ -1,7 +1,7 @@
 ---
 id: 2609061856
 title: Unit tests reach 100% line coverage, then exercise every branch
-status: "🔳"
+status: "✅"
 summary: >-
   The full suite covers 92.1% of statements. Close that first: the Go
   toolchain measures line coverage natively, twenty-one functions are
