@@ -734,6 +734,32 @@ func TestOwnAdvanceRecognizesPlanPrefixedWorkCommitsOnTopOfTheToken(t *testing.T
 	assert.True(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec))
 }
 
+// TestOwnAdvanceRefusesATokenMaskedByAReleaseMarker: latestMarker now
+// walks past a masking work commit to the nearest real marker beneath
+// it (#186) — but that marker can be a release, not only a claim or
+// beat. Release mints its marker at the "same epoch" and holder as the
+// lease it ends, so a stale token minted before the release still
+// matches epoch and holder once later work commits mask the release
+// itself. OwnAdvance must never read a released lease as this lane's
+// own advance, whatever the epoch/holder pair says.
+func TestOwnAdvanceRefusesATokenMaskedByAReleaseMarker(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Release(first, leaseOptions("box-a", "/lanes/a"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	gitCmd(t, first, "checkout", "-q", "plan/7")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, first, "rev-parse", "HEAD")
+
+	assert.False(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec),
+		"a released lease masked by later work commits must never read as this lane's own advance")
+}
+
 // TestOwnAdvanceRefusesAForeignTakeover: a takeover marker minted at a
 // new epoch from the observed tip descends from the token too, so
 // ancestry alone cannot tell the two apart — OwnAdvance still refuses

@@ -1305,6 +1305,13 @@ func RemoteTip(repoDir, remote string, planID int64, run gitwt.Runner) string {
 // of the token satisfy both; a foreign takeover mints a new epoch as a
 // child of the observed tip too, so ancestry alone cannot tell them
 // apart, but it fails the epoch/holder half.
+//
+// A release keeps the token's own epoch and holder — it is minted "at
+// the same epoch" as the lease it ends (see Release) — so epoch/holder
+// alone cannot tell a released lease apart from one still live, once
+// latestMarker's walk (#186) can land on a release masked by later
+// work commits sharing its "plan <id>: " prefix. A release is terminal
+// by kind, never a lease this lane still owns, whatever it carries.
 func OwnAdvance(
 	repoDir string, planID int64, token, tip string, run gitwt.Runner,
 ) bool {
@@ -1316,8 +1323,11 @@ func OwnAdvance(
 		return false
 	}
 	governing, ok := latestMarker(repoDir, planID, tip, run)
+	if !ok || governing.Kind == markerRelease {
+		return false
+	}
 
-	return ok && governing.Epoch == owned.Epoch && governing.Holder == owned.Holder
+	return governing.Epoch == owned.Epoch && governing.Holder == owned.Holder
 }
 
 // fetchedMarker reads the latest lease marker reachable from tip,
@@ -1343,17 +1353,30 @@ func fetchedMarker(
 //
 // The prescribed workflow's own commit convention titles a work
 // commit "plan <id>: <title>", the same "plan %d: " prefix a marker's
-// own subject carries. A single `git log -1 --grep` lands on the
-// *nearest* commit matching that prefix and stops there — if that
-// commit is a work commit rather than a genuine marker, parseMarker
-// fails it and the real marker further back in history is never seen
-// (issue #186). So every commit the grep would have matched is walked,
-// nearest first, until one actually parses as a marker.
+// own subject carries. Grepping on that bare prefix alone would match
+// every ordinary work commit reachable from tip, not only markers, and
+// a single `git log -1` landing on the *nearest* one stops there — if
+// that commit is a work commit rather than a genuine marker,
+// parseMarker fails it and the real marker further back in history is
+// never seen (issue #186). So the grep is anchored to the marker kinds
+// themselves — the same per-kind pattern Held already uses to skip
+// ordinary work commits at the query level rather than reading every
+// one — and every commit that still matches is walked, nearest first,
+// until one actually parses as a marker; a work commit whose title
+// merely collides with a bare kind word ("plan <id>: release") still
+// reaches parseMarker, whose Nonce check is what tells it apart from a
+// genuine marker.
 func latestMarker(
 	repoDir string, planID int64, tip string, run gitwt.Runner,
 ) (Marker, bool) {
-	pattern := fmt.Sprintf("^plan %d: ", planID)
-	out, err := run(repoDir, "log", "--grep="+pattern, "--format=%H", tip)
+	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
+	beatPattern := fmt.Sprintf("^plan %d: %s$", planID, markerBeat)
+	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
+	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
+	out, err := run(repoDir, "log",
+		"--grep="+claimPattern, "--grep="+beatPattern,
+		"--grep="+releasePattern, "--grep="+takeoverPattern,
+		"--format=%H", tip)
 	if err != nil {
 		return Marker{}, false
 	}
