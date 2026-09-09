@@ -222,6 +222,35 @@ func TestPlanPickFrontsFindAndReady(t *testing.T) {
 	}
 }
 
+// TestPlanStartFrontsAnExplicitNamedStart guards this plan's own task:
+// a fresh, named start needs its own skill, since plan-pick only ranks
+// unspecified work and plan-drive's own start rung only resumes a lane
+// that already exists. The skill's command must carry the explicit
+// selector, the JSON handoff fields an agent branches on, and the
+// no-fallback contract — never silently choosing another plan or
+// invoking plan-phase itself.
+func TestPlanStartFrontsAnExplicitNamedStart(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-start/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-start skill: %v", err)
+	}
+	body := string(data)
+	for _, want := range []string{
+		"{{frit}} start <selector> --go --json",
+		"prompt_dispatched",
+		"pane",
+		"refused",
+		"selector is required",
+	} {
+		if !contains(body, want) {
+			t.Fatalf("plan-start skill does not mention %q", want)
+		}
+	}
+	if !contains(body, "never invoke") {
+		t.Fatal("plan-start skill does not rule out invoking plan-phase itself")
+	}
+}
+
 // TestPlanPhaseDoesNotCaveatTheDefaultBranchRead guards that plan-phase
 // no longer tells the reader to trust the lane's own frontmatter over
 // `next` — next and show now read the lane's own copy themselves
