@@ -85,6 +85,11 @@ Report in the plan's terms, not the source's.
   carry the point. Then lead into it: trace from the criterion down to
   the entity first, so the detail lands with its context — never open
   on the symbol.
+- A mechanism the report's own claims lean on — a test framework, a
+  protocol, a generator — is not the kind of symbol the first bullet
+  folds away. Name it before folding the specific result into plan
+  terms, so the reader is not surprised by what actually verified the
+  work.
 
 ## Configuration
 

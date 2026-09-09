@@ -1,7 +1,7 @@
 ---
 n: 1
 title: Ship and prove the named-start skill
-status: "🔲"
+status: "✅"
 result: false
 ---
 RED: add a bundle test requiring an installed plan-start skill with an
