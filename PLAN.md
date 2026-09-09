@@ -143,5 +143,5 @@ footer: |
 | 2609061856 | 🔳     | sonnet | [Unit tests reach 100% line coverage, then exercise every branch](plan/2609061856_unit-tests-reach-100-percent-coverage/plan.md)               |
 | 2609082010 | ✅     | sonnet | [Resume a started lane after work commits advance its token](plan/2609082010_resume-a-started-lane-after-work-commits/plan.md)                 |
 | 2609082011 | 🔲     | sonnet | [A plan-start skill opens the specific plan the caller names](plan/2609082011_start-a-named-plan-through-a-skill/plan.md)                      |
-| 2609091905 | 🔲     | sonnet | [Scenario coverage for the masked already-landed lost-race refusal](plan/2609091905_already-landed-lost-race-scenario.md)                      |
+| 2609091905 | ✅     | sonnet | [Scenario coverage for the masked already-landed lost-race refusal](plan/2609091905_already-landed-lost-race-scenario.md)                      |
 <?/catalog?>

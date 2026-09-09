@@ -1,7 +1,7 @@
 ---
 id: 2609091905
 title: Scenario coverage for the masked already-landed lost-race refusal
-status: "🔲"
+status: "✅"
 summary: >-
   heldError's Known/Landed detection depends on the same marker walk
   plan 2609082010 fixed for resume, and the masked shape was
@@ -78,16 +78,27 @@ section's own state type.
 
 **RED.** In
 [bdd_landed_evidence_test.go](../cmd/frit/bdd_landed_evidence_test.go),
-add the scenario's steps. A Given pushes two or more empty commits
-titled `plan <id>: <title>` on the holder's own branch — the masking
-shape, not `landedLeaseRepo`'s plain `work on plan <id>`. A Given
-merges that branch onto the default branch for real,
-ancestor-preserving (`git merge --no-ff`; squash is S54's own shape
-and not needed here). A When runs `frit claim <id>` from a second
-machine's clone. A Then asserts the output contains "already landed"
-— `lostRaceRefusal`'s exact wording lives in
-[claim.go](../cmd/frit/claim.go); read it rather than retype it by
-hand — and that `originsWorkRefForThePlanIsGone` passes.
+add the scenario's new steps.
+
+Squash-merge (S54's own shape) does not reach the code this row pins.
+Discovery's cheap `--merged` glyph check never recognizes a squash as
+landed. Only scavenge's content evidence does, a different code path
+that never calls `claimRefusal`. So `claim`'s pre-flight staleness
+check refuses before `Acquire` ever runs. The Given merges the
+holder's branch onto main for real, ancestor-preserving —
+`landedLeaseRepo`'s own shape in `claim_test.go`. Discovery's glyph
+check does recognize that shape, so the run reaches `Acquire` and its
+lost-race classification.
+
+A Given pushes two or more commits titled `plan <id>: <title>` on the
+holder's own branch — the masking shape, not `landedLeaseRepo`'s plain
+`work on plan <id>`. A When runs `frit claim <id>` from the second
+machine's own clone, cloned into a fleet root a real verb can `--root`
+against, not the lease world's own flat `cloneAgain` shape. A Then
+asserts the output contains "already landed". `lostRaceRefusal`'s
+exact wording lives in [claim.go](../cmd/frit/claim.go); read it
+rather than retype it by hand. The Then also checks that
+`originsWorkRefForThePlanIsGone` passes.
 
 Tag the scenario `@S95 @pending` first. Confirm `TestFeatures` skips
 it. Remove `@pending`, then confirm the scenario fails. With
@@ -114,14 +125,14 @@ green; the matrix row and `docs/claiming.md` citation are in place;
 
 ## Acceptance Criteria
 
-- [ ] `@S95` in `landed-evidence.feature` exercises a lost race
+- [x] `@S95` in `landed-evidence.feature` exercises a lost race
       against a landed lease masked by `plan <id>: <title>` work
       commits, and fails without the marker-walk fix.
-- [ ] The claim reports "already landed" and scavenges the leftover
+- [x] The claim reports "already landed" and scavenges the leftover
       ref, proven through the built binary's own output, not a library
       call alone.
-- [ ] S54, S79, S82, S84, S85 and S94 remain green.
-- [ ] The matrix row exists in `lease-protocol.md`; `claiming.md` cites
+- [x] S54, S79, S82, S84, S85 and S94 remain green.
+- [x] The matrix row exists in `lease-protocol.md`; `claiming.md` cites
       S95 beside S54.
-- [ ] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
+- [x] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
       and `mdsmith check .` pass.

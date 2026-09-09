@@ -210,14 +210,14 @@ failure: the command prints the reason and exits 0.
 before the status reasons, so a plan that is both held and done
 reports the hold. A 🔳 plan nobody holds is not refused: frit resumes
 it by re-acquiring the lease, and the push still arbitrates in case a
-live hold does exist (`S26`).
+live hold does exist (`S26`). A lost race to a landed winner says so
+by name and scavenges the stray ref (`S54`, `S95`).
 
-The last row is a safety stop. frit names each repository by its main
-worktree's directory name. If two repositories under the root have
-the same directory name, frit cannot tell which one the plan is in,
-and could push to the wrong repository. So it pushes to neither and
-prints the reason. This blocks claiming every plan in both
-repositories. Rename one to fix it.
+The last row is a safety stop: frit names each repository by its main
+worktree's directory name, and two repositories under the root
+sharing one leave it unable to tell which the plan is in. Rather than
+risk pushing to the wrong one, it pushes to neither, blocking every
+plan in both until one is renamed.
 
 ## Legacy holds
 
