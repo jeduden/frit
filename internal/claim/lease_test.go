@@ -2,6 +2,7 @@ package claim
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -709,6 +710,56 @@ func TestOwnAdvanceRecognizesRawCommitsOnTopOfTheToken(t *testing.T) {
 	assert.True(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec))
 }
 
+// TestOwnAdvanceRecognizesPlanPrefixedWorkCommitsOnTopOfTheToken: the
+// prescribed workflow's own commit convention titles a work commit
+// "plan <id>: <title>" — the same "plan %d: " prefix a marker's own
+// subject carries. Naively re-grepping for that prefix would land on
+// the nearest such commit and stop there once it fails to parse as a
+// real marker, masking the actual marker further back in history —
+// this is issue #186's own cause (RED before the walk-past fix; GREEN
+// after). OwnAdvance must walk past the non-marker subject to the
+// governing marker beneath it, exactly as it already does for a
+// prefix-free work commit.
+func TestOwnAdvanceRecognizesPlanPrefixedWorkCommitsOnTopOfTheToken(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	gitCmd(t, first, "checkout", "-q", "plan/7")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, first, "rev-parse", "HEAD")
+
+	assert.True(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec))
+}
+
+// TestOwnAdvanceRefusesATokenMaskedByAReleaseMarker: latestMarker now
+// walks past a masking work commit to the nearest real marker beneath
+// it (#186) — but that marker can be a release, not only a claim or
+// beat. Release mints its marker at the "same epoch" and holder as the
+// lease it ends, so a stale token minted before the release still
+// matches epoch and holder once later work commits mask the release
+// itself. OwnAdvance must never read a released lease as this lane's
+// own advance, whatever the epoch/holder pair says.
+func TestOwnAdvanceRefusesATokenMaskedByAReleaseMarker(t *testing.T) {
+	first := originAndClone(t)
+	lease, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Release(first, leaseOptions("box-a", "/lanes/a"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	gitCmd(t, first, "checkout", "-q", "plan/7")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the first task")
+	gitCmd(t, first, "commit", "--allow-empty", "-q", "-m", "plan 7: address the second task")
+	gitCmd(t, first, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, first, "rev-parse", "HEAD")
+
+	assert.False(t, OwnAdvance(first, 7, lease.Tip, tip, gitwt.Exec),
+		"a released lease masked by later work commits must never read as this lane's own advance")
+}
+
 // TestOwnAdvanceRefusesAForeignTakeover: a takeover marker minted at a
 // new epoch from the observed tip descends from the token too, so
 // ancestry alone cannot tell the two apart — OwnAdvance still refuses
@@ -855,6 +906,27 @@ func TestParseMarkerAcceptsEveryGenuineMarkerKind(t *testing.T) {
 	assert.Equal(t, markerClaim, m.Kind, "the decorated subject still resolves to claim")
 }
 
+// TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord:
+// latestMarker now walks every commit sharing the "plan <id>: " prefix,
+// not only the nearest one (the #186 fix), which widens how often an
+// ordinary work commit's own body reaches parseMarker. A work commit
+// titled exactly "plan <id>: release" (or beat/claim/takeover) shares
+// markerKind's exact-match test with a genuine marker but carries none
+// of a marker's trailers. Every genuine marker always carries a nonce —
+// mintMarker mints a fresh one for every kind — so a body missing one
+// must never parse as ok, or a masking work commit is read as a real
+// marker at epoch 0 with no holder, corrupting the chain a later
+// advance mints from.
+func TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord(t *testing.T) {
+	for _, kind := range []string{
+		markerClaim, markerBeat, markerRelease, markerTakeover,
+	} {
+		body := fmt.Sprintf("plan 7: %s\n\nan ordinary work commit, not a marker", kind)
+		_, ok := parseMarker(7, body)
+		assert.False(t, ok, "a bare %q title with no trailers is not a marker", kind)
+	}
+}
+
 // TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker pins the
 // claim-protocol edge: a plan/<id> branch whose only commit is the
 // human-authored plan file, merged into base by PR, must not read as a
@@ -880,6 +952,40 @@ func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
 	require.ErrorAs(t, err, &held)
 	assert.False(t, held.Known, "a plan-authoring commit is not a lease marker")
 	assert.False(t, held.Landed, "no marker was read, so nothing is reported landed")
+}
+
+// TestHeldErrorWalksPastWorkCommitsToTheGoverningMarker: issue #186's
+// own consequence for a lost race, not only for resume — reproduced
+// against this repository's own history (plan 2609061856's leftover
+// branch), where several ordinary "plan <id>: <title>" work commits
+// sit between the tip and the beat marker that actually governs the
+// lease. heldError must still find that marker rather than read the
+// masking prefix match as "no marker at all" and silently drop
+// Known and Landed, the shape TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker
+// pins for a branch that genuinely carries none.
+func TestHeldErrorWalksPastWorkCommitsToTheGoverningMarker(t *testing.T) {
+	work := originAndClone(t)
+	_, err := Acquire(work, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	gitCmd(t, work, "checkout", "-q", "plan/7")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: scope the work into phases")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: stage coverage first")
+	gitCmd(t, work, "commit", "--allow-empty", "-q", "-m", "plan 7: fix a flaky test")
+	gitCmd(t, work, "push", "-q", "origin", "plan/7")
+	tip := gitCmd(t, work, "rev-parse", "HEAD")
+	gitCmd(t, work, "checkout", "-q", "main")
+	gitCmd(t, work, "merge", "-q", "--no-ff", "plan/7", "-m", "merge plan 7")
+	gitCmd(t, work, "push", "-q", "origin", "main")
+
+	second := cloneAgain(t, work)
+	err = heldError(second, leaseOptions("box-b", "/lanes/b"), tip, gitwt.Exec)
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the claim marker beneath the work commits was found")
+	assert.Equal(t, "box-a", held.Marker.Holder)
+	assert.True(t, held.Landed, "the work merged into main and the marker was read")
 }
 
 // TestHeldFindsAClaimOrTakeoverReachableFromTip: the ordinary shapes a

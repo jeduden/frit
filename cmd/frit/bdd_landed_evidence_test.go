@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,6 +109,17 @@ func (w *world) registerLandedEvidence(sc *godog.ScenarioContext) {
 		w.aRepositoryWithPlanHandFlippedAndPlanDependingOnIt)
 	sc.Step(`^ready runs$`, w.readyRuns)
 	sc.Step(`^plan (\d+) is listed as ready$`, w.planIsListedAsReady)
+
+	sc.Step(`^"([^"]+)" pushes work titled with the marker's own prefix$`,
+		w.pushesWorkTitledWithTheMarkersOwnPrefix)
+	sc.Step(`^"([^"]+)"'s branch is merged onto the default branch$`,
+		w.branchIsMergedOntoTheDefaultBranch)
+	sc.Step(`^"([^"]+)" clones the repository into a fleet root$`,
+		w.clonesTheRepositoryIntoAFleetRoot)
+	sc.Step(`^"([^"]+)" claims plan (\d+) over the landed hold$`,
+		w.machineClaimsPlanOverTheLandedHold)
+	sc.Step(`^the claim reports the plan already landed$`,
+		w.theClaimReportsThePlanAlreadyLanded)
 }
 
 // tipObserved is the tip a row's evidence is judged against: this
@@ -158,6 +170,124 @@ func (w *world) pushesWorkOnTheLane(holder string) error {
 		return fmt.Errorf("%s: %w", out, err)
 	}
 	section[landedEvidenceState](w).tip = tip
+
+	return nil
+}
+
+// pushesWorkTitledWithTheMarkersOwnPrefix is S95's own Given: two
+// commits on the holder's branch, each titled "plan <id>: <title>" —
+// the project's own convention, and the same "plan %d: " prefix a
+// lease marker's own subject carries. One carries the file content
+// squashMergesOntoTheDefaultBranch expects, so a later squash-merge's
+// content-evidence check still lands the same way S54's plain "unlanded
+// work" commit does; only the subject differs, which is the row's own
+// point (issue #186's masking, reproduced against heldError's read
+// rather than resume's).
+func (w *world) pushesWorkTitledWithTheMarkersOwnPrefix(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	git(w.t, repo, "checkout", "-q", claim.Branch(int64(w.planID)))
+	git(w.t, repo, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: address the first task", w.planID))
+	writeFile(w.t, repo, "w.txt", squashLandContent)
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m",
+		fmt.Sprintf("plan %d: address the second task", w.planID))
+	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	if out, err := gitCapture(w.t, repo, "push", "origin", tip+":"+w.branch()); err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+	section[landedEvidenceState](w).tip = tip
+
+	return nil
+}
+
+// branchIsMergedOntoTheDefaultBranch merges holder's plan branch onto
+// main for real, ancestor-preserving — the shape a genuinely-merged PR
+// leaves, as opposed to squashMergesOntoTheDefaultBranch's deliberately
+// disconnected squash. discovery's own cheap `--merged` glyph check
+// (docs/claiming.md's "frit drops any branch already merged") only
+// ever recognizes this ancestor-preserving shape, not a squash-merge —
+// content evidence for that is scavenge's own job, S54's row, a
+// different code path entirely that never reaches claimRefusal. This
+// row needs discovery to already read the branch as merged, so
+// claimRefusal's pre-flight staleness check steps aside and the run
+// reaches Acquire's own lost-race classification — the site this row
+// actually pins.
+func (w *world) branchIsMergedOntoTheDefaultBranch(holder string) error {
+	if section[landedEvidenceState](w).tip == "" {
+		return fmt.Errorf("nothing has been pushed on the lane yet; the push step comes first")
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+	git(w.t, repo, "merge", "-q", "--no-ff", "-m",
+		fmt.Sprintf("land plan %d", w.planID), claim.Branch(int64(w.planID)))
+	git(w.t, repo, "push", "-q", "origin", "main")
+
+	return nil
+}
+
+// clonesTheRepositoryIntoAFleetRoot stands a second machine up the way
+// clonesTheRepository does, but into a named subdirectory of a fresh
+// root frit can walk — cloneAgain's own flat tempdir (the clone's
+// directory is itself the repo) has no such root, so a row that only
+// ever needs git commands against the clone uses that lighter step;
+// this one is for a row whose When goes on to run a real frit verb
+// against it.
+func (w *world) clonesTheRepositoryIntoAFleetRoot(holder string) error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	root := w.t.TempDir()
+	dst := filepath.Join(root, holder)
+	cloneOriginOf(w.t, repo, root, dst)
+	w.clones[holder] = dst
+	section[landedEvidenceState](w).root = root
+
+	return nil
+}
+
+// machineClaimsPlanOverTheLandedHold runs `claim` for holder against
+// its own clone — the vantage point a second machine racing a landed
+// hold actually claims from, standing in for the squash-merge PR this
+// section's other rows simulate by hand. out/errb are reset first,
+// since this section shares them as "the last CLI run this row drove"
+// across many rows.
+func (w *world) machineClaimsPlanOverTheLandedHold(holder string, planID int) error {
+	if _, err := w.cloneOf(holder); err != nil {
+		return err
+	}
+	le := section[landedEvidenceState](w)
+	if le.root == "" {
+		return fmt.Errorf("no fleet root to claim from; clone %q into one first", holder)
+	}
+	le.out.Reset()
+	le.errb.Reset()
+	run([]string{"claim", strconv.Itoa(planID), "--root", le.root}, &le.out, &le.errb)
+
+	return nil
+}
+
+// theClaimReportsThePlanAlreadyLanded checks the last claim's own
+// output names the dedicated already-landed refusal
+// (lostRaceRefusal, cmd/frit/claim.go) rather than the generic
+// lost-the-race wording an unread marker falls back to — the
+// distinction this row exists to pin.
+func (w *world) theClaimReportsThePlanAlreadyLanded() error {
+	got := section[landedEvidenceState](w).out.String()
+	if !strings.Contains(got, "already landed") {
+		return fmt.Errorf("the claim did not report already landed: %s", got)
+	}
 
 	return nil
 }

@@ -1305,6 +1305,13 @@ func RemoteTip(repoDir, remote string, planID int64, run gitwt.Runner) string {
 // of the token satisfy both; a foreign takeover mints a new epoch as a
 // child of the observed tip too, so ancestry alone cannot tell them
 // apart, but it fails the epoch/holder half.
+//
+// A release keeps the token's own epoch and holder — it is minted "at
+// the same epoch" as the lease it ends (see Release) — so epoch/holder
+// alone cannot tell a released lease apart from one still live, once
+// latestMarker's walk (#186) can land on a release masked by later
+// work commits sharing its "plan <id>: " prefix. A release is terminal
+// by kind, never a lease this lane still owns, whatever it carries.
 func OwnAdvance(
 	repoDir string, planID int64, token, tip string, run gitwt.Runner,
 ) bool {
@@ -1316,8 +1323,11 @@ func OwnAdvance(
 		return false
 	}
 	governing, ok := latestMarker(repoDir, planID, tip, run)
+	if !ok || governing.Kind == markerRelease {
+		return false
+	}
 
-	return ok && governing.Epoch == owned.Epoch && governing.Holder == owned.Holder
+	return governing.Epoch == owned.Epoch && governing.Holder == owned.Holder
 }
 
 // fetchedMarker reads the latest lease marker reachable from tip,
@@ -1340,17 +1350,43 @@ func fetchedMarker(
 // latestMarker finds the most recent lease marker reachable from tip —
 // the tip itself, or the marker beneath a run of work commits — and
 // parses it. ok is false when no marker for this plan is reachable.
+//
+// The prescribed workflow's own commit convention titles a work
+// commit "plan <id>: <title>", the same "plan %d: " prefix a marker's
+// own subject carries. Grepping on that bare prefix alone would match
+// every ordinary work commit reachable from tip, not only markers, and
+// a single `git log -1` landing on the *nearest* one stops there — if
+// that commit is a work commit rather than a genuine marker,
+// parseMarker fails it and the real marker further back in history is
+// never seen (issue #186). So the grep is anchored to the marker kinds
+// themselves — the same per-kind pattern Held already uses to skip
+// ordinary work commits at the query level rather than reading every
+// one — and every commit that still matches is walked, nearest first,
+// until one actually parses as a marker; a work commit whose title
+// merely collides with a bare kind word ("plan <id>: release") still
+// reaches parseMarker, whose Nonce check is what tells it apart from a
+// genuine marker.
 func latestMarker(
 	repoDir string, planID int64, tip string, run gitwt.Runner,
 ) (Marker, bool) {
-	pattern := fmt.Sprintf("^plan %d: ", planID)
-	body, err := trimmed(run(repoDir, "log", "-1",
-		"--grep="+pattern, "--format=%B", tip))
-	if err != nil || body == "" {
+	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
+	beatPattern := fmt.Sprintf("^plan %d: %s$", planID, markerBeat)
+	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
+	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
+	out, err := run(repoDir, "log",
+		"--grep="+claimPattern, "--grep="+beatPattern,
+		"--grep="+releasePattern, "--grep="+takeoverPattern,
+		"--format=%H", tip)
+	if err != nil {
 		return Marker{}, false
 	}
+	for _, sha := range strings.Fields(string(out)) {
+		if m, ok := commitMarker(repoDir, planID, sha, run); ok {
+			return m, true
+		}
+	}
 
-	return parseMarker(planID, body)
+	return Marker{}, false
 }
 
 // commitMarker reads the lease marker a single commit carries — the
@@ -1399,9 +1435,16 @@ func leaseMessage(
 
 // parseMarker reads a lease marker from a commit body: the kind off
 // the subject line, the trailers beneath it. ok is false for a body
-// that is not this plan's marker — a work commit, another plan's, or a
+// that is not this plan's marker — a work commit, another plan's, a
 // plan-authoring commit whose subject shares the "plan <id>: " prefix
-// but names a title rather than one of frit's marker kinds.
+// but names a title rather than one of frit's marker kinds, or a work
+// commit whose title happens to equal a marker kind word exactly
+// ("plan <id>: release") but carries none of a marker's trailers.
+// mintMarker mints a fresh nonce for every genuine marker of every
+// kind, so its absence is what tells the two apart — latestMarker
+// walks every commit sharing the prefix now, not only the nearest
+// (#186), so this check matters more than when only one candidate was
+// ever tried.
 func parseMarker(planID int64, body string) (Marker, bool) {
 	lines := strings.Split(body, "\n")
 	kind, ok := markerKind(lines[0], planID)
@@ -1432,6 +1475,9 @@ func parseMarker(planID int64, body string) (Marker, bool) {
 		case "base":
 			m.Base = val
 		}
+	}
+	if m.Nonce == "" {
+		return Marker{}, false
 	}
 
 	return m, true

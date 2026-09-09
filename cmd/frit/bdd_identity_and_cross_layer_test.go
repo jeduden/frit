@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ func init() {
 	registrars = append(registrars, (*world).registerPickWalkIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerAttendedLaneIdentityAndCrossLayer)
 	registrars = append(registrars, (*world).registerAskTheAgentIdentityAndCrossLayer)
+	registrars = append(registrars, (*world).registerResumeAfterWorkCommitsIdentityAndCrossLayer)
 }
 
 // raceResult is one contender's own captured run — a claim or a start
@@ -585,6 +587,216 @@ func (w *world) itIsRefusedAndTheTakeoverStands() error {
 	}
 	if tip != st.takeover {
 		return fmt.Errorf("origin holds %s, want the takeover %s left untouched", tip, st.takeover)
+	}
+
+	return nil
+}
+
+// registerResumeAfterWorkCommitsIdentityAndCrossLayer registers S94's
+// own five steps — plan 7 started for real through `start --go`, two
+// work commits carrying the project's own "plan <id>: <title>"
+// subject pushed on top, then a resumed `start --go` from inside the
+// lane — split into its own function so neither
+// registerIdentityAndCrossLayer nor registerVerbLevelIdentityAndCrossLayer
+// trips golangci-lint's funlen.
+func (w *world) registerResumeAfterWorkCommitsIdentityAndCrossLayer(sc *godog.ScenarioContext) {
+	sc.Step(`^plan (\d+) was started through frit start --go and its lane persisted `+
+		`the bound beat token$`, w.planWasStartedThroughFritStartGoAndItsLanePersistedTheBoundBeatToken)
+	sc.Step(`^two ordinary work commits with plan-prefixed subjects are pushed from the lane$`,
+		w.twoOrdinaryWorkCommitsWithPlanPrefixedSubjectsArePushedFromTheLane)
+	sc.Step(`^the lane is clean and its beat token proves origin's current epoch$`,
+		w.theLaneIsCleanAndItsBeatTokenProvesOriginsCurrentEpoch)
+	sc.Step(`^the takeover window has not matured$`, w.theTakeoverWindowHasNotMatured)
+	sc.Step(`^the same checkout and pushed work are preserved$`,
+		w.theSameCheckoutAndPushedWorkArePreserved)
+	sc.Step(`^the resume beat parents the work tip and retains its epoch$`,
+		w.theResumeBeatParentsTheWorkTipAndRetainsItsEpoch)
+	sc.Step(`^one fresh agent receives one prompt in the lane$`,
+		w.oneFreshAgentReceivesOnePromptInTheLane)
+	sc.Step(`^the lane persists its renewed token$`, w.theLanePersistsItsRenewedToken)
+}
+
+// planWasStartedThroughFritStartGoAndItsLanePersistedTheBoundBeatToken
+// is S94's own Given: plan 7 dispatched for real through `start --go`
+// — acquisition, worktree stand-up and session bind all through the
+// CLI, never a hand-built lease — the shape issue #186 was actually
+// reported against. realLaneStartHerdr stands the worktree up for
+// real and binds the agent to session "wOld:p1", a session no later
+// herdr fake in this scenario ever reports live.
+func (w *world) planWasStartedThroughFritStartGoAndItsLanePersistedTheBoundBeatToken(planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	w.holder = hostname()
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.clones[w.holder] = repo
+	st := section[identityAndCrossLayerState](w)
+	st.root, st.repo = root, repo
+
+	lane := startPlanThroughTheCLI(w.t, root, repo)
+	st.lane = lane
+
+	return nil
+}
+
+// twoOrdinaryWorkCommitsWithPlanPrefixedSubjectsArePushedFromTheLane
+// pushes the project's own commit convention — "plan <id>: <title>",
+// the same prefix a lease marker's own subject carries — on top of the
+// lane's persisted token, the shape that masks the marker beneath it
+// if lookup stops at the first commit whose subject merely shares that
+// prefix (issue #186).
+func (w *world) twoOrdinaryWorkCommitsWithPlanPrefixedSubjectsArePushedFromTheLane() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to push work commits on; the start step comes first")
+	}
+	git(w.t, st.lane, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: address the first task", w.planID))
+	git(w.t, st.lane, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: address the second task", w.planID))
+	if out, err := gitCapture(w.t, st.lane, "push", "-q", "origin", w.branch()); err != nil {
+		return fmt.Errorf("push work commits: %s: %w", out, err)
+	}
+	raw, err := gitCapture(w.t, st.lane, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", raw, err)
+	}
+	st.raw = raw
+
+	return nil
+}
+
+// theLaneIsCleanAndItsBeatTokenProvesOriginsCurrentEpoch checks the
+// scenario's own precondition in plain git terms — a clean worktree
+// and a token that is a plain ancestor of origin's current tip — never
+// through claim.OwnAdvance, the function this phase repairs: this
+// Given step must hold whether or not the fix has landed, so red/green
+// on the scenario is decided by the resume itself, not by this setup
+// check.
+func (w *world) theLaneIsCleanAndItsBeatTokenProvesOriginsCurrentEpoch() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.lane == "" {
+		return fmt.Errorf("no lane to check; the start step comes first")
+	}
+	status, err := gitCapture(w.t, st.lane, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("%s: %w", status, err)
+	}
+	if status != "" {
+		return fmt.Errorf("the lane is not clean: %q", status)
+	}
+	token := claim.ReadToken(st.lane, int64(w.planID), gitwt.Exec)
+	if token == "" {
+		return fmt.Errorf("the lane's token is empty")
+	}
+	tip := remoteWorkTip(w.t, st.repo)
+	if _, err := gitCapture(w.t, st.repo, "merge-base", "--is-ancestor", token, tip); err != nil {
+		return fmt.Errorf("the token %s is not an ancestor of origin's tip %s: %w", token, tip, err)
+	}
+
+	return nil
+}
+
+// theTakeoverWindowHasNotMatured is a no-op affirmation: nothing in
+// this scenario ever advances a clock, so the staleness window a
+// takeover would need before seizing the hold never matures — the
+// resume this scenario proves must succeed on the token proof alone,
+// never on the window.
+func (w *world) theTakeoverWindowHasNotMatured() error {
+	return nil
+}
+
+// theSameCheckoutAndPushedWorkArePreserved checks the resumed start's
+// own report still names the lane the first dispatch stood up, that
+// the checkout is still there, and that origin's current tip still
+// descends from the work commits pushed on top of the token — a
+// resume drives the existing checkout, it never discards it for a
+// fresh one.
+func (w *world) theSameCheckoutAndPushedWorkArePreserved() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.raw == "" {
+		return fmt.Errorf("no work tip recorded; the work-commits step comes first")
+	}
+	if !strings.Contains(st.out, "worktree: "+st.lane) {
+		return fmt.Errorf("the resume did not report the same checkout %s: %s", st.lane, st.out)
+	}
+	if _, err := os.Stat(st.lane); err != nil {
+		return fmt.Errorf("the lane's checkout is gone: %w", err)
+	}
+	tip := remoteWorkTip(w.t, st.repo)
+	if _, err := gitCapture(w.t, st.repo, "merge-base", "--is-ancestor", st.raw, tip); err != nil {
+		return fmt.Errorf("the pushed work %s is no longer an ancestor of origin's tip %s: %w",
+			st.raw, tip, err)
+	}
+
+	return nil
+}
+
+// theResumeBeatParentsTheWorkTipAndRetainsItsEpoch reads the chain
+// resume left: the session bind's own beat rides on top, so the beat
+// directly beneath it is the resume itself, and that one's parent must
+// be exactly the work tip the lane pushed, at the same epoch a resume
+// never bumps.
+func (w *world) theResumeBeatParentsTheWorkTipAndRetainsItsEpoch() error {
+	st := section[identityAndCrossLayerState](w)
+	if st.raw == "" {
+		return fmt.Errorf("no work tip recorded; the work-commits step comes first")
+	}
+	tip := remoteWorkTip(w.t, st.repo)
+	resumeTip, err := gitCapture(w.t, st.repo, "rev-parse", tip+"^")
+	if err != nil {
+		return fmt.Errorf("%s: %w", resumeTip, err)
+	}
+	resumeBody, err := gitCapture(w.t, st.repo, "log", "-1", "--format=%B", resumeTip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", resumeBody, err)
+	}
+	if !strings.Contains(resumeBody, fmt.Sprintf("plan %d: beat", w.planID)) {
+		return fmt.Errorf("the resumed tip is not a beat: %q", resumeBody)
+	}
+	if !strings.Contains(resumeBody, "epoch:   1") {
+		return fmt.Errorf("a resume must never bump the epoch: %q", resumeBody)
+	}
+	parent, err := gitCapture(w.t, st.repo, "rev-parse", resumeTip+"^")
+	if err != nil {
+		return fmt.Errorf("%s: %w", parent, err)
+	}
+	if parent != st.raw {
+		return fmt.Errorf("the resume beat's parent is %s, want the work tip %s", parent, st.raw)
+	}
+
+	return nil
+}
+
+// oneFreshAgentReceivesOnePromptInTheLane reads the resumed start's
+// own report: a live dispatch always names one running prompt and one
+// pane to focus, and never reports a fresh "started plan" — the
+// wording a first dispatch, not a resume, would print.
+func (w *world) oneFreshAgentReceivesOnePromptInTheLane() error {
+	st := section[identityAndCrossLayerState](w)
+	if !strings.Contains(st.out, "running:") {
+		return fmt.Errorf("the resume never reports a running prompt: %s", st.out)
+	}
+	if !strings.Contains(st.out, "focus:    wZ:p1") {
+		return fmt.Errorf("the resume never reports the dispatched pane: %s", st.out)
+	}
+	if strings.Contains(st.out, "started plan") {
+		return fmt.Errorf("the resume reads as a fresh dispatch, not a resume: %s", st.out)
+	}
+
+	return nil
+}
+
+// theLanePersistsItsRenewedToken checks the lane's own token file now
+// matches exactly the tip the resume and its session bind left on
+// origin — the same shortcut this lane will need the next time it is
+// started.
+func (w *world) theLanePersistsItsRenewedToken() error {
+	st := section[identityAndCrossLayerState](w)
+	tip := remoteWorkTip(w.t, st.repo)
+	token := claim.ReadToken(st.lane, int64(w.planID), gitwt.Exec)
+	if token != tip {
+		return fmt.Errorf("the lane's persisted token is %q, want origin's tip %q", token, tip)
 	}
 
 	return nil

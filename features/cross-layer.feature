@@ -150,7 +150,7 @@ Feature: Cross-layer: herdr and frit disagree
     When the lane runs the ask for plan 7 with --go
     Then the text reaches the live pane
 
-  @S94 @pending
+  @S94
   Scenario: a started lane resumes after ordinary commits advance its beat token
     Given plan 7 was started through frit start --go and its lane persisted the bound beat token
     And two ordinary work commits with plan-prefixed subjects are pushed from the lane

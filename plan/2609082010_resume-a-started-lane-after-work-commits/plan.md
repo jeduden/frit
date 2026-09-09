@@ -1,7 +1,7 @@
 ---
 id: 2609082010
 title: Resume a started lane after work commits advance its token
-status: "🔲"
+status: "✅"
 summary: >-
   Reproduce issue #186 through normal start, binding and token persistence,
   then restore same-epoch resume after ordinary pushed commits. Preserve
@@ -90,22 +90,23 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                      |
-| --- | ------ | ---------------------------------------------------------- |
-| 1   | 🔲     | [Resume after normal dispatch and pushed work](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                   |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [Resume after normal dispatch and pushed work](phase-1.md)                                                                                                                                              |
+|     | ↳      | Reproduced issue #186 through a real CLI `start --go` dispatch, then fixed marker lookup so a resume's ownership proof walks past a work commit that only shares the marker's own "plan <id>: " prefix. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] Starting normally, pushing ordinary work and closing the agent
+- [x] Starting normally, pushing ordinary work and closing the agent
       leaves a lane that `start <id> --go` resumes before the window.
-- [ ] Both plain and `plan <id>:` work subjects retain valid token proof.
-- [ ] Resume preserves the same checkout and pushed commits, renews the
+- [x] Both plain and `plan <id>:` work subjects retain valid token proof.
+- [x] Resume preserves the same checkout and pushed commits, renews the
       same epoch from the current origin tip, and dispatches one agent.
-- [ ] Dry-run describes resume without changing origin or starting an
+- [x] Dry-run describes resume without changing origin or starting an
       agent; JSON reports resume and the dispatched pane after `--go`.
-- [ ] Missing or invalid tokens, a foreign epoch, and a live agent
+- [x] Missing or invalid tokens, a foreign epoch, and a live agent
       cannot gain the resume shortcut; existing uncertainty guards pass.
-- [ ] S94 runs without `@pending`; S76, S77 and S86 remain green.
-- [ ] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
+- [x] S94 runs without `@pending`; S76, S77 and S86 remain green.
+- [x] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint run`
       and `mdsmith check .` pass.
