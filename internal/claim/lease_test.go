@@ -2,6 +2,7 @@ package claim
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -877,6 +878,27 @@ func TestParseMarkerAcceptsEveryGenuineMarkerKind(t *testing.T) {
 		"epoch:   1\nnonce:   cafe\nholder:  box-a\nlane:    -\nsession: -")
 	require.True(t, ok, "legacy decorated claim")
 	assert.Equal(t, markerClaim, m.Kind, "the decorated subject still resolves to claim")
+}
+
+// TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord:
+// latestMarker now walks every commit sharing the "plan <id>: " prefix,
+// not only the nearest one (the #186 fix), which widens how often an
+// ordinary work commit's own body reaches parseMarker. A work commit
+// titled exactly "plan <id>: release" (or beat/claim/takeover) shares
+// markerKind's exact-match test with a genuine marker but carries none
+// of a marker's trailers. Every genuine marker always carries a nonce —
+// mintMarker mints a fresh one for every kind — so a body missing one
+// must never parse as ok, or a masking work commit is read as a real
+// marker at epoch 0 with no holder, corrupting the chain a later
+// advance mints from.
+func TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord(t *testing.T) {
+	for _, kind := range []string{
+		markerClaim, markerBeat, markerRelease, markerTakeover,
+	} {
+		body := fmt.Sprintf("plan 7: %s\n\nan ordinary work commit, not a marker", kind)
+		_, ok := parseMarker(7, body)
+		assert.False(t, ok, "a bare %q title with no trailers is not a marker", kind)
+	}
 }
 
 // TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker pins the

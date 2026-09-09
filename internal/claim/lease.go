@@ -1412,9 +1412,16 @@ func leaseMessage(
 
 // parseMarker reads a lease marker from a commit body: the kind off
 // the subject line, the trailers beneath it. ok is false for a body
-// that is not this plan's marker — a work commit, another plan's, or a
+// that is not this plan's marker — a work commit, another plan's, a
 // plan-authoring commit whose subject shares the "plan <id>: " prefix
-// but names a title rather than one of frit's marker kinds.
+// but names a title rather than one of frit's marker kinds, or a work
+// commit whose title happens to equal a marker kind word exactly
+// ("plan <id>: release") but carries none of a marker's trailers.
+// mintMarker mints a fresh nonce for every genuine marker of every
+// kind, so its absence is what tells the two apart — latestMarker
+// walks every commit sharing the prefix now, not only the nearest
+// (#186), so this check matters more than when only one candidate was
+// ever tried.
 func parseMarker(planID int64, body string) (Marker, bool) {
 	lines := strings.Split(body, "\n")
 	kind, ok := markerKind(lines[0], planID)
@@ -1445,6 +1452,9 @@ func parseMarker(planID int64, body string) (Marker, bool) {
 		case "base":
 			m.Base = val
 		}
+	}
+	if m.Nonce == "" {
+		return Marker{}, false
 	}
 
 	return m, true
