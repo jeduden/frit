@@ -608,8 +608,10 @@ func readTable(tbl *extast.Table, body []byte) Table {
 
 // tierRank orders the model tiers by how demanding they are, so
 // mostDemandingTier can pick the higher of a phase's Design and
-// Implement columns.
-var tierRank = map[string]int{"haiku": 0, "sonnet": 1, "opus": 2}
+// Implement columns. fable is the top tier, named in a Design column
+// when no gate can catch a wrong design; implementation from the
+// written spec stays at opus or cheaper.
+var tierRank = map[string]int{"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
 
 // KnownTier reports whether s names a model tier frit recognizes — the
 // same vocabulary mostDemandingTier ranks by. frit doctor uses this to
