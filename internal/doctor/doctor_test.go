@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -327,6 +328,79 @@ Do the one thing.
 	require.Len(t, got, 1)
 	assert.Equal(t, "tier", got[0].Check)
 	assert.Contains(t, got[0].Message, "sparkle")
+}
+
+// rootWithCustomTier copies frit's own plan/proto.md and .mdsmith.yml
+// like newFixtureRoot, but with one extra tier spliced into the
+// front matter's model: disjunction — the shape a repository editing
+// its own proto.md to add a tier frit's built-in vocabulary has never
+// heard of would produce.
+func rootWithCustomTier(t *testing.T, extra string) string {
+	t.Helper()
+	root := newFixtureRootNoConfig(t)
+
+	proto, err := os.ReadFile(filepath.Join(root, "plan", "proto.md"))
+	require.NoError(t, err)
+	patched := []byte(strings.Replace(string(proto),
+		`| "fable" | *""'`, `| "fable" | "`+extra+`" | *""'`, 1))
+	require.NotEqual(t, proto, patched, "the model: line was not found to patch")
+	require.NoError(t,
+		os.WriteFile(filepath.Join(root, "plan", "proto.md"), patched, 0o600))
+
+	cfg, err := os.ReadFile(filepath.Join("..", "..", ".mdsmith.yml"))
+	require.NoError(t, err)
+	require.NoError(t,
+		os.WriteFile(filepath.Join(root, ".mdsmith.yml"), cfg, 0o600))
+
+	return root
+}
+
+// TestScanAcceptsARepoCustomTierDeclaredInItsOwnProto: a repository
+// that adds its own tier to plan/proto.md's model: line — the way
+// this repo added fable — has doctor accept it in the Design/Implement
+// columns without a matching frit rebuild, since Scan now reads the
+// vocabulary from the same file mdsmith's own schema check already
+// validates the front-matter model: field against.
+func TestScanAcceptsARepoCustomTierDeclaredInItsOwnProto(t *testing.T) {
+	root := rootWithCustomTier(t, "glyph")
+	src := `---
+id: 106
+title: A phase designed at a custom tier
+status: "🔲"
+model: opus
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# A phase designed at a custom tier
+
+## Goal
+
+Ship it.
+
+## Phase 1: One
+
+Do the one thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | glyph  | opus      | test one |
+
+## Tasks
+
+1. x
+
+## Acceptance Criteria
+
+- [ ] y
+`
+	writePlan(t, root, "106_a-phase-designed-at-a-custom-tier.md", src)
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 // TestScanFlagsAMissingExecutionRowForALedgerFreeFolderPlan is Phase
