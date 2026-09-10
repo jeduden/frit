@@ -94,7 +94,7 @@ unmerged commits.
 | hold, lease | the branch `plan/<id>` on the remote; its tip says who holds it        | [claiming.md](docs/claiming.md#the-work-ref-is-the-lease)  |
 | lane        | one worktree on one host, working one plan; an agent's pane rides it   | [lease-protocol.md](docs/research/lease-protocol.md#terms) |
 | rescue ref  | where unmerged commits are parked before a lane is torn down           | [claiming.md](docs/claiming.md#fencing-and-yield)          |
-| tier        | the model named in a plan's front matter: haiku, sonnet or opus        | [plan/proto.md](plan/proto.md)                             |
+| tier        | the model named in a plan's front matter: haiku, sonnet, opus or fable | [plan/proto.md](plan/proto.md)                             |
 
 ## Install
 

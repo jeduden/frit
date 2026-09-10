@@ -727,7 +727,7 @@ func (d *doctorCmd) Help() string {
   execution-row   a phase with no matching row in its "## Execution"
                   table
   tier            an Execution row naming a tier that is not haiku,
-                  sonnet or opus
+                  sonnet, opus or fable
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
