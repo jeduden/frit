@@ -55,6 +55,8 @@ func (w *world) registerLifecycle(sc *godog.ScenarioContext) {
 
 	sc.Step(`^"([^"]+)" deletes its local branch by hand$`, w.deletesItsLocalBranchByHand)
 	sc.Step(`^the local branch is restored at the renewed tip$`, w.theLocalBranchIsRestoredAtTheRenewedTip)
+	sc.Step(`^the renewal carries "([^"]+)"'s unpushed work to origin$`, w.theRenewalCarriesUnpushedWorkToOrigin)
+	sc.Step(`^the local branch's reflog names the renewal$`, w.theLocalBranchsReflogNamesTheRenewal)
 
 	sc.Step(`^a claimable plan (\d+)$`, w.aClaimablePlan)
 	sc.Step(`^origin's main moves past the clone's last fetch$`, w.originsMainMovesPastTheClonesLastFetch)
@@ -263,6 +265,57 @@ func (w *world) theLocalBranchIsRestoredAtTheRenewedTip() error {
 	}
 	if !strings.Contains(remote, local) {
 		return fmt.Errorf("the restored local branch is %s, origin's tip is %q", local, remote)
+	}
+
+	return nil
+}
+
+// theRenewalCarriesUnpushedWorkToOrigin checks S96's own Then: the
+// renewal succeeded, origin's new tip descends from the commit the
+// holder never pushed, and the holder's local branch stands on that
+// same tip — the local advance relayed, not reset past (#189).
+func (w *world) theRenewalCarriesUnpushedWorkToOrigin(holder string) error {
+	if w.err != nil {
+		return fmt.Errorf("the renewal failed: %w", w.err)
+	}
+	if w.local == "" {
+		return fmt.Errorf("%q committed no unpushed work in this scenario", holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	tip := claim.RemoteTip(repo, "origin", int64(w.planID), gitwt.Exec)
+	if out, err := gitCapture(w.t, repo, "merge-base", "--is-ancestor", w.local, tip); err != nil {
+		return fmt.Errorf("origin's tip %s does not carry the unpushed work %s: %s", tip, w.local, out)
+	}
+	local, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", local, err)
+	}
+	if local != tip {
+		return fmt.Errorf("the local branch is %s, origin's tip is %s", local, tip)
+	}
+
+	return nil
+}
+
+// theLocalBranchsReflogNamesTheRenewal checks S96's second Then: the
+// newest reflog entry of the holder's local work ref is the renewal's
+// own move, named for the beat, so the tip it replaced is recoverable
+// by `git reflog` alone.
+func (w *world) theLocalBranchsReflogNamesTheRenewal() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	out, err := gitCapture(w.t, repo, "reflog", "show", "-1", "--format=%gs", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	want := fmt.Sprintf("frit: plan %d: beat", w.planID)
+	if out != want {
+		return fmt.Errorf("the newest reflog entry is %q, want %q", out, want)
 	}
 
 	return nil
@@ -820,6 +873,28 @@ func TestTheLocalBranchIsRestoredAtTheRenewedTipRefusesAFailedRenewal(t *testing
 	w.holder = "box-a"
 	w.err = fmt.Errorf("fenced")
 	require.Error(t, w.theLocalBranchIsRestoredAtTheRenewedTip())
+}
+
+// TestTheRenewalCarriesUnpushedWorkToOriginRefusesAFailedRenewal: a
+// prior renewal error, no unpushed work recorded, or an unknown machine
+// each fail the step rather than pass on an unchecked origin.
+func TestTheRenewalCarriesUnpushedWorkToOriginRefusesAFailedRenewal(t *testing.T) {
+	w := newWorld(t)
+	w.err = fmt.Errorf("fenced")
+	require.Error(t, w.theRenewalCarriesUnpushedWorkToOrigin("box-a"))
+
+	w.err = nil
+	require.Error(t, w.theRenewalCarriesUnpushedWorkToOrigin("box-a"), "no unpushed work recorded")
+
+	w.local = "abc123"
+	require.Error(t, w.theRenewalCarriesUnpushedWorkToOrigin("ghost"), "no such machine")
+}
+
+// TestTheLocalBranchsReflogNamesTheRenewalRefusesAnUnknownHolder: with
+// no machine in the scenario there is no reflog to read.
+func TestTheLocalBranchsReflogNamesTheRenewalRefusesAnUnknownHolder(t *testing.T) {
+	w := newWorld(t)
+	require.Error(t, w.theLocalBranchsReflogNamesTheRenewal())
 }
 
 // TestOriginsMainMovesPastTheClonesLastFetchRefusesWithNoPlanYet: the

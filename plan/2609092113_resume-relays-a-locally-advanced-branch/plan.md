@@ -1,7 +1,7 @@
 ---
 id: 2609092113
 title: Resume relays a locally advanced lease branch instead of discarding it
-status: "🔲"
+status: "🔳"
 summary: >-
   A lane that merges origin/main into its own checked-out plan/<id>
   branch — the documented way to pull main in without rebasing the
@@ -167,7 +167,7 @@ footer: |
 
 | #   | Status | Phase                                                                          |
 | --- | ------ | ------------------------------------------------------------------------------ |
-| 1   | 🔲     | [advance relays a locally fast-forwarded lease branch, or refuses](phase-1.md) |
+| 1   | 🔳     | [advance relays a locally fast-forwarded lease branch, or refuses](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria

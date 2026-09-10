@@ -470,6 +470,7 @@ dies with the host.
 | S87 | read verb reads landed evidence off a checkout unfetched since a PR merged           | `Gather` fetches `--prune` before reading, gated by `--fetch` (default on); `--no-fetch` or an offline fetch falls back to the local view, naming staleness (S80/S84)                  |
 | S92 | plan claimed by `frit claim` alone, released from its own lane                       | claim persists the minted tip as the lane's token once herdr stands the worktree up, the same proof `start` leaves; release resumes on it unaided (RESUME)                             |
 | S95 | lost race against a masked landed winner reports landed                              | a masking work commit must not read as no marker (CAS)                                                                                                                                 |
+| S96 | lane branch fast-forwarded locally past its renewal's tip                            | the beat relays the local tip; divergence refuses (CAS)                                                                                                                                |
 
 S87 was numbered S86 until plan 2609012000 found that id shared with
 the own-token row in the cross-layer table below; commit 85cee2e and
