@@ -1224,16 +1224,16 @@ func casPush(
 func refuseDivergingLocalBranch(
 	repoDir string, opts LeaseOptions, ref, baseSHA string, run gitwt.Runner,
 ) error {
-	localTip, err := trimmed(run(repoDir, "rev-parse", "--verify", "--quiet", ref))
-	if err != nil || localTip == "" {
+	local := localTip(repoDir, ref, run)
+	if local == "" {
 		return nil
 	}
-	if isAncestor(repoDir, localTip, baseSHA, run) {
+	if isAncestor(repoDir, local, baseSHA, run) {
 		return nil
 	}
 
 	return &LocalDivergesError{
-		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID), LocalTip: localTip,
+		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID), LocalTip: local,
 	}
 }
 

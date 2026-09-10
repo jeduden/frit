@@ -63,6 +63,8 @@ diverged. S97 in the Races section covers this. Its row pushed the
 lease-protocol note over budget again, so the wordy "takeover path"
 sentence and the S87 renumbering note were condensed, every fact kept.
 
-**Follow-ups, not chased.** The `frit claim` refusal path does not yet
-render the divergence error specially. It surfaces as the plain error
-text, which already names the branch, both tips and the merge.
+**Follow-ups, not chased.** `frit start` surfaces the divergence
+refusal as its plain error text, which names the branch, both tips
+and the merge. `frit claim` does not: its resume path treats any
+resume error as doubt and falls through to an ordinary acquire, which
+refuses as "already held on this host", so the merge hint is lost.
