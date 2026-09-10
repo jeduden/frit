@@ -623,13 +623,6 @@ func KnownTier(s string) bool {
 	return ok
 }
 
-// tierVocabModelLine finds the front matter's model: schema line, so
-// ParseTierVocabulary can read the disjunction it holds without
-// tripping over the CUE-typed values every other field carries —
-// Parse itself rejects those (TestParseRejectsASchemaTemplate), which
-// is why proto.md needs this reader of its own rather than Parse's.
-var tierVocabModelLine = regexp.MustCompile(`(?m)^model:\s*(.+)$`)
-
 // tierVocabQuotedToken pulls one quoted string out of a CUE
 // disjunction like `"haiku" | "sonnet" | *""`.
 var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
@@ -642,9 +635,18 @@ var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
 // code: passed to ApplyTierVocabulary or ParseWithVocabulary, the
 // built-in vocabulary KnownTier and mostDemandingTier rank against
 // becomes the fallback this reports nothing kept, not the only
-// source. A file with no front matter or no model: line reports nil,
-// never an error — there is nothing here for a caller to do but fall
-// back.
+// source. A file with no front matter, no model: line, or a model:
+// value YAML cannot decode as a plain string, reports nil, never an
+// error — there is nothing here for a caller to do but fall back.
+//
+// The front matter is decoded into map[string]string rather than the
+// typed Plan Parse itself uses, because proto.md's other fields carry
+// CUE type expressions Parse rejects (TestParseRejectsASchemaTemplate)
+// — every field's own value is still a plain YAML string, so the
+// untyped decode succeeds where Parse's does not. Decoding rather
+// than pattern-matching the raw bytes also means a model: line folded
+// across several lines, the way proto.md's own phases: field already
+// is, reads the same as one kept on a single line.
 func ParseTierVocabulary(proto []byte) []string {
 	doc := markdown.Parse(proto)
 	body := insideDelimiters(doc.FrontMatter)
@@ -652,14 +654,14 @@ func ParseTierVocabulary(proto []byte) []string {
 		return nil
 	}
 
-	m := tierVocabModelLine.FindSubmatch(body)
-	if m == nil {
+	var fields map[string]string
+	if err := yaml.Unmarshal(body, &fields); err != nil {
 		return nil
 	}
 
 	var out []string
-	for _, tok := range tierVocabQuotedToken.FindAllSubmatch(m[1], -1) {
-		if s := string(tok[1]); s != "" {
+	for _, tok := range tierVocabQuotedToken.FindAllStringSubmatch(fields["model"], -1) {
+		if s := tok[1]; s != "" {
 			out = append(out, s)
 		}
 	}
