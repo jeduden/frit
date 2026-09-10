@@ -87,14 +87,14 @@ unmerged commits.
 
 ## Words frit uses
 
-| Word        | Meaning                                                                | Defined in                                                 |
-| ----------- | ---------------------------------------------------------------------- | ---------------------------------------------------------- |
-| fleet, root | every git repository under one directory, the root                     | [claiming.md](docs/claiming.md#the-fleet)                  |
-| plan        | a markdown file with id, title, status and, optionally, model up front | [plan/proto.md](plan/proto.md)                             |
-| hold, lease | the branch `plan/<id>` on the remote; its tip says who holds it        | [claiming.md](docs/claiming.md#the-work-ref-is-the-lease)  |
-| lane        | one worktree on one host, working one plan; an agent's pane rides it   | [lease-protocol.md](docs/research/lease-protocol.md#terms) |
-| rescue ref  | where unmerged commits are parked before a lane is torn down           | [claiming.md](docs/claiming.md#fencing-and-yield)          |
-| tier        | the model named in a plan's front matter: haiku, sonnet, opus or fable | [plan/proto.md](plan/proto.md)                             |
+| Word        | Meaning                                                                              | Defined in                                                 |
+| ----------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| fleet, root | every git repository under one directory, the root                                   | [claiming.md](docs/claiming.md#the-fleet)                  |
+| plan        | a markdown file with id, title, status and, optionally, model up front               | [plan/proto.md](plan/proto.md)                             |
+| hold, lease | the branch `plan/<id>` on the remote; its tip says who holds it                      | [claiming.md](docs/claiming.md#the-work-ref-is-the-lease)  |
+| lane        | one worktree on one host, working one plan; an agent's pane rides it                 | [lease-protocol.md](docs/research/lease-protocol.md#terms) |
+| rescue ref  | where unmerged commits are parked before a lane is torn down                         | [claiming.md](docs/claiming.md#fencing-and-yield)          |
+| tier        | the model named in a plan's front matter, from the vocabulary plan/proto.md declares | [plan/proto.md](plan/proto.md)                             |
 
 ## Install
 

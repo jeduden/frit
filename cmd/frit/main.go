@@ -728,8 +728,9 @@ func (d *doctorCmd) Help() string {
                   (today, only the model tier)
   execution-row   a phase with no matching row in its "## Execution"
                   table
-  tier            an Execution row naming a tier that is not haiku,
-                  sonnet, opus or fable
+  tier            an Execution row naming a tier that is neither
+                  haiku, sonnet, opus or fable nor one the
+                  repository's own plan/proto.md model: line adds
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
