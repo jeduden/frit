@@ -665,6 +665,36 @@ func TestParseTierVocabularyReportsNothingForAFileWithNoModelLine(t *testing.T) 
 	assert.Empty(t, ParseTierVocabulary([]byte("---\ntitle: x\n---\n")))
 }
 
+// TestParseTierVocabularyIgnoresOtherFieldsShape: a repository
+// customizing its own proto.md may write a field other than model: as
+// a native YAML value rather than the folded-string CUE-expression
+// convention this repo's own proto.md happens to use — depends-on: [1,
+// 2] rather than a quoted string. That field's own shape is none of
+// this function's business; only model: must decode as a string.
+func TestParseTierVocabularyIgnoresOtherFieldsShape(t *testing.T) {
+	proto := []byte(`---
+model: '"haiku" | "sonnet" | "opus" | "fable" | "glyph" | *""'
+depends-on: [1, 2]
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable", "glyph"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReportsNothingWhenModelItselfIsNotAString:
+// the one shape ParseTierVocabulary must still refuse — model: with a
+// native YAML value in place of a string — drives the decode's own
+// error branch, distinct from the no-model-line and no-front-matter
+// cases the other tests already cover.
+func TestParseTierVocabularyReportsNothingWhenModelItselfIsNotAString(t *testing.T) {
+	proto := []byte("---\nmodel: [1, 2]\n---\n\n# ?\n")
+
+	assert.Empty(t, ParseTierVocabulary(proto))
+}
+
 // TestTierVocabularyAtReadsARepositorysOwnProtoFile: the one place
 // every caller that widens the tier vocabulary from a checked-out
 // working copy shares — root/planDir/proto.md, read and parsed in one
