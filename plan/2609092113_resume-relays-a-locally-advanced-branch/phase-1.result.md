@@ -52,6 +52,17 @@ holder, unpushed-commit and renew steps. The lease-protocol note was
 at its token budget, so the "work ref" term lost its redundant
 "in the new design" clause to make room for the row.
 
+**Found in review: a commit during the push.** The first cut read the
+local branch afresh just before moving it. So a commit the lane made
+while the renewal's push was in flight was reset past — #189 again, in
+a smaller window, and the session bind at `start` runs exactly then.
+The move now goes only from the value read before the marker was
+minted ("" meaning the branch must not exist). A branch that moved in
+between is left standing, and the next renewal refuses it as
+diverged. S97 in the Races section covers this. Its row pushed the
+lease-protocol note over budget again, so the wordy "takeover path"
+sentence and the S87 renumbering note were condensed, every fact kept.
+
 **Follow-ups, not chased.** The `frit claim` refusal path does not yet
 render the divergence error specially. It surfaces as the plain error
 text, which already names the branch, both tips and the merge.

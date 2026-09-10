@@ -27,7 +27,8 @@ import (
 // that was deleted out from under it, a takeover is released and
 // re-claimed. It registers itself, like the lease section did.
 func init() {
-	registrars = append(registrars, (*world).registerHostDeathAndRaces)
+	registrars = append(registrars,
+		(*world).registerHostDeathAndRaces, (*world).registerMidPushRace)
 }
 
 // raceAttempt is one machine's Acquire, kept beside the world so a
@@ -112,7 +113,6 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	sc.Step(`^the second start is refused, naming the lane the first stood up$`,
 		w.theSecondStartIsRefusedNamingTheLane)
 	w.registerYieldHonesty(sc)
-	w.registerMidPushRace(sc)
 }
 
 // registerYieldHonesty is S93's own step vocabulary: a distant host
