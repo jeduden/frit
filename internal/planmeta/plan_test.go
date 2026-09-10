@@ -769,6 +769,29 @@ func TestWidensTierRankIsTrueForAnAddedTier(t *testing.T) {
 	assert.True(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable", "glyph"}))
 }
 
+// TestRankedTierReturnsFallbackWhenVocabWidensNothing is
+// rankedTier's own dedicated test: Resume's single-phase path shares
+// this with ApplyTierVocabulary's own loop, rather than each
+// reimplementing the guard-then-rank sequence — a fallback already
+// computed against the built-in vocabulary is kept as-is when vocab
+// adds nothing beyond it.
+func TestRankedTierReturnsFallbackWhenVocabWidensNothing(t *testing.T) {
+	got := rankedTier("sonnet", "opus", "opus",
+		[]string{"haiku", "sonnet", "opus", "fable"})
+
+	assert.Equal(t, "opus", got)
+}
+
+// TestRankedTierRanksAgainstTheWidenedVocabulary: when vocab does add
+// a tier, rankedTier ranks design and implement against it rather
+// than returning the fallback.
+func TestRankedTierRanksAgainstTheWidenedVocabulary(t *testing.T) {
+	got := rankedTier("glyph", "opus", "opus",
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Equal(t, "glyph", got)
+}
+
 // TestVocabRankKeepsTheBuiltInRanksAndAppendsAnAddedTier is
 // vocabRank's own dedicated test: a vocab entry tierRank already
 // carries keeps tierRank's own rank rather than its position in
