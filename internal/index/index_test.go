@@ -48,7 +48,7 @@ func TestBuildGroupsOneplanAcrossManyRefs(t *testing.T) {
 		{Ref: "refs/remotes/peer/main", Path: "plan/a.md", OID: "aaa", Content: body},
 	}
 
-	got, problems := Build("h", "atlas", "", files)
+	got, problems := Build("h", "atlas", "", files, nil)
 
 	require.Empty(t, problems)
 	require.Len(t, got, 1, "one plan, not one per ref")
@@ -66,13 +66,47 @@ func TestBuildKeepsDistinctVersionsApart(t *testing.T) {
 		{Ref: "refs/heads/y", Path: "plan/a.md", OID: "bbb", Content: edited},
 	}
 
-	got, problems := Build("h", "beta", "", files)
+	got, problems := Build("h", "beta", "", files, nil)
 
 	require.Empty(t, problems)
 	require.Len(t, got, 1)
 	require.Len(t, got[0].Versions, 2)
 	assert.Equal(t, "✅", got[0].Primary().Plan.Status,
 		"the version most refs agree on wins")
+}
+
+// TestBuildRanksAPhasesTierAgainstAVocabularyThatWidensTheBuiltInOnes:
+// board, next, show, phase and start all read a phase's Tier off the
+// index Build produces, on the fleet's default-branch path (no lane
+// override in play) — the path a repository's own added tier must
+// rank correctly on too, not only doctor's acceptance check.
+func TestBuildRanksAPhasesTierAgainstAVocabularyThatWidensTheBuiltInOnes(t *testing.T) {
+	body := []byte(`---
+id: 2609100002
+title: Designed at a custom tier
+status: "🔲"
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# Designed at a custom tier
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | glyph  | opus      | test one |
+`)
+	files := []plans.File{
+		{Ref: "refs/heads/main", Path: "plan/a.md", OID: "aaa", Content: body},
+	}
+
+	got, problems := Build("h", "r", "refs/heads/main", files,
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.Empty(t, problems)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Primary().Plan.Phases, 1)
+	assert.Equal(t, "glyph", got[0].Primary().Plan.Phases[0].Tier)
 }
 
 // TestLandedIDsRequiresTheStatusOnTheDefaultBranch is the guard the
@@ -88,7 +122,7 @@ func TestLandedIDsRequiresTheStatusOnTheDefaultBranch(t *testing.T) {
 		Ref: "refs/heads/plan/7-x", Path: "plan/7_x.md", OID: "a",
 		Content: plan(7, "✅", "X"),
 	}}
-	entries, _ := Build("h", "r", preferred, files)
+	entries, _ := Build("h", "r", preferred, files, nil)
 
 	assert.Empty(t, LandedIDs(entries, preferred),
 		"a status flipped only on a feature branch is not landed")
@@ -104,7 +138,7 @@ func TestLandedIDsMarksAPlanDoneOnTheDefaultBranch(t *testing.T) {
 		Ref: preferred, Path: "plan/7_x.md", OID: "a",
 		Content: plan(7, "✅", "X"),
 	}}
-	entries, _ := Build("h", "r", preferred, files)
+	entries, _ := Build("h", "r", preferred, files, nil)
 
 	assert.True(t, LandedIDs(entries, preferred)[7],
 		"done on the default branch is landed")
@@ -134,7 +168,7 @@ func TestBuildParsesEachDistinctBlobOnce(t *testing.T) {
 		})
 	}
 
-	got, problems := Build("h", "r", "", files)
+	got, problems := Build("h", "r", "", files, nil)
 
 	require.Empty(t, problems)
 	require.Len(t, got, 1)
@@ -150,7 +184,7 @@ func TestBuildSkipsTheProtoTemplate(t *testing.T) {
 		Content: []byte("---\nid: 'int & >=1'\n---\n# ?\n"),
 	}}
 
-	got, problems := Build("h", "r", "", files)
+	got, problems := Build("h", "r", "", files, nil)
 
 	assert.Empty(t, got)
 	assert.Empty(t, problems, "the template is skipped, not an error")
@@ -164,7 +198,7 @@ func TestBuildReportsUnparseableFilesWithoutFailing(t *testing.T) {
 			Content: plan(1, "✅", "Good")},
 	}
 
-	got, problems := Build("h", "r", "", files)
+	got, problems := Build("h", "r", "", files, nil)
 
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0].Error(), "plan/bad.md")
@@ -179,7 +213,7 @@ func TestBuildReportsABadBlobOnlyOnce(t *testing.T) {
 		{Ref: "refs/heads/c", Path: "plan/bad.md", OID: "bad", Content: bad},
 	}
 
-	_, problems := Build("h", "r", "", files)
+	_, problems := Build("h", "r", "", files, nil)
 
 	assert.Len(t, problems, 1, "one broken blob, one complaint")
 }
@@ -190,7 +224,7 @@ func TestBuildSortsEntriesByID(t *testing.T) {
 		{Ref: "r", Path: "plan/a.md", OID: "a", Content: plan(10, "🔲", "A")},
 	}
 
-	got, _ := Build("h", "r", "", files)
+	got, _ := Build("h", "r", "", files, nil)
 
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(10), got[0].Key.ID)
@@ -198,7 +232,7 @@ func TestBuildSortsEntriesByID(t *testing.T) {
 }
 
 func TestBuildOnNoFiles(t *testing.T) {
-	got, problems := Build("h", "r", "", nil)
+	got, problems := Build("h", "r", "", nil, nil)
 
 	assert.Empty(t, got)
 	assert.Empty(t, problems)
@@ -223,7 +257,7 @@ func TestPrimaryPrefersTheDefaultBranchOverTheMajority(t *testing.T) {
 		})
 	}
 
-	got, _ := Build("h", "atlas", "refs/heads/main", files)
+	got, _ := Build("h", "atlas", "refs/heads/main", files, nil)
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "✅", got[0].Primary().Plan.Status,
@@ -237,7 +271,7 @@ func TestPrimaryFallsBackToTheMajorityWithNoDefaultBranch(t *testing.T) {
 		{Ref: "refs/heads/c", Path: "p.md", OID: "y", Content: plan(1, "🔲", "T")},
 	}
 
-	got, _ := Build("h", "r", "", files)
+	got, _ := Build("h", "r", "", files, nil)
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "🔲", got[0].Primary().Plan.Status)
