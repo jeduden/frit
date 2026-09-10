@@ -676,6 +676,16 @@ func ParseTierVocabulary(proto []byte) []string {
 // regardless of which command asks. A repository with no readable
 // proto.md there reports nil, the same fallback ParseTierVocabulary
 // itself reports for unparseable content.
+//
+// root is always the local checkout — repo.Path for a fleet-wide
+// command, the lane's own worktree for a lane override — never a
+// blob read off some other ref, the same locality cfg.PlanDir and
+// .mdsmith.yml already carry for every plan that ref's walk turns up,
+// stale local checkout and all. A host running behind its own fetch
+// reads a stale vocabulary the same way it already reads a stale
+// cfg.PlanDir or holds pattern; nothing here is a new kind of
+// staleness for a caller to guard against beyond what already applies
+// to those.
 func TierVocabularyAt(root, planDir string) []string {
 	proto, err := os.ReadFile(
 		filepath.Join(root, planDir, ProtoName)) // #nosec G304 -- root/planDir joined with a constant name
