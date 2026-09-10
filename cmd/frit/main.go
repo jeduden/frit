@@ -1662,6 +1662,38 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
+// tierVocabularyForRoot reads root's own tier vocabulary, or nil when
+// root's .frit.yml cannot be read — the same restraint laneOverride's
+// own doc comment already promises for the plan file itself: a local
+// file that fails to parse leaves a caller with nothing to widen,
+// never an error to abort a whole command on.
+func tierVocabularyForRoot(root string) []string {
+	cfg, err := repocfg.Load(root)
+	if err != nil {
+		return nil
+	}
+
+	return planmeta.TierVocabularyAt(root, cfg.PlanDir)
+}
+
+// applyLaneParse overrides plan's Status, Phases, Goal and DependsOn
+// from local — the parse of the lane's own working copy body already
+// read from root — the shared core laneOverride and phaseLaneOverride
+// both apply once they have local in hand, so the two never drift on
+// what a lane's own copy overrides.
+func applyLaneParse(
+	plan discovery.Plan, root string, body []byte,
+	local planmeta.Plan, vocab []string,
+) discovery.Plan {
+	plan.Status = local.Status
+	plan.Phases = folderPlanPhases(root, plan.Path, body, local)
+	planmeta.ApplyTierVocabulary(plan.Phases, vocab)
+	plan.Goal = local.Goal
+	plan.DependsOn = local.DependsOn
+
+	return plan
+}
+
 // laneOverride swaps a resolved plan's Status, Phases, Goal and
 // DependsOn for its own working-tree copy, when the cwd stands in that
 // plan's own held lane — the case an execution verb runs in before its
@@ -1699,24 +1731,13 @@ func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string, str
 		return plan, report.SourceDefaultBranch, ""
 	}
 
-	cfg, err := repocfg.Load(root)
-	if err != nil {
-		return plan, report.SourceDefaultBranch, ""
-	}
-	vocab := planmeta.TierVocabularyAt(root, cfg.PlanDir)
-
+	vocab := tierVocabularyForRoot(root)
 	local, err := planmeta.ParseWithVocabulary(data, vocab)
 	if err != nil {
 		return plan, report.SourceDefaultBranch, ""
 	}
 
-	plan.Status = local.Status
-	plan.Phases = folderPlanPhases(root, plan.Path, data, local)
-	planmeta.ApplyTierVocabulary(plan.Phases, vocab)
-	plan.Goal = local.Goal
-	plan.DependsOn = local.DependsOn
-
-	return plan, report.SourceLane, root
+	return applyLaneParse(plan, root, data, local, vocab), report.SourceLane, root
 }
 
 // markUnprovenFromLane calls mark when the plan is held and root's own
@@ -2095,11 +2116,7 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	cfg, err := repocfg.Load(root)
-	if err != nil {
-		return err
-	}
-	vocab := planmeta.TierVocabularyAt(root, cfg.PlanDir)
+	vocab := tierVocabularyForRoot(root)
 	plan = phaseLaneOverride(plan, root, body, vocab)
 
 	// Only a folder plan's plan.md sits in a directory of its own; a
@@ -2144,13 +2161,7 @@ func phaseLaneOverride(
 		return plan
 	}
 
-	plan.Status = local.Status
-	plan.Phases = folderPlanPhases(root, plan.Path, body, local)
-	planmeta.ApplyTierVocabulary(plan.Phases, vocab)
-	plan.Goal = local.Goal
-	plan.DependsOn = local.DependsOn
-
-	return plan
+	return applyLaneParse(plan, root, body, local, vocab)
 }
 
 type boardCmd struct {

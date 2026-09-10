@@ -352,6 +352,20 @@ func TestPhaseInsideItsOwnLaneReadsTheWorkingTreeStatus(t *testing.T) {
 		"phase must read the lane's own plan.md, not the fetched default-branch copy")
 }
 
+// TestTierVocabularyForRootToleratesAnUnreadableFritYML:
+// laneOverride's own doc comment promises a local file that fails to
+// parse leaves a caller with nothing, never an error to abort a whole
+// command on — tierVocabularyForRoot, phase's and next's shared read
+// of a lane root's own tier vocabulary, keeps that same restraint
+// rather than propagating repocfg.Load's error.
+func TestTierVocabularyForRootToleratesAnUnreadableFritYML(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".frit.yml"),
+		[]byte(": not valid yaml : :"), 0o600))
+
+	assert.Empty(t, tierVocabularyForRoot(root))
+}
+
 // TestPhaseSurfacesABrokenPhaseBundle: planmeta.Resume's own error —
 // phase-1.md is listed by the directory read planmeta.PhasesFromDir's
 // glob does, but cannot be read back, unlike a missing file entirely
