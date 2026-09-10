@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -638,8 +639,9 @@ var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
 // "opus" | "fable" | *""` reads back as ["haiku", "sonnet", "opus",
 // "fable"], the empty default dropped. A repository that adds its own
 // tier there is understood without a matching change to frit's Go
-// code: KnownTier and mostDemandingTier's built-in vocabulary is only
-// the fallback a caller keeps when this reports nothing, not the only
+// code: passed to ApplyTierVocabulary or ParseWithVocabulary, the
+// built-in vocabulary KnownTier and mostDemandingTier rank against
+// becomes the fallback this reports nothing kept, not the only
 // source. A file with no front matter or no model: line reports nil,
 // never an error — there is nothing here for a caller to do but fall
 // back.
@@ -665,13 +667,81 @@ func ParseTierVocabulary(proto []byte) []string {
 	return out
 }
 
+// vocabRank extends tierRank with any tier vocab names beyond it, in
+// the order vocab states them — the convention landing fable itself
+// set: a repository appends a new, more demanding tier after the ones
+// frit already knows, so a tier vocab names that tierRank already
+// carries keeps tierRank's own rank, never vocab's position.
+func vocabRank(vocab []string) map[string]int {
+	rank := make(map[string]int, len(tierRank)+len(vocab))
+	maps.Copy(rank, tierRank)
+
+	next := len(tierRank)
+	for _, t := range vocab {
+		if _, ok := rank[t]; !ok {
+			rank[t] = next
+			next++
+		}
+	}
+
+	return rank
+}
+
+// ApplyTierVocabulary re-derives each phase's Tier by ranking its
+// Design and Implement columns against tierRank widened with vocab,
+// so a tier a repository's own proto.md adds ranks correctly against
+// the built-in ones rather than always losing to a recognized
+// neighbor as an unranked value otherwise would. vocab is typically
+// ParseTierVocabulary's own return for that repository's proto.md; an
+// empty vocab leaves every phase's Tier exactly as Parse computed it.
+// A phase with no Execution row carries no Design or Implement to
+// rank and is left untouched.
+func ApplyTierVocabulary(phases []Phase, vocab []string) {
+	if len(vocab) == 0 {
+		return
+	}
+
+	rank := vocabRank(vocab)
+	for i := range phases {
+		if phases[i].HasExecutionRow {
+			phases[i].Tier = mostDemandingTierRankedBy(
+				phases[i].Design, phases[i].Implement, rank)
+		}
+	}
+}
+
+// ParseWithVocabulary is Parse extended by a repository's own
+// plan/proto.md tier vocabulary: every phase's Tier is ranked against
+// tierRank widened with vocab, through ApplyTierVocabulary, rather
+// than Parse's own built-in-only ranking. A ledger-free folder plan's
+// phases are assembled separately by PhasesFromDir and are not seen
+// here — a caller that fills those in applies ApplyTierVocabulary to
+// them directly.
+func ParseWithVocabulary(source []byte, vocab []string) (Plan, error) {
+	p, err := Parse(source)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	ApplyTierVocabulary(p.Phases, vocab)
+
+	return p, nil
+}
+
 // mostDemandingTier returns whichever of a and b ranks higher. An
 // unrecognized tier ranks below any recognized one rather than
 // panicking or erroring — frit doctor (phase 4) is where a tier that
 // names no known model becomes a reported gap, not this parse.
 func mostDemandingTier(a, b string) string {
-	ra, oka := tierRank[a]
-	rb, okb := tierRank[b]
+	return mostDemandingTierRankedBy(a, b, tierRank)
+}
+
+// mostDemandingTierRankedBy is mostDemandingTier ranked against an
+// arbitrary rank map rather than the package's own built-in tierRank
+// — vocabRank builds the one ApplyTierVocabulary needs.
+func mostDemandingTierRankedBy(a, b string, rank map[string]int) string {
+	ra, oka := rank[a]
+	rb, okb := rank[b]
 
 	switch {
 	case oka && okb:
