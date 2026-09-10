@@ -639,14 +639,21 @@ var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
 // value YAML cannot decode as a plain string, reports nil, never an
 // error — there is nothing here for a caller to do but fall back.
 //
-// The front matter is decoded into map[string]string rather than the
-// typed Plan Parse itself uses, because proto.md's other fields carry
-// CUE type expressions Parse rejects (TestParseRejectsASchemaTemplate)
-// — every field's own value is still a plain YAML string, so the
-// untyped decode succeeds where Parse's does not. Decoding rather
-// than pattern-matching the raw bytes also means a model: line folded
-// across several lines, the way proto.md's own phases: field already
-// is, reads the same as one kept on a single line.
+// The front matter is decoded into a struct carrying only model:
+// rather than the typed Plan Parse itself uses, because proto.md's
+// other fields carry CUE type expressions Parse rejects
+// (TestParseRejectsASchemaTemplate). A struct with one tagged field
+// ignores every other key exactly as Plan's own decode already does
+// for a repository's extra front matter — unlike a map[string]string
+// decode of the whole front matter, whose success depends on every
+// field being a plain string, a struct decode never looks at a field
+// it was not asked to unmarshal into, so a repository free to shape
+// its other fields however it likes (a native YAML list rather than
+// this repo's own folded-string convention, say) cannot break this
+// read of model: alone. Decoding rather than pattern-matching the raw
+// bytes also means a model: line folded across several lines, the way
+// proto.md's own phases: field already is, reads the same as one kept
+// on a single line.
 func ParseTierVocabulary(proto []byte) []string {
 	doc := markdown.Parse(proto)
 	body := insideDelimiters(doc.FrontMatter)
@@ -654,13 +661,15 @@ func ParseTierVocabulary(proto []byte) []string {
 		return nil
 	}
 
-	var fields map[string]string
+	var fields struct {
+		Model string `yaml:"model"`
+	}
 	if err := yaml.Unmarshal(body, &fields); err != nil {
 		return nil
 	}
 
 	var out []string
-	for _, tok := range tierVocabQuotedToken.FindAllStringSubmatch(fields["model"], -1) {
+	for _, tok := range tierVocabQuotedToken.FindAllStringSubmatch(fields.Model, -1) {
 		if s := tok[1]; s != "" {
 			out = append(out, s)
 		}
