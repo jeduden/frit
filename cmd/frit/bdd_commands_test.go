@@ -91,6 +91,9 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^frit doctor is run$`, w.fritDoctorIsRun)
 	sc.Step(`^doctor reports no tier finding for that plan$`,
 		w.doctorReportsNoTierFindingForThatPlan)
+	sc.Step(`^frit next is run$`, w.fritNextIsRun)
+	sc.Step(`^next reports the phase's tier as that extra tier$`,
+		w.nextReportsThePhasesTierAsThatExtraTier)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
@@ -867,6 +870,40 @@ func (w *world) doctorReportsNoTierFindingForThatPlan() error {
 			return fmt.Errorf(
 				"expected no tier finding for plan %d, got: %+v", w.planID, f)
 		}
+	}
+
+	return nil
+}
+
+// fritNextIsRun is C10's own When: drives the real `frit next` CLI
+// with --json, the fleet's default-branch path (no lane in play) that
+// index.Build's own widened ranking must get right — the same path
+// the code review that raised this gap traced doc.Phase.Tier through.
+func (w *world) fritNextIsRun() error {
+	cs := section[commandState](w)
+	runCLI(&cs.out, &cs.errb, "next", strconv.Itoa(w.planID),
+		"--root", filepath.Dir(cs.repo), "--json")
+
+	return nil
+}
+
+// nextReportsThePhasesTierAsThatExtraTier is C10's own Then: the
+// widened schema's own tier is what next's --json phase.tier reports
+// — not opus, the built-in neighbor an unranked "glyph" would
+// otherwise always lose to — read from next's own output, never an
+// internal call.
+func (w *world) nextReportsThePhasesTierAsThatExtraTier() error {
+	cs := section[commandState](w)
+	var doc report.NextDoc
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("next did not emit valid json: %w, got: %s",
+			err, cs.out.String())
+	}
+	if !doc.HasPhase {
+		return fmt.Errorf("expected next to find an open phase, got: %+v", doc)
+	}
+	if doc.Phase.Tier != "glyph" {
+		return fmt.Errorf("expected phase tier %q, got: %+v", "glyph", doc.Phase)
 	}
 
 	return nil

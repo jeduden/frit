@@ -66,3 +66,10 @@ Feature: Command scenarios
     And a plan whose Execution row designs a phase at that extra tier
     When frit doctor is run
     Then doctor reports no tier finding for that plan
+
+  @C10
+  Scenario: that added tier ranks correctly through frit next
+    Given a repository whose plan/proto.md names an extra tier in its model: line
+    And a plan whose Execution row designs a phase at that extra tier
+    When frit next is run
+    Then next reports the phase's tier as that extra tier
