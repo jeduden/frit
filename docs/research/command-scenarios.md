@@ -21,3 +21,5 @@ kept in bijection with `features/` the same way, by the same gate:
 | C6  | yielding one's own live lane                        | refused toward `release` — a freshly claimed lease is the live holder, not fenced, so yield never discards it (StillHeldError)                            |
 | C7  | starting a named plan that is not top ranked        | pending — the installed plan-start command starts only the selected plan and reports the dispatched pane; plan 2609082011, issue #185                     |
 | C8  | a named start refuses without choosing another plan | pending — the installed plan-start command reports the selected plan's unmet dependency and leaves another ready plan unheld; plan 2609082011, issue #185 |
+| C9  | a repo's own proto.md widens the tier vocabulary    | doctor accepts a tier its own proto.md names, no matching Go change needed (doctor.Scan, badTier)                                                         |
+| C10 | that added tier ranks correctly through frit next   | next's --json phase.tier reports the added tier, not a built-in neighbor it would otherwise always lose to (index.Build, Resume)                          |

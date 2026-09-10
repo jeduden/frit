@@ -196,7 +196,9 @@ func repoLanes(
 	if err != nil {
 		return nil, landedEvidence{}, err
 	}
-	entries, _ := index.Build("", repo.Name, preferred, files)
+	// repoLanes only reads LandedIDs off entries, never a phase's
+	// Tier, so there is no vocabulary to widen here.
+	entries, _ := index.Build("", repo.Name, preferred, files, nil)
 	landed := index.LandedIDs(entries, preferred)
 	released := fleet.ReleasedRefs(repo.Path, refs, holds, merged, landed, rt.git)
 	evidence := landedEvidence{Merged: merged, ByPlanID: landed, Released: released}
@@ -726,8 +728,9 @@ func (d *doctorCmd) Help() string {
                   (today, only the model tier)
   execution-row   a phase with no matching row in its "## Execution"
                   table
-  tier            an Execution row naming a tier that is not haiku,
-                  sonnet, opus or fable
+  tier            an Execution row naming a tier that is neither
+                  haiku, sonnet, opus or fable nor one the
+                  repository's own plan/proto.md model: line adds
   id-sync         a plan's on-disk name disagrees with its
                   front-matter id — flat file stem or folder name,
                   either shape
@@ -1300,7 +1303,8 @@ func (p *plansCmd) Run(c *cli, rt *runtime) error {
 		}
 
 		entries, problems := index.Build(host, repo.Name,
-			gitobj.DefaultRef(repo.Path, rt.git), files)
+			gitobj.DefaultRef(repo.Path, rt.git), files,
+			planmeta.TierVocabularyAt(repo.Path, dir))
 		for _, problem := range problems {
 			// A file with no front matter is not a plan, only noise on a
 			// board that keeps notes beside its plans; hold it back unless
@@ -1658,6 +1662,38 @@ func resolveSelector(
 	return discovery.ByRepoID(repo, id, plans)
 }
 
+// tierVocabularyForRoot reads root's own tier vocabulary, or nil when
+// root's .frit.yml cannot be read — the same restraint laneOverride's
+// own doc comment already promises for the plan file itself: a local
+// file that fails to parse leaves a caller with nothing to widen,
+// never an error to abort a whole command on.
+func tierVocabularyForRoot(root string) []string {
+	cfg, err := repocfg.Load(root)
+	if err != nil {
+		return nil
+	}
+
+	return planmeta.TierVocabularyAt(root, cfg.PlanDir)
+}
+
+// applyLaneParse overrides plan's Status, Phases, Goal and DependsOn
+// from local — the parse of the lane's own working copy body already
+// read from root — the shared core laneOverride and phaseLaneOverride
+// both apply once they have local in hand, so the two never drift on
+// what a lane's own copy overrides.
+func applyLaneParse(
+	plan discovery.Plan, root string, body []byte,
+	local planmeta.Plan, vocab []string,
+) discovery.Plan {
+	plan.Status = local.Status
+	plan.Phases = folderPlanPhases(root, plan.Path, body, local)
+	planmeta.ApplyTierVocabulary(plan.Phases, vocab)
+	plan.Goal = local.Goal
+	plan.DependsOn = local.DependsOn
+
+	return plan
+}
+
 // laneOverride swaps a resolved plan's Status, Phases, Goal and
 // DependsOn for its own working-tree copy, when the cwd stands in that
 // plan's own held lane — the case an execution verb runs in before its
@@ -1695,17 +1731,13 @@ func laneOverride(rt *runtime, plan discovery.Plan) (discovery.Plan, string, str
 		return plan, report.SourceDefaultBranch, ""
 	}
 
-	local, err := planmeta.Parse(data)
+	vocab := tierVocabularyForRoot(root)
+	local, err := planmeta.ParseWithVocabulary(data, vocab)
 	if err != nil {
 		return plan, report.SourceDefaultBranch, ""
 	}
 
-	plan.Status = local.Status
-	plan.Phases = folderPlanPhases(root, plan.Path, data, local)
-	plan.Goal = local.Goal
-	plan.DependsOn = local.DependsOn
-
-	return plan, report.SourceLane, root
+	return applyLaneParse(plan, root, data, local, vocab), report.SourceLane, root
 }
 
 // markUnprovenFromLane calls mark when the plan is held and root's own
@@ -2084,19 +2116,8 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 		return err
 	}
 
-	// phase always runs inside the plan's own lane (checked above), so
-	// its own plan.md — just read into body — is authoritative over
-	// whatever the fleet's last-fetched default-branch copy carries.
-	// Without this, a status flip or a Goal/DependsOn edit made in the
-	// lane but not yet merged would print stale here even though the
-	// bundle below reads the same file fresh — the same staleness
-	// laneOverride exists to close for next and show.
-	if local, err := planmeta.Parse(body); err == nil {
-		plan.Status = local.Status
-		plan.Phases = folderPlanPhases(root, plan.Path, body, local)
-		plan.Goal = local.Goal
-		plan.DependsOn = local.DependsOn
-	}
+	vocab := tierVocabularyForRoot(root)
+	plan = phaseLaneOverride(plan, root, body, vocab)
 
 	// Only a folder plan's plan.md sits in a directory of its own; a
 	// flat plan's parent is plan/, shared by every flat plan in the
@@ -2105,7 +2126,7 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 	if plans.IsFolderPlanFile(plan.Path) {
 		dir = filepath.Dir(planFile)
 	}
-	bundle, err := planmeta.Resume(dir, body)
+	bundle, err := planmeta.Resume(dir, body, vocab)
 	if err != nil {
 		return err
 	}
@@ -2123,6 +2144,24 @@ func (p *phaseCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// phaseLaneOverride re-reads plan.md fresh from body — the lane's own
+// working copy, read once by the caller — rather than the fleet's
+// last-fetched default-branch copy. Without this, a status flip or a
+// Goal/DependsOn edit made in the lane but not yet merged would print
+// stale here even though bundle (built from the same body) reads the
+// change fresh — the same staleness laneOverride closes for next and
+// show. A body Parse cannot read leaves plan untouched.
+func phaseLaneOverride(
+	plan discovery.Plan, root string, body []byte, vocab []string,
+) discovery.Plan {
+	local, err := planmeta.ParseWithVocabulary(body, vocab)
+	if err != nil {
+		return plan
+	}
+
+	return applyLaneParse(plan, root, body, local, vocab)
 }
 
 type boardCmd struct {

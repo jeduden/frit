@@ -59,3 +59,17 @@ Feature: Command scenarios
     When the installed skill's start command runs for plan 7 with --go --json
     Then the JSON refusal names plan 7 and its unmet dependency
     And neither plan gains a hold or an agent
+
+  @C9
+  Scenario: a repo's own proto.md widens the tier vocabulary
+    Given a repository whose plan/proto.md names an extra tier in its model: line
+    And a plan whose Execution row designs a phase at that extra tier
+    When frit doctor is run
+    Then doctor reports no tier finding for that plan
+
+  @C10
+  Scenario: that added tier ranks correctly through frit next
+    Given a repository whose plan/proto.md names an extra tier in its model: line
+    And a plan whose Execution row designs a phase at that extra tier
+    When frit next is run
+    Then next reports the phase's tier as that extra tier

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,7 +66,7 @@ func Scan(root, planDir string) ([]Finding, error) {
 		return nil, err
 	}
 
-	return scanPaths(root, paths)
+	return scanPaths(root, paths, planmeta.TierVocabularyAt(root, planDir))
 }
 
 // ScanID re-checks the single plan whose on-disk name leads with id,
@@ -98,13 +99,13 @@ func ScanID(root, planDir string, id int64) ([]Finding, error) {
 		}
 	}
 
-	return scanPaths(root, kept)
+	return scanPaths(root, kept, planmeta.TierVocabularyAt(root, planDir))
 }
 
 // scanPaths opens root's mdsmith session once and scans each plan path
 // through it, sorted by plan id then check so the same tree always
 // reports in the same order — the shared body of Scan and ScanID.
-func scanPaths(root string, paths []string) ([]Finding, error) {
+func scanPaths(root string, paths []string, vocab []string) ([]Finding, error) {
 	sess, err := openSession(root)
 	if err != nil {
 		return nil, err
@@ -112,7 +113,7 @@ func scanPaths(root string, paths []string) ([]Finding, error) {
 
 	var out []Finding
 	for _, p := range paths {
-		findings, err := scanFile(sess, root, p)
+		findings, err := scanFile(sess, root, p, vocab)
 		if err != nil {
 			return nil, err
 		}
@@ -182,7 +183,7 @@ func planPaths(root, planDir string) ([]string, error) {
 // files, and the folder shape makes "plan.md" a name a stray
 // directory can plausibly collide with, so one such entry must not
 // fail the whole scan and lose every other plan's findings with it.
-func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
+func scanFile(sess *mdsmith.Session, root, path string, vocab []string) ([]Finding, error) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return nil, err
@@ -215,7 +216,7 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 		plan.Phases = phases
 	}
 
-	findings := checkPlan(plan, rel)
+	findings := checkPlan(plan, rel, vocab)
 	if f := checkIDSync(plan.ID, rel); f != nil {
 		findings = append(findings, *f)
 	}
@@ -249,7 +250,7 @@ func scanFile(sess *mdsmith.Session, root, path string) ([]Finding, error) {
 // higher, so an unrecognized value in one column is invisible in Tier
 // whenever the other column names a real model — a typo would hide
 // behind a valid neighbor if this checked Tier alone.
-func checkPlan(p planmeta.Plan, path string) []Finding {
+func checkPlan(p planmeta.Plan, path string, vocab []string) []Finding {
 	var out []Finding
 	for _, ph := range p.Phases {
 		if !ph.HasExecutionRow {
@@ -261,7 +262,7 @@ func checkPlan(p planmeta.Plan, path string) []Finding {
 
 			continue
 		}
-		if bad := badTier(ph.Design, ph.Implement); bad != "" {
+		if bad := badTier(ph.Design, ph.Implement, vocab); bad != "" {
 			out = append(out, Finding{
 				ID: p.ID, Path: path, Check: "tier",
 				Message: fmt.Sprintf(
@@ -423,12 +424,20 @@ func leadingIDToken(rel string) string {
 }
 
 // badTier returns the first of design or implement that names no
-// known model, or "" when both do.
-func badTier(design, implement string) string {
-	if !planmeta.KnownTier(design) {
+// known model, or "" when both do. vocab is the calling repository's
+// own plan/proto.md model: vocabulary — read once per Scan/ScanID call
+// rather than passed per plan — so a tier the repository added there
+// is accepted alongside planmeta's built-in ones, without a frit
+// rebuild.
+func badTier(design, implement string, vocab []string) string {
+	known := func(s string) bool {
+		return planmeta.KnownTier(s) || slices.Contains(vocab, s)
+	}
+
+	if !known(design) {
 		return design
 	}
-	if !planmeta.KnownTier(implement) {
+	if !known(implement) {
 		return implement
 	}
 

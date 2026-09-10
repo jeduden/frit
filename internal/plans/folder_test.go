@@ -47,7 +47,7 @@ func TestCollectKeepsAFolderPlanAndReportsAMislaidFile(t *testing.T) {
 	assert.Contains(t, ignored, "plan/archive/2601050000_deep.md")
 	assert.NotContains(t, ignored, "plan/2601020000_folder/notes.md")
 
-	entries, problems := index.Build("h", "repo", "", got)
+	entries, problems := index.Build("h", "repo", "", got, nil)
 	assert.Empty(t, problems, "no kept file should fail as not a plan")
 	assert.Len(t, entries, 2, "the flat plan and the folder plan, once each")
 }

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -622,13 +623,178 @@ func KnownTier(s string) bool {
 	return ok
 }
 
+// tierVocabQuotedToken pulls one quoted string out of a CUE
+// disjunction like `"haiku" | "sonnet" | *""`.
+var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
+
+// ParseTierVocabulary reads the ordered tier names a plan/proto.md
+// states on its front matter's model: line — `"haiku" | "sonnet" |
+// "opus" | "fable" | *""` reads back as ["haiku", "sonnet", "opus",
+// "fable"], the empty default dropped. A repository that adds its own
+// tier there is understood without a matching change to frit's Go
+// code: passed to ApplyTierVocabulary or ParseWithVocabulary, the
+// built-in vocabulary KnownTier and mostDemandingTier rank against
+// becomes the fallback this reports nothing kept, not the only
+// source. A file with no front matter, no model: line, or a model:
+// value YAML cannot decode as a plain string, reports nil, never an
+// error — there is nothing here for a caller to do but fall back.
+//
+// The front matter is decoded into a struct carrying only model:
+// rather than the typed Plan Parse itself uses, because proto.md's
+// other fields carry CUE type expressions Parse rejects
+// (TestParseRejectsASchemaTemplate). A struct with one tagged field
+// ignores every other key exactly as Plan's own decode already does
+// for a repository's extra front matter — unlike a map[string]string
+// decode of the whole front matter, whose success depends on every
+// field being a plain string, a struct decode never looks at a field
+// it was not asked to unmarshal into, so a repository free to shape
+// its other fields however it likes (a native YAML list rather than
+// this repo's own folded-string convention, say) cannot break this
+// read of model: alone. Decoding rather than pattern-matching the raw
+// bytes also means a model: line folded across several lines, the way
+// proto.md's own phases: field already is, reads the same as one kept
+// on a single line.
+func ParseTierVocabulary(proto []byte) []string {
+	doc := markdown.Parse(proto)
+	body := insideDelimiters(doc.FrontMatter)
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	var fields struct {
+		Model string `yaml:"model"`
+	}
+	if err := yaml.Unmarshal(body, &fields); err != nil {
+		return nil
+	}
+
+	var out []string
+	for _, tok := range tierVocabQuotedToken.FindAllStringSubmatch(fields.Model, -1) {
+		if s := tok[1]; s != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// TierVocabularyAt reads root/planDir/proto.md and parses its tier
+// vocabulary through ParseTierVocabulary — the one call every command
+// that widens the tier vocabulary from a checked-out working copy
+// shares, so a repository's own schema is read the same way
+// regardless of which command asks. A repository with no readable
+// proto.md there reports nil, the same fallback ParseTierVocabulary
+// itself reports for unparseable content.
+//
+// root is always the local checkout — repo.Path for a fleet-wide
+// command, the lane's own worktree for a lane override — never a
+// blob read off some other ref, the same locality cfg.PlanDir and
+// .mdsmith.yml already carry for every plan that ref's walk turns up,
+// stale local checkout and all. A host running behind its own fetch
+// reads a stale vocabulary the same way it already reads a stale
+// cfg.PlanDir or holds pattern; nothing here is a new kind of
+// staleness for a caller to guard against beyond what already applies
+// to those.
+func TierVocabularyAt(root, planDir string) []string {
+	proto, err := os.ReadFile(
+		filepath.Join(root, planDir, ProtoName)) // #nosec G304 -- root/planDir joined with a constant name
+	if err != nil {
+		return nil
+	}
+
+	return ParseTierVocabulary(proto)
+}
+
+// widensTierRank reports whether vocab names anything tierRank does
+// not already rank — false for an unmodified proto.md, whose model:
+// line names exactly the built-in set, so ApplyTierVocabulary can
+// skip re-deriving a Tier Parse's own attachExecutionRows already got
+// right against that same built-in ranking.
+func widensTierRank(vocab []string) bool {
+	for _, t := range vocab {
+		if _, ok := tierRank[t]; !ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// vocabRank extends tierRank with any tier vocab names beyond it, in
+// the order vocab states them — the convention landing fable itself
+// set: a repository appends a new, more demanding tier after the ones
+// frit already knows, so a tier vocab names that tierRank already
+// carries keeps tierRank's own rank, never vocab's position.
+func vocabRank(vocab []string) map[string]int {
+	rank := make(map[string]int, len(tierRank)+len(vocab))
+	maps.Copy(rank, tierRank)
+
+	next := len(tierRank)
+	for _, t := range vocab {
+		if _, ok := rank[t]; !ok {
+			rank[t] = next
+			next++
+		}
+	}
+
+	return rank
+}
+
+// ApplyTierVocabulary re-derives each phase's Tier by ranking its
+// Design and Implement columns against tierRank widened with vocab,
+// so a tier a repository's own proto.md adds ranks correctly against
+// the built-in ones rather than always losing to a recognized
+// neighbor as an unranked value otherwise would. vocab is typically
+// ParseTierVocabulary's own return for that repository's proto.md; an
+// empty vocab leaves every phase's Tier exactly as Parse computed it.
+// A phase with no Execution row carries no Design or Implement to
+// rank and is left untouched.
+func ApplyTierVocabulary(phases []Phase, vocab []string) {
+	if !widensTierRank(vocab) {
+		return
+	}
+
+	rank := vocabRank(vocab)
+	for i := range phases {
+		if phases[i].HasExecutionRow {
+			phases[i].Tier = mostDemandingTierRankedBy(
+				phases[i].Design, phases[i].Implement, rank)
+		}
+	}
+}
+
+// ParseWithVocabulary is Parse extended by a repository's own
+// plan/proto.md tier vocabulary: every phase's Tier is ranked against
+// tierRank widened with vocab, through ApplyTierVocabulary, rather
+// than Parse's own built-in-only ranking. A ledger-free folder plan's
+// phases are assembled separately by PhasesFromDir and are not seen
+// here — a caller that fills those in applies ApplyTierVocabulary to
+// them directly.
+func ParseWithVocabulary(source []byte, vocab []string) (Plan, error) {
+	p, err := Parse(source)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	ApplyTierVocabulary(p.Phases, vocab)
+
+	return p, nil
+}
+
 // mostDemandingTier returns whichever of a and b ranks higher. An
 // unrecognized tier ranks below any recognized one rather than
 // panicking or erroring — frit doctor (phase 4) is where a tier that
 // names no known model becomes a reported gap, not this parse.
 func mostDemandingTier(a, b string) string {
-	ra, oka := tierRank[a]
-	rb, okb := tierRank[b]
+	return mostDemandingTierRankedBy(a, b, tierRank)
+}
+
+// mostDemandingTierRankedBy is mostDemandingTier ranked against an
+// arbitrary rank map rather than the package's own built-in tierRank
+// — vocabRank builds the one ApplyTierVocabulary needs.
+func mostDemandingTierRankedBy(a, b string, rank map[string]int) string {
+	ra, oka := rank[a]
+	rb, okb := rank[b]
 
 	switch {
 	case oka && okb:
@@ -642,6 +808,21 @@ func mostDemandingTier(a, b string) string {
 	default:
 		return a
 	}
+}
+
+// rankedTier ranks design and implement against vocab's widened
+// vocabulary, for a caller computing one phase's Tier at a time —
+// Resume's own single-phase path, sharing widensTierRank's guard with
+// ApplyTierVocabulary's own loop rather than each keeping its own
+// copy of the same three-step sequence. fallback (a Tier already
+// computed against the built-in vocabulary alone) is returned
+// unchanged when vocab widens nothing.
+func rankedTier(design, implement, fallback string, vocab []string) string {
+	if !widensTierRank(vocab) {
+		return fallback
+	}
+
+	return mostDemandingTierRankedBy(design, implement, vocabRank(vocab))
 }
 
 // sectionText returns the prose of the level-2 section with the given

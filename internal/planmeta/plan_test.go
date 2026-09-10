@@ -1,6 +1,8 @@
 package planmeta
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
@@ -596,4 +598,266 @@ func TestFableIsAKnownTierAndOutranksOpus(t *testing.T) {
 	assert.True(t, KnownTier("fable"))
 	assert.Equal(t, "fable", mostDemandingTier("fable", "opus"))
 	assert.Equal(t, "fable", mostDemandingTier("opus", "fable"))
+}
+
+// TestParseTierVocabularyReadsTheModelLinesQuotedTokens: proto.md's
+// schema states the tier vocabulary as a CUE disjunction of quoted
+// strings on the front matter's model: line. A repository that adds
+// its own tier there — the way this repo added fable — names it in
+// order, default excluded, without frit's Go code carrying a second,
+// separately maintained copy of the same list.
+func TestParseTierVocabularyReadsTheModelLinesQuotedTokens(t *testing.T) {
+	proto := []byte(`---
+id: 'int & >=2601010000'
+title: 'string & != ""'
+model: '"haiku" | "sonnet" | "opus" | "fable" | *""'
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReadsAFoldedBlockScalarModelLine: proto.md's
+// own phases: field already uses YAML's folded block scalar (`>-`)
+// for a long value — a repository that grows its own model: line past
+// one comfortable line by adding several tiers is likely to reach for
+// the same style. A regex anchored to one physical line would miss it
+// silently; a real YAML decode folds it the way it folds phases:.
+func TestParseTierVocabularyReadsAFoldedBlockScalarModelLine(t *testing.T) {
+	proto := []byte(`---
+model: >-
+  "haiku" | "sonnet" | "opus" | "fable" |
+  "glyph" | *""
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable", "glyph"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReadsAnAddedCustomTier: a repository that
+// edits its own plan/proto.md to add a tier frit's built-in vocabulary
+// has never heard of — the shape a fleet running a different agent CLI
+// would use — is read back in the order the schema states it.
+func TestParseTierVocabularyReadsAnAddedCustomTier(t *testing.T) {
+	proto := []byte(`---
+model: '"haiku" | "sonnet" | "custom-tier" | *""'
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "custom-tier"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReportsNothingForAFileWithNoModelLine: a
+// missing or malformed schema is not this function's error to raise —
+// its caller falls back to frit's own built-in vocabulary when this
+// reports nothing.
+func TestParseTierVocabularyReportsNothingForAFileWithNoModelLine(t *testing.T) {
+	assert.Empty(t, ParseTierVocabulary([]byte("not even front matter")))
+	assert.Empty(t, ParseTierVocabulary([]byte("---\ntitle: x\n---\n")))
+}
+
+// TestParseTierVocabularyIgnoresOtherFieldsShape: a repository
+// customizing its own proto.md may write a field other than model: as
+// a native YAML value rather than the folded-string CUE-expression
+// convention this repo's own proto.md happens to use — depends-on: [1,
+// 2] rather than a quoted string. That field's own shape is none of
+// this function's business; only model: must decode as a string.
+func TestParseTierVocabularyIgnoresOtherFieldsShape(t *testing.T) {
+	proto := []byte(`---
+model: '"haiku" | "sonnet" | "opus" | "fable" | "glyph" | *""'
+depends-on: [1, 2]
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable", "glyph"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReportsNothingWhenModelItselfIsNotAString:
+// the one shape ParseTierVocabulary must still refuse — model: with a
+// native YAML value in place of a string — drives the decode's own
+// error branch, distinct from the no-model-line and no-front-matter
+// cases the other tests already cover.
+func TestParseTierVocabularyReportsNothingWhenModelItselfIsNotAString(t *testing.T) {
+	proto := []byte("---\nmodel: [1, 2]\n---\n\n# ?\n")
+
+	assert.Empty(t, ParseTierVocabulary(proto))
+}
+
+// TestTierVocabularyAtReadsARepositorysOwnProtoFile: the one place
+// every caller that widens the tier vocabulary from a checked-out
+// working copy shares — root/planDir/proto.md, read and parsed in one
+// call, so a repo's own schema is read the same way regardless of
+// which command asks.
+func TestTierVocabularyAtReadsARepositorysOwnProtoFile(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "plan"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan", ProtoName),
+		[]byte("---\nmodel: '\"haiku\" | \"glyph\" | *\"\"'\n---\n# ?\n"), 0o600))
+
+	assert.Equal(t, []string{"haiku", "glyph"},
+		TierVocabularyAt(root, "plan"))
+}
+
+// TestTierVocabularyAtReportsNothingWithNoProtoFile: a repository with
+// no plan/proto.md — or the wrong planDir — has nothing to widen the
+// vocabulary with, never an error a caller must handle.
+func TestTierVocabularyAtReportsNothingWithNoProtoFile(t *testing.T) {
+	root := t.TempDir()
+
+	assert.Empty(t, TierVocabularyAt(root, "plan"))
+}
+
+// TestApplyTierVocabularyRanksAnAddedTierAboveTheBuiltInOnes: a
+// repository appends its own tier after fable in proto.md's model:
+// line, the convention landing fable itself set — a phase designed at
+// that tier and implemented at opus should report the added tier, not
+// silently fall back to opus because the added tier is otherwise
+// unranked. Without ApplyTierVocabulary, Parse alone ranks "glyph" as
+// unrecognized and always loses to opus — the gap this closes.
+func TestApplyTierVocabularyRanksAnAddedTierAboveTheBuiltInOnes(t *testing.T) {
+	phases := []Phase{{
+		N: "1", HasExecutionRow: true, Design: "glyph", Implement: "opus",
+	}}
+
+	ApplyTierVocabulary(phases, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Equal(t, "glyph", phases[0].Tier)
+}
+
+// TestApplyTierVocabularyLeavesTierAloneWithNoVocabulary: a caller
+// with nothing to widen the vocabulary with — no proto.md, or one
+// ParseTierVocabulary could not read — must not disturb the ranking
+// Parse itself already computed against the built-in vocabulary.
+func TestApplyTierVocabularyLeavesTierAloneWithNoVocabulary(t *testing.T) {
+	phases := []Phase{{
+		N: "1", HasExecutionRow: true, Design: "sonnet", Implement: "opus",
+		Tier: "opus",
+	}}
+
+	ApplyTierVocabulary(phases, nil)
+
+	assert.Equal(t, "opus", phases[0].Tier)
+}
+
+// TestWidensTierRankIsFalseForExactlyTheBuiltInSet: an unmodified
+// proto.md's own model: line names exactly haiku/sonnet/opus/fable —
+// the common case, since only a repository that has actually edited
+// its schema names anything else. ApplyTierVocabulary reads this to
+// skip re-ranking every phase across the whole fleet index on every
+// command when there is nothing for the wider vocabulary to change.
+func TestWidensTierRankIsFalseForExactlyTheBuiltInSet(t *testing.T) {
+	assert.False(t, widensTierRank(nil))
+	assert.False(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable"}))
+}
+
+// TestWidensTierRankIsTrueForAnAddedTier: a vocabulary naming anything
+// tierRank does not already rank is exactly what ApplyTierVocabulary
+// must re-rank for.
+func TestWidensTierRankIsTrueForAnAddedTier(t *testing.T) {
+	assert.True(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable", "glyph"}))
+}
+
+// TestRankedTierReturnsFallbackWhenVocabWidensNothing is
+// rankedTier's own dedicated test: Resume's single-phase path shares
+// this with ApplyTierVocabulary's own loop, rather than each
+// reimplementing the guard-then-rank sequence — a fallback already
+// computed against the built-in vocabulary is kept as-is when vocab
+// adds nothing beyond it.
+func TestRankedTierReturnsFallbackWhenVocabWidensNothing(t *testing.T) {
+	got := rankedTier("sonnet", "opus", "opus",
+		[]string{"haiku", "sonnet", "opus", "fable"})
+
+	assert.Equal(t, "opus", got)
+}
+
+// TestRankedTierRanksAgainstTheWidenedVocabulary: when vocab does add
+// a tier, rankedTier ranks design and implement against it rather
+// than returning the fallback.
+func TestRankedTierRanksAgainstTheWidenedVocabulary(t *testing.T) {
+	got := rankedTier("glyph", "opus", "opus",
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Equal(t, "glyph", got)
+}
+
+// TestVocabRankKeepsTheBuiltInRanksAndAppendsAnAddedTier is
+// vocabRank's own dedicated test: a vocab entry tierRank already
+// carries keeps tierRank's own rank rather than its position in
+// vocab, and an added tier ranks above every built-in one, in the
+// order the vocab states multiple additions.
+func TestVocabRankKeepsTheBuiltInRanksAndAppendsAnAddedTier(t *testing.T) {
+	rank := vocabRank([]string{"fable", "haiku", "glyph", "opus", "sparkle"})
+
+	assert.Equal(t, tierRank["haiku"], rank["haiku"])
+	assert.Equal(t, tierRank["opus"], rank["opus"])
+	assert.Equal(t, tierRank["fable"], rank["fable"])
+	assert.True(t, rank["glyph"] > tierRank["fable"])
+	assert.True(t, rank["sparkle"] > rank["glyph"],
+		"a later addition in vocab ranks higher than an earlier one")
+}
+
+// TestMostDemandingTierRankedByPicksTheHigherRank is
+// mostDemandingTierRankedBy's own dedicated test: mostDemandingTier
+// itself is the built-in-only special case of this, already covered
+// by TestFableIsAKnownTierAndOutranksOpus, so this exercises the
+// arbitrary-rank-map path directly, including its unrecognized-value
+// fallback.
+func TestMostDemandingTierRankedByPicksTheHigherRank(t *testing.T) {
+	rank := map[string]int{"low": 0, "high": 1}
+
+	assert.Equal(t, "high", mostDemandingTierRankedBy("low", "high", rank))
+	assert.Equal(t, "high", mostDemandingTierRankedBy("high", "low", rank))
+	assert.Equal(t, "low", mostDemandingTierRankedBy("low", "unranked", rank),
+		"an unrecognized value ranks below any recognized one")
+}
+
+// TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow: a phase with
+// no row has no Design or Implement to rank — re-deriving Tier for it
+// would invent a value where none exists, the same restraint Parse's
+// own attachExecutionRows already takes.
+func TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow(t *testing.T) {
+	phases := []Phase{{N: "1", HasExecutionRow: false}}
+
+	ApplyTierVocabulary(phases, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Empty(t, phases[0].Tier)
+}
+
+// TestParseWithVocabularyRanksThePhasesTierAgainstTheWidenedVocabulary
+// is ApplyTierVocabulary's effect through the public parse entry
+// point a caller with a repository's own vocabulary actually uses.
+func TestParseWithVocabularyRanksThePhasesTierAgainstTheWidenedVocabulary(t *testing.T) {
+	src := []byte(`---
+id: 2609100001
+title: Designed at a custom tier
+status: "🔲"
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# Designed at a custom tier
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | glyph  | opus      | test one |
+`)
+
+	got, err := ParseWithVocabulary(src, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 1)
+	assert.Equal(t, "glyph", got.Phases[0].Tier)
 }

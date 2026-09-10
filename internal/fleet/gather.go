@@ -232,7 +232,8 @@ func gatherRepo(
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
-	entries, errs := index.Build(host, repo.Name, preferred, files)
+	vocab := planmeta.TierVocabularyAt(repo.Path, cfg.PlanDir)
+	entries, errs := index.Build(host, repo.Name, preferred, files, vocab)
 	problems := parseProblems(repo.Name, errs, mislaid)
 
 	refs, err := gitobj.Refs(repo.Path, run)
