@@ -721,6 +721,24 @@ func TestApplyTierVocabularyLeavesTierAloneWithNoVocabulary(t *testing.T) {
 	assert.Equal(t, "opus", phases[0].Tier)
 }
 
+// TestWidensTierRankIsFalseForExactlyTheBuiltInSet: an unmodified
+// proto.md's own model: line names exactly haiku/sonnet/opus/fable —
+// the common case, since only a repository that has actually edited
+// its schema names anything else. ApplyTierVocabulary reads this to
+// skip re-ranking every phase across the whole fleet index on every
+// command when there is nothing for the wider vocabulary to change.
+func TestWidensTierRankIsFalseForExactlyTheBuiltInSet(t *testing.T) {
+	assert.False(t, widensTierRank(nil))
+	assert.False(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable"}))
+}
+
+// TestWidensTierRankIsTrueForAnAddedTier: a vocabulary naming anything
+// tierRank does not already rank is exactly what ApplyTierVocabulary
+// must re-rank for.
+func TestWidensTierRankIsTrueForAnAddedTier(t *testing.T) {
+	assert.True(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable", "glyph"}))
+}
+
 // TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow: a phase with
 // no row has no Design or Implement to rank — re-deriving Tier for it
 // would invent a value where none exists, the same restraint Parse's
