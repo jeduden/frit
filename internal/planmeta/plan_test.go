@@ -597,3 +597,48 @@ func TestFableIsAKnownTierAndOutranksOpus(t *testing.T) {
 	assert.Equal(t, "fable", mostDemandingTier("fable", "opus"))
 	assert.Equal(t, "fable", mostDemandingTier("opus", "fable"))
 }
+
+// TestParseTierVocabularyReadsTheModelLinesQuotedTokens: proto.md's
+// schema states the tier vocabulary as a CUE disjunction of quoted
+// strings on the front matter's model: line. A repository that adds
+// its own tier there — the way this repo added fable — names it in
+// order, default excluded, without frit's Go code carrying a second,
+// separately maintained copy of the same list.
+func TestParseTierVocabularyReadsTheModelLinesQuotedTokens(t *testing.T) {
+	proto := []byte(`---
+id: 'int & >=2601010000'
+title: 'string & != ""'
+model: '"haiku" | "sonnet" | "opus" | "fable" | *""'
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReadsAnAddedCustomTier: a repository that
+// edits its own plan/proto.md to add a tier frit's built-in vocabulary
+// has never heard of — the shape a fleet running a different agent CLI
+// would use — is read back in the order the schema states it.
+func TestParseTierVocabularyReadsAnAddedCustomTier(t *testing.T) {
+	proto := []byte(`---
+model: '"haiku" | "sonnet" | "custom-tier" | *""'
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "custom-tier"},
+		ParseTierVocabulary(proto))
+}
+
+// TestParseTierVocabularyReportsNothingForAFileWithNoModelLine: a
+// missing or malformed schema is not this function's error to raise —
+// its caller falls back to frit's own built-in vocabulary when this
+// reports nothing.
+func TestParseTierVocabularyReportsNothingForAFileWithNoModelLine(t *testing.T) {
+	assert.Empty(t, ParseTierVocabulary([]byte("not even front matter")))
+	assert.Empty(t, ParseTierVocabulary([]byte("---\ntitle: x\n---\n")))
+}
