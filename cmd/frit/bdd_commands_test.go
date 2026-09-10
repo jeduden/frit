@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/skills"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,9 @@ type commandState struct {
 	origin   string
 	skillCmd string
 	herdrLog string
+	// diverged is C11's own: the commit the lane's branch stands on
+	// once moved off its lease tip, which the refusal must name.
+	diverged string
 }
 
 func (w *world) registerCommands(sc *godog.ScenarioContext) {
@@ -68,6 +72,9 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^drift does not list the done plan$`, w.driftDoesNotListTheDonePlan)
 	sc.Step(`^a plan freshly claimed by this lane$`, w.aPlanFreshlyClaimedByThisLane)
 	sc.Step(`^yield refuses it, naming release as the way out$`, w.yieldRefusesItNamingReleaseAsTheWayOut)
+	sc.Step(`^this host's lane branch has diverged from its lease tip$`, w.thisHostsLaneBranchHasDiverged)
+	sc.Step(`^the claim is refused, naming the diverged lane branch and both tips$`,
+		w.theClaimIsRefusedNamingTheDivergedLaneBranch)
 	sc.Step(`^the bundled plan-start skill is installed with the built frit invocation$`,
 		w.theBundledPlanStartSkillIsInstalledWithTheBuiltFritInvocation)
 	sc.Step(`^plans 7 and 8 are ready with plan 8 ranked above plan 7$`,
@@ -402,6 +409,76 @@ func (w *world) yieldRefusesItNamingReleaseAsTheWayOut() error {
 	}
 
 	return nil
+}
+
+// thisHostsLaneBranchHasDiverged is C11's own Given: the lane's branch
+// is moved off its lease tip onto a sibling commit — work built on the
+// tip before the lease's last beat and never merged forward — so it is
+// neither the lease tip nor a fast-forward of it.
+func (w *world) thisHostsLaneBranchHasDiverged() error {
+	cli := section[cliState](w)
+	if cli.lane == "" || cli.token == "" {
+		return fmt.Errorf("this host has no lane; the bound-lease step comes first")
+	}
+	git(w.t, cli.lane, "reset", "-q", "--hard", cli.token+"^")
+	git(w.t, cli.lane, "commit", "--allow-empty", "-q", "-m", "work on a superseded tip")
+	tip, err := gitCapture(w.t, cli.lane, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	section[commandState](w).diverged = tip
+
+	return nil
+}
+
+// theClaimIsRefusedNamingTheDivergedLaneBranch is C11's own Then: the
+// claim's resume met a diverged lane branch and says so — the branch,
+// the commit it stands on and the lease tip — rather than falling
+// through to the ordinary "already held" refusal, which names none of
+// them and hides the merge that clears it.
+func (w *world) theClaimIsRefusedNamingTheDivergedLaneBranch() error {
+	cli := section[cliState](w)
+	got := cli.out.String()
+	if !strings.Contains(got, "refused") {
+		return fmt.Errorf("expected a refusal, got: %s%s", got, cli.errb.String())
+	}
+	names := []string{claim.Branch(int64(w.planID)), section[commandState](w).diverged, cli.token}
+	for _, name := range names {
+		if name == "" || !strings.Contains(got, name) {
+			return fmt.Errorf("the refusal does not name %q: %s", name, got)
+		}
+	}
+
+	return nil
+}
+
+// TestThisHostsLaneBranchHasDivergedNeedsALane: with no bound lane set
+// up first there is no branch to move.
+func TestThisHostsLaneBranchHasDivergedNeedsALane(t *testing.T) {
+	require.Error(t, newWorld(t).thisHostsLaneBranchHasDiverged())
+}
+
+// TestTheClaimIsRefusedNamingTheDivergedLaneBranchReadsTheRefusal: a
+// success, or a refusal naming neither tip, fails the step; one naming
+// the branch, the diverged commit and the lease tip passes it.
+func TestTheClaimIsRefusedNamingTheDivergedLaneBranchReadsTheRefusal(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 7
+	cli := section[cliState](w)
+	cli.token = "lease-sha"
+	section[commandState](w).diverged = "local-sha"
+
+	cli.out.WriteString("claimed plan 7")
+	require.Error(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
+
+	cli.out.Reset()
+	cli.out.WriteString("refused: plan 7 is already held")
+	require.Error(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
+
+	cli.out.Reset()
+	cli.out.WriteString("refused: plan 7: local branch plan/7 (local-sha) " +
+		"has diverged from the lease tip lease-sha")
+	require.NoError(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
 }
 
 // cmdFritTestDir is captured by init, before any scenario's own
