@@ -99,10 +99,7 @@ func Resume(dir string, planBody []byte, vocab []string) (Bundle, error) {
 			notes = strings.TrimSpace(string(st.result))
 		}
 		row, _ := executionRowFor(body, PhaseNumber(n))
-		tier := row.tier
-		if widensTierRank(vocab) {
-			tier = mostDemandingTierRankedBy(row.design, row.implement, vocabRank(vocab))
-		}
+		tier := rankedTier(row.design, row.implement, row.tier, vocab)
 
 		return Bundle{
 			N:          PhaseNumber(n),

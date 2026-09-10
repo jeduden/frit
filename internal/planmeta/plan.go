@@ -810,6 +810,21 @@ func mostDemandingTierRankedBy(a, b string, rank map[string]int) string {
 	}
 }
 
+// rankedTier ranks design and implement against vocab's widened
+// vocabulary, for a caller computing one phase's Tier at a time —
+// Resume's own single-phase path, sharing widensTierRank's guard with
+// ApplyTierVocabulary's own loop rather than each keeping its own
+// copy of the same three-step sequence. fallback (a Tier already
+// computed against the built-in vocabulary alone) is returned
+// unchanged when vocab widens nothing.
+func rankedTier(design, implement, fallback string, vocab []string) string {
+	if !widensTierRank(vocab) {
+		return fallback
+	}
+
+	return mostDemandingTierRankedBy(design, implement, vocabRank(vocab))
+}
+
 // sectionText returns the prose of the level-2 section with the given
 // title, folded to one line, or "" when the plan has no such section.
 //
