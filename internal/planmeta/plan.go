@@ -686,6 +686,21 @@ func TierVocabularyAt(root, planDir string) []string {
 	return ParseTierVocabulary(proto)
 }
 
+// widensTierRank reports whether vocab names anything tierRank does
+// not already rank — false for an unmodified proto.md, whose model:
+// line names exactly the built-in set, so ApplyTierVocabulary can
+// skip re-deriving a Tier Parse's own attachExecutionRows already got
+// right against that same built-in ranking.
+func widensTierRank(vocab []string) bool {
+	for _, t := range vocab {
+		if _, ok := tierRank[t]; !ok {
+			return true
+		}
+	}
+
+	return false
+}
+
 // vocabRank extends tierRank with any tier vocab names beyond it, in
 // the order vocab states them — the convention landing fable itself
 // set: a repository appends a new, more demanding tier after the ones
@@ -716,7 +731,7 @@ func vocabRank(vocab []string) map[string]int {
 // A phase with no Execution row carries no Design or Implement to
 // rank and is left untouched.
 func ApplyTierVocabulary(phases []Phase, vocab []string) {
-	if len(vocab) == 0 {
+	if !widensTierRank(vocab) {
 		return
 	}
 
