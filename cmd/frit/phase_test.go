@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/planmeta"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -128,6 +129,72 @@ func TestFolderPlanPhasesLeavesAFlatPlanUnchanged(t *testing.T) {
 		filepath.Join("plan", "100_x.md"), nil, planmeta.Plan{})
 
 	assert.Nil(t, got)
+}
+
+// TestApplyLaneParseCopiesStatusPhasesGoalAndDependsOn is
+// applyLaneParse's own dedicated test: laneOverride and
+// phaseLaneOverride both reduce to this once they have local — the
+// lane's own parse — in hand.
+func TestApplyLaneParseCopiesStatusPhasesGoalAndDependsOn(t *testing.T) {
+	plan := discovery.Plan{
+		Status: "🔲", Path: filepath.Join("plan", "100_x.md"),
+		Goal: "stale", DependsOn: []int64{9},
+	}
+	local := planmeta.Plan{
+		Status: "🔳", Goal: "fresh", DependsOn: []int64{1, 2},
+		Phases: []planmeta.Phase{{N: "1", Status: "✅"}},
+	}
+
+	got := applyLaneParse(plan, t.TempDir(), nil, local, nil)
+
+	assert.Equal(t, "🔳", got.Status)
+	assert.Equal(t, "fresh", got.Goal)
+	assert.Equal(t, []int64{1, 2}, got.DependsOn)
+	assert.Equal(t, local.Phases, got.Phases)
+}
+
+// TestApplyLaneParseRanksAPhaseAgainstAWidenedVocabulary: the widened
+// vocabulary applyLaneParse threads through ApplyTierVocabulary must
+// still take effect after folderPlanPhases has run, the seam this
+// test isolates from TestApplyLaneParseCopiesStatusPhasesGoalAndDependsOn's
+// plain copy.
+func TestApplyLaneParseRanksAPhaseAgainstAWidenedVocabulary(t *testing.T) {
+	plan := discovery.Plan{Path: filepath.Join("plan", "100_x.md")}
+	local := planmeta.Plan{
+		Phases: []planmeta.Phase{{
+			N: "1", HasExecutionRow: true, Design: "glyph", Implement: "opus",
+		}},
+	}
+
+	got := applyLaneParse(plan, t.TempDir(), nil, local,
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.Len(t, got.Phases, 1)
+	assert.Equal(t, "glyph", got.Phases[0].Tier)
+}
+
+// TestPhaseLaneOverrideAppliesTheLocalParse is phaseLaneOverride's own
+// dedicated test: given body planmeta.Parse can read, it overrides
+// plan the same way applyLaneParse does directly.
+func TestPhaseLaneOverrideAppliesTheLocalParse(t *testing.T) {
+	plan := discovery.Plan{Status: "🔲", Path: filepath.Join("plan", "100_x.md")}
+	body := []byte("---\nid: 100\ntitle: X\nstatus: \"🔳\"\n---\n# X\n")
+
+	got := phaseLaneOverride(plan, t.TempDir(), body, nil)
+
+	assert.Equal(t, "🔳", got.Status)
+}
+
+// TestPhaseLaneOverrideLeavesPlanUntouchedOnAnUnreadableBody:
+// laneOverride's own doc comment promises a local file that fails to
+// parse leaves the plan as the fleet reported it — phaseLaneOverride
+// keeps that restraint too.
+func TestPhaseLaneOverrideLeavesPlanUntouchedOnAnUnreadableBody(t *testing.T) {
+	plan := discovery.Plan{Status: "🔲", Path: filepath.Join("plan", "100_x.md")}
+
+	got := phaseLaneOverride(plan, t.TempDir(), []byte("not even front matter"), nil)
+
+	assert.Equal(t, plan, got)
 }
 
 // TestNextFindsALedgerFreeFolderPlansOpenPhaseFromStatus is Phase 2's

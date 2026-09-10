@@ -57,8 +57,7 @@ type Finding struct {
 // reports in the same order.
 func Scan(root, planDir string) ([]Finding, error) {
 	protoPath := filepath.Join(root, planDir, planmeta.ProtoName)
-	proto, err := os.ReadFile(protoPath) // #nosec G304 -- protoPath is root/planDir joined with a constant name
-	if err != nil {
+	if _, err := os.Stat(protoPath); err != nil {
 		return nil, ErrNoSchema
 	}
 
@@ -67,7 +66,7 @@ func Scan(root, planDir string) ([]Finding, error) {
 		return nil, err
 	}
 
-	return scanPaths(root, paths, planmeta.ParseTierVocabulary(proto))
+	return scanPaths(root, paths, planmeta.TierVocabularyAt(root, planDir))
 }
 
 // ScanID re-checks the single plan whose on-disk name leads with id,
@@ -79,8 +78,7 @@ func Scan(root, planDir string) ([]Finding, error) {
 // exactly as Scan does.
 func ScanID(root, planDir string, id int64) ([]Finding, error) {
 	protoPath := filepath.Join(root, planDir, planmeta.ProtoName)
-	proto, err := os.ReadFile(protoPath) // #nosec G304 -- protoPath is root/planDir joined with a constant name
-	if err != nil {
+	if _, err := os.Stat(protoPath); err != nil {
 		return nil, ErrNoSchema
 	}
 
@@ -101,7 +99,7 @@ func ScanID(root, planDir string, id int64) ([]Finding, error) {
 		}
 	}
 
-	return scanPaths(root, kept, planmeta.ParseTierVocabulary(proto))
+	return scanPaths(root, kept, planmeta.TierVocabularyAt(root, planDir))
 }
 
 // scanPaths opens root's mdsmith session once and scans each plan path

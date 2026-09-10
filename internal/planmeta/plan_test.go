@@ -769,6 +769,37 @@ func TestWidensTierRankIsTrueForAnAddedTier(t *testing.T) {
 	assert.True(t, widensTierRank([]string{"haiku", "sonnet", "opus", "fable", "glyph"}))
 }
 
+// TestVocabRankKeepsTheBuiltInRanksAndAppendsAnAddedTier is
+// vocabRank's own dedicated test: a vocab entry tierRank already
+// carries keeps tierRank's own rank rather than its position in
+// vocab, and an added tier ranks above every built-in one, in the
+// order the vocab states multiple additions.
+func TestVocabRankKeepsTheBuiltInRanksAndAppendsAnAddedTier(t *testing.T) {
+	rank := vocabRank([]string{"fable", "haiku", "glyph", "opus", "sparkle"})
+
+	assert.Equal(t, tierRank["haiku"], rank["haiku"])
+	assert.Equal(t, tierRank["opus"], rank["opus"])
+	assert.Equal(t, tierRank["fable"], rank["fable"])
+	assert.True(t, rank["glyph"] > tierRank["fable"])
+	assert.True(t, rank["sparkle"] > rank["glyph"],
+		"a later addition in vocab ranks higher than an earlier one")
+}
+
+// TestMostDemandingTierRankedByPicksTheHigherRank is
+// mostDemandingTierRankedBy's own dedicated test: mostDemandingTier
+// itself is the built-in-only special case of this, already covered
+// by TestFableIsAKnownTierAndOutranksOpus, so this exercises the
+// arbitrary-rank-map path directly, including its unrecognized-value
+// fallback.
+func TestMostDemandingTierRankedByPicksTheHigherRank(t *testing.T) {
+	rank := map[string]int{"low": 0, "high": 1}
+
+	assert.Equal(t, "high", mostDemandingTierRankedBy("low", "high", rank))
+	assert.Equal(t, "high", mostDemandingTierRankedBy("high", "low", rank))
+	assert.Equal(t, "low", mostDemandingTierRankedBy("low", "unranked", rank),
+		"an unrecognized value ranks below any recognized one")
+}
+
 // TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow: a phase with
 // no row has no Design or Implement to rank — re-deriving Tier for it
 // would invent a value where none exists, the same restraint Parse's

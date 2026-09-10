@@ -100,7 +100,7 @@ func Resume(dir string, planBody []byte, vocab []string) (Bundle, error) {
 		}
 		row, _ := executionRowFor(body, PhaseNumber(n))
 		tier := row.tier
-		if len(vocab) > 0 {
+		if widensTierRank(vocab) {
 			tier = mostDemandingTierRankedBy(row.design, row.implement, vocabRank(vocab))
 		}
 
