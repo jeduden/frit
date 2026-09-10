@@ -782,6 +782,37 @@ func TestRenewLeavesAReflogEntryNamingTheTransition(t *testing.T) {
 	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
 }
 
+// TestRenewLeavesALaneCommitMadeDuringItsPushInPlace: the lane's agent
+// commits on its branch while the beat's push is in flight. The beat
+// was minted on the tip relayBase read, so moving the branch onto it
+// would reset past the agent's new commit (#189 again, in a smaller
+// window). The sync expects the tip the relay read, sees the branch
+// moved, and leaves the new commit where it stands.
+func TestRenewLeavesALaneCommitMadeDuringItsPushInPlace(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "merged.txt")
+
+	var during string
+	racing := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "push" && during == "" {
+			tree := gitCmd(t, work, "rev-parse", ahead+"^{tree}")
+			during = gitCmd(t, work, "commit-tree", tree, "-p", ahead, "-m", "mid-push")
+			gitCmd(t, work, "update-ref", "refs/heads/plan/7", during, ahead)
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	renewed, err := Renew(work, opts, t1, racing)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, during, "the push ran")
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", renewed.Tip+"^"))
+	assert.Equal(t, during, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the commit made during the push is not reset past")
+}
+
 // TestReleaseLeavesAMarkerAndReacquireBumpsTheEpoch: a release pushes a
 // marker and deletes nothing — the history stays for the next holder —
 // and a later acquire CASes exactly on that marker, reading epoch E+1

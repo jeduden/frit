@@ -33,8 +33,8 @@ holder's push contend on one ref that the server serializes. For
 anything that goes through the ref, there is no window between
 losing the lease and being fenced.
 
-**Healing has to be passive.** A takeover path that an agent has to
-choose to run in practice never runs: `pick` hides held plans (F1),
+**Healing has to be passive.** An opt-in takeover path never runs in
+practice: `pick` hides held plans (F1),
 and observation state kept in a session dies with it (F2), so the
 staleness clock never completes. Observation therefore happens as a
 side effect of every fleet-reading verb, is persisted per host, and
@@ -393,6 +393,7 @@ dies with the host.
 | S30 | zombie vs new claimant on one branch | FENCE: sibling history, non-fast-forward                    |
 | S31 | orphan report vs sleeping host       | report only; TAKE waits for OBS window; VETO if host wakes  |
 | S32 | two same-host sessions race          | one CAS winner; loser's refusal names the winning lane (ID) |
+| S97 | lane commits mid-renewal push        | the commit stays; next renewal refuses as diverged (CAS)    |
 
 ### Clocks
 
@@ -470,9 +471,9 @@ dies with the host.
 | S95 | lost race against a masked landed winner reports landed                              | a masking work commit must not read as no marker (CAS)                                                                                                                                 |
 | S96 | lane branch fast-forwarded locally past its renewal's tip                            | the beat relays the local tip; divergence refuses (CAS)                                                                                                                                |
 
-S87 was numbered S86 until plan 2609012000 found that id shared with
-the own-token row in the cross-layer table below; commit 85cee2e and
-PR #79 cite the fetch-before-read row by the old number.
+S87 was S86 until plan 2609012000 found that id taken by the
+cross-layer own-token row below; commit 85cee2e and PR #79 cite the
+old number.
 
 ### Cross-layer: herdr and frit disagree
 

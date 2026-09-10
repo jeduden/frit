@@ -67,3 +67,11 @@ Feature: Races
     When the hold's takeover window has matured
     And "this host" starts plan 7
     Then the second start is refused, naming the lane the first stood up
+
+  @S97
+  Scenario: lane commits while its own renewal's push is in flight
+    Given "box-a" holds the lease for plan 7
+    When "box-a" renews its lease while its lane commits mid-push
+    Then the mid-push commit is left on "box-a"'s branch
+    When "box-a" comes back and renews its lease
+    Then the renewal refuses, naming the diverged branch and both tips

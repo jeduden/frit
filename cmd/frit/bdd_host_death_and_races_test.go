@@ -112,6 +112,7 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	sc.Step(`^the second start is refused, naming the lane the first stood up$`,
 		w.theSecondStartIsRefusedNamingTheLane)
 	w.registerYieldHonesty(sc)
+	w.registerMidPushRace(sc)
 }
 
 // registerYieldHonesty is S93's own step vocabulary: a distant host
@@ -127,6 +128,161 @@ func (w *world) registerYieldHonesty(sc *godog.ScenarioContext) {
 	sc.Step(`^the refusal carries a way out$`, w.theRefusalCarriesAWayOut)
 	sc.Step(`^origin's lease for plan (\d+) is untouched$`, w.originsLeaseIsUntouched)
 	sc.Step(`^"([^"]+)" parked nothing$`, w.hostParkedNothing)
+}
+
+// registerMidPushRace is S97's own step vocabulary: the lane commits on
+// its own branch while its renewal's push is in flight, and syncing
+// the local ref onto the new beat must not reset past that commit.
+func (w *world) registerMidPushRace(sc *godog.ScenarioContext) {
+	sc.Step(`^"([^"]+)" renews its lease while its lane commits mid-push$`,
+		w.renewsWhileItsLaneCommitsMidPush)
+	sc.Step(`^the mid-push commit is left on "([^"]+)"'s branch$`,
+		w.theMidPushCommitIsLeftOnTheBranch)
+	sc.Step(`^the renewal refuses, naming the diverged branch and both tips$`,
+		w.theRenewalRefusesNamingTheDivergedBranch)
+}
+
+// renewsWhileItsLaneCommitsMidPush renews the holder's lease through a
+// runner that, at the push, first lands an ordinary commit on the
+// holder's local branch — the lane's agent committing while the beat is
+// in flight. The commit rides on w.local, the renewed lease on w.lease.
+func (w *world) renewsWhileItsLaneCommitsMidPush(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	racing := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "push" && w.local == "" {
+			if w.local, err = midPushCommit(w.t, repo, w.branch()); err != nil {
+				return nil, err
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	lease, err := claim.Renew(repo, leaseFor(holder, w.planID), w.lease.Tip, racing)
+	w.err = err
+	if err == nil {
+		w.lease = lease
+	}
+
+	return nil
+}
+
+// midPushCommit lands one ordinary commit on ref, a child of its tip
+// with the same tree, moved only from that exact tip — the lane's own
+// commit, made with plumbing so the checkout is never touched.
+func midPushCommit(t *testing.T, repo, ref string) (string, error) {
+	tip, err := gitCapture(t, repo, "rev-parse", ref)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", tip, err)
+	}
+	commit, err := gitCapture(t, repo, "commit-tree", tip+"^{tree}", "-p", tip, "-m", "mid-push")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", commit, err)
+	}
+	if out, err := gitCapture(t, repo, "update-ref", ref, commit, tip); err != nil {
+		return "", fmt.Errorf("%s: %w", out, err)
+	}
+
+	return commit, nil
+}
+
+// theMidPushCommitIsLeftOnTheBranch checks S97's first Then: the
+// renewal won, origin carries its beat, and the holder's local branch
+// still stands on the commit made during the push rather than being
+// reset past it onto the beat.
+func (w *world) theMidPushCommitIsLeftOnTheBranch(holder string) error {
+	if w.err != nil {
+		return fmt.Errorf("the renewal failed: %w", w.err)
+	}
+	if w.local == "" {
+		return fmt.Errorf("no commit landed while the push was in flight")
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	local, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", local, err)
+	}
+	if local != w.local {
+		return fmt.Errorf("the branch is %s; the mid-push commit %s was reset past", local, w.local)
+	}
+
+	return w.originTipIs(holder, w.lease.Tip)
+}
+
+// theRenewalRefusesNamingTheDivergedBranch checks S97's last Then: the
+// next renewal, handed the beat while the branch stands on the
+// mid-push commit, refuses as a divergence naming the branch, the
+// local tip and the lease tip, instead of resetting past either.
+func (w *world) theRenewalRefusesNamingTheDivergedBranch() error {
+	var diverges *claim.LeaseDivergesError
+	if !errors.As(w.err, &diverges) {
+		return fmt.Errorf("expected a divergence refusal, got %v", w.err)
+	}
+	if diverges.LocalTip != w.local || diverges.From != w.lease.Tip {
+		return fmt.Errorf("the refusal names %s over %s, want %s over %s",
+			diverges.LocalTip, diverges.From, w.local, w.lease.Tip)
+	}
+	for _, name := range []string{diverges.Branch, w.local, w.lease.Tip} {
+		if !strings.Contains(w.err.Error(), name) {
+			return fmt.Errorf("the refusal %q does not name %s", w.err, name)
+		}
+	}
+
+	return nil
+}
+
+// TestRenewsWhileItsLaneCommitsMidPushRefusesAnotherHolder: only the
+// scenario's holder can renew its own lease.
+func TestRenewsWhileItsLaneCommitsMidPushRefusesAnotherHolder(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+	require.Error(t, w.renewsWhileItsLaneCommitsMidPush("box-b"))
+	require.Error(t, w.renewsWhileItsLaneCommitsMidPush("box-a"), "no clone for box-a")
+}
+
+// TestMidPushCommitRefusesAnUnreadableRef: a ref that cannot be read
+// lands nothing.
+func TestMidPushCommitRefusesAnUnreadableRef(t *testing.T) {
+	_, err := midPushCommit(t, t.TempDir(), "refs/heads/plan/7")
+	require.Error(t, err)
+}
+
+// TestTheMidPushCommitIsLeftOnTheBranchRefusesMissingFacts: a failed
+// renewal, no mid-push commit, or an unknown machine each fail the step.
+func TestTheMidPushCommitIsLeftOnTheBranchRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.err = fmt.Errorf("fenced")
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("box-a"))
+
+	w.err = nil
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("box-a"), "no mid-push commit")
+
+	w.local = "abc123"
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("ghost"), "no such machine")
+}
+
+// TestTheRenewalRefusesNamingTheDivergedBranchReadsTheRefusal: any
+// other error, or a divergence naming other tips, fails the step; the
+// refusal naming the mid-push commit over the lease tip passes it.
+func TestTheRenewalRefusesNamingTheDivergedBranchReadsTheRefusal(t *testing.T) {
+	w := newWorld(t)
+	w.local, w.lease.Tip = "local-sha", "lease-sha"
+	w.err = fmt.Errorf("fenced")
+	require.Error(t, w.theRenewalRefusesNamingTheDivergedBranch())
+
+	w.err = &claim.LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "other", From: "lease-sha"}
+	require.Error(t, w.theRenewalRefusesNamingTheDivergedBranch())
+
+	w.err = &claim.LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "local-sha", From: "lease-sha"}
+	require.NoError(t, w.theRenewalRefusesNamingTheDivergedBranch())
 }
 
 // attemptsClaim is a fresh claimant's Acquire: the first time a holder
