@@ -642,3 +642,74 @@ func TestParseTierVocabularyReportsNothingForAFileWithNoModelLine(t *testing.T) 
 	assert.Empty(t, ParseTierVocabulary([]byte("not even front matter")))
 	assert.Empty(t, ParseTierVocabulary([]byte("---\ntitle: x\n---\n")))
 }
+
+// TestApplyTierVocabularyRanksAnAddedTierAboveTheBuiltInOnes: a
+// repository appends its own tier after fable in proto.md's model:
+// line, the convention landing fable itself set — a phase designed at
+// that tier and implemented at opus should report the added tier, not
+// silently fall back to opus because the added tier is otherwise
+// unranked. Without ApplyTierVocabulary, Parse alone ranks "glyph" as
+// unrecognized and always loses to opus — the gap this closes.
+func TestApplyTierVocabularyRanksAnAddedTierAboveTheBuiltInOnes(t *testing.T) {
+	phases := []Phase{{
+		N: "1", HasExecutionRow: true, Design: "glyph", Implement: "opus",
+	}}
+
+	ApplyTierVocabulary(phases, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Equal(t, "glyph", phases[0].Tier)
+}
+
+// TestApplyTierVocabularyLeavesTierAloneWithNoVocabulary: a caller
+// with nothing to widen the vocabulary with — no proto.md, or one
+// ParseTierVocabulary could not read — must not disturb the ranking
+// Parse itself already computed against the built-in vocabulary.
+func TestApplyTierVocabularyLeavesTierAloneWithNoVocabulary(t *testing.T) {
+	phases := []Phase{{
+		N: "1", HasExecutionRow: true, Design: "sonnet", Implement: "opus",
+		Tier: "opus",
+	}}
+
+	ApplyTierVocabulary(phases, nil)
+
+	assert.Equal(t, "opus", phases[0].Tier)
+}
+
+// TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow: a phase with
+// no row has no Design or Implement to rank — re-deriving Tier for it
+// would invent a value where none exists, the same restraint Parse's
+// own attachExecutionRows already takes.
+func TestApplyTierVocabularySkipsAPhaseWithNoExecutionRow(t *testing.T) {
+	phases := []Phase{{N: "1", HasExecutionRow: false}}
+
+	ApplyTierVocabulary(phases, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	assert.Empty(t, phases[0].Tier)
+}
+
+// TestParseWithVocabularyRanksThePhasesTierAgainstTheWidenedVocabulary
+// is ApplyTierVocabulary's effect through the public parse entry
+// point a caller with a repository's own vocabulary actually uses.
+func TestParseWithVocabularyRanksThePhasesTierAgainstTheWidenedVocabulary(t *testing.T) {
+	src := []byte(`---
+id: 2609100001
+title: Designed at a custom tier
+status: "🔲"
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# Designed at a custom tier
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | glyph  | opus      | test one |
+`)
+
+	got, err := ParseWithVocabulary(src, []string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.NoError(t, err)
+	require.Len(t, got.Phases, 1)
+	assert.Equal(t, "glyph", got.Phases[0].Tier)
+}
