@@ -622,6 +622,49 @@ func KnownTier(s string) bool {
 	return ok
 }
 
+// tierVocabModelLine finds the front matter's model: schema line, so
+// ParseTierVocabulary can read the disjunction it holds without
+// tripping over the CUE-typed values every other field carries —
+// Parse itself rejects those (TestParseRejectsASchemaTemplate), which
+// is why proto.md needs this reader of its own rather than Parse's.
+var tierVocabModelLine = regexp.MustCompile(`(?m)^model:\s*(.+)$`)
+
+// tierVocabQuotedToken pulls one quoted string out of a CUE
+// disjunction like `"haiku" | "sonnet" | *""`.
+var tierVocabQuotedToken = regexp.MustCompile(`"([^"]*)"`)
+
+// ParseTierVocabulary reads the ordered tier names a plan/proto.md
+// states on its front matter's model: line — `"haiku" | "sonnet" |
+// "opus" | "fable" | *""` reads back as ["haiku", "sonnet", "opus",
+// "fable"], the empty default dropped. A repository that adds its own
+// tier there is understood without a matching change to frit's Go
+// code: KnownTier and mostDemandingTier's built-in vocabulary is only
+// the fallback a caller keeps when this reports nothing, not the only
+// source. A file with no front matter or no model: line reports nil,
+// never an error — there is nothing here for a caller to do but fall
+// back.
+func ParseTierVocabulary(proto []byte) []string {
+	doc := markdown.Parse(proto)
+	body := insideDelimiters(doc.FrontMatter)
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	m := tierVocabModelLine.FindSubmatch(body)
+	if m == nil {
+		return nil
+	}
+
+	var out []string
+	for _, tok := range tierVocabQuotedToken.FindAllSubmatch(m[1], -1) {
+		if s := string(tok[1]); s != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
 // mostDemandingTier returns whichever of a and b ranks higher. An
 // unrecognized tier ranks below any recognized one rather than
 // panicking or erroring — frit doctor (phase 4) is where a tier that
