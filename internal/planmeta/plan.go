@@ -667,6 +667,23 @@ func ParseTierVocabulary(proto []byte) []string {
 	return out
 }
 
+// TierVocabularyAt reads root/planDir/proto.md and parses its tier
+// vocabulary through ParseTierVocabulary — the one call every command
+// that widens the tier vocabulary from a checked-out working copy
+// shares, so a repository's own schema is read the same way
+// regardless of which command asks. A repository with no readable
+// proto.md there reports nil, the same fallback ParseTierVocabulary
+// itself reports for unparseable content.
+func TierVocabularyAt(root, planDir string) []string {
+	proto, err := os.ReadFile(
+		filepath.Join(root, planDir, ProtoName)) // #nosec G304 -- root/planDir joined with a constant name
+	if err != nil {
+		return nil
+	}
+
+	return ParseTierVocabulary(proto)
+}
+
 // vocabRank extends tierRank with any tier vocab names beyond it, in
 // the order vocab states them — the convention landing fable itself
 // set: a repository appends a new, more demanding tier after the ones

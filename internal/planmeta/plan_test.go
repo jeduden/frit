@@ -1,6 +1,8 @@
 package planmeta
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/mdsmith/pkg/goldmark/ast"
@@ -641,6 +643,30 @@ model: '"haiku" | "sonnet" | "custom-tier" | *""'
 func TestParseTierVocabularyReportsNothingForAFileWithNoModelLine(t *testing.T) {
 	assert.Empty(t, ParseTierVocabulary([]byte("not even front matter")))
 	assert.Empty(t, ParseTierVocabulary([]byte("---\ntitle: x\n---\n")))
+}
+
+// TestTierVocabularyAtReadsARepositorysOwnProtoFile: the one place
+// every caller that widens the tier vocabulary from a checked-out
+// working copy shares — root/planDir/proto.md, read and parsed in one
+// call, so a repo's own schema is read the same way regardless of
+// which command asks.
+func TestTierVocabularyAtReadsARepositorysOwnProtoFile(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "plan"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "plan", ProtoName),
+		[]byte("---\nmodel: '\"haiku\" | \"glyph\" | *\"\"'\n---\n# ?\n"), 0o600))
+
+	assert.Equal(t, []string{"haiku", "glyph"},
+		TierVocabularyAt(root, "plan"))
+}
+
+// TestTierVocabularyAtReportsNothingWithNoProtoFile: a repository with
+// no plan/proto.md — or the wrong planDir — has nothing to widen the
+// vocabulary with, never an error a caller must handle.
+func TestTierVocabularyAtReportsNothingWithNoProtoFile(t *testing.T) {
+	root := t.TempDir()
+
+	assert.Empty(t, TierVocabularyAt(root, "plan"))
 }
 
 // TestApplyTierVocabularyRanksAnAddedTierAboveTheBuiltInOnes: a
