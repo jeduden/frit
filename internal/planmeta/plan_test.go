@@ -620,6 +620,26 @@ model: '"haiku" | "sonnet" | "opus" | "fable" | *""'
 		ParseTierVocabulary(proto))
 }
 
+// TestParseTierVocabularyReadsAFoldedBlockScalarModelLine: proto.md's
+// own phases: field already uses YAML's folded block scalar (`>-`)
+// for a long value — a repository that grows its own model: line past
+// one comfortable line by adding several tiers is likely to reach for
+// the same style. A regex anchored to one physical line would miss it
+// silently; a real YAML decode folds it the way it folds phases:.
+func TestParseTierVocabularyReadsAFoldedBlockScalarModelLine(t *testing.T) {
+	proto := []byte(`---
+model: >-
+  "haiku" | "sonnet" | "opus" | "fable" |
+  "glyph" | *""
+---
+
+# ?
+`)
+
+	assert.Equal(t, []string{"haiku", "sonnet", "opus", "fable", "glyph"},
+		ParseTierVocabulary(proto))
+}
+
 // TestParseTierVocabularyReadsAnAddedCustomTier: a repository that
 // edits its own plan/proto.md to add a tier frit's built-in vocabulary
 // has never heard of — the shape a fleet running a different agent CLI
