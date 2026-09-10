@@ -108,8 +108,16 @@ func (e Entry) RefCount() int {
 // Files that are not plans — the proto.md schema template, anything
 // without front matter — are skipped, and the reasons are returned
 // alongside so a caller can report them without the walk failing.
+//
+// vocab is the repository's own plan/proto.md tier vocabulary —
+// typically planmeta.ParseTierVocabulary's return for the working
+// copy at the caller's own repo.Path — ranked alongside frit's
+// built-in vocabulary so a phase designed at a tier the repository
+// added reports that tier as its Tier, not a built-in neighbor it
+// would otherwise always lose to. nil leaves every phase's Tier
+// exactly as planmeta.Parse alone computes it.
 func Build(
-	host, repo, preferred string, files []plans.File,
+	host, repo, preferred string, files []plans.File, vocab []string,
 ) ([]Entry, []error) {
 	parsed := map[string]planmeta.Plan{}
 	failed := map[string]bool{}
@@ -125,7 +133,7 @@ func Build(
 		plan, ok := parsed[f.OID]
 		if !ok {
 			var err error
-			plan, err = planmeta.Parse(f.Content)
+			plan, err = planmeta.ParseWithVocabulary(f.Content, vocab)
 			if err != nil {
 				failed[f.OID] = true
 				problems = append(problems,
