@@ -3,7 +3,7 @@ id: 'int & >=2601010000'
 title: 'string & != ""'
 status: '"🔲" | "🔳" | "✅" | "⛔"'
 summary: 'string | *""'
-model: '"haiku" | "sonnet" | "opus" | *""'
+model: '"haiku" | "sonnet" | "opus" | "fable" | *""'
 depends-on: '[...int] | *[]'
 phases: >-
   [...{n: int | string, title: string & != "",
