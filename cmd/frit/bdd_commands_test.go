@@ -16,6 +16,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/skills"
+	"github.com/stretchr/testify/require"
 )
 
 // The command-scenario vocabulary is single-host: no clone, no second
@@ -83,6 +84,13 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^the JSON refusal names plan (\d+) and its unmet dependency$`,
 		w.theJSONRefusalNamesPlanAndItsUnmetDependency)
 	sc.Step(`^neither plan gains a hold or an agent$`, w.neitherPlanGainsAHoldOrAnAgent)
+	sc.Step(`^a repository whose plan/proto\.md names an extra tier in its model: line$`,
+		w.aRepositoryWhosePlanProtoMdNamesAnExtraTierInItsModelLine)
+	sc.Step(`^a plan whose Execution row designs a phase at that extra tier$`,
+		w.aPlanWhoseExecutionRowDesignsAPhaseAtThatExtraTier)
+	sc.Step(`^frit doctor is run$`, w.fritDoctorIsRun)
+	sc.Step(`^doctor reports no tier finding for that plan$`,
+		w.doctorReportsNoTierFindingForThatPlan)
 }
 
 // aPlanNobodyHasEverHeld is C1's own setup: a claimable plan with no
@@ -776,6 +784,89 @@ func (w *world) neitherPlanGainsAHoldOrAnAgent() error {
 	}
 	if got := strings.TrimSpace(string(log)); got != "" {
 		return fmt.Errorf("expected no herdr calls at all, got: %s", got)
+	}
+
+	return nil
+}
+
+// aRepositoryWhosePlanProtoMdNamesAnExtraTierInItsModelLine is C9's
+// own Given: a repository whose own plan/proto.md widens the model:
+// disjunction with a tier frit's built-in vocabulary (tierRank) has
+// never heard of — the shape a repository customizing its own schema
+// to fit a different agent CLI's model names would produce.
+func (w *world) aRepositoryWhosePlanProtoMdNamesAnExtraTierInItsModelLine() error {
+	isolate(w.t)
+	root := w.t.TempDir()
+	cs := section[commandState](w)
+	cs.repo = initRepo(w.t, root, "atlas")
+	writeDoctorSchemaWithExtraTier(w.t, cs.repo, "glyph")
+	git(w.t, cs.repo, "add", "-A")
+	git(w.t, cs.repo, "commit", "-q", "-m", "schema")
+
+	return nil
+}
+
+// writeDoctorSchemaWithExtraTier is writeDoctorSchema with one extra
+// tier spliced into the copied proto.md's model: disjunction, the same
+// patch internal/doctor's own rootWithCustomTier applies to its
+// fixture.
+func writeDoctorSchemaWithExtraTier(t *testing.T, repo, extra string) {
+	t.Helper()
+	writeDoctorSchema(t, repo)
+
+	protoPath := filepath.Join(repo, "plan", "proto.md")
+	proto, err := os.ReadFile(protoPath)
+	require.NoError(t, err)
+	patched := strings.Replace(string(proto),
+		`| "fable" | *""'`, `| "fable" | "`+extra+`" | *""'`, 1)
+	require.NotEqual(t, string(proto), patched,
+		"the model: line was not found to patch")
+	require.NoError(t, os.WriteFile(protoPath, []byte(patched), 0o600))
+}
+
+// aPlanWhoseExecutionRowDesignsAPhaseAtThatExtraTier is C9's second
+// Given: a plan naming the schema's own extra tier in its Execution
+// row's Design column — the exact usage the widened schema permits.
+func (w *world) aPlanWhoseExecutionRowDesignsAPhaseAtThatExtraTier() error {
+	w.planID = 110
+	cs := section[commandState](w)
+	body := "## Goal\n\nShip it.\n\n## Phase 1: One\n\n" +
+		"Do the one thing.\n\n## Execution\n\n" +
+		"| Phase | Design | Implement | Gate     |\n" +
+		"| ----- | ------ | --------- | -------- |\n" +
+		"| 1 one | glyph  | opus      | test one |\n\n" +
+		"## Tasks\n\n1. x\n\n## Acceptance Criteria\n\n- [ ] y\n"
+	commitPlan(w.t, cs.repo, w.planID, "🔲", "Custom tier design", nil, body)
+
+	return nil
+}
+
+// fritDoctorIsRun is C9's own When: drives the real `frit doctor` CLI
+// with --json, the only rendering that carries findings for a Then
+// step to decode.
+func (w *world) fritDoctorIsRun() error {
+	cs := section[commandState](w)
+	runCLI(&cs.out, &cs.errb, "doctor", "--root", filepath.Dir(cs.repo), "--json")
+
+	return nil
+}
+
+// doctorReportsNoTierFindingForThatPlan is C9's own Then: the widened
+// schema's own tier draws no "tier" finding for the plan built in
+// Given — read from doctor's own --json output, never an internal
+// call.
+func (w *world) doctorReportsNoTierFindingForThatPlan() error {
+	cs := section[commandState](w)
+	var doc report.DoctorDoc
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("doctor did not emit valid json: %w, got: %s",
+			err, cs.out.String())
+	}
+	for _, f := range doc.Findings {
+		if f.ID == int64(w.planID) && f.Check == "tier" {
+			return fmt.Errorf(
+				"expected no tier finding for plan %d, got: %+v", w.planID, f)
+		}
 	}
 
 	return nil
