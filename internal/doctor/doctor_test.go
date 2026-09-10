@@ -744,3 +744,50 @@ func TestLeadingIDTokenReadsTheFolderNameForAFolderPlan(t *testing.T) {
 	assert.Equal(t, "noid",
 		leadingIDToken("plan/noid/plan.md"), "no underscore, name as-is")
 }
+
+// TestScanAcceptsFableAsADesignTier: `fable` is the tier a plan names in
+// the Design column when no gate can catch a wrong DESIGN (smalt's
+// plan/proto.md lists it beside haiku, sonnet and opus). doctor must not
+// report it as a model it does not know — that finding fired on every
+// plan that used the tier as intended.
+func TestScanAcceptsFableAsADesignTier(t *testing.T) {
+	root := newFixtureRoot(t)
+	src := `---
+id: 105
+title: A phase designed at fable
+status: "🔲"
+model: opus
+phases:
+  - { n: 1, title: 'One', status: "🔲" }
+---
+# A phase designed at fable
+
+## Goal
+
+Ship it.
+
+## Phase 1: One
+
+Do the one thing.
+
+## Execution
+
+| Phase | Design | Implement | Gate     |
+| ----- | ------ | --------- | -------- |
+| 1 one | fable  | opus      | test one |
+
+## Tasks
+
+1. x
+
+## Acceptance Criteria
+
+- [ ] y
+`
+	writePlan(t, root, "105_a-phase-designed-at-fable.md", src)
+
+	got, err := Scan(root, "plan")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

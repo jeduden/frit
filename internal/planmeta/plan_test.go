@@ -587,3 +587,13 @@ func TestCellsOfReadsEachCellAsTrimmedProse(t *testing.T) {
 	assert.Equal(t, []string{"x", ""}, cellsOf(tbl.LastChild(), body))
 	assert.Empty(t, cellsOf(extast.NewTableRow(nil), body))
 }
+
+// TestFableIsAKnownTierAndOutranksOpus: fable sits above opus, so a
+// phase designed at fable and implemented at opus reports fable as its
+// most demanding tier — the same rule that already lifts an opus design
+// over a sonnet implementation.
+func TestFableIsAKnownTierAndOutranksOpus(t *testing.T) {
+	assert.True(t, KnownTier("fable"))
+	assert.Equal(t, "fable", mostDemandingTier("fable", "opus"))
+	assert.Equal(t, "fable", mostDemandingTier("opus", "fable"))
+}
