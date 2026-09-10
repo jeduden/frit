@@ -566,11 +566,11 @@ func TestExecutionRowForReadsTheNamedPhasesTierAndGate(t *testing.T) {
 		"| --- | --- | --- | --- |\n" +
 		"| 2 second | sonnet | opus | test two |\n")
 
-	tier, gate, ok := executionRowFor(body, PhaseNumber("2"))
+	row, ok := executionRowFor(body, PhaseNumber("2"))
 
 	assert.True(t, ok)
-	assert.Equal(t, "opus", tier)
-	assert.Equal(t, "test two", gate)
+	assert.Equal(t, "opus", row.tier)
+	assert.Equal(t, "test two", row.gate)
 }
 
 // TestExecutionRowForMissingPhaseReportsNotOK pins the other side: a
@@ -582,7 +582,7 @@ func TestExecutionRowForMissingPhaseReportsNotOK(t *testing.T) {
 		"| --- | --- | --- | --- |\n" +
 		"| 2 second | sonnet | opus | test two |\n")
 
-	_, _, ok := executionRowFor(body, PhaseNumber("9"))
+	_, ok := executionRowFor(body, PhaseNumber("9"))
 
 	assert.False(t, ok)
 }

@@ -54,9 +54,15 @@ var specFileRE = regexp.MustCompile(`^phase-([0-9]+)([A-Za-z]*)\.md$`)
 // directory carrying no phase-N.md, falls back to planBody's own
 // `phases:` ledger and `## Phase N` sections, so a flat or
 // inline-section plan resumes unchanged.
-func Resume(dir string, planBody []byte) (Bundle, error) {
+//
+// vocab is the repository's own plan/proto.md tier vocabulary,
+// typically TierVocabularyAt's return — the bundle's own Tier ranks
+// against it widening tierRank, the same rule ApplyTierVocabulary
+// applies to a Plan parsed directly. nil ranks against the built-in
+// vocabulary alone, Resume's original behavior.
+func Resume(dir string, planBody []byte, vocab []string) (Bundle, error) {
 	if dir == "" {
-		return resumeFromLedger(planBody)
+		return resumeFromLedger(planBody, vocab)
 	}
 
 	specs, err := phaseSpecNumbers(dir)
@@ -64,7 +70,7 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 		return Bundle{}, err
 	}
 	if len(specs) == 0 {
-		return resumeFromLedger(planBody)
+		return resumeFromLedger(planBody, vocab)
 	}
 
 	body := markdown.Parse(planBody).Body
@@ -92,7 +98,11 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 		if st.hasResult && !st.hasHandoff {
 			notes = strings.TrimSpace(string(st.result))
 		}
-		tier, gate, _ := executionRowFor(body, PhaseNumber(n))
+		row, _ := executionRowFor(body, PhaseNumber(n))
+		tier := row.tier
+		if len(vocab) > 0 {
+			tier = mostDemandingTierRankedBy(row.design, row.implement, vocabRank(vocab))
+		}
 
 		return Bundle{
 			N:          PhaseNumber(n),
@@ -101,7 +111,7 @@ func Resume(dir string, planBody []byte) (Bundle, error) {
 			HandoffIn:  handoffIn,
 			Notes:      notes,
 			Tier:       tier,
-			Gate:       gate,
+			Gate:       row.gate,
 			ResultPath: resultFileName(n),
 			HasPhase:   true,
 		}, nil
@@ -181,8 +191,8 @@ func readPhaseState(dir, n string) (phaseState, error) {
 // Handoff` heading, the same marker a directory plan's result file
 // carries, written and overwritten there by plan-handoff on every
 // phase close.
-func resumeFromLedger(planBody []byte) (Bundle, error) {
-	plan, err := Parse(planBody)
+func resumeFromLedger(planBody []byte, vocab []string) (Bundle, error) {
+	plan, err := ParseWithVocabulary(planBody, vocab)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -294,8 +304,8 @@ func handoffOf(source []byte) (text string, ok bool) {
 // carries a `phases:` ledger — a phase-file plan has moved its phase
 // prose and status out of plan.md, but keeps its tier and gate in the
 // one shared table.
-func executionRowFor(body []byte, n PhaseNumber) (tier, gate string, ok bool) {
-	row, ok := executionTable(body)[n]
+func executionRowFor(body []byte, n PhaseNumber) (row executionRow, ok bool) {
+	row, ok = executionTable(body)[n]
 
-	return row.tier, row.gate, ok
+	return row, ok
 }
