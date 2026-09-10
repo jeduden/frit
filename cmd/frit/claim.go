@@ -116,6 +116,10 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 // the proof that survives a process: the token in its own git dir
 // (F9, F11, S3, S21). Any doubt along the way answers false and falls
 // through to the ordinary path, where the CAS is still the arbiter.
+// A lane branch diverged from its lease tip is no doubt: the lease is
+// provably this lane's, so the ordinary path could only misname it as
+// held or deserted. It answers true with the divergence carried as the
+// refusal, which names the branch, both tips and the merge (C11).
 func resumeOwnLease(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, coord fleet.Coord, cwd string,
@@ -133,6 +137,12 @@ func resumeOwnLease(
 		Session: currentSession(rt),
 	}
 	if _, err := claim.Resume(coord.Path, opts, tip, rt.git); err != nil {
+		var diverged *claim.LeaseDivergesError
+		if errors.As(err, &diverged) {
+			doc.Refuse(err.Error())
+			return true
+		}
+
 		return false
 	}
 	doc.MarkResumed()

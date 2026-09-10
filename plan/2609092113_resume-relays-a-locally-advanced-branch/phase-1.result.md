@@ -63,8 +63,11 @@ diverged. S97 in the Races section covers this. Its row pushed the
 lease-protocol note over budget again, so the wordy "takeover path"
 sentence and the S87 renumbering note were condensed, every fact kept.
 
-**Follow-ups, not chased.** `frit start` surfaces the divergence
-refusal as its plain error text, which names the branch, both tips
-and the merge. `frit claim` does not: its resume path treats any
-resume error as doubt and falls through to an ordinary acquire, which
-refuses as "already held on this host", so the merge hint is lost.
+**Found in review: `frit claim` hid the refusal.** `frit start`
+surfaced the divergence as its plain error text. `frit claim` did not:
+its resume path treated any resume error as doubt and fell through to
+the ordinary path, which refused the plan as deserted or held and lost
+the merge hint. A divergence is not doubt, since the token already
+proved the lease is this lane's. So the claim now carries it in the
+report as the refusal, and `--json` reads it too. C11 in the command
+catalog covers it: a command's wording, not a lease race.
