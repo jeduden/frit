@@ -42,7 +42,7 @@ func TestResumeFindsTheOpenPhaseFile(t *testing.T) {
 		"## Handoff\n\nPhase one landed cleanly.\n")
 	writePhaseFile(t, dir, "phase-2.md", "Do the second thing.")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -53,6 +53,36 @@ func TestResumeFindsTheOpenPhaseFile(t *testing.T) {
 	assert.Equal(t, "opus", got.Tier)
 	assert.Equal(t, "test two", got.Gate)
 	assert.Empty(t, got.Notes)
+}
+
+// TestResumeRanksAPhaseFilesTierAgainstAWidenedVocabulary: frit phase
+// bundles a folder plan's open phase through this path — the tier it
+// prints and the phase gets dispatched at must rank a repository's
+// own added tier correctly too, the same as next and the fleet index
+// already do through ApplyTierVocabulary.
+func TestResumeRanksAPhaseFilesTierAgainstAWidenedVocabulary(t *testing.T) {
+	dir := t.TempDir()
+	writePhaseFile(t, dir, "phase-1.md", "Do the first thing.")
+
+	glyphLedger := `---
+id: 1
+title: Folder plan
+status: "🔳"
+---
+# Folder plan
+
+## Execution
+
+| Phase | Design | Implement | Gate |
+| --- | --- | --- | --- |
+| 1 first | glyph | opus | test one |
+`
+
+	got, err := Resume(dir, []byte(glyphLedger),
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "glyph", got.Tier)
 }
 
 // TestResumeCarriesNoHandoffWhenThePrecedingPhaseLeftNone: the open
@@ -71,7 +101,7 @@ func TestResumeCarriesNoHandoffWhenThePrecedingPhaseLeftNone(t *testing.T) {
 	writePhaseFile(t, dir, "phase-3.md",
 		"---\nn: 3\ntitle: Third\nstatus: \"🔲\"\n---\nDo the third thing.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -93,7 +123,7 @@ func TestResumeDoneTestParsesHeadingsNotSubstrings(t *testing.T) {
 		"## Follow-ups\n\nSaw this pattern once:\n\n"+
 			"```\n## Handoff\n```\n\nParked, not done.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -114,7 +144,7 @@ func TestResumeFindsTheOpenPhaseFromPhaseFileStatus(t *testing.T) {
 	writePhaseFile(t, dir, "phase-2.md",
 		"---\nn: 2\ntitle: Second\nstatus: \"🔲\"\n---\nDo the second thing.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -132,7 +162,7 @@ func TestResumeCarriesThePhaseFileTitle(t *testing.T) {
 	writePhaseFile(t, dir, "phase-1.md",
 		"---\nn: 1\ntitle: First\nstatus: \"🔲\"\n---\nDo the first thing.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "First", got.Title)
@@ -150,7 +180,7 @@ func TestResumeOpenPhaseDoesNotBundleAHandoffAsNotes(t *testing.T) {
 	writePhaseFile(t, dir, "phase-1.result.md",
 		"## Handoff\n\nA draft, but the phase is still open.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -169,7 +199,7 @@ func TestResumeKeepsAPreConventionSpecVerbatim(t *testing.T) {
 	writePhaseFile(t, dir, "phase-1.md",
 		"---\nnot a phase mapping, just prose\n---\nmore prose.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.Contains(t, got.Spec, "not a phase mapping, just prose")
@@ -186,7 +216,7 @@ func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileStatusIsDone(t *testing.T) {
 	writePhaseFile(t, dir, "phase-2.md",
 		"---\nn: 2\ntitle: Second\nstatus: \"⛔\"\n---\nSecond.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.False(t, got.HasPhase)
@@ -200,7 +230,7 @@ func TestResumeOrdersPhasesNumerically(t *testing.T) {
 	writePhaseFile(t, dir, "phase-2.result.md", "## Handoff\n\nDone.\n")
 	writePhaseFile(t, dir, "phase-10.md", "Tenth.")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, PhaseNumber("10"), got.N)
@@ -216,7 +246,7 @@ func TestResumeRecognisesASplitPhaseFile(t *testing.T) {
 	writePhaseFile(t, dir, "phase-1.result.md", "## Handoff\n\nDone.\n")
 	writePhaseFile(t, dir, "phase-3a.md", "Split, part a.")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -236,7 +266,7 @@ func TestResumeOrdersASplitPhaseByItsFullToken(t *testing.T) {
 	writePhaseFile(t, dir, "phase-3a.result.md", "## Handoff\n\nDone.\n")
 	writePhaseFile(t, dir, "phase-10.md", "Tenth.")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, PhaseNumber("10"), got.N)
@@ -254,7 +284,7 @@ func TestResumeFallsBackToTheLedgerWhenNoPhaseFiles(t *testing.T) {
 		"## Execution\n\n| Phase | Design | Implement | Gate |\n" +
 		"| --- | --- | --- | --- |\n| 2 second | sonnet | opus | test two |\n"
 
-	got, err := Resume(dir, []byte(body))
+	got, err := Resume(dir, []byte(body), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
@@ -276,12 +306,32 @@ func TestResumeWithNoDirectoryUsesTheLedger(t *testing.T) {
 		"  - { n: 2, title: 'Second', status: \"🔲\" }\n" +
 		"---\n# T\n\n## Phase 2: Second\n\nDo the second thing.\n"
 
-	got, err := Resume("", []byte(body))
+	got, err := Resume("", []byte(body), nil)
 
 	require.NoError(t, err)
 	assert.True(t, got.HasPhase)
 	assert.Equal(t, PhaseNumber("2"), got.N)
 	assert.Equal(t, "Do the second thing.", got.Spec)
+}
+
+// TestResumeFromLedgerRanksTheOpenPhasesTierAgainstAWidenedVocabulary
+// is the ledger path's own counterpart to
+// TestResumeRanksAPhaseFilesTierAgainstAWidenedVocabulary: a flat
+// plan's ledger goes through resumeFromLedger, not executionRowFor,
+// so the two need their own coverage of the same rule.
+func TestResumeFromLedgerRanksTheOpenPhasesTierAgainstAWidenedVocabulary(t *testing.T) {
+	body := "---\nid: 1\ntitle: T\nstatus: \"🔳\"\nphases:\n" +
+		"  - { n: 1, title: 'First', status: \"🔲\" }\n" +
+		"---\n# T\n\n## Execution\n\n" +
+		"| Phase | Design | Implement | Gate |\n" +
+		"| --- | --- | --- | --- |\n" +
+		"| 1 first | glyph | opus | test one |\n"
+
+	got, err := Resume("", []byte(body),
+		[]string{"haiku", "sonnet", "opus", "fable", "glyph"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "glyph", got.Tier)
 }
 
 // TestResumeFromLedgerSurfacesThePlansOwnHandoffHeading: a single-file
@@ -295,7 +345,7 @@ func TestResumeFromLedgerSurfacesThePlansOwnHandoffHeading(t *testing.T) {
 		"---\n# T\n\n## Handoff\n\nFirst phase landed the seam.\n\n" +
 		"## Phase 2: Second\n\nDo the second thing.\n"
 
-	got, err := Resume("", []byte(body))
+	got, err := Resume("", []byte(body), nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "First phase landed the seam.", got.HandoffIn)
@@ -309,7 +359,7 @@ func TestResumeReportsNoOpenPhaseWhenEveryPhaseFileIsDone(t *testing.T) {
 	writePhaseFile(t, dir, "phase-1.result.md",
 		"## Handoff\n\nDone.\n")
 
-	got, err := Resume(dir, []byte(folderPlanNoLedger))
+	got, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.NoError(t, err)
 	assert.False(t, got.HasPhase)
@@ -326,7 +376,7 @@ func TestResumeSurfacesAnUnreadableResultFile(t *testing.T) {
 	require.NoError(t, os.Mkdir(
 		filepath.Join(dir, "phase-1.result.md"), 0o750))
 
-	_, err := Resume(dir, []byte(folderPlanNoLedger))
+	_, err := Resume(dir, []byte(folderPlanNoLedger), nil)
 
 	require.Error(t, err)
 }
