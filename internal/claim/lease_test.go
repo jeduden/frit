@@ -73,6 +73,19 @@ func TestLocalDivergesErrorMessageNamesTheBranchAndItsTip(t *testing.T) {
 	assert.Contains(t, msg, "abc123")
 }
 
+// TestLeaseDivergesErrorMessageNamesTheBranchAndBothTips: a refused
+// renewal names the branch, the local tip it would have orphaned and
+// the lease tip, and points at a merge — never a rebase of the lane.
+func TestLeaseDivergesErrorMessageNamesTheBranchAndBothTips(t *testing.T) {
+	e := &LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "abc123", From: "def456"}
+
+	msg := e.Error()
+	assert.Contains(t, msg, "plan/7")
+	assert.Contains(t, msg, "abc123")
+	assert.Contains(t, msg, "def456")
+	assert.Contains(t, msg, "merge def456 into it")
+}
+
 // TestStillHeldErrorMessagePointsAtRelease: the message tells a caller
 // that ran yield on their own still-live lease to use release instead.
 func TestStillHeldErrorMessagePointsAtRelease(t *testing.T) {

@@ -1,7 +1,7 @@
 ---
 n: 1
 title: advance relays a locally fast-forwarded lease branch, or refuses
-status: "🔳"
+status: "✅"
 result: false
 ---
 Prove issue #189 at the lease-unit level. Use the existing fake runner
@@ -26,8 +26,11 @@ GREEN: in `advance` (lease.go:1022), before minting, read the local
 `plan/<id>` ref. Use `rev-parse --verify --quiet`, the same call
 `refuseDivergingLocalBranch` already makes. Three cases:
 
-- No local ref, or the local ref equals `from`: mint on `from`, exactly
-  as today.
+- No local ref, the local ref equals `from`, or it is behind `from`
+  (an ancestor of it — the ordinary stale view, nothing on it missing
+  from `from`): mint on `from`, exactly as today. The behind case was
+  added during execution; refusing it would fence the session bind's
+  own reconcile on a host whose local copy lags origin.
 - The local ref is a fast-forward of `from` (`isAncestor(from,
   localTip)`): mint the marker as a child of `localTip` instead of
   `from`. Pass this new tip as `casPush`'s `marker` argument; pass
@@ -35,11 +38,11 @@ GREEN: in `advance` (lease.go:1022), before minting, read the local
   arbitrates against the remote's real prior value, so a genuine
   foreign race still loses or fences exactly as before. Only what the
   new marker is built on top of changes.
-- The local ref exists, is not `from`, and is not a fast-forward of
-  it (a real divergence): refuse before minting anything, naming the
-  branch and both tips — reuse `LocalDivergesError`'s shape
-  (lease.go:1200) or add a sibling error if the caller needs to tell
-  this refusal apart from the fresh-acquire one.
+- The local ref exists, is not `from`, and is neither a fast-forward
+  nor an ancestor of it (a real divergence): refuse before minting
+  anything, naming the branch and both tips. Done as the sibling
+  `LeaseDivergesError`, since `LocalDivergesError`'s wording tells a
+  fresh claimant to push or rename; this one says to merge `from` in.
 
 Thread this through `Renew`, `RenewToBind`'s two `advance` calls, and
 `Release` — `advance`'s only callers. All three then inherit it

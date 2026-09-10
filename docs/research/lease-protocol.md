@@ -49,11 +49,9 @@ effort. T is therefore chosen for cost, not for correctness.
 
 ## Terms
 
-- **The work ref**: `refs/heads/plan/<id>`, the one ref per plan
-  that is both the claim and the branch the work rides on. Older
-  docs say "claim branch", "work branch" or "hold ref"; in the new
-  design those all name this one ref, and this note calls it the
-  work ref throughout.
+- **The work ref**: `refs/heads/plan/<id>`, one ref per plan, both
+  its claim and its work branch; older docs say "claim branch",
+  "work branch" or "hold ref".
 - **Token**: the work ref's tip SHA as a holder last pushed it. The
   holder's copy persists in the lane's git dir.
 - **Lane**: one worktree on one host, working one plan. Identified
