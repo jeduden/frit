@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/jeduden/frit/internal/skills"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,9 @@ type commandState struct {
 	origin   string
 	skillCmd string
 	herdrLog string
+	// diverged is C11's own: the commit the lane's branch stands on
+	// once moved off its lease tip, which the refusal must name.
+	diverged string
 }
 
 func (w *world) registerCommands(sc *godog.ScenarioContext) {
@@ -68,6 +72,12 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^drift does not list the done plan$`, w.driftDoesNotListTheDonePlan)
 	sc.Step(`^a plan freshly claimed by this lane$`, w.aPlanFreshlyClaimedByThisLane)
 	sc.Step(`^yield refuses it, naming release as the way out$`, w.yieldRefusesItNamingReleaseAsTheWayOut)
+	sc.Step(`^this host's lane branch has diverged from its lease tip$`, w.thisHostsLaneBranchHasDiverged)
+	sc.Step(`^the claim is refused, naming the diverged lane branch and both tips$`,
+		w.theClaimIsRefusedNamingTheDivergedLaneBranch)
+	sc.Step(`^the lane's branch has diverged from its lease tip$`, w.theLanesBranchHasDivergedFromItsLeaseTip)
+	sc.Step(`^start refuses, naming the diverged lane branch and both tips$`,
+		w.startRefusesNamingTheDivergedLaneBranch)
 	sc.Step(`^the bundled plan-start skill is installed with the built frit invocation$`,
 		w.theBundledPlanStartSkillIsInstalledWithTheBuiltFritInvocation)
 	sc.Step(`^plans 7 and 8 are ready with plan 8 ranked above plan 7$`,
@@ -402,6 +412,140 @@ func (w *world) yieldRefusesItNamingReleaseAsTheWayOut() error {
 	}
 
 	return nil
+}
+
+// thisHostsLaneBranchHasDiverged is C11's own Given: the lane's branch
+// is moved off its lease tip onto a sibling commit — work built on the
+// tip before the lease's last beat and never merged forward — so it is
+// neither the lease tip nor a fast-forward of it.
+func (w *world) thisHostsLaneBranchHasDiverged() error {
+	cli := section[cliState](w)
+
+	return w.divergeLane(cli.lane, cli.token)
+}
+
+// theLanesBranchHasDivergedFromItsLeaseTip is C12's own Given, C11's
+// move on the cross-layer section's own lane: its branch leaves the
+// lease tip the lane persisted for a sibling commit.
+func (w *world) theLanesBranchHasDivergedFromItsLeaseTip() error {
+	return w.divergeLane(section[identityAndCrossLayerState](w).lane, w.lease.Tip)
+}
+
+// divergeLane moves lane's branch off token onto a sibling commit — a
+// child of token's parent — and records it as the commit the refusal
+// must name.
+func (w *world) divergeLane(lane, token string) error {
+	if lane == "" || token == "" {
+		return fmt.Errorf("no lane to diverge; the lane's setup step comes first")
+	}
+	git(w.t, lane, "reset", "-q", "--hard", token+"^")
+	git(w.t, lane, "commit", "--allow-empty", "-q", "-m", "work on a superseded tip")
+	tip, err := gitCapture(w.t, lane, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	section[commandState](w).diverged = tip
+
+	return nil
+}
+
+// theClaimIsRefusedNamingTheDivergedLaneBranch is C11's own Then: the
+// claim's resume met a diverged lane branch and says so — the branch,
+// the commit it stands on and the lease tip — rather than falling
+// through to the ordinary "already held" refusal, which names none of
+// them and hides the merge that clears it.
+func (w *world) theClaimIsRefusedNamingTheDivergedLaneBranch() error {
+	cli := section[cliState](w)
+
+	return w.refusalNamesTheDivergence(cli.out.String(), cli.errb.String(), cli.token)
+}
+
+// startRefusesNamingTheDivergedLaneBranch is C12's own Then: start
+// renders the divergence as its refusal, the same one claim gives,
+// rather than failing with it as a fault, and starts nothing.
+func (w *world) startRefusesNamingTheDivergedLaneBranch() error {
+	st := section[identityAndCrossLayerState](w)
+	if strings.Contains(st.out, "started plan") {
+		return fmt.Errorf("start reported success over a diverged lane: %s", st.out)
+	}
+
+	return w.refusalNamesTheDivergence(st.out, st.errOut, w.lease.Tip)
+}
+
+// refusalNamesTheDivergence checks a verb's own output refused and
+// named the branch, the diverged commit and the lease tip; errOut is
+// only quoted back, since a fault there is exactly what must not pass.
+func (w *world) refusalNamesTheDivergence(out, errOut, leaseTip string) error {
+	if !strings.Contains(out, "refused") {
+		return fmt.Errorf("expected a refusal, got: %s%s", out, errOut)
+	}
+	names := []string{claim.Branch(int64(w.planID)), section[commandState](w).diverged, leaseTip}
+	for _, name := range names {
+		if name == "" || !strings.Contains(out, name) {
+			return fmt.Errorf("the refusal does not name %q: %s", name, out)
+		}
+	}
+
+	return nil
+}
+
+// TestThisHostsLaneBranchHasDivergedNeedsALane: with no bound lane set
+// up first there is no branch to move.
+func TestThisHostsLaneBranchHasDivergedNeedsALane(t *testing.T) {
+	require.Error(t, newWorld(t).thisHostsLaneBranchHasDiverged())
+}
+
+// TestTheClaimIsRefusedNamingTheDivergedLaneBranchReadsTheRefusal: a
+// success, or a refusal naming neither tip, fails the step; one naming
+// the branch, the diverged commit and the lease tip passes it.
+func TestTheClaimIsRefusedNamingTheDivergedLaneBranchReadsTheRefusal(t *testing.T) {
+	w := newWorld(t)
+	w.planID = 7
+	cli := section[cliState](w)
+	cli.token = "lease-sha"
+	section[commandState](w).diverged = "local-sha"
+
+	cli.out.WriteString("claimed plan 7")
+	require.Error(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
+
+	cli.out.Reset()
+	cli.out.WriteString("refused: plan 7 is already held")
+	require.Error(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
+
+	cli.out.Reset()
+	cli.out.WriteString("refused: plan 7: local branch plan/7 (local-sha) " +
+		"has diverged from the lease tip lease-sha")
+	require.NoError(t, w.theClaimIsRefusedNamingTheDivergedLaneBranch())
+}
+
+// TestTheLanesBranchHasDivergedFromItsLeaseTipNeedsALane: with no lane
+// built first there is no branch to move.
+func TestTheLanesBranchHasDivergedFromItsLeaseTipNeedsALane(t *testing.T) {
+	require.Error(t, newWorld(t).theLanesBranchHasDivergedFromItsLeaseTip())
+}
+
+// TestStartRefusesNamingTheDivergedLaneBranchReadsTheOutput: a fault
+// on stderr, a start that succeeded, or a refusal naming neither tip
+// fails the step; a refusal naming all three passes it.
+func TestStartRefusesNamingTheDivergedLaneBranchReadsTheOutput(t *testing.T) {
+	w := newWorld(t)
+	w.planID, w.lease.Tip = 7, "lease-sha"
+	section[commandState](w).diverged = "local-sha"
+	st := section[identityAndCrossLayerState](w)
+	refusal := "refused: plan 7: local branch plan/7 (local-sha) " +
+		"has diverged from the lease tip lease-sha"
+
+	st.out, st.errOut = "", refusal
+	require.Error(t, w.startRefusesNamingTheDivergedLaneBranch(), "a fault, not a refusal")
+
+	st.out, st.errOut = "started plan 7\n"+refusal, ""
+	require.Error(t, w.startRefusesNamingTheDivergedLaneBranch(), "started")
+
+	st.out = "refused: plan 7 is already held"
+	require.Error(t, w.startRefusesNamingTheDivergedLaneBranch(), "names neither tip")
+
+	st.out = refusal
+	require.NoError(t, w.startRefusesNamingTheDivergedLaneBranch())
 }
 
 // cmdFritTestDir is captured by init, before any scenario's own

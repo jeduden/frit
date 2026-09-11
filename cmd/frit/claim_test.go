@@ -1137,6 +1137,37 @@ func TestResumeOwnLeaseFailsWhenTheResumePushFails(t *testing.T) {
 	assert.False(t, doc.Resumed)
 }
 
+// TestResumeOwnLeaseRefusesADivergedLaneBranch: a lane branch diverged
+// from its lease tip is refused by name, in the report, rather than
+// falling through to an ordinary acquire that would only call the plan
+// already held; origin's hold is left as it stood.
+func TestResumeOwnLeaseRefusesADivergedLaneBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, claim.WriteToken(lane, 7, renewed.Tip, gitwt.Exec))
+	git(t, lane, "reset", "-q", "--hard", lease.Tip)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "work on a superseded tip")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	doc := report.NewClaim(root, "atlas", 7, "Shader unit", "plan/7")
+
+	got := resumeOwnLease(rt, doc, discovery.Plan{Repo: "atlas", ID: 7},
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, lane)
+
+	assert.True(t, got, "the refusal is the answer, not a fall-through")
+	assert.False(t, doc.Resumed)
+	assert.Contains(t, doc.Refused, "diverged")
+	assert.Equal(t, renewed.Tip, claim.RemoteTip(repo, "origin", 7, gitwt.Exec))
+}
+
 // mustRevParse reads a ref's tip, failing the test on error.
 func mustRevParse(t *testing.T, repo, ref string) string {
 	t.Helper()

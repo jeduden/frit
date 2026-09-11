@@ -73,6 +73,19 @@ func TestLocalDivergesErrorMessageNamesTheBranchAndItsTip(t *testing.T) {
 	assert.Contains(t, msg, "abc123")
 }
 
+// TestLeaseDivergesErrorMessageNamesTheBranchAndBothTips: a refused
+// renewal names the branch, the local tip it would have orphaned and
+// the lease tip, and points at a merge — never a rebase of the lane.
+func TestLeaseDivergesErrorMessageNamesTheBranchAndBothTips(t *testing.T) {
+	e := &LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "abc123", From: "def456"}
+
+	msg := e.Error()
+	assert.Contains(t, msg, "plan/7")
+	assert.Contains(t, msg, "abc123")
+	assert.Contains(t, msg, "def456")
+	assert.Contains(t, msg, "merge def456 into it")
+}
+
 // TestStillHeldErrorMessagePointsAtRelease: the message tells a caller
 // that ran yield on their own still-live lease to use release instead.
 func TestStillHeldErrorMessagePointsAtRelease(t *testing.T) {
@@ -565,6 +578,300 @@ func TestBindRenewFromAnUnmovedTipIsAPlainRenew(t *testing.T) {
 	assert.Equal(t, 1, mints, "an unmoved ref renews once, with no retry")
 	assert.Equal(t, lease.Tip, gitCmd(t, work, "rev-parse", renewed.Tip+"^"),
 		"the beat is a child of the recorded tip")
+}
+
+// commitLocally commits one file on the plan's local work ref and
+// pushes nothing — the shape an unpushed `git merge --ff-only
+// origin/main` leaves on a lane's own branch (#189) — returning to
+// main so the ref is not checked out.
+func commitLocally(t *testing.T, repo, name string) string {
+	t.Helper()
+	gitCmd(t, repo, "checkout", "-q", "plan/7")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(repo, name), []byte("local\n"), 0o600))
+	gitCmd(t, repo, "add", "-A")
+	gitCmd(t, repo, "commit", "-q", "-m", "local advance")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	return gitCmd(t, repo, "rev-parse", "refs/heads/plan/7")
+}
+
+// beatAt acquires plan 7 and renews once, so the recorded tip a later
+// renewal is handed is a beat T1 over a claim T0 — the fixture
+// OwnAdvance's own tests build.
+func beatAt(t *testing.T, work string, opts LeaseOptions) (t0, t1 string) {
+	t.Helper()
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+	beat, err := Renew(work, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	return lease.Tip, beat.Tip
+}
+
+// TestRenewRelaysALocalFastForwardOfTheRecordedTip: the local work ref
+// carries one commit beyond the tip the renewal is handed, a clean
+// fast-forward. The beat is minted on that commit, not on the older
+// tip, so the push carries it to origin and the local ref never moves
+// backward past it (#189).
+func TestRenewRelaysALocalFastForwardOfTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "merged.txt")
+
+	renewed, err := Renew(work, opts, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", renewed.Tip+"^"),
+		"the beat is a child of the local advance, not of the recorded tip")
+	assert.Equal(t, renewed.Tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the local ref stands on the beat")
+	assert.Contains(t,
+		gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"), renewed.Tip,
+		"origin carries the beat, and the local advance with it")
+}
+
+// TestReleaseRelaysALocalFastForwardOfTheRecordedTip: release rides the
+// same advance, so a lane releasing with an unpushed fast-forward on
+// its branch hands that commit on under the release marker.
+func TestReleaseRelaysALocalFastForwardOfTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "merged.txt")
+
+	released, err := Release(work, opts, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", released.Tip+"^"),
+		"the release marker is a child of the local advance")
+}
+
+// TestBindRenewRelaysALocalFastForwardOfTheRecordedTip: the
+// session-stamping renewal is the third advance caller; it inherits the
+// relay unchanged.
+func TestBindRenewRelaysALocalFastForwardOfTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "merged.txt")
+
+	bound := opts
+	bound.Session = "sess-1"
+	renewed, err := RenewToBind(work, bound, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", renewed.Tip+"^"),
+		"the bind beat is a child of the local advance")
+}
+
+// TestRenewRefusesALocalBranchDivergedFromTheRecordedTip: the local
+// work ref carries a commit that is not a descendant of the recorded
+// tip. Neither side can be dropped safely, so the renewal mints
+// nothing, moves nothing, and names the branch and both tips.
+func TestRenewRefusesALocalBranchDivergedFromTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	t0, t1 := beatAt(t, work, opts)
+	tree := gitCmd(t, work, "rev-parse", t0+"^{tree}")
+	diverged := gitCmd(t, work, "commit-tree", tree, "-p", t0, "-m", "diverged")
+	gitCmd(t, work, "update-ref", "refs/heads/plan/7", diverged)
+
+	mints := 0
+	counting := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "commit-tree" {
+			mints++
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	_, err := Renew(work, opts, t1, counting)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "plan/7")
+	assert.Contains(t, err.Error(), diverged, "the refusal names the local tip")
+	assert.Contains(t, err.Error(), t1, "the refusal names the recorded tip")
+	assert.Zero(t, mints, "nothing is minted before the refusal")
+	assert.Equal(t, diverged, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the local branch is left where it was")
+	assert.Contains(t,
+		gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"), t1,
+		"origin is left at the recorded tip")
+}
+
+// TestRenewFromALocalBranchBehindTheRecordedTipMintsOnTheRecordedTip:
+// a local ref that merely lags the recorded tip is the ordinary stale
+// view — nothing on it is missing from the tip — so it is neither
+// relayed nor refused, and the beat lands on the recorded tip.
+func TestRenewFromALocalBranchBehindTheRecordedTipMintsOnTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	lease, err := Acquire(work, opts, gitwt.Exec)
+	require.NoError(t, err)
+	pushed := workOn(t, work)
+	gitCmd(t, work, "update-ref", "refs/heads/plan/7", lease.Tip)
+
+	renewed, err := Renew(work, opts, pushed, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, pushed, gitCmd(t, work, "rev-parse", renewed.Tip+"^"))
+}
+
+// TestRenewWithNoLocalBranchMintsOnTheRecordedTip: no local copy of
+// the work ref at all (S56) is nothing to relay and nothing to refuse.
+func TestRenewWithNoLocalBranchMintsOnTheRecordedTip(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	gitCmd(t, work, "update-ref", "-d", "refs/heads/plan/7")
+
+	renewed, err := Renew(work, opts, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, t1, gitCmd(t, work, "rev-parse", renewed.Tip+"^"))
+	assert.Equal(t, renewed.Tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the local ref is restored at the beat")
+}
+
+// TestRenewRelayingALocalFastForwardStillFencesAForeignMove: the relay
+// changes only what the beat is built on. The CAS still expects the
+// recorded tip, so another machine's move in the same window fences
+// the renewal exactly as before, and the local advance stays put.
+func TestRenewRelayingALocalFastForwardStillFencesAForeignMove(t *testing.T) {
+	first := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, first, opts)
+	ahead := commitLocally(t, first, "merged.txt")
+
+	second := cloneAgain(t, first)
+	gitCmd(t, second, "fetch", "-q", "origin",
+		"refs/heads/plan/7:refs/heads/plan/7")
+	tree := gitCmd(t, second, "rev-parse", "plan/7^{tree}")
+	foreign := gitCmd(t, second, "commit-tree", tree, "-p", t1, "-m",
+		"plan 7: takeover\n\nepoch:   2\nnonce:   feed\nholder:  box-b\n"+
+			"lane:    /lanes/b\nsession: -")
+	gitCmd(t, second, "push", "-q", "-f", "origin",
+		foreign+":refs/heads/plan/7")
+
+	_, err := Renew(first, opts, t1, gitwt.Exec)
+
+	var fenced *FenceError
+	require.ErrorAs(t, err, &fenced)
+	assert.Equal(t, "box-b", fenced.Marker.Holder, "the fence names the mover")
+	assert.Contains(t,
+		gitCmd(t, first, "ls-remote", "origin", "refs/heads/plan/7"), foreign,
+		"the fenced holder moved nothing on origin")
+	assert.Equal(t, ahead, gitCmd(t, first, "rev-parse", "refs/heads/plan/7"),
+		"the local advance is left for yield to park")
+}
+
+// TestRenewLeavesAReflogEntryNamingTheTransition: the renewal's move of
+// the local ref is recorded in its reflog under the transition's own
+// name, so the tip it replaced is recoverable by `git reflog` alone.
+func TestRenewLeavesAReflogEntryNamingTheTransition(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+
+	renewed, err := Renew(work, opts, t1, gitwt.Exec)
+	require.NoError(t, err)
+
+	reflog := gitCmd(t, work, "reflog", "show", "--format=%H %gs", "refs/heads/plan/7")
+	newest, _, _ := strings.Cut(reflog, "\n")
+	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
+}
+
+// TestRenewLeavesAReflogEntryInABareRepository: a bare repository —
+// lanes run as its worktrees just as well — leaves
+// core.logAllRefUpdates off, so git logs no branch move there unless
+// asked. The renewal's move must be recorded all the same.
+func TestRenewLeavesAReflogEntryInABareRepository(t *testing.T) {
+	work := originAndClone(t)
+	origin := gitCmd(t, work, "config", "--get", "remote.origin.url")
+	bare := filepath.Join(t.TempDir(), "atlas.git")
+	gitCmd(t, work, "clone", "-q", "--bare", origin, bare)
+	gitCmd(t, bare, "config", "user.email", "t@example.com")
+	gitCmd(t, bare, "config", "user.name", "frit-test")
+	gitCmd(t, bare, "update-ref", "refs/remotes/origin/main", "main")
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, bare, opts)
+
+	renewed, err := Renew(bare, opts, t1, gitwt.Exec)
+	require.NoError(t, err)
+
+	reflog := gitCmd(t, bare, "reflog", "show", "--format=%H %gs", "refs/heads/plan/7")
+	newest, _, _ := strings.Cut(reflog, "\n")
+	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
+}
+
+// TestBeatForRefusesAClonesUnpushedCommit: a beat on another holder's
+// behalf, from a clone whose local branch stands beyond the tip, mints
+// nothing. Relaying would push a commit origin never saw into that
+// holder's lease; resetting would lose it. Origin and the branch stay.
+func TestBeatForRefusesAClonesUnpushedCommit(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "fixup.txt")
+
+	_, err := BeatFor(work, opts, t1, gitwt.Exec)
+
+	var local *LocalWorkError
+	require.ErrorAs(t, err, &local)
+	assert.Equal(t, ahead, local.LocalTip)
+	assert.Equal(t, t1, local.From)
+	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"), t1,
+		"origin keeps the holder's own tip")
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the unpushed commit stays where it stood")
+}
+
+// TestBeatForRenewsOverAStaleLocalRef: a local branch behind the tip is
+// the ordinary stale view, nothing on it missing from the tip, so the
+// beat is minted on the tip and the branch catches up to it.
+func TestBeatForRenewsOverAStaleLocalRef(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	t0, t1 := beatAt(t, work, opts)
+	gitCmd(t, work, "update-ref", "refs/heads/plan/7", t0)
+
+	beat, err := BeatFor(work, opts, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, t1, gitCmd(t, work, "rev-parse", beat.Tip+"^"))
+	assert.Equal(t, beat.Tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"))
+}
+
+// TestRenewLeavesALaneCommitMadeDuringItsPushInPlace: the lane's agent
+// commits on its branch while the beat's push is in flight. The beat
+// was minted on the tip relayBase read, so moving the branch onto it
+// would reset past the agent's new commit (#189 again, in a smaller
+// window). The sync expects the tip the relay read, sees the branch
+// moved, and leaves the new commit where it stands.
+func TestRenewLeavesALaneCommitMadeDuringItsPushInPlace(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "merged.txt")
+
+	var during string
+	racing := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "push" && during == "" {
+			tree := gitCmd(t, work, "rev-parse", ahead+"^{tree}")
+			during = gitCmd(t, work, "commit-tree", tree, "-p", ahead, "-m", "mid-push")
+			gitCmd(t, work, "update-ref", "refs/heads/plan/7", during, ahead)
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	renewed, err := Renew(work, opts, t1, racing)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, during, "the push ran")
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", renewed.Tip+"^"))
+	assert.Equal(t, during, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the commit made during the push is not reset past")
 }
 
 // TestReleaseLeavesAMarkerAndReacquireBumpsTheEpoch: a release pushes a

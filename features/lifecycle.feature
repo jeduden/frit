@@ -89,3 +89,11 @@ Feature: Lifecycle anomalies — claims and refs
     Given plan 7 is claimed by frit claim on this machine
     When the lane runs release for plan 7
     Then the lease ends
+
+  @S96
+  Scenario: a lane's own fast-forward survives its renewal
+    Given "box-a" holds the lease for plan 7
+    When "box-a" commits work on the lane it never pushes
+    And "box-a" comes back and renews its lease
+    Then the renewal carries "box-a"'s unpushed work to origin
+    And the local branch's reflog names the renewal

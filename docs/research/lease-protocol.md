@@ -33,8 +33,8 @@ holder's push contend on one ref that the server serializes. For
 anything that goes through the ref, there is no window between
 losing the lease and being fenced.
 
-**Healing has to be passive.** A takeover path that an agent has to
-choose to run in practice never runs: `pick` hides held plans (F1),
+**Healing has to be passive.** An opt-in takeover path never runs in
+practice: `pick` hides held plans (F1),
 and observation state kept in a session dies with it (F2), so the
 staleness clock never completes. Observation therefore happens as a
 side effect of every fleet-reading verb, is persisted per host, and
@@ -49,33 +49,31 @@ effort. T is therefore chosen for cost, not for correctness.
 
 ## Terms
 
-- **The work ref**: `refs/heads/plan/<id>`, the one ref per plan
-  that is both the claim and the branch the work rides on. Older
-  docs say "claim branch", "work branch" or "hold ref"; in the new
-  design those all name this one ref, and this note calls it the
-  work ref throughout.
-- **Token**: the work ref's tip SHA as a holder last pushed it. The
-  holder's copy persists in the lane's git dir.
-- **Lane**: one worktree on one host, working one plan. Identified
-  by (machine-id, absolute worktree path).
+- **The work ref**: `refs/heads/plan/<id>`, one ref per plan, both
+  its claim and its work branch; older docs say "claim branch",
+  "work branch" or "hold ref".
+- **Token**: the work ref's tip SHA as its holder last pushed it,
+  persisted in the lane's git dir.
+- **Lane**: one worktree on one host working one plan, identified by
+  (machine-id, absolute worktree path).
 - **Machine-id**: the host's stable identifier (`/etc/machine-id` on
   Linux); hostnames rename and collide, so they are display only.
-- **Verb**: a frit subcommand. There is no daemon; every protocol
-  action happens inside some verb run.
-- **Beat**: an empty commit the holder's session pushes to renew the
-  lease when it has no work to push. Minted at most once per R.
+- **Verb**: a frit subcommand; with no daemon, every protocol action
+  runs inside one.
+- **Beat**: an empty commit the holder pushes to renew the lease when
+  it has no work to push, at most once per R.
 - **Epoch**: a counter in the marker trailers, incremented by each
   acquisition (acquire, re-acquire, takeover), never by renewal.
-- **k**: the number of takeover markers already in the ref's chain.
-  Read from the chain itself, so every observer computes the same k,
-  and it resets when the ref is deleted.
+- **k**: the number of takeover markers already in the ref's chain,
+  read from the chain so every observer agrees; reset when the ref is
+  deleted.
 - **Landed**: the plan's work has reached origin's default branch.
-- **Matured window**: a staleness observation that satisfies the
-  rule in the Staleness section.
+- **Matured window**: a staleness observation meeting the Staleness
+  rule.
 - **herdr**: the per-host daemon that owns panes, worktrees and
   prompts; frit reads it for session liveness.
-- **Forge**: the git hosting service (GitHub here), whose merge and
-  branch-delete behavior frit observes but does not control.
+- **Forge**: the git hosting service (GitHub here), whose merges and
+  branch deletes frit observes but does not control.
 
 ## The protocol
 
@@ -395,6 +393,8 @@ dies with the host.
 | S30 | zombie vs new claimant on one branch | FENCE: sibling history, non-fast-forward                    |
 | S31 | orphan report vs sleeping host       | report only; TAKE waits for OBS window; VETO if host wakes  |
 | S32 | two same-host sessions race          | one CAS winner; loser's refusal names the winning lane (ID) |
+| S97 | lane commits mid-renewal push        | the commit stays; next renewal refuses as diverged (CAS)    |
+| S98 | vetoed takeover beside unpushed work | VETO; no beat for the holder; origin and the commit stay    |
 
 ### Clocks
 
@@ -470,10 +470,10 @@ dies with the host.
 | S87 | read verb reads landed evidence off a checkout unfetched since a PR merged           | `Gather` fetches `--prune` before reading, gated by `--fetch` (default on); `--no-fetch` or an offline fetch falls back to the local view, naming staleness (S80/S84)                  |
 | S92 | plan claimed by `frit claim` alone, released from its own lane                       | claim persists the minted tip as the lane's token once herdr stands the worktree up, the same proof `start` leaves; release resumes on it unaided (RESUME)                             |
 | S95 | lost race against a masked landed winner reports landed                              | a masking work commit must not read as no marker (CAS)                                                                                                                                 |
+| S96 | lane branch fast-forwarded locally past its renewal's tip                            | the beat relays the local tip; divergence refuses (CAS)                                                                                                                                |
 
-S87 was numbered S86 until plan 2609012000 found that id shared with
-the own-token row in the cross-layer table below; commit 85cee2e and
-PR #79 cite the fetch-before-read row by the old number.
+S87 was S86, an id the own-token row below also held, until plan
+2609012000; 85cee2e and PR #79 cite S86.
 
 ### Cross-layer: herdr and frit disagree
 

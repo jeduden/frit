@@ -23,3 +23,5 @@ kept in bijection with `features/` the same way, by the same gate:
 | C8  | a named start refuses without choosing another plan | pending — the installed plan-start command reports the selected plan's unmet dependency and leaves another ready plan unheld; plan 2609082011, issue #185 |
 | C9  | a repo's own proto.md widens the tier vocabulary    | doctor accepts a tier its own proto.md names, no matching Go change needed (doctor.Scan, badTier)                                                         |
 | C10 | that added tier ranks correctly through frit next   | next's --json phase.tier reports the added tier, not a built-in neighbor it would otherwise always lose to (index.Build, Resume)                          |
+| C11 | claiming from a lane whose branch diverged          | refused naming the branch and both tips, not "already held" — resume's divergence is carried in the report (LeaseDivergesError)                           |
+| C12 | starting from a lane whose branch diverged          | the same refusal, not a fault — `pick --go` skips it like a lost race rather than aborting its walk (startRefusable)                                      |
