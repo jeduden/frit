@@ -130,10 +130,15 @@ func (w *world) registerYieldHonesty(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)" parked nothing$`, w.hostParkedNothing)
 }
 
-// registerMidPushRace is S97's own step vocabulary: the lane commits on
-// its own branch while its renewal's push is in flight, and syncing
-// the local ref onto the new beat must not reset past that commit.
+// registerMidPushRace is S97's and S98's own step vocabulary: a commit
+// on this clone's lease branch that origin has not seen — made while a
+// renewal's push was in flight, or never pushed at all — must survive
+// the next beat, never reset past nor carried into another's lease.
 func (w *world) registerMidPushRace(sc *godog.ScenarioContext) {
+	sc.Step(`^this host's plan (\d+) branch carries a commit it never pushed$`,
+		w.thisHostsBranchCarriesACommitItNeverPushed)
+	sc.Step(`^the unpushed commit is left on this host's branch$`,
+		w.theUnpushedCommitIsLeftOnThisHostsBranch)
 	sc.Step(`^"([^"]+)" renews its lease while its lane commits mid-push$`,
 		w.renewsWhileItsLaneCommitsMidPush)
 	sc.Step(`^the mid-push commit is left on "([^"]+)"'s branch$`,
@@ -237,6 +242,67 @@ func (w *world) theRenewalRefusesNamingTheDivergedBranch() error {
 	}
 
 	return nil
+}
+
+// thisHostsBranchCarriesACommitItNeverPushed is S98's own Given: this
+// host's copy of the lease branch — the clone the holder's lease was
+// minted from, as S31 claims from — carries one commit origin never
+// saw, a reviewer's fixup or a lane's unpushed work alike.
+func (w *world) thisHostsBranchCarriesACommitItNeverPushed(planID int) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	w.local, err = midPushCommit(w.t, repo, w.branch())
+
+	return err
+}
+
+// theUnpushedCommitIsLeftOnThisHostsBranch checks S98's last Then: the
+// beat a vetoed takeover would make on the holder's behalf neither
+// carried the unpushed commit into the holder's lease nor moved this
+// host's branch off it.
+func (w *world) theUnpushedCommitIsLeftOnThisHostsBranch() error {
+	if w.local == "" {
+		return fmt.Errorf("no unpushed commit was made; the branch step comes first")
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	local, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", local, err)
+	}
+	if local != w.local {
+		return fmt.Errorf("the branch is %s; the unpushed commit %s was moved past", local, w.local)
+	}
+
+	return nil
+}
+
+// TestThisHostsBranchCarriesACommitItNeverPushedRefusesMissingFacts: a
+// plan the scenario never set up, or no clone for the holder, lands
+// nothing.
+func TestThisHostsBranchCarriesACommitItNeverPushedRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.planID, w.holder = 7, "elsewhere"
+	require.Error(t, w.thisHostsBranchCarriesACommitItNeverPushed(8))
+	require.Error(t, w.thisHostsBranchCarriesACommitItNeverPushed(7), "no clone")
+}
+
+// TestTheUnpushedCommitIsLeftOnThisHostsBranchRefusesMissingFacts: no
+// unpushed commit, or an unknown machine, fails the step.
+func TestTheUnpushedCommitIsLeftOnThisHostsBranchRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "elsewhere"
+	require.Error(t, w.theUnpushedCommitIsLeftOnThisHostsBranch())
+
+	w.local = "abc123"
+	require.Error(t, w.theUnpushedCommitIsLeftOnThisHostsBranch(), "no clone")
 }
 
 // TestRenewsWhileItsLaneCommitsMidPushRefusesAnotherHolder: only the

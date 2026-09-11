@@ -138,8 +138,9 @@ func TestSyncLocalRefPassesTheSeenValueAndAReason(t *testing.T) {
 
 	syncLocalRef("/repo", "refs/heads/plan/7", "new-sha", "frit: plan 7: beat", "old-sha", run)
 
-	assert.Equal(t, []string{"update-ref", "-m", "frit: plan 7: beat",
-		"refs/heads/plan/7", "new-sha", "old-sha"}, got)
+	assert.Equal(t, []string{"update-ref", "--create-reflog", "-m", "frit: plan 7: beat",
+		"refs/heads/plan/7", "new-sha", "old-sha"}, got,
+		"--create-reflog: a bare repository logs no branch moves by default")
 }
 
 // TestSyncLocalRefCreatesAnAbsentRefOnlyIfStillAbsent: a ref seen
@@ -159,7 +160,7 @@ func TestSyncLocalRefCreatesAnAbsentRefOnlyIfStillAbsent(t *testing.T) {
 
 	syncLocalRef("/repo", "refs/heads/plan/7", "new-sha", "frit: plan 7: claim", "", run)
 
-	assert.Equal(t, []string{"update-ref", "-m", "frit: plan 7: claim",
+	assert.Equal(t, []string{"update-ref", "--create-reflog", "-m", "frit: plan 7: claim",
 		"refs/heads/plan/7", "new-sha", ""}, got)
 }
 

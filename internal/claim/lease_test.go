@@ -782,6 +782,29 @@ func TestRenewLeavesAReflogEntryNamingTheTransition(t *testing.T) {
 	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
 }
 
+// TestRenewLeavesAReflogEntryInABareRepository: a bare repository —
+// lanes run as its worktrees just as well — leaves
+// core.logAllRefUpdates off, so git logs no branch move there unless
+// asked. The renewal's move must be recorded all the same.
+func TestRenewLeavesAReflogEntryInABareRepository(t *testing.T) {
+	work := originAndClone(t)
+	origin := gitCmd(t, work, "config", "--get", "remote.origin.url")
+	bare := filepath.Join(t.TempDir(), "atlas.git")
+	gitCmd(t, work, "clone", "-q", "--bare", origin, bare)
+	gitCmd(t, bare, "config", "user.email", "t@example.com")
+	gitCmd(t, bare, "config", "user.name", "frit-test")
+	gitCmd(t, bare, "update-ref", "refs/remotes/origin/main", "main")
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, bare, opts)
+
+	renewed, err := Renew(bare, opts, t1, gitwt.Exec)
+	require.NoError(t, err)
+
+	reflog := gitCmd(t, bare, "reflog", "show", "--format=%H %gs", "refs/heads/plan/7")
+	newest, _, _ := strings.Cut(reflog, "\n")
+	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
+}
+
 // TestRenewLeavesALaneCommitMadeDuringItsPushInPlace: the lane's agent
 // commits on its branch while the beat's push is in flight. The beat
 // was minted on the tip relayBase read, so moving the branch onto it
