@@ -71,3 +71,19 @@ the merge hint. A divergence is not doubt, since the token already
 proved the lease is this lane's. So the claim now carries it in the
 report as the refusal, and `--json` reads it too. C11 in the command
 catalog covers it: a command's wording, not a lease race.
+
+**Found in review: a beat for another holder.** A vetoed takeover
+renews the live holder's lease on its behalf, from this clone. The
+relay assumed every renewal runs from the holder's own lane, and this
+path breaks that. A reviewer's unpushed fixup on this clone's
+`plan/<id>` was pushed into another host's lease, under that host's
+name. The on-behalf beat now mints on the observed tip only when the
+local branch stands at or behind it. A branch beyond or beside it is
+refused, since from here it cannot be told whether it is the holder's
+own lane on this host or someone else's work, so it is neither pushed
+nor reset past. The veto refuses the takeover all the same; the live
+holder renews itself. S98 in the Races section covers it.
+
+**Found in review: a bare repository.** A bare repository leaves
+`core.logAllRefUpdates` off, so git logged none of these branch moves
+there. The move now asks for its reflog explicitly.

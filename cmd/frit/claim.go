@@ -497,7 +497,10 @@ func mintOrTakeOver(
 // beatForHolder renews a vetoed lease on its own holder's behalf: a
 // beat CASed from the observed tip, same epoch. It reports whether the
 // push landed, so the refusal does not claim a renewal it did not
-// make.
+// make. A local branch carrying commits the tip does not skips the
+// beat (claim.BeatFor, S98): they may be the holder's own lane's or a
+// reviewer's, so they are neither pushed into the holder's lease nor
+// reset past. The veto refuses the takeover all the same.
 //
 // Every identity trailer is copied off the holder's marker, never
 // taken from this run: the beat renews the holder's lease, not this
@@ -517,7 +520,7 @@ func beatForHolder(
 		Lane:    m.Lane,
 		Session: m.Session,
 	}
-	_, err := claim.Renew(coord.Path, beatOpts, tip, rt.git)
+	_, err := claim.BeatFor(coord.Path, beatOpts, tip, rt.git)
 
 	return err == nil
 }

@@ -213,6 +213,60 @@ func TestRelayBaseRefusesADivergedLocalTip(t *testing.T) {
 		LocalTip: "local-sha", From: "from-sha"}, *diverges)
 }
 
+// TestHolderBaseMintsOnTheTipOverAStaleView: absent, equal and behind
+// local refs are the ordinary stale view; the beat is minted on from.
+func TestHolderBaseMintsOnTheTipOverAStaleView(t *testing.T) {
+	cases := []struct {
+		name      string
+		local     string // "" means no local ref
+		ancestors map[string]bool
+	}{
+		{name: "absent"},
+		{name: "equal", local: "from-sha"},
+		{name: "behind", local: "local-sha",
+			ancestors: map[string]bool{"local-sha from-sha": true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, seen, err := holderBase("/repo", LeaseOptions{PlanID: 7},
+				"refs/heads/plan/7", "from-sha", relayRunner(t, tc.local, tc.ancestors))
+			require.NoError(t, err)
+			assert.Equal(t, "from-sha", got)
+			assert.Equal(t, tc.local, seen, "the sync's expected old value")
+		})
+	}
+}
+
+// TestHolderBaseRefusesLocalWorkBeyondOrBesideTheTip: a local tip
+// ahead of from, or diverged from it, is refused, never relayed.
+func TestHolderBaseRefusesLocalWorkBeyondOrBesideTheTip(t *testing.T) {
+	for name, ancestors := range map[string]map[string]bool{
+		"ahead":    {"from-sha local-sha": true},
+		"diverged": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := holderBase("/repo", LeaseOptions{PlanID: 7},
+				"refs/heads/plan/7", "from-sha", relayRunner(t, "local-sha", ancestors))
+
+			var local *LocalWorkError
+			require.ErrorAs(t, err, &local)
+			assert.Equal(t, LocalWorkError{PlanID: 7, Branch: "plan/7",
+				LocalTip: "local-sha", From: "from-sha"}, *local)
+		})
+	}
+}
+
+// TestLocalWorkErrorNamesTheBranchAndBothTips: the refusal names what
+// it would have pushed or discarded, and whose lease it left alone.
+func TestLocalWorkErrorNamesTheBranchAndBothTips(t *testing.T) {
+	msg := (&LocalWorkError{PlanID: 7, Branch: "plan/7",
+		LocalTip: "local-sha", From: "from-sha"}).Error()
+
+	for _, want := range []string{"plan 7", "plan/7", "local-sha", "from-sha", "another holder"} {
+		assert.Contains(t, msg, want)
+	}
+}
+
 // relayRunner fakes the two reads relayBase makes: the local ref's
 // value ("" for absent) and merge-base --is-ancestor, answered yes only
 // for the "ancestor descendant" pairs listed.

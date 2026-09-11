@@ -805,6 +805,44 @@ func TestRenewLeavesAReflogEntryInABareRepository(t *testing.T) {
 	assert.Equal(t, renewed.Tip+" frit: plan 7: beat", newest)
 }
 
+// TestBeatForRefusesAClonesUnpushedCommit: a beat on another holder's
+// behalf, from a clone whose local branch stands beyond the tip, mints
+// nothing. Relaying would push a commit origin never saw into that
+// holder's lease; resetting would lose it. Origin and the branch stay.
+func TestBeatForRefusesAClonesUnpushedCommit(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	_, t1 := beatAt(t, work, opts)
+	ahead := commitLocally(t, work, "fixup.txt")
+
+	_, err := BeatFor(work, opts, t1, gitwt.Exec)
+
+	var local *LocalWorkError
+	require.ErrorAs(t, err, &local)
+	assert.Equal(t, ahead, local.LocalTip)
+	assert.Equal(t, t1, local.From)
+	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"), t1,
+		"origin keeps the holder's own tip")
+	assert.Equal(t, ahead, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"),
+		"the unpushed commit stays where it stood")
+}
+
+// TestBeatForRenewsOverAStaleLocalRef: a local branch behind the tip is
+// the ordinary stale view, nothing on it missing from the tip, so the
+// beat is minted on the tip and the branch catches up to it.
+func TestBeatForRenewsOverAStaleLocalRef(t *testing.T) {
+	work := originAndClone(t)
+	opts := leaseOptions("box-a", "/lanes/a")
+	t0, t1 := beatAt(t, work, opts)
+	gitCmd(t, work, "update-ref", "refs/heads/plan/7", t0)
+
+	beat, err := BeatFor(work, opts, t1, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Equal(t, t1, gitCmd(t, work, "rev-parse", beat.Tip+"^"))
+	assert.Equal(t, beat.Tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7"))
+}
+
 // TestRenewLeavesALaneCommitMadeDuringItsPushInPlace: the lane's agent
 // commits on its branch while the beat's push is in flight. The beat
 // was minted on the tip relayBase read, so moving the branch onto it
