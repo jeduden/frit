@@ -2610,6 +2610,20 @@ func TestLostRaceRefusalNamesAFencedResume(t *testing.T) {
 	assert.NotContains(t, unknown, "()", "no empty holder is printed")
 }
 
+// TestLostRaceRefusalNamesADivergedLaneBranch: a resume refused because
+// the lane's branch diverged is refused by the divergence itself — the
+// branch, both tips and the merge — never as a race lost to another
+// machine (C12).
+func TestLostRaceRefusalNamesADivergedLaneBranch(t *testing.T) {
+	got := lostRaceRefusal(fmt.Errorf("wrap: %w", &claim.LeaseDivergesError{
+		PlanID: 7, Branch: "plan/7", LocalTip: "local-sha", From: "lease-sha"}))
+
+	for _, want := range []string{"plan/7", "local-sha", "lease-sha", "merge"} {
+		assert.Contains(t, got, want)
+	}
+	assert.NotContains(t, got, "another machine")
+}
+
 // TestStartRefusesWithNoPlanGivenAndNoneInferred: an empty selector
 // run outside any held checkout cannot infer a plan, and refuses
 // rather than guess.
