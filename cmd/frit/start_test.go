@@ -2610,6 +2610,21 @@ func TestLostRaceRefusalNamesAFencedResume(t *testing.T) {
 	assert.NotContains(t, unknown, "()", "no empty holder is printed")
 }
 
+// TestStartRefusableTakesADivergedLaneBranchAsARefusal: every lost race
+// and a diverged lane branch, wrapped or not, are refusals; any other
+// error is a fault.
+func TestStartRefusableTakesADivergedLaneBranchAsARefusal(t *testing.T) {
+	diverged := &claim.LeaseDivergesError{PlanID: 7}
+	assert.True(t, startRefusable(diverged))
+	assert.True(t, startRefusable(fmt.Errorf("wrap: %w", diverged)))
+	assert.True(t, startRefusable(claim.ErrLostRace))
+	assert.True(t, startRefusable(&claim.FenceError{PlanID: 7}))
+	assert.False(t, startRefusable(&claim.LocalDivergesError{PlanID: 7}),
+		"a fresh acquire's local branch is the caller's to push or rename")
+	assert.False(t, startRefusable(errors.New("push: boom")))
+	assert.False(t, startRefusable(nil))
+}
+
 // TestLostRaceRefusalNamesADivergedLaneBranch: a resume refused because
 // the lane's branch diverged is refused by the divergence itself — the
 // branch, both tips and the merge — never as a race lost to another

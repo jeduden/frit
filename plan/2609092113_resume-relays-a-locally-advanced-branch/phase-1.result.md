@@ -70,7 +70,11 @@ the ordinary path, which refused the plan as deserted or held and lost
 the merge hint. A divergence is not doubt, since the token already
 proved the lease is this lane's. So the claim now carries it in the
 report as the refusal, and `--json` reads it too. C11 in the command
-catalog covers it: a command's wording, not a lease race.
+catalog covers it: a command's wording, not a lease race. `frit start`
+had the same gap in another shape: its resume handed the divergence
+back as a raw error, so `start --go` failed and `pick --go` stopped
+its whole walk. It is now a refusal like a lost race, which `pick
+--go` skips for the next candidate. C12 covers it.
 
 **Found in review: a beat for another holder.** A vetoed takeover
 renews the live holder's lease on its behalf, from this clone. The

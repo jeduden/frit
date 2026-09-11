@@ -548,6 +548,12 @@ func resetWindow(plan discovery.Plan, tip string, now time.Time) {
 // original wording so a missing or malformed body never changes the
 // outcome.
 func lostRaceRefusal(err error) string {
+	// A lane branch diverged from its lease tip lost no race: the
+	// divergence's own message is the refusal (C12).
+	var diverged *claim.LeaseDivergesError
+	if errors.As(err, &diverged) {
+		return diverged.Error()
+	}
 	var veto *claim.VetoError
 	if errors.As(err, &veto) {
 		return vetoRefusal(veto)
