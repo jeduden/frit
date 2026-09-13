@@ -148,6 +148,47 @@ func (e *LocalDivergesError) Error() string {
 		e.PlanID, e.Branch, e.LocalTip)
 }
 
+// LeaseDivergesError reports a renewal or release refused because the
+// lane's local copy of the work ref has diverged from the tip the
+// transition was handed: neither that tip, nor a descendant or an
+// ancestor of it. Minting on either side would orphan the other's
+// commits, so nothing is minted and the local branch stays as it
+// stood (#189). Merging the lease tip into it makes it a fast-forward
+// the next renewal relays.
+type LeaseDivergesError struct {
+	PlanID   int64
+	Branch   string
+	LocalTip string
+	From     string
+}
+
+func (e *LeaseDivergesError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: local branch %s (%s) has diverged from the lease tip %s; "+
+			"merge %s into it, then retry",
+		e.PlanID, e.Branch, e.LocalTip, e.From, e.From)
+}
+
+// LocalWorkError reports a beat on another holder's behalf (BeatFor)
+// refused because this clone's local copy of the work ref carries
+// commits the tip does not, beyond it or beside it. Whose they are
+// cannot be told from here — the holder's own lane on this host, or a
+// reviewer's unpushed fixup — so nothing is minted: they are neither
+// pushed into that holder's lease nor reset past (S98).
+type LocalWorkError struct {
+	PlanID   int64
+	Branch   string
+	LocalTip string
+	From     string
+}
+
+func (e *LocalWorkError) Error() string {
+	return fmt.Sprintf(
+		"plan %d: local branch %s (%s) carries commits the lease tip %s "+
+			"does not; not renewing another holder's lease over them",
+		e.PlanID, e.Branch, e.LocalTip, e.From)
+}
+
 // StillHeldError reports a yield run from the lane that still holds
 // the live lease: nothing is fenced, so there is nothing to rescue.
 // Yield is for the fenced, not an alias for release.
@@ -293,7 +334,23 @@ func Acquire(repoDir string, opts LeaseOptions, run gitwt.Runner) (Lease, error)
 func Renew(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
-	lease, err := advance(repoDir, opts, markerBeat, from, run)
+	lease, err := advance(repoDir, opts, markerBeat, from, relayBase, run)
+	if err == nil {
+		persistToken(opts, lease.Tip, run)
+	}
+
+	return lease, err
+}
+
+// BeatFor renews another holder's lease from this clone — the beat a
+// vetoed takeover makes on a live holder's behalf. Unlike Renew it
+// never relays the local branch: a local tip beyond or beside from is
+// refused as a LocalWorkError before anything is minted (holderBase),
+// since this clone cannot tell the holder's commits from its own.
+func BeatFor(
+	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
+) (Lease, error) {
+	lease, err := advance(repoDir, opts, markerBeat, from, holderBase, run)
 	if err == nil {
 		persistToken(opts, lease.Tip, run)
 	}
@@ -318,10 +375,10 @@ func Renew(
 func RenewToBind(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
-	lease, err := advance(repoDir, opts, markerBeat, from, run)
+	lease, err := advance(repoDir, opts, markerBeat, from, relayBase, run)
 	var fenced *FenceError
 	if errors.As(err, &fenced) && ownHold(fenced, opts) {
-		lease, err = advance(repoDir, opts, markerBeat, fenced.Tip, run)
+		lease, err = advance(repoDir, opts, markerBeat, fenced.Tip, relayBase, run)
 	}
 	if err == nil {
 		persistToken(opts, lease.Tip, run)
@@ -360,7 +417,7 @@ func Resume(
 func Release(
 	repoDir string, opts LeaseOptions, from string, run gitwt.Runner,
 ) (Lease, error) {
-	return advance(repoDir, opts, markerRelease, from, run)
+	return advance(repoDir, opts, markerRelease, from, relayBase, run)
 }
 
 // Takeover seizes a stale lease: a takeover marker minted as a child
@@ -385,7 +442,9 @@ func Takeover(
 	}
 
 	ref := "refs/heads/" + leaseBranch(opts.PlanID)
-	lost, tip, err := casPush(repoDir, ref, opts, marker, from, run)
+	seen := localTip(repoDir, ref, run)
+	lost, tip, err := casPush(
+		repoDir, ref, opts, markerTakeover, marker, from, seen, run)
 	if err != nil {
 		return Lease{}, fmt.Errorf(
 			"push takeover for plan %d: %w", opts.PlanID, err)
@@ -1016,11 +1075,22 @@ func leaseBranch(planID int64) string {
 	return fmt.Sprintf("plan/%d", planID)
 }
 
-// advance is renew and release: mint a marker child of the holder's
-// recorded tip carrying the epoch read beneath that tip, and CAS the
-// ref from exactly that tip. A lost CAS is a fence, not a fault.
+// baseFunc picks the commit a transition mints its marker on from the
+// tip it was handed and the local copy of ref, and the local value the
+// later sync must move the ref from: relayBase for the holder's own
+// transitions, holderBase for a beat on another holder's behalf.
+type baseFunc func(
+	repoDir string, opts LeaseOptions, ref, from string, run gitwt.Runner,
+) (parent, seen string, err error)
+
+// advance is renew and release: mint a marker carrying the epoch read
+// beneath the holder's recorded tip, and CAS the ref from exactly that
+// tip. The marker is a child of the commit base picks — the recorded
+// tip, or the lane's own local fast-forward of it (see relayBase). A
+// lost CAS is a fence, not a fault.
 func advance(
-	repoDir string, opts LeaseOptions, kind, from string, run gitwt.Runner,
+	repoDir string, opts LeaseOptions, kind, from string, base baseFunc,
+	run gitwt.Runner,
 ) (Lease, error) {
 	m, ok := latestMarker(repoDir, opts.PlanID, from, run)
 	if !ok {
@@ -1028,13 +1098,17 @@ func advance(
 			"no lease marker for plan %d is reachable from %s",
 			opts.PlanID, from)
 	}
-	marker, err := mintMarker(repoDir, kind, from, opts, m.Epoch, "", run)
+	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	parent, seen, err := base(repoDir, opts, ref, from, run)
+	if err != nil {
+		return Lease{}, err
+	}
+	marker, err := mintMarker(repoDir, kind, parent, opts, m.Epoch, "", run)
 	if err != nil {
 		return Lease{}, err
 	}
 
-	ref := "refs/heads/" + leaseBranch(opts.PlanID)
-	lost, tip, err := casPush(repoDir, ref, opts, marker, from, run)
+	lost, tip, err := casPush(repoDir, ref, opts, kind, marker, from, seen, run)
 	if err != nil {
 		return Lease{}, fmt.Errorf(
 			"push %s for plan %d: %w", kind, opts.PlanID, err)
@@ -1069,13 +1143,15 @@ func pushClaimMarker(
 	if par == "" {
 		par = baseSHA
 	}
+	seen := localTip(repoDir, ref, run)
 	marker, err := mintMarker(
 		repoDir, markerClaim, par, opts, epoch, baseSHA, run)
 	if err != nil {
 		return Lease{}, err
 	}
 
-	lost, tip, err := casPush(repoDir, ref, opts, marker, parent, run)
+	lost, tip, err := casPush(
+		repoDir, ref, opts, markerClaim, marker, parent, seen, run)
 	if err != nil {
 		return Lease{}, fmt.Errorf(
 			"push claim for plan %d: %w", opts.PlanID, err)
@@ -1146,15 +1222,19 @@ func pushThenConfirm(
 // the remote, never by git's stderr (see remoteHolderErr for why). lost
 // reports a CAS the remote decided against us, with the tip that beat
 // it; an error is a real fault. The remote is the truth either way, so
-// the local copy of the ref is synced on a win and untouched on a loss.
+// the local copy of the ref is synced on a win, its reflog naming the
+// transition kind, and untouched on a loss. seen is the local copy's
+// value the caller read before minting ("" for absent); the sync moves
+// the ref only from exactly that value.
 func casPush(
-	repoDir, ref string, opts LeaseOptions, marker, expected string,
+	repoDir, ref string, opts LeaseOptions, kind, marker, expected, seen string,
 	run gitwt.Runner,
 ) (lost bool, tip string, err error) {
+	reason := fmt.Sprintf("frit: plan %d: %s", opts.PlanID, kind)
 	pushErr, now, readErr := pushThenConfirm(
 		repoDir, opts, ref, expected, marker, run)
 	if pushErr == nil {
-		syncLocalRef(repoDir, ref, marker, run)
+		syncLocalRef(repoDir, ref, marker, reason, seen, run)
 		return false, marker, nil
 	}
 	if readErr != nil {
@@ -1169,7 +1249,7 @@ func casPush(
 		// Our own marker is on the remote: the push landed even though
 		// the client reported an error — a connection dropped after the
 		// ref transaction committed. The transition is ours.
-		syncLocalRef(repoDir, ref, marker, run)
+		syncLocalRef(repoDir, ref, marker, reason, seen, run)
 		return false, marker, nil
 	case "":
 		// The remote answered and the ref carries nothing: the push left
@@ -1189,29 +1269,98 @@ func casPush(
 func refuseDivergingLocalBranch(
 	repoDir string, opts LeaseOptions, ref, baseSHA string, run gitwt.Runner,
 ) error {
-	localTip, err := trimmed(run(repoDir, "rev-parse", "--verify", "--quiet", ref))
-	if err != nil || localTip == "" {
+	local := localTip(repoDir, ref, run)
+	if local == "" {
 		return nil
 	}
-	if isAncestor(repoDir, localTip, baseSHA, run) {
+	if isAncestor(repoDir, local, baseSHA, run) {
 		return nil
 	}
 
 	return &LocalDivergesError{
-		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID), LocalTip: localTip,
+		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID), LocalTip: local,
 	}
 }
 
+// relayBase picks the commit advance mints its next marker on. The
+// transition is handed from, the tip the caller read off the remote,
+// but the lane's own local copy of the work ref may stand beyond it —
+// an unpushed `merge --ff-only origin/main` on the lane's branch
+// (#189). A local tip that fast-forwards from is relayed: the marker
+// is built on it, so the push carries that work instead of the sync
+// resetting past it, while the CAS still expects from. No local ref,
+// or one at or behind from, is the ordinary stale view and mints on
+// from. A local tip on neither side of from has diverged and is
+// refused before anything is minted. seen is the local tip it read
+// ("" for absent), the value the later sync must move the ref from.
+func relayBase(
+	repoDir string, opts LeaseOptions, ref, from string, run gitwt.Runner,
+) (parent, seen string, err error) {
+	local := localTip(repoDir, ref, run)
+	if local == "" || local == from {
+		return from, local, nil
+	}
+	if isAncestor(repoDir, from, local, run) {
+		return local, local, nil
+	}
+	if isAncestor(repoDir, local, from, run) {
+		return from, local, nil
+	}
+
+	return "", "", &LeaseDivergesError{
+		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID),
+		LocalTip: local, From: from,
+	}
+}
+
+// holderBase is relayBase for a beat on another holder's behalf. No
+// local ref, or one at or behind from, is the ordinary stale view and
+// mints on from, as relayBase does. A local tip beyond or beside from
+// is never relayed: this clone cannot tell the holder's own lane from
+// someone else's unpushed work, so it is refused rather than carried
+// into the holder's lease or reset past.
+func holderBase(
+	repoDir string, opts LeaseOptions, ref, from string, run gitwt.Runner,
+) (parent, seen string, err error) {
+	local := localTip(repoDir, ref, run)
+	if local == "" || local == from || isAncestor(repoDir, local, from, run) {
+		return from, local, nil
+	}
+
+	return "", "", &LocalWorkError{
+		PlanID: opts.PlanID, Branch: leaseBranch(opts.PlanID),
+		LocalTip: local, From: from,
+	}
+}
+
+// localTip reads the local copy of ref, "" when it does not exist or
+// cannot be read.
+func localTip(repoDir, ref string, run gitwt.Runner) string {
+	tip, err := trimmed(run(repoDir, "rev-parse", "--verify", "--quiet", ref))
+	if err != nil {
+		return ""
+	}
+
+	return tip
+}
+
 // syncLocalRef moves the local copy of the work ref to the tip the
-// remote just accepted. Best-effort: a failure here leaves a stale
-// local copy, which is a stale view, not a lost lease. update-ref
-// carries no "checked out elsewhere" protection — only git's own
-// porcelain does, proved by reproduction (S79) — so this update can
-// land under a worktree standing on the branch just as readily as it
-// can fail for an ordinary reason; either way the caller does not
-// need it to succeed.
-func syncLocalRef(repoDir, ref, tip string, run gitwt.Runner) {
-	_, _ = run(repoDir, "update-ref", ref, tip)
+// remote just accepted, with reason as its reflog message and seen —
+// the value the caller read before minting, "" for absent — as
+// update-ref's expected old value, so every move is recoverable by
+// `git reflog` alone and a ref moved since that read (a lane committing
+// while the push was in flight) is left where it is rather than reset
+// past. --create-reflog makes the entry unconditional: a bare
+// repository, whose worktrees frit lanes run in just as well, leaves
+// core.logAllRefUpdates off and would otherwise log no branch move.
+// Best-effort: a failure here leaves a stale local copy, which is
+// a stale view, not a lost lease. update-ref carries no "checked out
+// elsewhere" protection — only git's own porcelain does, proved by
+// reproduction (S79) — so this update can land under a worktree
+// standing on the branch just as readily as it can fail for an
+// ordinary reason; either way the caller does not need it to succeed.
+func syncLocalRef(repoDir, ref, tip, reason, seen string, run gitwt.Runner) {
+	_, _ = run(repoDir, "update-ref", "--create-reflog", "-m", reason, ref, tip, seen)
 }
 
 // heldError names the lease that won an acquire: epoch, holder and

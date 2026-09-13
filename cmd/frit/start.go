@@ -152,7 +152,7 @@ func buildStart(
 		if err := startExecute(
 			rt, doc, plan, sp, sc, edit, rs,
 		); err != nil {
-			if lostRace(err) {
+			if startRefusable(err) {
 				doc.Refuse(lostRaceRefusal(err))
 				scavengeLanded(rt, doc, plan, coord, err)
 
@@ -725,9 +725,10 @@ func startExecute(
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
 	if err != nil {
-		// A lost race, or a veto, is returned, not swallowed: buildStart
-		// records it as a refusal for start, and pick --go retries past it
-		// to the next candidate. Every other error is a real fault.
+		// A lost race, a veto, or a resume refused over a diverged lane
+		// branch is returned, not swallowed: buildStart records it as a
+		// refusal for start, and pick --go retries past it to the next
+		// candidate (startRefusable). Every other error is a real fault.
 		return err
 	}
 
@@ -904,6 +905,17 @@ func lostRace(err error) bool {
 	var fence *claim.FenceError
 
 	return errors.Is(err, claim.ErrLostRace) || errors.As(err, &fence)
+}
+
+// startRefusable reports whether startExecute's error is a refusal to
+// render — and for pick --go a candidate to skip — rather than a fault
+// that aborts: a race lost (lostRace), or a resume refused because the
+// lane's own branch diverged from its lease tip, which the lane clears
+// by merging, not a reason to stop the walk (C12).
+func startRefusable(err error) bool {
+	var diverged *claim.LeaseDivergesError
+
+	return lostRace(err) || errors.As(err, &diverged)
 }
 
 // releaseLease unwinds a lease minted before a handoff, or a claim's

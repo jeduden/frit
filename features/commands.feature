@@ -73,3 +73,18 @@ Feature: Command scenarios
     And a plan whose Execution row designs a phase at that extra tier
     When frit next is run
     Then next reports the phase's tier as that extra tier
+
+  @C11
+  Scenario: claiming from a lane whose branch diverged names the divergence
+    Given "this host" holds the lease for plan 7, bound in its own lane
+    And this host's lane branch has diverged from its lease tip
+    When this host claims plan 7
+    Then the claim is refused, naming the diverged lane branch and both tips
+    And origin's hold is left exactly as it stood
+
+  @C12
+  Scenario: starting from a lane whose branch diverged names the divergence
+    Given this machine holds plan 7 in a lane with its token persisted
+    And the lane's branch has diverged from its lease tip
+    When the lane runs start --go for plan 7
+    Then start refuses, naming the diverged lane branch and both tips

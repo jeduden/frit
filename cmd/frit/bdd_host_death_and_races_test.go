@@ -27,7 +27,8 @@ import (
 // that was deleted out from under it, a takeover is released and
 // re-claimed. It registers itself, like the lease section did.
 func init() {
-	registrars = append(registrars, (*world).registerHostDeathAndRaces)
+	registrars = append(registrars,
+		(*world).registerHostDeathAndRaces, (*world).registerMidPushRace)
 }
 
 // raceAttempt is one machine's Acquire, kept beside the world so a
@@ -127,6 +128,227 @@ func (w *world) registerYieldHonesty(sc *godog.ScenarioContext) {
 	sc.Step(`^the refusal carries a way out$`, w.theRefusalCarriesAWayOut)
 	sc.Step(`^origin's lease for plan (\d+) is untouched$`, w.originsLeaseIsUntouched)
 	sc.Step(`^"([^"]+)" parked nothing$`, w.hostParkedNothing)
+}
+
+// registerMidPushRace is S97's and S98's own step vocabulary: a commit
+// on this clone's lease branch that origin has not seen — made while a
+// renewal's push was in flight, or never pushed at all — must survive
+// the next beat, never reset past nor carried into another's lease.
+func (w *world) registerMidPushRace(sc *godog.ScenarioContext) {
+	sc.Step(`^this host's plan (\d+) branch carries a commit it never pushed$`,
+		w.thisHostsBranchCarriesACommitItNeverPushed)
+	sc.Step(`^the unpushed commit is left on this host's branch$`,
+		w.theUnpushedCommitIsLeftOnThisHostsBranch)
+	sc.Step(`^"([^"]+)" renews its lease while its lane commits mid-push$`,
+		w.renewsWhileItsLaneCommitsMidPush)
+	sc.Step(`^the mid-push commit is left on "([^"]+)"'s branch$`,
+		w.theMidPushCommitIsLeftOnTheBranch)
+	sc.Step(`^the renewal refuses, naming the diverged branch and both tips$`,
+		w.theRenewalRefusesNamingTheDivergedBranch)
+}
+
+// renewsWhileItsLaneCommitsMidPush renews the holder's lease through a
+// runner that, at the push, first lands an ordinary commit on the
+// holder's local branch — the lane's agent committing while the beat is
+// in flight. The commit rides on w.local, the renewed lease on w.lease.
+func (w *world) renewsWhileItsLaneCommitsMidPush(holder string) error {
+	if holder != w.holder {
+		return fmt.Errorf("%q never held the lease; %q did", holder, w.holder)
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	racing := func(dir string, args ...string) ([]byte, error) {
+		if args[0] == "push" && w.local == "" {
+			if w.local, err = midPushCommit(w.t, repo, w.branch()); err != nil {
+				return nil, err
+			}
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+	lease, err := claim.Renew(repo, leaseFor(holder, w.planID), w.lease.Tip, racing)
+	w.err = err
+	if err == nil {
+		w.lease = lease
+	}
+
+	return nil
+}
+
+// midPushCommit lands one ordinary commit on ref, a child of its tip
+// with the same tree, moved only from that exact tip — the lane's own
+// commit, made with plumbing so the checkout is never touched.
+func midPushCommit(t *testing.T, repo, ref string) (string, error) {
+	tip, err := gitCapture(t, repo, "rev-parse", ref)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", tip, err)
+	}
+	commit, err := gitCapture(t, repo, "commit-tree", tip+"^{tree}", "-p", tip, "-m", "mid-push")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", commit, err)
+	}
+	if out, err := gitCapture(t, repo, "update-ref", ref, commit, tip); err != nil {
+		return "", fmt.Errorf("%s: %w", out, err)
+	}
+
+	return commit, nil
+}
+
+// theMidPushCommitIsLeftOnTheBranch checks S97's first Then: the
+// renewal won, origin carries its beat, and the holder's local branch
+// still stands on the commit made during the push rather than being
+// reset past it onto the beat.
+func (w *world) theMidPushCommitIsLeftOnTheBranch(holder string) error {
+	if w.err != nil {
+		return fmt.Errorf("the renewal failed: %w", w.err)
+	}
+	if w.local == "" {
+		return fmt.Errorf("no commit landed while the push was in flight")
+	}
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	local, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", local, err)
+	}
+	if local != w.local {
+		return fmt.Errorf("the branch is %s; the mid-push commit %s was reset past", local, w.local)
+	}
+
+	return w.originTipIs(holder, w.lease.Tip)
+}
+
+// theRenewalRefusesNamingTheDivergedBranch checks S97's last Then: the
+// next renewal, handed the beat while the branch stands on the
+// mid-push commit, refuses as a divergence naming the branch, the
+// local tip and the lease tip, instead of resetting past either.
+func (w *world) theRenewalRefusesNamingTheDivergedBranch() error {
+	var diverges *claim.LeaseDivergesError
+	if !errors.As(w.err, &diverges) {
+		return fmt.Errorf("expected a divergence refusal, got %v", w.err)
+	}
+	if diverges.LocalTip != w.local || diverges.From != w.lease.Tip {
+		return fmt.Errorf("the refusal names %s over %s, want %s over %s",
+			diverges.LocalTip, diverges.From, w.local, w.lease.Tip)
+	}
+	for _, name := range []string{diverges.Branch, w.local, w.lease.Tip} {
+		if !strings.Contains(w.err.Error(), name) {
+			return fmt.Errorf("the refusal %q does not name %s", w.err, name)
+		}
+	}
+
+	return nil
+}
+
+// thisHostsBranchCarriesACommitItNeverPushed is S98's own Given: this
+// host's copy of the lease branch — the clone the holder's lease was
+// minted from, as S31 claims from — carries one commit origin never
+// saw, a reviewer's fixup or a lane's unpushed work alike.
+func (w *world) thisHostsBranchCarriesACommitItNeverPushed(planID int) error {
+	if planID != w.planID {
+		return fmt.Errorf("this scenario set up plan %d, not %d", w.planID, planID)
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	w.local, err = midPushCommit(w.t, repo, w.branch())
+
+	return err
+}
+
+// theUnpushedCommitIsLeftOnThisHostsBranch checks S98's last Then: the
+// beat a vetoed takeover would make on the holder's behalf neither
+// carried the unpushed commit into the holder's lease nor moved this
+// host's branch off it.
+func (w *world) theUnpushedCommitIsLeftOnThisHostsBranch() error {
+	if w.local == "" {
+		return fmt.Errorf("no unpushed commit was made; the branch step comes first")
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	local, err := gitCapture(w.t, repo, "rev-parse", w.branch())
+	if err != nil {
+		return fmt.Errorf("%s: %w", local, err)
+	}
+	if local != w.local {
+		return fmt.Errorf("the branch is %s; the unpushed commit %s was moved past", local, w.local)
+	}
+
+	return nil
+}
+
+// TestThisHostsBranchCarriesACommitItNeverPushedRefusesMissingFacts: a
+// plan the scenario never set up, or no clone for the holder, lands
+// nothing.
+func TestThisHostsBranchCarriesACommitItNeverPushedRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.planID, w.holder = 7, "elsewhere"
+	require.Error(t, w.thisHostsBranchCarriesACommitItNeverPushed(8))
+	require.Error(t, w.thisHostsBranchCarriesACommitItNeverPushed(7), "no clone")
+}
+
+// TestTheUnpushedCommitIsLeftOnThisHostsBranchRefusesMissingFacts: no
+// unpushed commit, or an unknown machine, fails the step.
+func TestTheUnpushedCommitIsLeftOnThisHostsBranchRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "elsewhere"
+	require.Error(t, w.theUnpushedCommitIsLeftOnThisHostsBranch())
+
+	w.local = "abc123"
+	require.Error(t, w.theUnpushedCommitIsLeftOnThisHostsBranch(), "no clone")
+}
+
+// TestRenewsWhileItsLaneCommitsMidPushRefusesAnotherHolder: only the
+// scenario's holder can renew its own lease.
+func TestRenewsWhileItsLaneCommitsMidPushRefusesAnotherHolder(t *testing.T) {
+	w := newWorld(t)
+	w.holder = "box-a"
+	require.Error(t, w.renewsWhileItsLaneCommitsMidPush("box-b"))
+	require.Error(t, w.renewsWhileItsLaneCommitsMidPush("box-a"), "no clone for box-a")
+}
+
+// TestMidPushCommitRefusesAnUnreadableRef: a ref that cannot be read
+// lands nothing.
+func TestMidPushCommitRefusesAnUnreadableRef(t *testing.T) {
+	_, err := midPushCommit(t, t.TempDir(), "refs/heads/plan/7")
+	require.Error(t, err)
+}
+
+// TestTheMidPushCommitIsLeftOnTheBranchRefusesMissingFacts: a failed
+// renewal, no mid-push commit, or an unknown machine each fail the step.
+func TestTheMidPushCommitIsLeftOnTheBranchRefusesMissingFacts(t *testing.T) {
+	w := newWorld(t)
+	w.err = fmt.Errorf("fenced")
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("box-a"))
+
+	w.err = nil
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("box-a"), "no mid-push commit")
+
+	w.local = "abc123"
+	require.Error(t, w.theMidPushCommitIsLeftOnTheBranch("ghost"), "no such machine")
+}
+
+// TestTheRenewalRefusesNamingTheDivergedBranchReadsTheRefusal: any
+// other error, or a divergence naming other tips, fails the step; the
+// refusal naming the mid-push commit over the lease tip passes it.
+func TestTheRenewalRefusesNamingTheDivergedBranchReadsTheRefusal(t *testing.T) {
+	w := newWorld(t)
+	w.local, w.lease.Tip = "local-sha", "lease-sha"
+	w.err = fmt.Errorf("fenced")
+	require.Error(t, w.theRenewalRefusesNamingTheDivergedBranch())
+
+	w.err = &claim.LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "other", From: "lease-sha"}
+	require.Error(t, w.theRenewalRefusesNamingTheDivergedBranch())
+
+	w.err = &claim.LeaseDivergesError{PlanID: 7, Branch: "plan/7", LocalTip: "local-sha", From: "lease-sha"}
+	require.NoError(t, w.theRenewalRefusesNamingTheDivergedBranch())
 }
 
 // attemptsClaim is a fresh claimant's Acquire: the first time a holder

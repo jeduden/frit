@@ -67,3 +67,22 @@ Feature: Races
     When the hold's takeover window has matured
     And "this host" starts plan 7
     Then the second start is refused, naming the lane the first stood up
+
+  @S97
+  Scenario: lane commits while its own renewal's push is in flight
+    Given "box-a" holds the lease for plan 7
+    When "box-a" renews its lease while its lane commits mid-push
+    Then the mid-push commit is left on "box-a"'s branch
+    When "box-a" comes back and renews its lease
+    Then the renewal refuses, naming the diverged branch and both tips
+
+  @S98
+  Scenario: vetoed takeover beside a commit this host never pushed
+    Given "elsewhere" holds the lease for plan 7, bound to a session
+    And this host's plan 7 branch carries a commit it never pushed
+    When the hold's takeover window has matured
+    And "elsewhere"'s bound session wakes and answers live
+    And this host claims plan 7
+    Then the takeover is refused, naming a live agent session
+    And origin's lease for plan 7 is untouched
+    And the unpushed commit is left on this host's branch

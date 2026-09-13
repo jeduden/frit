@@ -1,7 +1,7 @@
 ---
 id: 2609092113
 title: Resume relays a locally advanced lease branch instead of discarding it
-status: "🔲"
+status: "✅"
 summary: >-
   A lane that merges origin/main into its own checked-out plan/<id>
   branch — the documented way to pull main in without rebasing the
@@ -165,26 +165,27 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                          |
-| --- | ------ | ------------------------------------------------------------------------------ |
-| 1   | 🔲     | [advance relays a locally fast-forwarded lease branch, or refuses](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [advance relays a locally fast-forwarded lease branch, or refuses](phase-1.md)                                                                                                                                       |
+|     | ↳      | Renew, Resume, Release and the session bind now build on a lane's local fast-forward of the tip they are handed, refuse a diverged local branch by name, and name every local ref move in its reflog; S96 covers it. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A lane whose local `plan/<id>` branch is a clean fast-forward
+- [x] A lane whose local `plan/<id>` branch is a clean fast-forward
       beyond the tip a renewal reads keeps that commit: `Renew`,
       `Resume` and `Release` build the next marker on it, not on the
       older remote-known tip.
-- [ ] A local `plan/<id>` branch that has genuinely diverged from the
+- [x] A local `plan/<id>` branch that has genuinely diverged from the
       tip a renewal reads refuses, naming the branch and the tip that
       would have been discarded, instead of resetting past it.
-- [ ] A foreign host's concurrent push still wins or fences exactly as
+- [x] A foreign host's concurrent push still wins or fences exactly as
       before; nothing about `casPush`'s remote arbitration changes.
-- [ ] Every move `syncLocalRef` makes to the local ref leaves a
+- [x] Every move `syncLocalRef` makes to the local ref leaves a
       `git reflog` entry.
-- [ ] Phase 1's `@S<n>` decision is resolved against origin's current
+- [x] Phase 1's `@S<n>` decision is resolved against origin's current
       lease-protocol matrix, not the number sketched in this plan's
       Context.
-- [ ] `go test ./...` and
+- [x] `go test ./...` and
       `go tool -modfile=tools/go.mod golangci-lint run` pass.

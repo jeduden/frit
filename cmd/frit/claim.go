@@ -116,6 +116,10 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 // the proof that survives a process: the token in its own git dir
 // (F9, F11, S3, S21). Any doubt along the way answers false and falls
 // through to the ordinary path, where the CAS is still the arbiter.
+// A lane branch diverged from its lease tip is no doubt: the lease is
+// provably this lane's, so the ordinary path could only misname it as
+// held or deserted. It answers true with the divergence carried as the
+// refusal, which names the branch, both tips and the merge (C11).
 func resumeOwnLease(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, coord fleet.Coord, cwd string,
@@ -133,6 +137,12 @@ func resumeOwnLease(
 		Session: currentSession(rt),
 	}
 	if _, err := claim.Resume(coord.Path, opts, tip, rt.git); err != nil {
+		var diverged *claim.LeaseDivergesError
+		if errors.As(err, &diverged) {
+			doc.Refuse(err.Error())
+			return true
+		}
+
 		return false
 	}
 	doc.MarkResumed()
@@ -487,7 +497,10 @@ func mintOrTakeOver(
 // beatForHolder renews a vetoed lease on its own holder's behalf: a
 // beat CASed from the observed tip, same epoch. It reports whether the
 // push landed, so the refusal does not claim a renewal it did not
-// make.
+// make. A local branch carrying commits the tip does not skips the
+// beat (claim.BeatFor, S98): they may be the holder's own lane's or a
+// reviewer's, so they are neither pushed into the holder's lease nor
+// reset past. The veto refuses the takeover all the same.
 //
 // Every identity trailer is copied off the holder's marker, never
 // taken from this run: the beat renews the holder's lease, not this
@@ -507,7 +520,7 @@ func beatForHolder(
 		Lane:    m.Lane,
 		Session: m.Session,
 	}
-	_, err := claim.Renew(coord.Path, beatOpts, tip, rt.git)
+	_, err := claim.BeatFor(coord.Path, beatOpts, tip, rt.git)
 
 	return err == nil
 }
@@ -535,6 +548,12 @@ func resetWindow(plan discovery.Plan, tip string, now time.Time) {
 // original wording so a missing or malformed body never changes the
 // outcome.
 func lostRaceRefusal(err error) string {
+	// A lane branch diverged from its lease tip lost no race: the
+	// divergence's own message is the refusal (C12).
+	var diverged *claim.LeaseDivergesError
+	if errors.As(err, &diverged) {
+		return diverged.Error()
+	}
 	var veto *claim.VetoError
 	if errors.As(err, &veto) {
 		return vetoRefusal(veto)
