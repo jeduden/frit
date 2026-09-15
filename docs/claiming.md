@@ -209,9 +209,9 @@ failure: the command prints the reason and exits 0.
 "already held" (`S18`) and the live-session veto (`S31`) are checked
 before the status reasons, so a plan that is both held and done
 reports the hold. A 🔳 plan nobody holds is not refused: frit resumes
-it by re-acquiring the lease, and the push still arbitrates in case a
-live hold does exist (`S26`). A lost race to a landed winner says so
-by name and scavenges the stray ref (`S54`, `S95`).
+it by re-acquiring the lease, and the push arbitrates in case a live
+hold does exist (`S26`). A lost race to a landed winner says so by
+name, unmarked or not, and scavenges the stray ref (`S54`, `S95`, `S99`).
 
 The last row is a safety stop: frit names each repository by its main
 worktree's directory name, and two repositories under the root

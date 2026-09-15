@@ -1258,7 +1258,8 @@ func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
 	var held *HeldError
 	require.ErrorAs(t, err, &held)
 	assert.False(t, held.Known, "a plan-authoring commit is not a lease marker")
-	assert.False(t, held.Landed, "no marker was read, so nothing is reported landed")
+	assert.True(t, held.Landed, "Landed is read off ancestry alone; Known staying "+
+		"false no longer holds it back")
 }
 
 // TestHeldErrorWalksPastWorkCommitsToTheGoverningMarker: issue #186's

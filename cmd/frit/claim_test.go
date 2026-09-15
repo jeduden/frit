@@ -300,6 +300,12 @@ func TestLostRaceRefusalNamesTheHolder(t *testing.T) {
 			PlanID: 7, Known: true, Landed: true}),
 		"a merged holder is named as landed, not a competitor")
 
+	assert.Equal(t,
+		"the claim branch has already landed; its status is still open, "+
+			"so set plan 7 to ✅",
+		lostRaceRefusal(&claim.HeldError{PlanID: 7, Landed: true}),
+		"landed is reported off ancestry alone, even when no marker was ever read")
+
 	assert.Equal(t, "already held on this host (box-a)",
 		lostRaceRefusal(&claim.HeldError{
 			PlanID: 7, Known: true, ThisHolder: true,

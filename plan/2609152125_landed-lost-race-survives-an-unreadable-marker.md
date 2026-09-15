@@ -2,7 +2,7 @@
 id: 2609152125
 title: >-
   Landed lost-race reports landed even when no marker survives
-status: "🔲"
+status: "✅"
 summary: >-
   heldError only computes Landed after a marker is read, so a lease
   branch whose history never carries a claim/beat/release marker at
@@ -94,6 +94,15 @@ at unit level: `claimableRepo`
 plan-authoring commit, as a single BDD step. No existing step
 composes a plan branch without an `Acquire` underneath it.
 
+Deviation found during Phase 1. This plan's own id-selection check
+predates `@S96`, `@S97` and `@S98` landing on `main`: issue #189's fix
+(plan 2609092113) and the two races/traps rows beside it. By the time
+this phase ran, all three were already real, tagged scenarios. `@S96`
+is `features/lifecycle.feature`'s "a lane's own fast-forward survives
+its renewal", unrelated to this issue. The next free id at RED time
+was `S99`. Every task and acceptance criterion below cites `S99`, not
+the `S96` the plan text originally named.
+
 ## Tasks
 
 1. In [lease.go](../internal/claim/lease.go), compute
@@ -102,7 +111,7 @@ composes a plan branch without an `Acquire` underneath it.
 2. In [claim.go](../cmd/frit/claim.go), reorder `lostRaceRefusal`'s
    guard so its `held.Landed` case is checked before the `!held.Known`
    fallback, not after.
-3. Add `@S96` to
+3. Add `@S99` (see the Phase 1 deviation note above) to
    [landed-evidence.feature](../features/landed-evidence.feature): a
    lost race against a landed lane whose history never carried a
    lease marker at all still reports "already landed".
@@ -111,7 +120,7 @@ composes a plan branch without an `Acquire` underneath it.
    reusing S95's clone, claim and assertion steps for the When/Then.
 5. Add the matrix row in
    [lease-protocol.md](../docs/research/lease-protocol.md) beside S95,
-   and cite S96 alongside S54/S95 in
+   and cite S99 alongside S54/S95 in
    [claiming.md](../docs/claiming.md)'s failure-reasons discussion.
 
 ## Phase 1: Landed is read off ancestry alone, not the marker
@@ -138,14 +147,14 @@ composes a plan branch without an `Acquire` underneath it.
   `clonesTheRepositoryIntoAFleetRoot`,
   `machineClaimsPlanOverTheLandedHold` and
   `theClaimReportsThePlanAlreadyLanded` for the rest of the scenario.
-  Tag `@S96 @pending` first, confirm `TestFeatures` skips it, then
+  Tag `@S99 @pending` first, confirm `TestFeatures` skips it, then
   remove `@pending` and confirm it fails with "lost the race to
   another machine" rather than "already landed".
 
 **GREEN.** Apply the `heldError` and `lostRaceRefusal` changes from
 Tasks 1–2. Confirm all three RED assertions above now pass.
 
-**Gate.** `go test ./cmd/frit -run 'TestFeatures/^S96:'` and
+**Gate.** `go test ./cmd/frit -run 'TestFeatures/^S99:'` and
 `go test ./internal/claim/... ./cmd/frit/...` pass; S54, S79, S82,
 S84, S85, S94 and S95 (the existing landed-evidence rows) stay green;
 the matrix row and `docs/claiming.md` citation are in place; `go test
@@ -153,7 +162,7 @@ the matrix row and `docs/claiming.md` citation are in place; `go test
 check .` all pass.
 
 BDD coverage decision: this is a lease-protocol behavior. It gets
-`@S96` per the executable scenario matrix procedure in
+`@S99` per the executable scenario matrix procedure in
 [development.md](../docs/development.md), not folded into the unit
 tests alone — the same call plan 2609091905 made for S95.
 
@@ -161,20 +170,20 @@ tests alone — the same call plan 2609091905 made for S95.
 
 | Phase | Work                                                       | Tier   |
 | ----- | ---------------------------------------------------------- | ------ |
-| 1     | Proving slice: the fix, S96, its bindings, matrix and docs | sonnet |
+| 1     | Proving slice: the fix, S99, its bindings, matrix and docs | sonnet |
 
 ## Acceptance Criteria
 
-- [ ] `heldError` sets `Landed` off ancestry evidence alone; a
+- [x] `heldError` sets `Landed` off ancestry evidence alone; a
       landed lane with no readable marker reports `Known: false,
       Landed: true`.
-- [ ] `lostRaceRefusal` reports "already landed; ... set plan `<id>`
+- [x] `lostRaceRefusal` reports "already landed; ... set plan `<id>`
       to ✅" whenever `Landed` is true, whether or not `Known` is.
-- [ ] `@S96` in `landed-evidence.feature` exercises a lost race
+- [x] `@S99` in `landed-evidence.feature` exercises a lost race
       against a landed lane whose history carries no lease marker at
       all, and fails without the fix.
-- [ ] S54, S79, S82, S84, S85, S94 and S95 remain green.
-- [ ] The matrix row exists in `lease-protocol.md`; `claiming.md`
-      cites S96 beside S54/S95.
-- [ ] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint
+- [x] S54, S79, S82, S84, S85, S94 and S95 remain green.
+- [x] The matrix row exists in `lease-protocol.md`; `claiming.md`
+      cites S99 beside S54/S95.
+- [x] `go test ./...`, `go tool -modfile=tools/go.mod golangci-lint
       run` and `mdsmith check .` pass.

@@ -120,6 +120,8 @@ func (w *world) registerLandedEvidence(sc *godog.ScenarioContext) {
 		w.machineClaimsPlanOverTheLandedHold)
 	sc.Step(`^the claim reports the plan already landed$`,
 		w.theClaimReportsThePlanAlreadyLanded)
+	sc.Step(`^"([^"]+)" pushes a plan-authoring commit on plan (\d+)'s branch, with no lease ever claimed$`,
+		w.pushesAPlanAuthoringCommitWithNoLeaseEverClaimed)
 }
 
 // tipObserved is the tip a row's evidence is judged against: this
@@ -232,6 +234,45 @@ func (w *world) branchIsMergedOntoTheDefaultBranch(holder string) error {
 	git(w.t, repo, "merge", "-q", "--no-ff", "-m",
 		fmt.Sprintf("land plan %d", w.planID), claim.Branch(int64(w.planID)))
 	git(w.t, repo, "push", "-q", "origin", "main")
+
+	return nil
+}
+
+// pushesAPlanAuthoringCommitWithNoLeaseEverClaimed is S99's own Given:
+// claimableRepo plus one plan-authoring commit on plan/<id> — the
+// human-authored plan file itself, never a claim, beat or release
+// marker — mirroring
+// TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker
+// (internal/claim/lease_test.go) at the CLI-observable layer. Unlike
+// S95's pushesWorkTitledWithTheMarkersOwnPrefix, which masks a marker
+// Acquire already minted, this branch's history carries no marker at
+// all: no holdsTheLease, no Acquire, nothing for heldError's
+// fetchedMarker to find. The next step reused from S95,
+// branchIsMergedOntoTheDefaultBranch, needs w.holder and the section's
+// own tip already on record, so both are set here exactly as
+// holdsTheLease and pushesWorkOnTheLane between them leave them for
+// that row.
+func (w *world) pushesAPlanAuthoringCommitWithNoLeaseEverClaimed(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	root := w.t.TempDir()
+	repo := claimableRepo(w.t, root, "atlas", planID, "Shader unit")
+	w.holder = holder
+	w.clones[holder] = repo
+
+	git(w.t, repo, "checkout", "-q", "-b", claim.Branch(int64(planID)))
+	writeFile(w.t, repo, "plan.md", "plan body\n")
+	git(w.t, repo, "add", "-A")
+	git(w.t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d: a plan title", planID))
+	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	if out, err := gitCapture(w.t, repo, "push", "origin", tip+":"+w.branch()); err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+	section[landedEvidenceState](w).tip = tip
 
 	return nil
 }
