@@ -1083,11 +1083,12 @@ type baseFunc func(
 	repoDir string, opts LeaseOptions, ref, from string, run gitwt.Runner,
 ) (parent, seen string, err error)
 
-// advance is renew and release: mint a marker carrying the epoch read
-// beneath the holder's recorded tip, and CAS the ref from exactly that
-// tip. The marker is a child of the commit base picks — the recorded
-// tip, or the lane's own local fast-forward of it (see relayBase). A
-// lost CAS is a fence, not a fault.
+// advance is Renew, RenewToBind, Release and BeatFor's shared engine:
+// mint a marker carrying the epoch read beneath the holder's recorded
+// tip, and CAS the ref from exactly that tip. The marker is a child of
+// the commit base picks — the recorded tip, or the lane's own local
+// fast-forward of it (see relayBase). A lost CAS is a fence, not a
+// fault.
 func advance(
 	repoDir string, opts LeaseOptions, kind, from string, base baseFunc,
 	run gitwt.Runner,

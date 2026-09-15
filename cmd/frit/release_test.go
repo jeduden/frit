@@ -434,6 +434,45 @@ func TestReleaseHeldWarnsWhenThePushFails(t *testing.T) {
 	assert.Equal(t, renewed.Tip, tip, "the lease is untouched by the failed push")
 }
 
+// TestReleaseRefusesADivergedLaneBranch: a lane branch diverged from
+// its lease tip is refused by name, in doc.Refused, rather than folded
+// into doc.Warning the way an ordinary push failure is — the same
+// distinction claim's resumeOwnLease draws (C11), so a --json consumer
+// reads the plan as still held, not merely warned about.
+func TestReleaseRefusesADivergedLaneBranch(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	renewed, err := claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, claim.WriteToken(lane, 7, renewed.Tip, gitwt.Exec))
+	git(t, lane, "reset", "-q", "--hard", lease.Tip)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m", "work on a superseded tip")
+	t.Chdir(lane)
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe, herdr: herdrReturning()}
+	res, err := gatherFleet(&cli{Root: root}, rt)
+	require.NoError(t, err)
+	plan, err := resolveSelector(rt, "7", res.Plans, true)
+	require.NoError(t, err)
+	coord := res.Coords[plan.Repo]
+	doc := report.NewRelease(root, plan.Repo, plan.ID, plan.Title,
+		claim.Branch(plan.ID))
+
+	releaseHeld(rt, doc, plan, coord)
+
+	assert.False(t, doc.Released)
+	assert.Empty(t, doc.Warning, "a diverged branch is a refusal, not a warning")
+	assert.Contains(t, doc.Refused, "diverged")
+	assert.Equal(t, renewed.Tip, claim.RemoteTip(repo, "origin", 7, gitwt.Exec),
+		"origin's lease is left exactly as it stood")
+}
+
 // TestPrintReleaseNamesARescuedRef: the rendering branch a scavenge's
 // rescue ref takes, direct-called against a hand-built doc.
 func TestPrintReleaseNamesARescuedRef(t *testing.T) {
