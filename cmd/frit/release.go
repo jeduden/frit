@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -87,6 +88,13 @@ func releaseUnheld(
 // persisted token, is released; anything else is refused, worded by
 // whether its window has matured — a stranger's matured hold is
 // claim's takeover to make, never release's to wait on.
+//
+// A lane branch diverged from its lease tip is no doubt, the same fact
+// claim's resumeOwnLease reasons from (C11): the token already proves
+// the lease is this lane's, so the refusal is the divergence's own
+// message, naming the branch, both tips and the merge, in doc.Refused —
+// never a generic doc.Warn, which a --json consumer would not read as
+// the plan still being held.
 func releaseHeld(
 	rt *runtime, doc *report.ReleaseDoc, plan discovery.Plan, coord fleet.Coord,
 ) {
@@ -103,6 +111,12 @@ func releaseHeld(
 		Holder: hostname(), Lane: lane,
 	}
 	if _, err := claim.Release(coord.Path, opts, tip, rt.git); err != nil {
+		var diverged *claim.LeaseDivergesError
+		if errors.As(err, &diverged) {
+			doc.Refuse(err.Error())
+
+			return
+		}
 		doc.Warn(fmt.Sprintf("release: %v", err))
 
 		return
