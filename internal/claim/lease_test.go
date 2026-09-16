@@ -1236,9 +1236,11 @@ func TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord(t *testing
 
 // TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker pins the
 // claim-protocol edge: a plan/<id> branch whose only commit is the
-// human-authored plan file, merged into base by PR, must not read as a
-// landed lease — heldError finds no marker at all, so claim would
-// refuse as a lost race, never scavenge and never advise ✅.
+// human-authored plan file, merged into base by PR, carries no lease
+// marker at all — heldError finds none, so Known stays false. Landed
+// is read off ancestry alone, independent of the marker, so this same
+// branch still reports Landed true: claim refuses naming "already
+// landed", not a lost race against a holder that never existed.
 func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
 	work := originAndClone(t)
 	gitCmd(t, work, "checkout", "-q", "-b", "plan/7")
