@@ -175,6 +175,41 @@ func TestAcquireReportsASquashLandedWinnerAsLanded(t *testing.T) {
 		"the winner's content is on main by squash-merge: landed")
 }
 
+// TestHeldErrorFetchesTheWinningTipBeforeJudgingLanded: a lost
+// Takeover's own tip comes off casPush's bare `ls-remote` read (S54's
+// same content-evidence shape, reached from a different call site) —
+// nothing fetches that winner's objects before heldError runs. box-b's
+// only local knowledge of plan/7 is the claim marker it raced against
+// (cloned before box-a ever did any work); by the time its takeover
+// loses, box-a has since worked, squash-landed on main and released,
+// none of which box-b's clone has ever fetched. heldError must fetch
+// the winning tip itself before judging ancestry or content, not rely
+// on some earlier step in the caller's own flow to have left it
+// present — Acquire's existing-ref path happens to fetch first, but
+// Takeover's lost-CAS path never did, and heldError itself must not
+// depend on which path called it.
+func TestHeldErrorFetchesTheWinningTipBeforeJudgingLanded(t *testing.T) {
+	first := originAndClone(t)
+	claimed, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+
+	tip := workOn(t, first)
+	squashLandOnMain(t, first, "wip\n")
+	_, err = Release(first, leaseOptions("box-a", "/lanes/a"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Takeover(second, leaseOptions("box-b", "/lanes/b"), claimed.Tip, gitwt.Exec)
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the release marker was fetched and read")
+	assert.True(t, held.Landed,
+		"the winner's content is on main by squash-merge; heldError fetches "+
+			"the winning tip itself, so a caller whose own earlier fetch never "+
+			"saw it still gets the right answer")
+}
+
 // TestAcquireMarkersNeverShareASHA: two acquisitions identical in
 // everything else — same plan, holder, lane, base and commit
 // timestamps — still mint distinct marker SHAs. The nonce is what makes
@@ -1236,9 +1271,11 @@ func TestParseMarkerRejectsAWorkCommitWhoseTitleIsBareAMarkerKindWord(t *testing
 
 // TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker pins the
 // claim-protocol edge: a plan/<id> branch whose only commit is the
-// human-authored plan file, merged into base by PR, must not read as a
-// landed lease — heldError finds no marker at all, so claim would
-// refuse as a lost race, never scavenge and never advise ✅.
+// human-authored plan file, merged into base by PR, carries no lease
+// marker at all — heldError finds none, so Known stays false. Landed
+// is read off ancestry alone, independent of the marker, so this same
+// branch still reports Landed true: claim refuses naming "already
+// landed", not a lost race against a holder that never existed.
 func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
 	work := originAndClone(t)
 	gitCmd(t, work, "checkout", "-q", "-b", "plan/7")
@@ -1258,7 +1295,8 @@ func TestHeldErrorNeverReadsAPlanAuthoringCommitAsAMarker(t *testing.T) {
 	var held *HeldError
 	require.ErrorAs(t, err, &held)
 	assert.False(t, held.Known, "a plan-authoring commit is not a lease marker")
-	assert.False(t, held.Landed, "no marker was read, so nothing is reported landed")
+	assert.True(t, held.Landed, "Landed is read off ancestry alone; Known staying "+
+		"false no longer holds it back")
 }
 
 // TestHeldErrorWalksPastWorkCommitsToTheGoverningMarker: issue #186's

@@ -1366,12 +1366,29 @@ func syncLocalRef(repoDir, ref, tip, reason, seen string, run gitwt.Runner) {
 
 // heldError names the lease that won an acquire: epoch, holder and
 // lane read off the winner's latest marker, plus whether that holder
-// is this same machine and whether the work already landed on the base
-// — the facts a refusal reports instead of a guess.
+// is this same machine and whether the work already landed on the
+// base — the facts a refusal reports instead of a guess. Landed is
+// read off ancestry alone (landedTip) and set before the marker is
+// even looked up, so a landed lane whose history carries no readable
+// marker at all — Known stays false — still reports Landed true.
+//
+// landedTip's ancestry and content checks both need tip's own objects
+// present locally, and fail closed — "not landed" — when they are not
+// (git's own error on an unknown object, the same direction
+// landedByContent's doc comment already commits to). Acquire's
+// existing-ref path fetches tip before ever reaching here, but a lost
+// Takeover or claim only reads tip off casPush's bare `ls-remote`
+// classification, with nothing else guaranteeing a fetch. heldError
+// fetches the lease ref itself, unconditionally and best-effort,
+// before landedTip runs, so Landed never depends on which caller's own
+// unrelated fetch happened to leave tip's objects behind.
 func heldError(
 	repoDir string, opts LeaseOptions, tip string, run gitwt.Runner,
 ) error {
 	e := &HeldError{PlanID: opts.PlanID, Tip: tip}
+	ref := "refs/heads/" + leaseBranch(opts.PlanID)
+	_, _ = run(repoDir, "fetch", "--quiet", opts.Remote, ref)
+	e.Landed = landedTip(repoDir, opts.PlanID, opts.Base, opts.Remote, tip, run)
 	m, ok := fetchedMarker(repoDir, opts, tip, run)
 	if !ok {
 		return e
@@ -1379,7 +1396,6 @@ func heldError(
 	e.Marker = m
 	e.Known = true
 	e.ThisHolder = m.Holder != "" && m.Holder == opts.Holder
-	e.Landed = landedTip(repoDir, opts.PlanID, opts.Base, opts.Remote, tip, run)
 
 	return e
 }

@@ -27,6 +27,15 @@ Feature: Lifecycle anomalies — landed evidence
     Then the claim reports the plan already landed
     And origin's work ref for the plan is gone
 
+  @S99
+  Scenario: a lost race against a landed lane with no marker at all still reports landed
+    Given "box-a" pushes a plan-authoring commit on plan 99's branch, with no lease ever claimed
+    And "box-a"'s branch is merged onto the default branch
+    And "box-b" clones the repository into a fleet root
+    When "box-b" claims plan 99 over the landed hold
+    Then the claim reports the plan already landed
+    And origin's work ref for the plan is gone
+
   @S59
   Scenario: status flipped ✅ early by hand
     Given a repository with plan 59 hand-flipped to ✅ and plan 60 depending on it

@@ -546,7 +546,10 @@ func resetWindow(plan discovery.Plan, tip string, now time.Time) {
 // that already landed, a lease this machine holds, and one held
 // elsewhere each read differently; an unread marker falls back to the
 // original wording so a missing or malformed body never changes the
-// outcome.
+// outcome. Landed is checked before Known: it is read off ancestry
+// alone, so a landed lane whose history carries no readable marker at
+// all still reports landed rather than falling through to the bare
+// fallback.
 func lostRaceRefusal(err error) string {
 	// A lane branch diverged from its lease tip lost no race: the
 	// divergence's own message is the refusal (C12).
@@ -564,15 +567,15 @@ func lostRaceRefusal(err error) string {
 	}
 
 	var held *claim.HeldError
-	if !errors.As(err, &held) || !held.Known {
-		return "lost the race to another machine"
-	}
-
 	switch {
+	case !errors.As(err, &held):
+		return "lost the race to another machine"
 	case held.Landed:
 		return fmt.Sprintf(
 			"the claim branch has already landed; its status is still open, "+
 				"so set plan %d to ✅", held.PlanID)
+	case !held.Known:
+		return "lost the race to another machine"
 	case held.ThisHolder:
 		return fmt.Sprintf("already held on this host (%s)", held.Marker.Holder)
 	case held.Marker.Holder != "":
