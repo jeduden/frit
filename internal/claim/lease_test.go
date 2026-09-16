@@ -175,6 +175,41 @@ func TestAcquireReportsASquashLandedWinnerAsLanded(t *testing.T) {
 		"the winner's content is on main by squash-merge: landed")
 }
 
+// TestHeldErrorFetchesTheWinningTipBeforeJudgingLanded: a lost
+// Takeover's own tip comes off casPush's bare `ls-remote` read (S54's
+// same content-evidence shape, reached from a different call site) —
+// nothing fetches that winner's objects before heldError runs. box-b's
+// only local knowledge of plan/7 is the claim marker it raced against
+// (cloned before box-a ever did any work); by the time its takeover
+// loses, box-a has since worked, squash-landed on main and released,
+// none of which box-b's clone has ever fetched. heldError must fetch
+// the winning tip itself before judging ancestry or content, not rely
+// on some earlier step in the caller's own flow to have left it
+// present — Acquire's existing-ref path happens to fetch first, but
+// Takeover's lost-CAS path never did, and heldError itself must not
+// depend on which path called it.
+func TestHeldErrorFetchesTheWinningTipBeforeJudgingLanded(t *testing.T) {
+	first := originAndClone(t)
+	claimed, err := Acquire(first, leaseOptions("box-a", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	second := cloneAgain(t, first)
+
+	tip := workOn(t, first)
+	squashLandOnMain(t, first, "wip\n")
+	_, err = Release(first, leaseOptions("box-a", "/lanes/a"), tip, gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = Takeover(second, leaseOptions("box-b", "/lanes/b"), claimed.Tip, gitwt.Exec)
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	require.True(t, held.Known, "the release marker was fetched and read")
+	assert.True(t, held.Landed,
+		"the winner's content is on main by squash-merge; heldError fetches "+
+			"the winning tip itself, so a caller whose own earlier fetch never "+
+			"saw it still gets the right answer")
+}
+
 // TestAcquireMarkersNeverShareASHA: two acquisitions identical in
 // everything else — same plan, holder, lane, base and commit
 // timestamps — still mint distinct marker SHAs. The nonce is what makes

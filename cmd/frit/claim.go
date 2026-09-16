@@ -567,19 +567,15 @@ func lostRaceRefusal(err error) string {
 	}
 
 	var held *claim.HeldError
-	if !errors.As(err, &held) {
+	switch {
+	case !errors.As(err, &held):
 		return "lost the race to another machine"
-	}
-	if held.Landed {
+	case held.Landed:
 		return fmt.Sprintf(
 			"the claim branch has already landed; its status is still open, "+
 				"so set plan %d to ✅", held.PlanID)
-	}
-	if !held.Known {
+	case !held.Known:
 		return "lost the race to another machine"
-	}
-
-	switch {
 	case held.ThisHolder:
 		return fmt.Sprintf("already held on this host (%s)", held.Marker.Holder)
 	case held.Marker.Holder != "":

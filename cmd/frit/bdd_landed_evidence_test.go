@@ -176,6 +176,28 @@ func (w *world) pushesWorkOnTheLane(holder string) error {
 	return nil
 }
 
+// pushHeadAndRecordTip pushes repo's current HEAD to the lane's own
+// branch on origin, returns the repo to main, and records the pushed
+// tip as this section's own evidence — the shared tail
+// pushesWorkTitledWithTheMarkersOwnPrefix and
+// pushesAPlanAuthoringCommitWithNoLeaseEverClaimed both run once their
+// branch's commit(s) are in place, so a change to how the section
+// records its tip, or to the push error wrapping, only needs applying
+// once.
+func (w *world) pushHeadAndRecordTip(repo string) error {
+	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	if out, err := gitCapture(w.t, repo, "push", "origin", tip+":"+w.branch()); err != nil {
+		return fmt.Errorf("%s: %w", out, err)
+	}
+	git(w.t, repo, "checkout", "-q", "main")
+	section[landedEvidenceState](w).tip = tip
+
+	return nil
+}
+
 // pushesWorkTitledWithTheMarkersOwnPrefix is S95's own Given: two
 // commits on the holder's branch, each titled "plan <id>: <title>" —
 // the project's own convention, and the same "plan %d: " prefix a
@@ -197,17 +219,8 @@ func (w *world) pushesWorkTitledWithTheMarkersOwnPrefix(holder string) error {
 	git(w.t, repo, "add", "-A")
 	git(w.t, repo, "commit", "-q", "-m",
 		fmt.Sprintf("plan %d: address the second task", w.planID))
-	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
-	if err != nil {
-		return fmt.Errorf("%s: %w", tip, err)
-	}
-	if out, err := gitCapture(w.t, repo, "push", "origin", tip+":"+w.branch()); err != nil {
-		return fmt.Errorf("%s: %w", out, err)
-	}
-	git(w.t, repo, "checkout", "-q", "main")
-	section[landedEvidenceState](w).tip = tip
 
-	return nil
+	return w.pushHeadAndRecordTip(repo)
 }
 
 // branchIsMergedOntoTheDefaultBranch merges holder's plan branch onto
@@ -264,17 +277,8 @@ func (w *world) pushesAPlanAuthoringCommitWithNoLeaseEverClaimed(holder string, 
 	writeFile(w.t, repo, "plan.md", "plan body\n")
 	git(w.t, repo, "add", "-A")
 	git(w.t, repo, "commit", "-q", "-m", fmt.Sprintf("plan %d: a plan title", planID))
-	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
-	if err != nil {
-		return fmt.Errorf("%s: %w", tip, err)
-	}
-	if out, err := gitCapture(w.t, repo, "push", "origin", tip+":"+w.branch()); err != nil {
-		return fmt.Errorf("%s: %w", out, err)
-	}
-	git(w.t, repo, "checkout", "-q", "main")
-	section[landedEvidenceState](w).tip = tip
 
-	return nil
+	return w.pushHeadAndRecordTip(repo)
 }
 
 // clonesTheRepositoryIntoAFleetRoot stands a second machine up the way
