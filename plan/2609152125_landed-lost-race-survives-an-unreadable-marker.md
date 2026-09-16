@@ -166,6 +166,23 @@ BDD coverage decision: this is a lease-protocol behavior. It gets
 [development.md](../docs/development.md), not folded into the unit
 tests alone — the same call plan 2609091905 made for S95.
 
+Post-close fix, found by code review against this same phase's diff.
+Reordering `Landed` ahead of the marker lookup meant `heldError` could
+judge ancestry against a tip whose objects were never fetched.
+`Acquire`'s existing-ref path fetches first. `Takeover`'s and a fresh
+claim's own lost-CAS paths read the winning tip off a bare
+`ls-remote` and never did. `heldError` now fetches the lease ref
+itself before judging `Landed`, proven by
+`TestHeldErrorFetchesTheWinningTipBeforeJudgingLanded`.
+
+Checked against the matrix. This is an internal invariant `heldError`
+must hold across every call path, not a new CLI-observable shape. The
+wording it protects ("already landed") is the same one `S95`/`S99`
+already prove. Only the internal git call reaching it differs. Unit
+coverage alone is enough — the same call
+`TestHeldErrorWalksPastWorkCommitsToTheGoverningMarker` made for its
+own found-while-fixing consequence in plan 2609082010.
+
 ## Execution
 
 | Phase | Work                                                       | Tier   |
