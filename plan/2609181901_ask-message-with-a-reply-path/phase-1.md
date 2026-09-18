@@ -1,7 +1,7 @@
 ---
 n: 1
 title: An ask and its reply, end to end
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove the loop on one host, then fix the test approach later phases

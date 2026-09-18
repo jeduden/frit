@@ -1,7 +1,7 @@
 ---
 id: 2609181901
 title: An ask carries its reply, so silence is no longer the only answer
-status: "🔲"
+status: "🔳"
 summary: >-
   frit message writes text into a pane and stops. The remedy frit board
   prints for a (dead) lane is that same message, so an unanswered ping
@@ -139,20 +139,21 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                          |
-| --- | ------ | ---------------------------------------------- |
-| 1   | 🔲     | [An ask and its reply, end to end](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                      |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [An ask and its reply, end to end](phase-1.md)                                                                                                             |
+|     | ↳      | An ask now travels to a lane and its answer back, and board --json reports it; the plan-reply skill's pre-approval did not hold under default permissions. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] `frit message <id> --ask "<text>"` tells the receiving agent an
+- [x] `frit message <id> --ask "<text>"` tells the receiving agent an
       answer is wanted and gives the exact reply command; a dry run
       shows that envelope and sends nothing.
-- [ ] `frit reply "<text>"` from inside a lane records the answer to
+- [x] `frit reply "<text>"` from inside a lane records the answer to
       the latest pending ask, writes no pane, ref or network, and needs
       no `--go`. With no ask pending it refuses.
-- [ ] `frit board --json` reports each lane's ask as none, pending or
+- [x] `frit board --json` reports each lane's ask as none, pending or
       answered, with the answer text, so an agent branches on a field.
 - [ ] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
@@ -160,8 +161,8 @@ footer: |
       that one command, so a responder with the bundle installed
       replies with no operator sign-off, checked in a real session.
       The skill's example runs against the built frit.
-- [ ] The envelope names the skill and also gives the raw command, for
+- [x] The envelope names the skill and also gives the raw command, for
       a repository without the bundle.
-- [ ] One host only: the plan says a cross-host reply is not covered.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] One host only: the plan says a cross-host reply is not covered.
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean
