@@ -49,3 +49,15 @@ func Phase(phases []planmeta.Phase, override string) (string, bool) {
 
 	return string(open.N), true
 }
+
+// AskEnvelope wraps the operator's own text for `message --ask`: the
+// words unmodified, then the line that says an answer is wanted, the
+// skill that pre-approves giving it, and the raw reply command for a
+// repository without the skills bundle. It adds no other prose, so
+// what the agent reads is the question and the one way to answer it.
+func AskEnvelope(text string) string {
+	return text + "\n\n" +
+		"A reply is wanted. Load the plan-reply skill and answer with it, " +
+		"or run:\n" +
+		"frit reply \"<answer>\""
+}
