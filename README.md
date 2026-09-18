@@ -165,7 +165,7 @@ exact order.
 ## Working with agents
 
 frit ships the instructions an agent needs to drive it. `frit skills`
-writes seven Claude Code skills into a repository's `.claude/skills`:
+writes Claude Code skills into a repository's `.claude/skills`:
 
 | Skill          | What the agent does with it                                                                                                                |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -176,12 +176,14 @@ writes seven Claude Code skills into a repository's `.claude/skills`:
 | `plan-sync`    | reconcile plan statuses against what `drift` found                                                                                         |
 | `plan-tidy`    | read `orphans` and `stale`, then act with `yield`, `release`, `reap`                                                                       |
 | `plan-drive`   | survey the board and drive a lane up the [ladder](docs/commands.md#drive--steer-a-lane-up-the-ladder): `open`, `nudge`, `message`, `start` |
+| `plan-reply`   | answer an incoming `message --ask` with `reply`, a local write the skill pre-approves                                                      |
 
 The skills are embedded in the binary, and `--via "go run ./cmd/frit"`
 changes how they invoke frit. The prompt frit composes for a pane is
 `/plan-phase <id> [phase]`, from
 [internal/dispatch](internal/dispatch/dispatch.go); `start --note`
-and `--edit` amend it, and `message` sends whatever text you give it.
+and `--edit` amend it. `message` sends whatever text you give it;
+`--ask` also tells the agent how to answer.
 [Development](docs/development.md#the-skills-bundle) has the rest.
 
 ## Releases

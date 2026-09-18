@@ -106,15 +106,19 @@ agent loads to work its plans. The suite is `plan-pick` (find, claim,
 start the next lane), `plan-phase` (execute one phase test-first),
 `plan-handoff` (close a phase: write its handoff, flip its status,
 cue a clean session start) and `plan-new` (author a plan per
-`plan/proto.md`). It also carries `plan-start` (open the lane for one
-explicitly named plan, ranking aside), `plan-sync` (reconcile statuses
-against `drift` evidence), `plan-tidy` (read `orphans`/`stale`, act
-with `yield`/`release`/`reap`, never raw git), and `plan-drive`
-(survey with `board`/`who`, drive a lane up the
-`open`→`nudge`→`start` ladder). The first seven work a plan;
-`plan-drive` orchestrates from outside. Health
-verbs fold into the skill owning that shape: `doctor`'s checks are what
-`plan-new` shapes a plan to satisfy, so its call lives there.
+`plan/proto.md`). Five more cover the rest. `plan-start` opens the
+lane for one explicitly named plan, ranking aside. `plan-sync`
+reconciles statuses against `drift` evidence. `plan-tidy` reads
+`orphans`/`stale` and acts with `yield`/`release`/`reap`, never raw
+git. `plan-drive` surveys with `board`/`who`, drives a lane up the
+`open`→`nudge`→`start` ladder and asks with `message --ask`.
+`plan-reply` answers such an ask with `reply`.
+
+The first seven work a plan; `plan-drive` orchestrates from outside
+and `plan-reply` answers it. Its `allowed-tools` line pre-approves that one
+command, and `--via` rewrites the pattern like every other token.
+Health verbs fold into the skill owning that shape: `doctor`'s checks
+are what `plan-new` shapes a plan to satisfy, so its call lives there.
 
 The skills are embedded in the binary from
 [internal/skills](../internal/skills), so a shipped frit needs no

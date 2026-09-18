@@ -40,7 +40,9 @@ Grouped by what they do.
 The drive verbs are a ladder — ways to move an idle or stuck lane, from
 the gentlest to the most forceful. `open` only raises the lane's pane
 so you can read it. `nudge` prompts its next open phase back to life.
-`message` sends the lane your own words. `start` stands a fresh lane up
+`message` sends the lane your own words; with `--ask` it also tells
+the agent a reply is wanted, and `reply` is how the agent gives it.
+`start` stands a fresh lane up
 from nothing. Climb only as far as a lane needs: read it before you
 prompt it, prompt it before you write to it. The rungs that send are
 dry runs until `--go` — the
@@ -50,7 +52,8 @@ dry runs until `--go` — the
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `open <plan>`        | focus the pane a plan's lane runs in; reads only, sends no text                                                       |
 | `nudge <plan>`       | prompt the next open phase into an idle lane                                                                          |
-| `message <plan> ...` | send text to a live lane, working or idle                                                                             |
+| `message <plan> ...` | send text to a live lane, working or idle; `--ask` tells the agent a reply is wanted                                  |
+| `reply <answer>`     | record the answer to the ask pending on this lane; a local write, so no `--go` and no pane                            |
 | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR` |
 
 ## Clean and set up
@@ -69,8 +72,8 @@ a title fragment, or nothing inside its own worktree. Verbs that
 compose-and-send are [dry runs until
 `--go`](ux-principles.md#an-act-previews-before-it-commits) — `nudge`,
 `message`, `start`, `pick`, `reap` — while read verbs, `open` among
-them, and the single-ref pushes `claim`, `release` and `yield` act at
-once. A refused claim [is not an
+them, the local write `reply`, and the single-ref pushes `claim`,
+`release` and `yield` act at once. A refused claim [is not an
 error](claiming.md#when-a-claim-is-refused): it prints the reason and
 exits 0.
 
