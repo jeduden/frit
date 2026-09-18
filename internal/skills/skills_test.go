@@ -401,3 +401,64 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestPlanReplyPreApprovesOnlyTheReplyCommand guards the approval claim
+// the ask envelope leans on: plan-reply's allowed-tools lists the one
+// `reply` command and nothing else, so a responder loading the skill
+// answers with no operator sign-off and gains no other pre-approved
+// tool. The pattern carries the {{frit}} token, so --via rewrites it
+// with the invocation the body runs.
+func TestPlanReplyPreApprovesOnlyTheReplyCommand(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-reply/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-reply skill: %v", err)
+	}
+	body := string(data)
+
+	if !contains(body, "\nallowed-tools: Bash({{frit}} reply:*)\n") {
+		t.Fatal("plan-reply front matter does not pre-approve exactly `Bash({{frit}} reply:*)`")
+	}
+	if n := strings.Count(body, "allowed-tools"); n != 1 {
+		t.Fatalf("plan-reply names allowed-tools %d times, want 1", n)
+	}
+	if !contains(body, `{{frit}} reply "<answer>" --json`) {
+		t.Fatal("plan-reply does not run `{{frit}} reply \"<answer>\" --json`")
+	}
+	for _, verb := range []string{"message", "nudge", "start"} {
+		if contains(body, "{{frit}} "+verb) {
+			t.Fatalf("plan-reply names `{{frit}} %s`: it never sends", verb)
+		}
+	}
+}
+
+// TestPlanReplyApprovalFollowsVia: the installed skill's approval
+// pattern is the chosen invocation's, so a repo that runs frit another
+// way approves that command, not a bare `frit` it never types.
+func TestPlanReplyApprovalFollowsVia(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Install(dir, false, "go run ./cmd/frit"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(
+		dir, ".claude", "skills", "plan-reply", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading skill: %v", err)
+	}
+	if !contains(string(data), "allowed-tools: Bash(go run ./cmd/frit reply:*)") {
+		t.Fatal("the approval pattern did not follow --via")
+	}
+}
+
+// TestPlanDriveAsksThroughTheAskFlag: the asker's side of the loop
+// lives in plan-drive, so a supervisor reaches for `message --ask`
+// rather than a bare message that carries no way to answer.
+func TestPlanDriveAsksThroughTheAskFlag(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-drive/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-drive skill: %v", err)
+	}
+	if !contains(string(data), "--ask") {
+		t.Fatal("plan-drive does not point the asker at `message --ask`")
+	}
+}
