@@ -4,7 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
+	"strings"
 
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
@@ -344,6 +348,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
 	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
+	Ask      bool   `help:"Tell the agent a reply is wanted and how to give it; frit reply records the answer, and board shows it."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 
@@ -383,6 +388,9 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewMessage(c.Root, plan.Repo, plan.ID, plan.Title,
 		m.Text, m.Go)
+	if m.Ask {
+		doc.AsAsk(dispatch.AskEnvelope(m.Text))
+	}
 	carryProblems(doc, res.Problems, c.All)
 
 	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
@@ -440,13 +448,44 @@ func messageSend(
 	default:
 		doc.SetTarget(lane.Pane.PaneID)
 		if m.Go {
-			if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID,
-				m.Text); err != nil {
-				return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
-			}
-			doc.MarkSent()
+			return messageDeliver(rt, m, doc, plan, lane)
 		}
 	}
+
+	return nil
+}
+
+// messageDeliver sends the text — the envelope, for an ask — into the
+// lane's pane. An ask writes its record first, so an agent that
+// answers at once finds it waiting, and drops it again if the send
+// fails: a question that never went is not pending. The record is a
+// local file, so an ask into a lane on another host is refused rather
+// than left where its reply could never be read.
+func messageDeliver(
+	rt *runtime, m *messageCmd, doc *report.MessageDoc,
+	plan discovery.Plan, lane herdr.Lane,
+) error {
+	text := m.Text
+	if m.Ask {
+		if lane.Pane.Host != "" {
+			doc.Refuse(fmt.Sprintf(
+				"lane %s runs on %s: an ask's reply is recorded on one host only",
+				lane.Branch, lane.Pane.Host))
+			return nil
+		}
+		if err := ask.Open(lane.Root, plan.ID, m.Text, rt.git); err != nil {
+			return fmt.Errorf("record the ask: %w", err)
+		}
+		text = doc.Envelope
+	}
+	if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID, text); err != nil {
+		if m.Ask {
+			ask.Remove(lane.Root, plan.ID, rt.git)
+		}
+
+		return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+	}
+	doc.MarkSent()
 
 	return nil
 }
@@ -464,6 +503,10 @@ func printMessage(out io.Writer, doc *report.MessageDoc) {
 		_, _ = fmt.Fprintf(out, "%s: %s\n  %q\n", verb, doc.Refused, doc.Text)
 		return
 	}
+	if doc.Ask {
+		printAsk(out, doc)
+		return
+	}
 	if doc.Sent {
 		_, _ = fmt.Fprintf(out, "sent %q → %s\n", doc.Text, doc.Target)
 		return
@@ -471,4 +514,87 @@ func printMessage(out io.Writer, doc *report.MessageDoc) {
 	_, _ = fmt.Fprintf(out,
 		"would send %q → %s\nrun again with --go to send\n",
 		doc.Text, doc.Target)
+}
+
+// printAsk reports an ask's envelope as the block the agent reads,
+// indented and unquoted, so the dry run shows the reply command exactly
+// as it will be typed.
+func printAsk(out io.Writer, doc *report.MessageDoc) {
+	verb := "would send"
+	if doc.Sent {
+		verb = "sent"
+	}
+	_, _ = fmt.Fprintf(out, "%s → %s:\n", verb, doc.Target)
+	for _, line := range strings.Split(doc.Envelope, "\n") {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
+	if !doc.Sent {
+		_, _ = fmt.Fprintln(out, "run again with --go to send")
+	}
+}
+
+type replyCmd struct {
+	Answer   string `arg:"" help:"The answer to the ask pending on this lane."`
+	Selector string `arg:"" optional:"" help:"Plan id; empty infers from the cwd."`
+}
+
+// Run records the lane agent's answer to the ask pending on its plan.
+// It is a local write beside the lane's token — no pane is prompted, no
+// ref moves and nothing crosses the network — so unlike every rung that
+// sends, it takes no --go, and that same absence is what lets the
+// plan-reply skill pre-approve it. The plan is the one the checkout
+// stands on, or the id passed; with no ask pending it refuses and says
+// why, never overwriting an answer already given.
+func (r *replyCmd) Run(c *cli, rt *runtime) error {
+	if r.Answer == "" {
+		return errors.New("reply requires an answer")
+	}
+	id, lane, err := replyLane(r.Selector, rt)
+	if err != nil {
+		return err
+	}
+
+	rec, state := ask.Read(lane, id, rt.git)
+	if state != ask.Pending {
+		return fmt.Errorf("no ask is pending for plan %d: nobody has asked "+
+			"this lane, or the last ask is already answered", id)
+	}
+	if err := ask.Reply(lane, id, r.Answer, rt.git); err != nil {
+		return fmt.Errorf("record the answer: %w", err)
+	}
+
+	doc := report.NewReply(id, rec.Text, r.Answer)
+	if c.JSON {
+		return report.WriteJSON(rt.stdout, doc)
+	}
+	_, _ = fmt.Fprintf(rt.stdout, "recorded your answer to the ask on plan %d\n", id)
+
+	return nil
+}
+
+// replyLane finds the plan a reply answers and the checkout its ask
+// lives in, from the cwd alone — reply reads no fleet, so it fetches
+// nothing. A passed selector names the plan; the checkout is still the
+// cwd's own.
+func replyLane(selector string, rt *runtime) (int64, string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return 0, "", err
+	}
+	if selector != "" {
+		id, perr := strconv.ParseInt(selector, 10, 64)
+		if perr != nil {
+			return 0, "", fmt.Errorf("reply takes a plan id, not %q", selector)
+		}
+
+		return id, cwd, nil
+	}
+
+	_, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
+	if !ok {
+		return 0, "", errors.New(
+			"no plan given and none inferred from the current directory")
+	}
+
+	return id, root, nil
 }

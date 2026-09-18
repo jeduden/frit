@@ -53,6 +53,8 @@ func TestGoldenShapes(t *testing.T) {
 		{"open-nolane", goldenOpenNoLane()},
 		{"nudge", goldenNudge()},
 		{"message", goldenMessage()},
+		{"message-ask", goldenMessageAsk()},
+		{"reply", NewReply(2608161810, "are you in a PR?", "in a PR, merging")},
 		{"claim", goldenClaim()},
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
@@ -359,6 +361,15 @@ func goldenMessage() *MessageDoc {
 	doc := NewMessage("/fleet", "atlas", 2608161810,
 		"The dispatch ladder", "are you in a PR?", false)
 	doc.SetTarget("wC:p1")
+
+	return doc
+}
+
+// goldenMessageAsk pins an ask: the same message with the envelope the
+// pane receives and the ask flag a consumer branches on.
+func goldenMessageAsk() *MessageDoc {
+	doc := goldenMessage()
+	doc.AsAsk("are you in a PR?\n\nA reply is wanted.")
 
 	return doc
 }

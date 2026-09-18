@@ -102,3 +102,29 @@ func TestBoardMarkUnprovenNamesTheWayOut(t *testing.T) {
 	doc.MarkUnproven(deadHeldPlan.Repo, deadHeldPlan.ID)
 	assert.Equal(t, unprovenNextAction(deadHeldPlan.ID), doc.Plans[0].NextAction)
 }
+
+// TestBoardRowReportsNoAskUntilOneIsSet: every row carries its ask
+// state, so a lane nobody asked reads none rather than a missing key.
+func TestBoardRowReportsNoAskUntilOneIsSet(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "claude", "working", false)
+
+	assert.Equal(t, "none", doc.Plans[0].AskState)
+	assert.Empty(t, doc.Plans[0].AskAnswer)
+}
+
+// TestBoardSetAskRecordsTheStateOnTheMatchingRow: matched on the
+// repo and id pair, so a same-id plan in another repository is left
+// alone; an unmatched pair is a no-op.
+func TestBoardSetAskRecordsTheStateOnTheMatchingRow(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "claude", "working", false)
+	repo, id := doc.Plans[0].Repo, doc.Plans[0].ID
+
+	doc.SetAsk("elsewhere", id, "answered", "no")
+	assert.Equal(t, "none", doc.Plans[0].AskState, "another repo's row is not this one")
+
+	doc.SetAsk(repo, id, "answered", "in a PR")
+	assert.Equal(t, "answered", doc.Plans[0].AskState)
+	assert.Equal(t, "in a PR", doc.Plans[0].AskAnswer)
+}

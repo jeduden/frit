@@ -55,6 +55,12 @@ type BoardPlan struct {
 	// cannot classify, whose work may be open as a PR. Empty for a
 	// lane with no agent, and for one whose bound session is live.
 	Ask string `json:"ask"`
+	// AskState is where an ask sent with `message --ask` stands:
+	// none, pending or answered. AskAnswer is the answer text once
+	// answered, empty otherwise. Both are read off the live lane's
+	// checkout, so a lane frit sees no pane on reads none.
+	AskState  string `json:"ask_state"`
+	AskAnswer string `json:"ask_answer"`
 	// NextAction is the way out for a held plan whose lane, on this
 	// host, carries no token — the same wait-or-take-over wording
 	// open/release/start already give an identical unprovable hold
@@ -105,6 +111,7 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string, unknown bool)
 		Agent:        agent,
 		AgentStatus:  status,
 		Ask:          askOf(p, status, unknown),
+		AskState:     "none",
 	})
 }
 
@@ -122,6 +129,21 @@ func (d *BoardDoc) MarkUnproven(repo string, id int64) {
 	for i := range d.Plans {
 		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
 			d.Plans[i].NextAction = unprovenNextAction(id)
+			return
+		}
+	}
+}
+
+// SetAsk records where the row already added for (repo, id) stands on
+// the ask its lane was sent — pending or answered, with the answer's
+// text. A row keeps none until this is called; matched on the pair as
+// MarkUnproven is, and a no-op when no row matches. Call it after
+// AddPlan.
+func (d *BoardDoc) SetAsk(repo string, id int64, state, answer string) {
+	for i := range d.Plans {
+		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
+			d.Plans[i].AskState = state
+			d.Plans[i].AskAnswer = answer
 			return
 		}
 	}

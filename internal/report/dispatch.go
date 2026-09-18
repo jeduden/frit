@@ -291,6 +291,11 @@ type MessageDoc struct {
 	// Target is the pane a send would land in, empty when no lane is
 	// live to take it.
 	Target string `json:"target"`
+	// Ask is whether --ask was given, and Envelope what the pane gets
+	// then: the text wrapped with the line saying a reply is wanted and
+	// how to give it. Empty without --ask, when the pane gets Text.
+	Ask      bool   `json:"ask"`
+	Envelope string `json:"envelope"`
 	// Go is whether --go was given; Sent is whether text actually went.
 	// They differ on a refusal: --go with no live lane sends nothing.
 	Go   bool `json:"go"`
@@ -331,6 +336,13 @@ func NewMessage(
 		Go:       wantGo,
 		Problems: []Problem{},
 	}
+}
+
+// AsAsk marks the message an ask and records the envelope the pane
+// receives in place of the bare text.
+func (d *MessageDoc) AsAsk(envelope string) {
+	d.Ask = true
+	d.Envelope = envelope
 }
 
 // SetTarget records the pane a send would land in.
@@ -809,4 +821,30 @@ func (d *StartDoc) Warn(reason string) { d.Warning = reason }
 // AddProblem records a repository frit could not read.
 func (d *StartDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
+}
+
+// ReplyDoc is what `frit reply` recorded: the answer a lane's agent
+// gave to the ask pending on its plan.
+//
+// A reply is a local write — no pane, no ref, no network — so the
+// document has no Go, Sent or Refused: it either recorded the answer,
+// or the verb failed and said why.
+type ReplyDoc struct {
+	header
+	// Plan is the plan whose ask was answered.
+	Plan int64 `json:"plan"`
+	// Question is the ask the answer was recorded against, and Answer
+	// the text recorded.
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+// NewReply opens a reply report for the ask it answered.
+func NewReply(plan int64, question, answer string) *ReplyDoc {
+	return &ReplyDoc{
+		header:   newHeader("reply"),
+		Plan:     plan,
+		Question: question,
+		Answer:   answer,
+	}
 }

@@ -29,6 +29,8 @@
       "agent": "claude",
       "agent_status": "working",
       "ask": "",
+      "ask_state": "none",
+      "ask_answer": "",
       "next_action": ""
     },
     {
@@ -47,6 +49,8 @@
       "agent": "",
       "agent_status": "",
       "ask": "",
+      "ask_state": "none",
+      "ask_answer": "",
       "next_action": ""
     }
   ],

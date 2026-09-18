@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeduden/frit/internal/ask"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -351,4 +355,73 @@ func TestBoardReportsNoneForALaneWithNoLiveAgent(t *testing.T) {
 
 	assert.Equal(t, "none", row["ask_state"],
 		"an ask is read from a lane frit can see live")
+}
+
+func TestMessageAskRefusesALaneOnAnotherHost(t *testing.T) {
+	isolate(t)
+	repo := t.TempDir()
+	lane := herdr.Lane{Root: repo, Branch: "plan/7-x",
+		Pane: herdr.Pane{PaneID: "wC:p1", Host: "box", Status: "working"}}
+	doc := report.NewMessage("/fleet", "atlas", 7, "T", "status?", true)
+	doc.AsAsk(dispatch.AskEnvelope("status?"))
+	runner, rec := recordingHerdr()
+	rt := &runtime{git: gitwt.Exec, herdr: runner}
+
+	err := messageSend(rt, &messageCmd{Text: "status?", Ask: true, Go: true},
+		doc, discovery.Plan{ID: 7}, lane, true)
+
+	require.NoError(t, err)
+	assert.Contains(t, doc.Refused, "box")
+	assert.False(t, doc.Sent)
+	assert.False(t, rec.verb("agent", "prompt"), "nothing is sent to a lane whose reply cannot be read")
+}
+
+func TestMessageAskFailsWhenTheRecordCannotBeWritten(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, rec := recordingHerdr(workingLane(repo))
+	withHerdr(t, runner)
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.MkdirAll(path+".tmp", 0o750))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"message", "7", "status?", "--ask", "--go",
+		"--root", root}, &out, &errb)
+
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "record the ask")
+	assert.False(t, rec.verb("agent", "prompt"), "an ask that cannot be recorded is not sent")
+}
+
+func TestReplyFailsWhenTheAnswerCannotBeWritten(t *testing.T) {
+	repo, _ := askedLane(t)
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(path+".tmp", 0o750))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"reply", "yes"}, &out, &errb)
+
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, errb.String(), "record the answer")
+}
+
+func TestMarkAskSkipsALaneOnAnotherHost(t *testing.T) {
+	repo := heldPlan(t, t.TempDir(), "atlas", 7, "Dispatch me")
+	require.NoError(t, ask.Open(repo, 7, "status?", gitwt.Exec))
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7-dispatch-me"}}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7-dispatch-me"}: {Root: repo,
+			Pane: herdr.Pane{Host: "box"}},
+	}
+	doc := report.NewBoard("/fleet", true)
+	doc.AddPlan(plan, "claude", "working", false)
+
+	markAsk(&runtime{git: gitwt.Exec}, doc, plan, live)
+
+	assert.Equal(t, "none", doc.Plans[0].AskState,
+		"a record on another host is not readable here")
 }

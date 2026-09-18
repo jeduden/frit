@@ -421,3 +421,31 @@ func TestStartTransitionsRecordEveryOutcome(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "beacon", doc.Problems[0].Repo)
 }
+
+// TestMessageAsAskCarriesTheEnvelope: an ask records that it is one and
+// what the pane receives in the text's place; a plain message carries
+// neither.
+func TestMessageAsAskCarriesTheEnvelope(t *testing.T) {
+	plain := NewMessage("/fleet", "atlas", 7, "Shader unit", "hi", false)
+	assert.False(t, plain.Ask)
+	assert.Empty(t, plain.Envelope)
+
+	doc := NewMessage("/fleet", "atlas", 7, "Shader unit", "hi", false)
+	doc.AsAsk("hi\n\nreply wanted")
+
+	assert.True(t, doc.Ask)
+	assert.Equal(t, "hi", doc.Text, "the operator's words stay whole")
+	assert.Equal(t, "hi\n\nreply wanted", doc.Envelope)
+}
+
+// TestNewReplyCarriesTheAnswerAndItsQuestion pins the reply document's
+// header and fields.
+func TestNewReplyCarriesTheAnswerAndItsQuestion(t *testing.T) {
+	doc := NewReply(7, "status?", "in a PR")
+
+	assert.Equal(t, "reply", doc.Command)
+	assert.Equal(t, Schema, doc.Schema)
+	assert.Equal(t, int64(7), doc.Plan)
+	assert.Equal(t, "status?", doc.Question)
+	assert.Equal(t, "in a PR", doc.Answer)
+}

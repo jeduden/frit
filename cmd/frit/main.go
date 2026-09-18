@@ -26,6 +26,7 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"golang.org/x/term"
 
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
@@ -130,6 +131,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Message messageCmd `cmd:"" help:"Send text to a plan's live lane, working or idle; dry-run unless --go."`
+	Reply   replyCmd   `cmd:"" help:"Record the answer to the ask pending on this lane; a local write, no --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
 	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
@@ -2204,6 +2206,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
+		markAsk(rt, doc, p, live)
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2215,6 +2218,22 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// markAsk carries the state of the ask a plan's live lane was sent onto
+// its board row. The record is a local file in the lane's checkout, so
+// only a lane frit sees live has one to read; a plan with none stays
+// none.
+func markAsk(
+	rt *runtime, doc *report.BoardDoc, p discovery.Plan,
+	live map[repoBranch]herdr.Lane,
+) {
+	lane, ok := laneFor(p, live)
+	if !ok || lane.Pane.Host != "" {
+		return
+	}
+	rec, state := ask.Read(lane.Root, p.ID, rt.git)
+	doc.SetAsk(p.Repo, p.ID, string(state), rec.Answer)
 }
 
 // repoBranch keys a live lane by its repository and hold branch. A
