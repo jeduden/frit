@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jeduden/frit/internal/planmeta"
@@ -64,4 +65,15 @@ func TestPhaseWithEveryPhaseDoneReportsNoneOpen(t *testing.T) {
 	}
 	_, ok := Phase(phases, "")
 	assert.False(t, ok)
+}
+
+func TestAskEnvelopeCarriesTheTextAndTheWayToReply(t *testing.T) {
+	got := AskEnvelope("are you in a PR?")
+
+	assert.True(t, strings.HasPrefix(got, "are you in a PR?"),
+		"the operator's words lead, unmodified")
+	assert.Contains(t, got, "reply is wanted", "it says an answer is wanted")
+	assert.Contains(t, got, "plan-reply", "it names the skill to load")
+	assert.Contains(t, got, `frit reply "<answer>"`,
+		"it gives the raw command for a repository without the bundle")
 }

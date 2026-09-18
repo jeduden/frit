@@ -204,3 +204,9 @@ func TestOpenFailsOutsideARepository(t *testing.T) {
 func TestRemoveIsQuietOutsideARepository(t *testing.T) {
 	assert.NotPanics(t, func() { Remove(t.TempDir(), 7, gitwt.Exec) })
 }
+
+func TestReadIsNoneOutsideARepository(t *testing.T) {
+	_, state := Read(t.TempDir(), 7, gitwt.Exec)
+
+	assert.Equal(t, None, state)
+}
