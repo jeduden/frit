@@ -164,9 +164,43 @@ func TestOpenLeavesNoTempFileBehind(t *testing.T) {
 	path, err := Path(linked, 7, gitwt.Exec)
 	require.NoError(t, err)
 
-	entries, err := os.ReadDir(filepath.Dir(path))
+	assert.NoFileExists(t, path+".tmp", "the atomic write renames its temp file away")
+}
+
+func TestOpenFailsWhenTheRecordDirCannotBeMade(t *testing.T) {
+	_, linked := lane(t)
+	path, err := Path(linked, 7, gitwt.Exec)
 	require.NoError(t, err)
-	for _, e := range entries {
-		assert.NotContains(t, e.Name(), ".tmp", "the atomic write cleans up")
-	}
+	// A file where the frit directory belongs blocks the mkdir.
+	require.NoError(t, os.WriteFile(filepath.Dir(path), []byte("x"), 0o600))
+
+	assert.Error(t, Open(linked, 7, "status?", gitwt.Exec))
+}
+
+func TestOpenFailsWhenTheTempFileCannotBeWritten(t *testing.T) {
+	_, linked := lane(t)
+	path, err := Path(linked, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(path+".tmp", 0o750))
+
+	assert.Error(t, Open(linked, 7, "status?", gitwt.Exec))
+}
+
+func TestOpenFailsAndCleansUpWhenTheRenameFails(t *testing.T) {
+	_, linked := lane(t)
+	path, err := Path(linked, 7, gitwt.Exec)
+	require.NoError(t, err)
+	// A non-empty directory where the record belongs blocks the rename.
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "keep"), 0o750))
+
+	assert.Error(t, Open(linked, 7, "status?", gitwt.Exec))
+	assert.NoFileExists(t, path+".tmp", "a failed write leaves no temp file")
+}
+
+func TestOpenFailsOutsideARepository(t *testing.T) {
+	assert.Error(t, Open(t.TempDir(), 7, "status?", gitwt.Exec))
+}
+
+func TestRemoveIsQuietOutsideARepository(t *testing.T) {
+	assert.NotPanics(t, func() { Remove(t.TempDir(), 7, gitwt.Exec) })
 }
