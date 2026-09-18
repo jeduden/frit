@@ -147,11 +147,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                      |
-| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [An ask and its reply, end to end](phase-1.md)                                                                                                             |
-|     | ↳      | An ask now travels to a lane and its answer back, and board --json reports it; the plan-reply skill's pre-approval did not hold under default permissions. |
-| 2   | 🔳     | [The bundle allows the reply in project settings](phase-2.md)                                                                                              |
+| #   | Status | Phase                                                                                                                                                                |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [An ask and its reply, end to end](phase-1.md)                                                                                                                       |
+|     | ↳      | An ask now travels to a lane and its answer back, and board --json reports it; the plan-reply skill's pre-approval did not hold under default permissions.           |
+| 2   | ✅     | [The bundle allows the reply in project settings](phase-2.md)                                                                                                        |
+|     | ↳      | A lane with the bundle installed in a trusted folder replies with no prompt; an untrusted folder still prompts, because Claude Code ignores its project allow rules. |
 <?/catalog?>
 
 ## Acceptance Criteria

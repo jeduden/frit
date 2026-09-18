@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The bundle allows the reply in project settings
-status: "🔳"
+status: "✅"
 result: false
 ---
 Phase 1's real-session check showed the plan-reply skill's own
