@@ -88,3 +88,12 @@ Feature: Command scenarios
     And the lane's branch has diverged from its lease tip
     When the lane runs start --go for plan 7
     Then start refuses, naming the diverged lane branch and both tips
+
+  @C13
+  Scenario: an ask is answered by the lane and board reports the answer
+    Given a lane on plan 7 with a live agent, and the bundled plan-reply skill installed with the built frit invocation
+    When a supervisor asks the lane with message --ask --go
+    And the lane answers with the installed skill's reply command
+    Then the lane's pane was sent an envelope saying a reply is wanted
+    And board --json reports plan 7's ask as answered with the answer text
+    And the reply prompted no pane and moved no ref
