@@ -50,16 +50,18 @@ writes a small record beside its lane's token, and the asker's frit
 reads it. That write touches no pane, no ref and no network, so it
 needs no `--go`. That is also what makes it safe to pre-approve.
 
-**Why a skill approves it.** A skill's `allowed-tools` front matter
-pre-approves the tools it lists while the skill runs. A `plan-reply`
-skill listing only `Bash({{frit}} reply:*)` lets the responder run its
-reply with no operator sign-off, and the pre-approval covers a
-side-effect-free write, not a send. The envelope names the skill, so
-the agent that reads it loads the approval along with the
-instruction. Two limits are stated, not hidden. The approval needs the
-skills bundle installed in the responder's repository. A deny rule in
-the harness still wins. Phase 1 therefore checks the claim in a real
-session rather than trusting the front matter.
+**Why a project rule approves it.** A skill's `allowed-tools` front
+matter was meant to pre-approve the command while the skill runs, and
+`plan-reply` still lists only `Bash({{frit}} reply:*)`. Phase 1 checked
+that in a real session and it did not hold: the harness prompts before
+it loads the skill, and under `claude -p` the Bash step was denied even
+after the skill loaded. A project allow rule for the same command
+worked. So `frit skills` also writes `Skill(plan-reply)` and
+`Bash(<invoke> reply:*)` into the repository's `.claude/settings.json`,
+and the skill's `allowed-tools` stays as documentation of the intent.
+The rule covers a side-effect-free write, not a send. Two limits are
+stated, not hidden. The approval needs the skills bundle installed in
+the responder's repository. A deny rule in the harness still wins.
 
 **What is reused.** Searched and reused:
 
@@ -105,8 +107,11 @@ matrix at execution time; C13 is the next free as of this writing.
    sends an envelope that tells the agent a reply is wanted and names
    the `plan-reply` skill, `reply` records the answer with no `--go`,
    and `board --json` reports the ask pending, then answered. It ships
-   `plan-reply`, whose `allowed-tools` pre-approves that command.
-2. Later phases are specced once Phase 1's handoff shows the real
+   `plan-reply`, whose `allowed-tools` documents the approval.
+2. Phase 2 makes the approval real: `frit skills` writes the project
+   allow rule, merged into an existing settings file, after Phase 1's
+   real-session check showed `allowed-tools` alone does not approve.
+3. Later phases are specced once Phase 1's handoff shows the real
    shape. Expected: the `board` and `who` tables render the ask state;
    the `(dead)` advice says plainly that silence is not evidence and
    points at `--ask`; the pending-ask state feeds `plan-drive`'s
@@ -114,9 +119,10 @@ matrix at execution time; C13 is the next free as of this writing.
 
 ## Execution
 
-| Phase | Title                            | Tier   | Gate                                                                                                                    |
-| ----- | -------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| 1     | An ask and its reply, end to end | sonnet | C13 runs the built frit: ask, reply, answered in `board --json`; a real session replies with no prompt; `go test ./...` |
+| Phase | Title                                           | Tier   | Gate                                                                                                                                        |
+| ----- | ----------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | An ask and its reply, end to end                | sonnet | C13 runs the built frit: ask, reply, answered in `board --json`; a real session replies with no prompt; `go test ./...`                     |
+| 2     | The bundle allows the reply in project settings | sonnet | C14 runs the built frit: `skills` writes the reply rule and keeps existing settings; a real session replies with no prompt; `go test ./...` |
 
 ## Phases
 
@@ -143,6 +149,7 @@ footer: |
 | --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [An ask and its reply, end to end](phase-1.md)                                                                                                             |
 |     | ↳      | An ask now travels to a lane and its answer back, and board --json reports it; the plan-reply skill's pre-approval did not hold under default permissions. |
+| 2   | 🔳     | [The bundle allows the reply in project settings](phase-2.md)                                                                                              |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -157,10 +164,10 @@ footer: |
       answered, with the answer text, so an agent branches on a field.
 - [ ] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
-- [ ] A `plan-reply` skill fronts `reply`. Its `allowed-tools` lists
-      that one command, so a responder with the bundle installed
-      replies with no operator sign-off, checked in a real session.
-      The skill's example runs against the built frit.
+- [ ] A `plan-reply` skill fronts `reply`, and the bundle's project
+      settings allow that one command, so a responder with the bundle
+      installed replies with no operator sign-off, checked in a real
+      session. The skill's example runs against the built frit.
 - [x] The envelope names the skill and also gives the raw command, for
       a repository without the bundle.
 - [x] One host only: the plan says a cross-host reply is not covered.
