@@ -9,8 +9,9 @@ summary: >-
   answer (issue #198). Give the ask a reply path: message --ask tells
   the agent an answer is wanted and how to give it, a new reply verb
   records the answer as a local write with no --go and no pane send,
-  and board and who show whether an ask is pending or answered. The
-  (dead) advice stops treating silence as evidence.
+  a plan-reply skill pre-approves that one command through its
+  allowed-tools, and board and who show whether an ask is pending or
+  answered. The (dead) advice stops treating silence as evidence.
 model: sonnet
 depends-on: []
 ---
@@ -47,16 +48,28 @@ them from the host that has them and never infers them from refs. So
 a reply is not another injection into the asker's pane. The responder
 writes a small record beside its lane's token, and the asker's frit
 reads it. That write touches no pane, no ref and no network, so it
-needs no `--go`, and an operator can allowlist `frit reply` alone
-without allowlisting a send. frit cannot lift the harness's own gate.
-It can make the reply the one narrow, side-effect-free command worth
-allowing, and say so.
+needs no `--go`. That is also what makes it safe to pre-approve.
+
+**Why a skill approves it.** A skill's `allowed-tools` front matter
+pre-approves the tools it lists while the skill runs. A `plan-reply`
+skill listing only `Bash({{frit}} reply:*)` lets the responder run its
+reply with no operator sign-off, and the pre-approval covers a
+side-effect-free write, not a send. The envelope names the skill, so
+the agent that reads it loads the approval along with the
+instruction. Two limits are stated, not hidden. The approval needs the
+skills bundle installed in the responder's repository. A deny rule in
+the harness still wins. Phase 1 therefore checks the claim in a real
+session rather than trusting the front matter.
 
 **What is reused.** Searched and reused:
 
 - `message` — [`messageSend`](../../cmd/frit/dispatch.go) and
   `herdr.Prompt` keep sending the text. `--ask` wraps the text; it adds
   no new send path.
+- The skills bundle — `frit skills` already lays skills into a repo
+  and substitutes the invocation for `{{frit}}` across each file's
+  bytes, front matter included. The approval pattern therefore
+  follows `--via`, with no second mechanism.
 - The lane token — `claim.TokenPath` puts a file beside the git dir.
   The ask record follows that shape, so the asker in the main checkout
   and the responder in the lane's worktree meet on one file.
@@ -89,9 +102,10 @@ matrix at execution time; C13 is the next free as of this writing.
 ## Tasks
 
 1. Phase 1 proves the loop end to end on one host: `message --ask`
-   sends an envelope that tells the agent a reply is wanted, `reply`
-   records the answer with no `--go`, and `board --json` reports the
-   ask pending, then answered. It ships the skill front for `reply`.
+   sends an envelope that tells the agent a reply is wanted and names
+   the `plan-reply` skill, `reply` records the answer with no `--go`,
+   and `board --json` reports the ask pending, then answered. It ships
+   `plan-reply`, whose `allowed-tools` pre-approves that command.
 2. Later phases are specced once Phase 1's handoff shows the real
    shape. Expected: the `board` and `who` tables render the ask state;
    the `(dead)` advice says plainly that silence is not evidence and
@@ -100,9 +114,9 @@ matrix at execution time; C13 is the next free as of this writing.
 
 ## Execution
 
-| Phase | Title                            | Tier   | Gate                                                                                                                               |
-| ----- | -------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | An ask and its reply, end to end | sonnet | C13 runs the built frit: ask, reply, answered in `board --json`; `reply` runs with no `--go`; skill claim checked; `go test ./...` |
+| Phase | Title                            | Tier   | Gate                                                                                                                    |
+| ----- | -------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 1     | An ask and its reply, end to end | sonnet | C13 runs the built frit: ask, reply, answered in `board --json`; a real session replies with no prompt; `go test ./...` |
 
 ## Phases
 
@@ -142,9 +156,12 @@ footer: |
       answered, with the answer text, so an agent branches on a field.
 - [ ] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
-- [ ] The skill that fronts `reply` names it as the one command to
-      allowlist for the round trip, and its example runs against the
-      built frit.
+- [ ] A `plan-reply` skill fronts `reply`. Its `allowed-tools` lists
+      that one command, so a responder with the bundle installed
+      replies with no operator sign-off, checked in a real session.
+      The skill's example runs against the built frit.
+- [ ] The envelope names the skill and also gives the raw command, for
+      a repository without the bundle.
 - [ ] One host only: the plan says a cross-host reply is not covered.
 - [ ] All tests pass: `go test ./...`
 - [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean

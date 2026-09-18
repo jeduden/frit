@@ -12,7 +12,8 @@ exercised through a real git dir.
 RED, in order, each failing on today's code:
 
 1. `message --ask` dry run shows an envelope: the text, a line saying
-   a reply is wanted, and the exact `frit reply "<answer>"` command.
+   a reply is wanted, the `plan-reply` skill to load, and the exact
+   `frit reply "<answer>"` command as the fallback.
    Nothing is sent and no record is written. Under `--go` the fake
    pane receives the envelope whole and one ask record exists.
 2. `frit reply "<answer>"` run from the lane worktree, with no plan
@@ -32,13 +33,18 @@ with an optional selector inferred from the cwd, the way `open` and
 `nudge` infer theirs. Carry the ask state on the board row through the
 one report model, so the table and `--json` never diverge.
 
-Skill front: `reply` ships with the skill that fronts it, in this
-change. Fold it into plan-drive's "Ask directly" for the asker and into
-the skill a responder loads, whichever stays under its token budget.
-Do not raise a budget or touch `.mdsmith.yml` without the owner's
-consent; if the budget forces it, stop and ask. State that `frit reply`
-is the one command to allowlist for the round trip. Its example shows
-`--json` where an agent branches on the result.
+Skill front: `reply` ships with its skill in this change. Add
+`plan-reply` under `internal/skills/assets`. Its front matter carries
+`allowed-tools: Bash({{frit}} reply:*)`, listing that one command and
+nothing else, so `--via` rewrites the pattern with the invocation.
+Regenerate the installed copies with the repository's
+`--via "go run ./cmd/frit"` convention. Its description triggers on
+an incoming frit ask. Its body runs `{{frit}} reply "<answer>" --json`.
+It never sends and never asks the operator. Point plan-drive's "Ask
+directly" at `--ask` for the asker. If that pushes plan-drive past its
+token budget, stop and ask the owner. Do not edit `.mdsmith.yml`
+without consent. Add `plan-reply` to the skill list in
+[development.md](../../docs/development.md).
 
 BDD coverage: add `@C13` (or the next free id) to
 [command-scenarios.md](../../docs/research/command-scenarios.md) and
@@ -49,8 +55,14 @@ reports answered with the answer text. Bind steps in a section-owned
 claim, takeover or resume changes. This is a single-host command
 behavior.
 
-Gate: C13 runs without skipping against the built frit. Run `frit reply`
-and confirm it needs no `--go` and leaves refs and panes untouched.
-Confirm the skill's example command matches the built output; lint and
-the dogfood match pass on a false claim. Then run the full Go tests,
-lint and `mdsmith check .`.
+Gate: C13 runs without skipping against the built frit. Run `frit
+reply` and confirm it needs no `--go` and leaves refs and panes
+untouched. Confirm the skill's example command matches the built
+output; lint and the dogfood match pass on a false claim. Then prove
+the approval claim in a real Claude Code session, which no Go test can
+do. Install the bundle in a fixture lane, give the session the
+envelope as its prompt under default permissions, and confirm the
+reply lands with no permission prompt. Record what happened in the
+phase result. If the harness still prompts, say so and do not tick the
+approval criterion. Then run the full Go tests, lint and
+`mdsmith check .`.
