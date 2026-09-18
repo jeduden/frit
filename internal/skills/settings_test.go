@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -31,13 +32,7 @@ func settingsAllow(t *testing.T, dir string) []string {
 }
 
 func hasRule(rules []string, want string) bool {
-	for _, r := range rules {
-		if r == want {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(rules, want)
 }
 
 // TestInstallWritesReplyAllowRule: a repository with no settings file
@@ -74,7 +69,8 @@ func TestInstallMergesIntoExistingSettings(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	seed := `{"enabledPlugins": {"gopls-lsp@x": true}, "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Bash(rm:*)"]}}`
+	seed := `{"enabledPlugins": {"gopls-lsp@x": true},
+  "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Bash(rm:*)"]}}`
 	if err := os.WriteFile(settings, []byte(seed), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -192,5 +188,103 @@ func TestDogfoodSettingsAllowTheReply(t *testing.T) {
 		if !hasRule(doc.Permissions.Allow, want) {
 			t.Fatalf("dogfood allow list %v lacks %q", doc.Permissions.Allow, want)
 		}
+	}
+}
+
+// TestLoadSettingsReadsKeysRaw: a missing file is an empty document, a
+// present one keeps each top-level key as raw JSON, and a file that is
+// not a JSON object or cannot be read is refused.
+func TestLoadSettingsReadsKeysRaw(t *testing.T) {
+	dir := t.TempDir()
+
+	_, doc, err := loadSettings(filepath.Join(dir, "missing.json"))
+	if err != nil || len(doc) != 0 {
+		t.Fatalf("missing file: doc %v, err %v; want empty, nil", doc, err)
+	}
+
+	present := filepath.Join(dir, "present.json")
+	if err := os.WriteFile(present, []byte(`{"a": {"b": 1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, doc, err = loadSettings(present)
+	if err != nil || string(doc["a"]) != `{"b": 1}` {
+		t.Fatalf("present file: doc %v, err %v", doc, err)
+	}
+
+	array := filepath.Join(dir, "array.json")
+	if err := os.WriteFile(array, []byte(`[1]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadSettings(array); !errors.Is(err, ErrSettings) {
+		t.Fatalf("a JSON array: err %v, want ErrSettings", err)
+	}
+
+	if _, _, err := loadSettings(dir); err == nil || errors.Is(err, ErrSettings) {
+		t.Fatalf("a directory: err %v, want a read error", err)
+	}
+}
+
+// TestAddReplyRulesRefusesShapesItCannotMerge: permissions that is not
+// an object, or an allow that is not a list, is ErrSettings naming the
+// file, and the document is left as it was.
+func TestAddReplyRulesRefusesShapesItCannotMerge(t *testing.T) {
+	for name, raw := range map[string]string{
+		"permissions not an object": `{"permissions": []}`,
+		"allow not a list":          `{"permissions": {"allow": "Bash(ls:*)"}}`,
+	} {
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatal(err)
+		}
+
+		changed, err := addReplyRules("settings.json", doc, "frit")
+
+		if changed || !errors.Is(err, ErrSettings) || !contains(err.Error(), "settings.json") {
+			t.Fatalf("%s: changed %v, err %v; want unchanged ErrSettings naming the file", name, changed, err)
+		}
+	}
+}
+
+// TestAddReplyRulesAddsOnlyWhatIsMissing: a document with one rule
+// present gains the other; one with both reports no change.
+func TestAddReplyRulesAddsOnlyWhatIsMissing(t *testing.T) {
+	doc := map[string]json.RawMessage{
+		"permissions": json.RawMessage(`{"allow": ["Skill(plan-reply)"]}`),
+	}
+
+	changed, err := addReplyRules("s.json", doc, "frit")
+	if err != nil || !changed {
+		t.Fatalf("first: changed %v, err %v; want changed", changed, err)
+	}
+	if want := `{"allow":["Skill(plan-reply)","Bash(frit reply:*)"]}`; string(doc["permissions"]) != want {
+		t.Fatalf("permissions = %s, want %s", doc["permissions"], want)
+	}
+
+	changed, err = addReplyRules("s.json", doc, "frit")
+	if err != nil || changed {
+		t.Fatalf("second: changed %v, err %v; want unchanged", changed, err)
+	}
+}
+
+// TestMergeSettingsKeepsHTMLCharactersReadable: a rule with `&&` is
+// written as typed, not as a & escape.
+func TestMergeSettingsKeepsHTMLCharactersReadable(t *testing.T) {
+	dir := t.TempDir()
+
+	data, changed, err := mergeSettings(dir, "cd a && frit")
+	if err != nil || !changed {
+		t.Fatalf("changed %v, err %v; want changed", changed, err)
+	}
+	if !contains(string(data), "Bash(cd a && frit reply:*)") {
+		t.Fatalf("settings escaped the rule: %s", data)
+	}
+}
+
+// TestMarshalRawIsCompactAndUnescaped: compact JSON with no trailing
+// newline, and `&` left as typed.
+func TestMarshalRawIsCompactAndUnescaped(t *testing.T) {
+	got, err := marshalRaw([]string{"a && b"})
+	if err != nil || string(got) != `["a && b"]` {
+		t.Fatalf("marshalRaw = %q, %v; want [\"a && b\"]", got, err)
 	}
 }

@@ -59,9 +59,11 @@ after the skill loaded. A project allow rule for the same command
 worked. So `frit skills` also writes `Skill(plan-reply)` and
 `Bash(<invoke> reply:*)` into the repository's `.claude/settings.json`,
 and the skill's `allowed-tools` stays as documentation of the intent.
-The rule covers a side-effect-free write, not a send. Two limits are
+The rule covers a side-effect-free write, not a send. Three limits are
 stated, not hidden. The approval needs the skills bundle installed in
-the responder's repository. A deny rule in the harness still wins.
+the responder's repository. Claude Code applies a project's allow rules
+only in a folder the operator has trusted, so a lane in an untrusted
+folder still prompts. A deny rule in the harness still wins.
 
 **What is reused.** Searched and reused:
 
@@ -164,7 +166,7 @@ footer: |
       answered, with the answer text, so an agent branches on a field.
 - [ ] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
-- [ ] A `plan-reply` skill fronts `reply`, and the bundle's project
+- [x] A `plan-reply` skill fronts `reply`, and the bundle's project
       settings allow that one command, so a responder with the bundle
       installed replies with no operator sign-off, checked in a real
       session. The skill's example runs against the built frit.

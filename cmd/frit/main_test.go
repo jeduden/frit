@@ -593,6 +593,28 @@ func TestSkillsJSONCarriesTheWrittenPaths(t *testing.T) {
 	assert.Contains(t, out.String(), "SKILL.md")
 }
 
+// TestSkillsNamesTheSettingsItAllows: the reply rule widens a
+// repository's permissions, so the command's own output says which
+// file it wrote, in both renderings, and --help says it up front.
+func TestSkillsNamesTheSettingsItAllows(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	var out, errb bytes.Buffer
+
+	code := run([]string{"skills", repo}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), filepath.Join(repo, ".claude", "settings.json"))
+	body, err := os.ReadFile(filepath.Join(repo, ".claude", "settings.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Bash(frit reply:*)")
+
+	out.Reset()
+	errb.Reset()
+	require.Equal(t, 0, run([]string{"skills", "--help"}, &out, &errb))
+	assert.Contains(t, strings.Join(strings.Fields(out.String()), " "), "settings.json")
+}
+
 // TestSkillsHelpNamesTheViaFlag: --help is where a reader learns
 // --via exists and sees an invocation to actually pass, rather than
 // discovering the seam only by reading source.

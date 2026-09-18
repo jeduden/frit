@@ -75,7 +75,12 @@ func Install(repoDir string, force bool, invoke string) ([]string, error) {
 		}
 	}
 
-	written := make([]string, 0, len(files))
+	settings, changed, err := mergeSettings(repoDir, invoke)
+	if err != nil {
+		return nil, err
+	}
+
+	written := make([]string, 0, len(files)+1)
 	for _, rel := range files {
 		data, err := assets.ReadFile(path("assets", rel))
 		if err != nil {
@@ -88,6 +93,14 @@ func Install(repoDir string, force bool, invoke string) ([]string, error) {
 			return nil, err
 		}
 		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return nil, err
+		}
+		written = append(written, dst)
+	}
+
+	if changed {
+		dst := filepath.Join(repoDir, settingsRel)
+		if err := os.WriteFile(dst, settings, 0o644); err != nil {
 			return nil, err
 		}
 		written = append(written, dst)

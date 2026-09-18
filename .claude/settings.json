@@ -1,5 +1,11 @@
 {
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Skill(plan-reply)",
+      "Bash(go run ./cmd/frit reply:*)"
+    ]
   }
 }

@@ -143,7 +143,7 @@ type cli struct {
 	Drift   driftCmd   `cmd:"" help:"Report a not-done plan's landed and naming-commit evidence."`
 	Who     whoCmd     `cmd:"" help:"Report which lane has a live agent on it."`
 	Init    initCmd    `cmd:"" help:"Write a .frit.yml with frit's defaults."`
-	Skills  skillsCmd  `cmd:"" help:"Install the bundled agent skills into .claude/skills."`
+	Skills  skillsCmd  `cmd:"" help:"Install agent skills into .claude/skills and the reply rule into settings.json."`
 	Version versionCmd `cmd:"" help:"Print the build version."`
 }
 
@@ -1187,7 +1187,9 @@ type skillsCmd struct {
 
 // Run lays frit's bundled agent skills into the repository's
 // .claude/skills, so the repo carries the instructions for driving
-// frit, not just the tool.
+// frit, not just the tool. It also merges the rule that lets a lane
+// answer an ask into .claude/settings.json, and lists that file among
+// those written.
 func (s *skillsCmd) Run(c *cli, rt *runtime) error {
 	paths, err := skills.Install(s.Dir, s.Force, s.Via)
 	if err != nil {

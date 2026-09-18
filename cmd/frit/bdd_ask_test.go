@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,6 +35,8 @@ const askAnswer = "in a PR, merging"
 // and log a reply must leave untouched.
 type askState struct {
 	root, lane string
+	// repo is C14's repository, whose settings the bundle merges into.
+	repo string
 	// prefix is the installed plan-reply skill's own invocation — the
 	// text before `reply` in its example command.
 	prefix    string
@@ -55,6 +58,12 @@ func (w *world) registerAsk(sc *godog.ScenarioContext) {
 	sc.Step(`^board --json reports plan (\d+)'s ask as answered with the answer text$`,
 		w.boardReportsTheAskAnswered)
 	sc.Step(`^the reply prompted no pane and moved no ref$`, w.theReplyPromptedNoPaneAndMovedNoRef)
+	sc.Step(`^a repository whose settings already carry a plugin and an allow rule$`,
+		w.aRepositoryWhoseSettingsCarryAPluginAndAnAllowRule)
+	sc.Step(`^the built frit installs the skills bundle$`, w.theBuiltFritInstallsTheSkillsBundle)
+	sc.Step(`^the settings keep the plugin and the allow rule$`, w.theSettingsKeepThePluginAndTheAllowRule)
+	sc.Step(`^the settings allow the reply for the built frit invocation$`,
+		w.theSettingsAllowTheReplyForTheBuiltFrit)
 }
 
 // replyCommandPattern finds the plan-reply skill's own example command
@@ -293,6 +302,100 @@ func (w *world) theReplyPromptedNoPaneAndMovedNoRef() error {
 	}
 	if now := refs(w.t, as.lane); now != as.refsBefore {
 		return fmt.Errorf("the reply moved a ref:\nbefore %s\nafter  %s", as.refsBefore, now)
+	}
+
+	return nil
+}
+
+// seedSettings is the settings file C14's repository starts with: a
+// plugin, a deny rule and one allow rule the bundle has no business
+// touching.
+const seedSettings = `{"enabledPlugins": {"gopls-lsp@x": true},
+  "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Bash(rm:*)"]}}`
+
+// aRepositoryWhoseSettingsCarryAPluginAndAnAllowRule is C14's Given: a
+// directory holding a project settings file the repository wrote itself.
+func (w *world) aRepositoryWhoseSettingsCarryAPluginAndAnAllowRule() error {
+	as := section[askState](w)
+	as.repo = w.t.TempDir()
+	dir := filepath.Join(as.repo, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(filepath.Join(dir, "settings.json"), []byte(seedSettings), 0o600)
+}
+
+// theBuiltFritInstallsTheSkillsBundle is C14's When: the built frit's
+// own skills verb, with itself as the invocation, as an operator runs it.
+func (w *world) theBuiltFritInstallsTheSkillsBundle() error {
+	as := section[askState](w)
+	frit, err := builtFrit()
+	if err != nil {
+		return err
+	}
+	if err := runBuiltFrit(as, as.repo, "skills", as.repo, "--via", frit); err != nil {
+		return fmt.Errorf("skills failed: %w: %s%s", err, as.out.String(), as.errb.String())
+	}
+	if !strings.Contains(as.out.String(), filepath.Join(as.repo, ".claude", "settings.json")) {
+		return fmt.Errorf("skills did not say it wrote the settings: %s", as.out.String())
+	}
+
+	return nil
+}
+
+// readSettings decodes the repository's settings into its top-level
+// keys and its permissions lists.
+func readSettings(repo string) (map[string]json.RawMessage, map[string][]string, error) {
+	data, err := os.ReadFile(filepath.Join(repo, ".claude", "settings.json"))
+	if err != nil {
+		return nil, nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, nil, fmt.Errorf("settings is not JSON: %w: %s", err, data)
+	}
+	var perms map[string][]string
+	if err := json.Unmarshal(doc["permissions"], &perms); err != nil {
+		return nil, nil, fmt.Errorf("permissions is not lists: %w: %s", err, data)
+	}
+
+	return doc, perms, nil
+}
+
+// theSettingsKeepThePluginAndTheAllowRule is C14's first Then: what the
+// repository wrote is still there beside what the bundle added.
+func (w *world) theSettingsKeepThePluginAndTheAllowRule() error {
+	doc, perms, err := readSettings(section[askState](w).repo)
+	if err != nil {
+		return err
+	}
+	if _, ok := doc["enabledPlugins"]; !ok {
+		return fmt.Errorf("the bundle dropped the plugin: %v", doc)
+	}
+	if !slices.Contains(perms["allow"], "Bash(ls:*)") || !slices.Contains(perms["deny"], "Bash(rm:*)") {
+		return fmt.Errorf("the bundle dropped a rule: %v", perms)
+	}
+
+	return nil
+}
+
+// theSettingsAllowTheReplyForTheBuiltFrit is C14's last Then: the two
+// rules that let a lane answer with no sign-off, for the invocation the
+// skills were installed with.
+func (w *world) theSettingsAllowTheReplyForTheBuiltFrit() error {
+	frit, err := builtFrit()
+	if err != nil {
+		return err
+	}
+	_, perms, err := readSettings(section[askState](w).repo)
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"Skill(plan-reply)", "Bash(" + frit + " reply:*)"} {
+		if !slices.Contains(perms["allow"], want) {
+			return fmt.Errorf("the allow list %v lacks %q", perms["allow"], want)
+		}
 	}
 
 	return nil

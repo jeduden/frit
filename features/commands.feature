@@ -97,3 +97,10 @@ Feature: Command scenarios
     Then the lane's pane was sent an envelope saying a reply is wanted
     And board --json reports plan 7's ask as answered with the answer text
     And the reply prompted no pane and moved no ref
+
+  @C14
+  Scenario: installing the bundle allows the reply and keeps the settings it found
+    Given a repository whose settings already carry a plugin and an allow rule
+    When the built frit installs the skills bundle
+    Then the settings keep the plugin and the allow rule
+    And the settings allow the reply for the built frit invocation

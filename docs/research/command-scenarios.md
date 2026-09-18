@@ -26,3 +26,4 @@ kept in bijection with `features/` the same way, by the same gate:
 | C11 | claiming from a lane whose branch diverged          | refused naming the branch and both tips, not "already held" — resume's divergence is carried in the report (LeaseDivergesError)                           |
 | C12 | starting from a lane whose branch diverged          | the same refusal, not a fault — `pick --go` skips it like a lost race rather than aborting its walk (startRefusable)                                      |
 | C13 | an ask is answered by the lane                      | the installed plan-reply skill's `reply` answers a `message --ask --go` with no pane or ref, and `board --json` reports it answered (ask.Reply)           |
+| C14 | installing the bundle allows the reply              | the built frit's `skills` adds the reply rules to an existing settings file and keeps its own keys and rules (skills.mergeSettings)                       |

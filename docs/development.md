@@ -129,6 +129,19 @@ in `internal/skills/assets`; frit's own `.claude/skills` is the output
 of `frit skills`, regenerated from the bundle rather than hand-kept, so
 it never drifts from what ships.
 
+`frit skills` also merges two rules into the repository's
+`.claude/settings.json`: `Skill(plan-reply)` and `Bash(<invoke>
+reply:*)`. A real session showed `plan-reply`'s own `allowed-tools`
+does not pre-approve the reply, because the harness prompts before it
+loads the skill and denied the command after, while a project rule
+did. The merge adds only those two entries to `permissions.allow`,
+keeps every other key and rule, is a no-op when both are present, and
+refuses a settings file that is not JSON. A rewritten file's keys come
+back sorted. The command lists the file among those it wrote, since
+the rule widens the repository's permissions. Claude Code applies a
+project's allow rules only once the operator has trusted the folder,
+so a repository nobody has opened and trusted still prompts.
+
 A shipped skill's commands read `{{frit}}`, substituted by `--via` at
 install time. The default is bare `frit`, a binary on `PATH`. A repo
 that pins frit with mise, or builds it locally, passes its own. frit's
