@@ -50,10 +50,15 @@ unclear, ask its agent rather than reaching for `frit yield` or a
 hand-land. `{{frit}} board --json` names that case for you: a held
 row whose `ask` is non-empty carries the exact message command to run.
 
-- **`{{frit}} message <id> "text"`** — send arbitrary text to the
-  lane's live agent through herdr. Unlike `nudge`, it reaches a
-  **working** lane as readily as an idle one, because that is exactly
-  who needs asking: `{{frit}} message <id> "are you in a PR?"`.
+- **`{{frit}} message <id> --ask "text"`** — send text to the lane's
+  live agent through herdr, with a line telling it a reply is wanted
+  and how to give it. Unlike `nudge`, it reaches a **working** lane as
+  readily as an idle one, because that is exactly who needs asking:
+  `{{frit}} message <id> --ask "are you in a PR?" --go`.
+- **Read the answer** from `{{frit}} board --json`. The row's
+  `ask_state` is `none`, `pending` or `answered`, and `ask_answer`
+  holds the text. Without `--ask` the text carries no way to answer,
+  so silence proves nothing.
 
 ## Notes
 
