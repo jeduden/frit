@@ -26,8 +26,11 @@ import (
 type State string
 
 const (
-	None     State = "none"
-	Pending  State = "pending"
+	// None is a lane nobody asked, or whose record cannot be read.
+	None State = "none"
+	// Pending is an ask sent and not yet answered.
+	Pending State = "pending"
+	// Answered is an ask whose answer was recorded.
 	Answered State = "answered"
 )
 

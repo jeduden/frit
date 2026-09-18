@@ -44,7 +44,8 @@ type askState struct {
 }
 
 func (w *world) registerAsk(sc *godog.ScenarioContext) {
-	sc.Step(`^a lane on plan (\d+) with a live agent, and the bundled plan-reply skill installed with the built frit invocation$`,
+	sc.Step(`^a lane on plan (\d+) with a live agent, and the bundled plan-reply skill `+
+		`installed with the built frit invocation$`,
 		w.aLaneWithALiveAgentAndThePlanReplySkillInstalled)
 	sc.Step(`^a supervisor asks the lane with message --ask --go$`, w.aSupervisorAsksTheLane)
 	sc.Step(`^the lane answers with the installed skill's reply command$`,
@@ -194,6 +195,27 @@ func (w *world) theLaneAnswersWithTheInstalledSkillsReplyCommand() error {
 		return fmt.Errorf("the reply failed: %w: %s%s", err, as.out.String(), as.errb.String())
 	}
 
+	return checkReplyOutput(as.out.Bytes(), w.planID)
+}
+
+// checkReplyOutput holds the built frit's reply output to what the
+// installed skill tells an agent to expect: a document naming the
+// command, the plan, the question asked and the answer recorded.
+func checkReplyOutput(out []byte, planID int) error {
+	var doc struct {
+		Command  string `json:"command"`
+		Plan     int    `json:"plan"`
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		return fmt.Errorf("reply did not emit valid json: %w: %s", err, out)
+	}
+	if doc.Command != "reply" || doc.Plan != planID ||
+		doc.Question != "are you in a PR?" || doc.Answer != askAnswer {
+		return fmt.Errorf("reply's document is not what the skill promises: %s", out)
+	}
+
 	return nil
 }
 
@@ -320,4 +342,16 @@ func TestCheckAskAnsweredReadsTheRow(t *testing.T) {
 	require.Error(t, checkAskAnswered(row("answered", askAnswer), "8"), "no row for the plan")
 	require.Error(t, checkAskAnswered([]byte("not json"), "7"))
 	require.NoError(t, checkAskAnswered(row("answered", askAnswer), "7"))
+}
+
+// TestCheckReplyOutputHoldsTheSkillsPromise: the document must name the
+// reply command, the plan, the question and the answer, as plan-reply
+// says it will; anything else fails the step.
+func TestCheckReplyOutputHoldsTheSkillsPromise(t *testing.T) {
+	good := `{"command":"reply","plan":7,"question":"are you in a PR?","answer":"` + askAnswer + `"}`
+
+	require.NoError(t, checkReplyOutput([]byte(good), 7))
+	require.Error(t, checkReplyOutput([]byte(good), 8), "another plan")
+	require.Error(t, checkReplyOutput([]byte(`{"command":"reply","plan":7}`), 7), "no answer")
+	require.Error(t, checkReplyOutput([]byte("not json"), 7))
 }
