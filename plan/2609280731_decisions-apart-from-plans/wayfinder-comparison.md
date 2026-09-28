@@ -80,6 +80,16 @@ Per unit of work we are about four times leaner, because frit computes
 in code and the skill only names the command. Our weak spot is the
 fixed cost paid in every session, plan work or not.
 
+## Where both fall short
+
+Both tie a decision to the unit of work that made it. Wayfinder keeps
+it in a map's "Decisions so far" and, if it must last, in an ADR that
+nothing serves to later work. We keep it in a plan's handoff. But a
+decision outlives its plan, can be made with no plan, applies to a
+place in the tree rather than to a plan, and can be overridden later.
+The plan beside this note gives decisions their own record for that
+reason.
+
 ## What not to adopt
 
 - The issue tracker as the store. It loses the atomic claim, offline
