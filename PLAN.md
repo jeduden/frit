@@ -146,4 +146,5 @@ footer: |
 | 2609152125 | ✅     | sonnet | [Landed lost-race reports landed even when no marker survives](plan/2609152125_landed-lost-race-survives-an-unreadable-marker.md)              |
 | 2609181901 | 🔲     | sonnet | [An ask carries its reply, so silence is no longer the only answer](plan/2609181901_ask-message-with-a-reply-path/plan.md)                     |
 | 2609181909 | 🔲     | sonnet | [frit tells a blocked or finished agent from an unknown one](plan/2609181909_read-blocked-and-done-from-herdr/plan.md)                         |
+| 2609280731 | 🔲     | sonnet | [Chart a foggy effort as a decision map before building](plan/2609280731_decision-maps-from-wayfinder/plan.md)                                 |
 <?/catalog?>
