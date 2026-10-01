@@ -120,7 +120,7 @@ func Gather(
 	ambiguous := map[string]bool{}
 	for i, repo := range repos {
 		rep.Repo(repo.Name, i+1, len(repos))
-		entries, held, leaseTips, coord, problems, didFetch, err := gatherRepo(
+		entries, held, tips, coord, problems, didFetch, err := gatherRepo(
 			host, repo, run, pipe, opts)
 		if err != nil {
 			res.Problems = append(res.Problems,
@@ -135,7 +135,7 @@ func Gather(
 		recordCoord(&res, ambiguous, repo.Name, coord)
 		for _, e := range entries {
 			res.Plans = append(res.Plans,
-				planOf(repo.Name, e, held, leaseTips))
+				planOf(repo.Name, e, held, tips))
 		}
 	}
 
@@ -212,12 +212,12 @@ func parseProblems(repoName string, errs []error, mislaid []string) []Problem {
 func gatherRepo(
 	host string, repo discover.Repo,
 	run gitwt.Runner, pipe gitwt.PipeRunner, opts Options,
-) ([]index.Entry, map[int64][]string, map[int64]string, Coord,
+) ([]index.Entry, map[int64][]string, holdTips, Coord,
 	[]Problem, bool, error,
 ) {
 	cfg, err := repocfg.Load(repo.Path)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, false, err
+		return nil, nil, holdTips{}, Coord{}, nil, false, err
 	}
 
 	var fetched bool
@@ -228,7 +228,7 @@ func gatherRepo(
 
 	files, mislaid, err := plans.Collect(repo.Path, cfg.PlanDir, run, pipe)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, false, err
+		return nil, nil, holdTips{}, Coord{}, nil, false, err
 	}
 
 	preferred := gitobj.DefaultRef(repo.Path, run)
@@ -238,7 +238,7 @@ func gatherRepo(
 
 	refs, err := gitobj.Refs(repo.Path, run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, false, err
+		return nil, nil, holdTips{}, Coord{}, nil, false, err
 	}
 	if p := staleFetch(repo, cfg.Remote, fetchErr, refs); p != nil {
 		problems = append(problems, *p)
@@ -247,13 +247,13 @@ func gatherRepo(
 		problems = append(problems, *p)
 	}
 
-	held, leaseTips, err := heldBranches(
+	held, tips, err := heldBranches(
 		repo, cfg, preferred, refs, index.LandedIDs(entries, preferred), run)
 	if err != nil {
-		return nil, nil, nil, Coord{}, nil, false, err
+		return nil, nil, holdTips{}, Coord{}, nil, false, err
 	}
 
-	return entries, held, leaseTips, coordOf(repo, cfg, preferred),
+	return entries, held, tips, coordOf(repo, cfg, preferred),
 		problems, fetched, nil
 }
 
@@ -455,20 +455,21 @@ func ReleasedRefs(
 // filtered out so landed work does not read as a live claim. The branch
 // names are the lanes a holder works the plan on, deduplicated so a
 // claim pushed to a remote does not read as two. Beside the branches it
-// returns each plan's lease tip — the commit its id-only work ref
-// points at — which is what the staleness observer watches and exactly
-// what a takeover CASes on.
+// returns each plan's hold tips: its lease tip — the commit its id-only
+// work ref points at, exactly what a takeover CASes on — and its live
+// decorated holds' tips, which the staleness observer watches when no
+// lease tip exists.
 func heldBranches(
 	repo discover.Repo, cfg repocfg.Config, preferred string,
 	refs []gitobj.Ref, landed map[int64]bool, run gitwt.Runner,
-) (map[int64][]string, map[int64]string, error) {
+) (map[int64][]string, holdTips, error) {
 	holds, err := cfg.Compiled()
 	if err != nil {
-		return nil, nil, err
+		return nil, holdTips{}, err
 	}
 	merged, err := gitobj.MergedRefs(repo.Path, preferred, run)
 	if err != nil {
-		return nil, nil, err
+		return nil, holdTips{}, err
 	}
 
 	released := ReleasedRefs(repo.Path, refs, holds, merged, landed, run)
@@ -489,7 +490,47 @@ func heldBranches(
 		}
 	}
 
-	return held, leaseTips(refs, holds), nil
+	return held, holdTips{
+		lease:     leaseTips(refs, holds),
+		decorated: decoratedTips(refs, holds, held),
+	}, nil
+}
+
+// decoratedTips maps each plan's live decorated holds — every branch in
+// held other than the id-only work ref — to its tip, read off the raw
+// ref list the way leaseTips reads the lease's, origin's copy winning
+// over a local one. A plan held by such a branch alone has no lease
+// tip, so this is what the staleness observer watches instead (#204);
+// a branch held reports nothing here, since only a live hold matures.
+func decoratedTips(
+	refs []gitobj.Ref, holds repocfg.Holds, held map[int64][]string,
+) map[int64]map[string]string {
+	tips := map[int64]map[string]string{}
+	for _, r := range refs {
+		branch, ok := r.Branch()
+		if !ok || r.OID == "" {
+			continue
+		}
+		id, ok := holds.Match(branch)
+		if !ok || branch == claim.Branch(id) || !slices.Contains(held[id], branch) {
+			continue
+		}
+		if tips[id] == nil {
+			tips[id] = map[string]string{}
+		}
+		if tips[id][branch] == "" || strings.HasPrefix(r.Name, "refs/remotes/") {
+			tips[id][branch] = r.OID
+		}
+	}
+
+	return tips
+}
+
+// holdTips are the tips a repository's holds point at, keyed by plan
+// id: the lease's own, and each live decorated hold's.
+type holdTips struct {
+	lease     map[int64]string
+	decorated map[int64]map[string]string
 }
 
 // leaseTips maps each plan to the tip of its id-only work ref — read
@@ -521,27 +562,28 @@ func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
 // view, tagging it held when a lane claims its id.
 func planOf(
 	repoName string, e index.Entry, held map[int64][]string,
-	leaseTips map[int64]string,
+	tips holdTips,
 ) discovery.Plan {
 	v := e.Primary()
 	holds := held[e.Key.ID]
 
 	return discovery.Plan{
-		Key:       e.Key.String(),
-		Repo:      repoName,
-		ID:        e.Key.ID,
-		Status:    v.Plan.Status,
-		Title:     v.Plan.Title,
-		Summary:   v.Plan.Summary,
-		Model:     v.Plan.Model,
-		Goal:      v.Plan.Goal,
-		DependsOn: v.Plan.DependsOn,
-		Phases:    v.Plan.Phases,
-		Path:      v.Path,
-		Branches:  shortBranches(e),
-		Held:      len(holds) > 0,
-		Holds:     holds,
-		HoldTip:   leaseTips[e.Key.ID],
+		Key:           e.Key.String(),
+		Repo:          repoName,
+		ID:            e.Key.ID,
+		Status:        v.Plan.Status,
+		Title:         v.Plan.Title,
+		Summary:       v.Plan.Summary,
+		Model:         v.Plan.Model,
+		Goal:          v.Plan.Goal,
+		DependsOn:     v.Plan.DependsOn,
+		Phases:        v.Plan.Phases,
+		Path:          v.Path,
+		Branches:      shortBranches(e),
+		Held:          len(holds) > 0,
+		Holds:         holds,
+		HoldTip:       tips.lease[e.Key.ID],
+		DecoratedTips: tips.decorated[e.Key.ID],
 	}
 }
 

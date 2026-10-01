@@ -1,7 +1,7 @@
 ---
 n: 1
 title: The observer watches a decorated hold
-status: "🔳"
+status: "✅"
 result: false
 ---
 RED, each failing on today's code:
