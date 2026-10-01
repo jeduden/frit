@@ -1,7 +1,7 @@
 ---
 id: 2610011805
 title: A decorated hold with no lease matures, and can be taken over
-status: "🔳"
+status: "✅"
 summary: >-
   A hold made only of a legacy decorated branch, plan/<id>-<slug>, with
   no id-only lease ref beside it, never entered the staleness sampler:
@@ -113,7 +113,7 @@ that primitive exists.
 | ----- | ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | The observer watches a decorated hold       | opus   | a cmd test gathers a fleet held only by `plan/7-slug` and finds its key; a seeded 3h window reads stale; against the built frit, `start` reports a growing span |
 | 2     | release and yield agree on a decorated hold | sonnet | cmd tests: release in the lane and yield outside it both refuse as held, neither says "nothing holds it" nor "live"; `go test ./...` green                      |
-| 3     | A matured decorated hold is taken over      | opus   | a new `@S100` scenario: a matured decorated hold is claimed, its branch deleted on origin, `plan/<id>` minted; a moved branch refuses; `go test ./...` green    |
+| 3     | A matured decorated hold is taken over      | opus   | new `@S100` and `@S101`: a matured decorated hold is claimed, its branch deleted on origin, `plan/<id>` minted; a moved branch is not seized; tests green       |
 
 ## Phases
 
@@ -136,26 +136,28 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                       |
-| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [The observer watches a decorated hold](phase-1.md)                                                                                                                                                         |
-|     | ↳      | A plan held by a decorated branch alone now gets an observation key on the first pass that sees it. Its span grows across passes, and it reads stale once the takeover window matures, like a lease does.   |
-| 2   | ✅     | [release and yield agree on a decorated hold](phase-2.md)                                                                                                                                                   |
-|     | ↳      | release and yield now refuse a hold made of a decorated branch alone in the same words, naming the branch and the takeover that ends it. No refusal calls an unmatured hold "live" any more. C17 covers it. |
+| #   | Status | Phase                                                                                                                                                                                                                                                      |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [The observer watches a decorated hold](phase-1.md)                                                                                                                                                                                                        |
+|     | ↳      | A plan held by a decorated branch alone now gets an observation key on the first pass that sees it. Its span grows across passes, and it reads stale once the takeover window matures, like a lease does.                                                  |
+| 2   | ✅     | [release and yield agree on a decorated hold](phase-2.md)                                                                                                                                                                                                  |
+|     | ↳      | release and yield now refuse a hold made of a decorated branch alone in the same words, naming the branch and the takeover that ends it. No refusal calls an unmatured hold "live" any more. C17 covers it.                                                |
+| 3   | ✅     | [A matured decorated hold is taken over](phase-3.md)                                                                                                                                                                                                       |
+|     | ↳      | claim and start take a matured decorated-only hold over. They park its unlanded work, delete the branch on origin by CAS on the tip the window matured on, and mint plan/<id> fresh. A holder that pushed meanwhile is not seized. S100 and S101 cover it. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] A plan held only by a decorated branch gets an observation key
+- [x] A plan held only by a decorated branch gets an observation key
       on the first pass that sees it, and its span grows across passes
-- [ ] Once the window matures, the plan reads stale on `board` and
+- [x] Once the window matures, the plan reads stale on `board` and
       `start` no longer refuses it as not matured
-- [ ] `release` and `yield` both refuse a decorated hold as held;
+- [x] `release` and `yield` both refuse a decorated hold as held;
       neither says "nothing holds it" or "held live"
-- [ ] `start` and `claim` take a matured decorated hold over: the
+- [x] `start` and `claim` take a matured decorated hold over: the
       decorated branch is gone from origin, `plan/<id>` holds a claim
       marker, and unlanded work on the decorated branch is parked first
-- [ ] A decorated branch that moved after its window matured is not
+- [x] A decorated branch that moved after its window matured is not
       deleted; the takeover refuses as a lost race
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

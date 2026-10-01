@@ -1370,6 +1370,116 @@ func TestMintOrTakeOverResetsTheWindowOnALostTakeover(t *testing.T) {
 	assert.NotEmpty(t, held.Tip)
 }
 
+// pushDecorated pushes a legacy claim on plan/7-shader-unit to
+// origin and drops the local branch — another machine's decorated
+// hold, with no id-only lease ref anywhere (#204). It returns the tip.
+func pushDecorated(t *testing.T, repo string) string {
+	t.Helper()
+	git(t, repo, "checkout", "-q", "-b", "plan/7-shader-unit")
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader-unit")
+	git(t, repo, "push", "-q", "origin", "plan/7-shader-unit")
+	tip, err := gitCapture(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	git(t, repo, "checkout", "-q", "main")
+	git(t, repo, "branch", "-q", "-D", "plan/7-shader-unit")
+
+	return tip
+}
+
+// TestMintOrTakeOverRetiresAMaturedDecoratedHold (#204): a matured
+// hold made of a decorated branch alone has no lease tip for Takeover
+// to CAS on; the decorated takeover retires the branch and acquires
+// the id-only lease instead of failing on "no lease marker".
+func TestMintOrTakeOverRetiresAMaturedDecoratedHold(t *testing.T) {
+	isolate(t)
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	tip := pushDecorated(t, repo)
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true,
+		Holds:         []string{"plan/7-shader-unit"},
+		DecoratedTips: map[string]string{"plan/7-shader-unit": tip}}
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: "/lanes/mine"}
+
+	lease, err := mintOrTakeOver(rt, plan,
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, opts)
+
+	require.NoError(t, err)
+	assert.Equal(t, []claim.Retired{{Branch: "plan/7-shader-unit"}}, lease.Retired)
+	remote, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, remote, lease.Tip)
+}
+
+// TestMintOrTakeOverResetsTheWindowOnAMovedDecoratedHold: the
+// decorated holder pushed after its window matured, so the takeover
+// loses as a lost race and the window restarts rather than offering
+// the same takeover again.
+func TestMintOrTakeOverResetsTheWindowOnAMovedDecoratedHold(t *testing.T) {
+	isolate(t)
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	observed := pushDecorated(t, repo)
+	tree, err := gitCapture(t, repo, "rev-parse", observed+"^{tree}")
+	require.NoError(t, err)
+	moved, err := gitCapture(t, repo, "commit-tree", "-p", observed,
+		"-m", "still here", tree)
+	require.NoError(t, err)
+	git(t, repo, "push", "-q", "origin", moved+":refs/heads/plan/7-shader-unit")
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true,
+		DecoratedTips: map[string]string{"plan/7-shader-unit": observed}}
+	seedWindow(t, "atlas", 7, plan.WatchTip(), 3*time.Hour)
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: "/lanes/mine"}
+
+	_, err = mintOrTakeOver(rt, plan,
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, opts)
+
+	require.ErrorIs(t, err, claim.ErrLostRace)
+	path, err := observe.Path()
+	require.NoError(t, err)
+	win := observe.Load(path)[observe.Key("atlas", 7)]
+	assert.Equal(t, moved, win.Tip, "the window restarts on what holds the branch now")
+	assert.Zero(t, win.Span())
+}
+
+// TestRecordRetiredNamesTheBranchThatParkedWork: one retired branch
+// is reported as is; of several, the one whose work was parked is the
+// one named, so its rescue is never the one left out.
+func TestRecordRetiredNamesTheBranchThatParkedWork(t *testing.T) {
+	one := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	recordRetired(one, claim.Lease{Retired: []claim.Retired{{Branch: "plan/7-a"}}})
+	assert.Equal(t, "plan/7-a", one.Scavenged)
+	assert.Empty(t, one.Rescue)
+
+	several := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	recordRetired(several, claim.Lease{Retired: []claim.Retired{
+		{Branch: "plan/7-a"}, {Branch: "plan/7-b", Rescue: "refs/frit/rescue/7/h-b"},
+		{Branch: "plan/7-c"},
+	}})
+	assert.Equal(t, "plan/7-b", several.Scavenged)
+	assert.Equal(t, "refs/frit/rescue/7/h-b", several.Rescue)
+
+	none := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	recordRetired(none, claim.Lease{})
+	assert.Empty(t, none.Scavenged)
+}
+
+// TestPrintRetiredNamesTheBranchAndItsRescue: a successful claim or
+// start that retired a decorated branch names it, and the rescue when
+// there is one; nothing is printed when nothing was retired.
+func TestPrintRetiredNamesTheBranchAndItsRescue(t *testing.T) {
+	var out bytes.Buffer
+	printRetired(&out, "plan/7-a", "refs/frit/rescue/7/h-a")
+	assert.Equal(t,
+		"  retired:  plan/7-a\n  rescued:  refs/frit/rescue/7/h-a\n", out.String())
+
+	out.Reset()
+	printRetired(&out, "", "")
+	assert.Empty(t, out.String())
+}
+
 // TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire: Run's own
 // mintClaim error path — a real push failure, not a lost race — an
 // unreachable origin on an otherwise fresh, claimable plan.

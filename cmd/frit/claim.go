@@ -417,8 +417,23 @@ func mintClaim(
 		return claim.Lease{}, err
 	}
 	doc.Minted(minted.BaseSHA)
+	recordRetired(doc, minted)
 
 	return minted, nil
+}
+
+// recordRetired reports the decorated branch a decorated takeover
+// removed on its way to the lease, and the rescue its unlanded work
+// was parked to — the same scavenged/rescue pair a cleaned-up ref
+// already reports. A takeover retiring several branches names the one
+// that parked work, so the rescue a person must look in is never the
+// one left out; nothing is recorded for any other transition.
+func recordRetired(doc scavengeReporter, lease claim.Lease) {
+	for i, r := range lease.Retired {
+		if i == 0 || r.Rescue != "" {
+			doc.ScavengedRef(r.Branch, r.Rescue)
+		}
+	}
 }
 
 // scavengeLanded cleans the ref behind a lost race whose winner has
@@ -499,6 +514,21 @@ func mintOrTakeOver(
 ) (claim.Lease, error) {
 	if !plan.Held || (!plan.Stale && !plan.Dead) {
 		return claim.Acquire(coord.Path, opts, rt.git)
+	}
+	if plan.HoldTip == "" && len(plan.DecoratedTips) > 0 {
+		// A hold made of decorated branches alone (#204) has no work
+		// ref to CAS a takeover marker onto, and no marker naming a
+		// session to veto with — the decorated takeover CASes each
+		// branch's delete on the tips the window matured on instead,
+		// then acquires the id-only lease.
+		lease, err := claim.TakeoverDecorated(
+			coord.Path, opts, plan.DecoratedTips, rt.git)
+		var held *claim.HeldError
+		if errors.As(err, &held) && held.Tip != "" {
+			resetWindow(plan, held.Tip, time.Now())
+		}
+
+		return lease, err
 	}
 
 	// Held and (matured or confirmed dead): the one place a herdr veto
@@ -754,7 +784,20 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 	if doc.Worktree != "" {
 		_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Worktree)
 	}
+	printRetired(out, doc.Scavenged, doc.Rescue)
 	if doc.Warning != "" {
 		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
+}
+
+// printRetired names, under a successful claim or start, the decorated
+// branch its takeover retired and where that branch's unlanded work was
+// parked — nothing when the transition retired nothing.
+func printRetired(out io.Writer, branch, rescue string) {
+	if branch != "" {
+		_, _ = fmt.Fprintf(out, "  retired:  %s\n", branch)
+	}
+	if rescue != "" {
+		_, _ = fmt.Fprintf(out, "  rescued:  %s\n", rescue)
 	}
 }

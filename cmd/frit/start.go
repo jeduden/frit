@@ -792,6 +792,7 @@ func startExecute(
 		// candidate (startRefusable). Every other error is a real fault.
 		return err
 	}
+	recordRetired(doc, lease)
 
 	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
 	if err != nil {
@@ -1370,6 +1371,7 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	}
 	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Plan.Title)
 	_, _ = fmt.Fprintf(out, "  claim:    %s  (base %s)\n", doc.Branch, doc.Base)
+	printRetired(out, doc.Scavenged, doc.Rescue)
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
 	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
 		doc.Kind, modelLabel(doc.Tier))

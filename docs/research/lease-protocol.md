@@ -357,15 +357,17 @@ dies with the host.
 
 [host-death.feature](../../features/host-death.feature).
 
-| #   | Scenario                                      | Outcome and mechanism                                                                                                                    |
-| --- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| S14 | power loss mid-push                           | as S3; any local repo damage stays local                                                                                                 |
-| S15 | host dies holding a claim, never back         | OBS→TAKE after T; no human needed                                                                                                        |
-| S16 | host resurrected days later                   | FENCE: sibling history, every push rejected; YIELD                                                                                       |
-| S17 | suspended weeks, plan re-claimed              | FENCE as S16; divergence parked by YIELD                                                                                                 |
-| S18 | zombie re-runs its own claim                  | RESUME only when no live session owns the lane; else refuse (VETO)                                                                       |
-| S19 | zombie pushes to a completed plan             | verb CAS fails (ref absent ≠ own tip); raw push is TRUST                                                                                 |
-| S93 | distant host `yield`s a hold it never fetched | nothing local to park refuses like release's foreign hold, naming the takeover and its way out; origin's lease is left untouched (YIELD) |
+| #    | Scenario                                      | Outcome and mechanism                                                              |
+| ---- | --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| S14  | power loss mid-push                           | as S3; any local repo damage stays local                                           |
+| S15  | host dies holding a claim, never back         | OBS→TAKE after T; no human needed                                                  |
+| S16  | host resurrected days later                   | FENCE: sibling history, every push rejected; YIELD                                 |
+| S17  | suspended weeks, plan re-claimed              | FENCE as S16; divergence parked by YIELD                                           |
+| S18  | zombie re-runs its own claim                  | RESUME only when no live session owns the lane; else refuse (VETO)                 |
+| S19  | zombie pushes to a completed plan             | verb CAS fails (ref absent ≠ own tip); raw push is TRUST                           |
+| S93  | distant host `yield`s a hold it never fetched | refused like release's foreign hold, naming the takeover; origin untouched (YIELD) |
+| S100 | deserted decorated hold, no lease ref         | OBS→TAKE: PARK, CAS delete, acquire (#204)                                         |
+| S101 | decorated holder pushes after T               | OBS restarts; no TAKE (A2)                                                         |
 
 ### Partitions
 
@@ -494,9 +496,9 @@ S87 was S86, an id the own-token row below also held, until plan
 | S76 | pane gone before the window matures                         | `start` locates the lane by its marker, resumes on its token without waiting; absent token or live session vetoes (plan 2609011836, RESUME)                                         |
 | S77 | deserted lane on its own host                               | `start` resumes on the lane's token but refuses an unpushed suffix until yield parks it (plan 2609011836, RESUME, YIELD)                                                            |
 | S86 | a live lane's raw commits advance its token                 | same-epoch, same-holder descendants permit release/renew/resume; a new-epoch takeover fences (RESUME, FENCE)                                                                        |
-| S88 | a live top lane in pick's walk                              | `pick --go` treats the live-lane pre-flight refusal (#126) as a candidate to skip: it advances to the next ready plan; an explicit `start <id>` meets the refusal (plan 2609031211) |
-| S89 | bound session gone, pane still attends                      | board and ready render the lane attended, not dead; start's deserted refusal names the pane, leading with resume — `frit yield` only the fallback (plan 2609031939) (RESUME, YIELD) |
-| S90 | a deserted top lane in pick's walk                          | `pick --go` treats `startRefusal`'s own refusals as a candidate to skip too: it advances to the next ready plan; an explicit `start <id>` still meets the refusal (plan 2609031951) |
+| S88 | a live top lane in pick's walk                              | `pick --go` skips the live-lane refusal (#126) to the next ready plan; an explicit `start <id>` still refuses (plan 2609031211)                                                     |
+| S89 | bound session gone, pane still attends                      | board and ready render the lane attended, not dead; start's deserted refusal leads with resuming the pane, `frit yield` the fallback (plan 2609031939) (RESUME, YIELD)              |
+| S90 | a deserted top lane in pick's walk                          | `pick --go` skips `startRefusal`'s own refusals too, to the next ready plan; an explicit `start <id>` still refuses (plan 2609031951)                                               |
 | S91 | bound session gone, pane still working, work unclassifiable | board and ready carry `ask` naming `frit message`; start's deserted refusal leads with it, `frit yield` trailing; `message --go` reaches the pane (plan 2609032048) (RESUME, YIELD) |
 | S94 | a started lane resumes after work advances its beat token   | marker lookup walks past a work commit sharing the marker's own prefix; checkout, pushed work and epoch preserved (plan 2609082010, #186, RESUME, FENCE)                            |
 

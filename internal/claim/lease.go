@@ -48,6 +48,10 @@ type Lease struct {
 	Tip     string
 	Epoch   int
 	BaseSHA string // acquire only: the base the claim was dated against
+	// Retired is the decorated branches a decorated takeover removed
+	// before it acquired, in branch order; nil for every other
+	// transition.
+	Retired []Retired
 }
 
 // Marker is one lease marker read off the work ref: its kind from the

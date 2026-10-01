@@ -221,14 +221,14 @@ plan in both until one is renamed.
 
 ## Legacy holds
 
-`plan/{id}-*` — the id followed by a slug — is still a hold pattern by
-default. A repository that predates the lease protocol keeps reading
-its old branches as claims with no flag day. frit only ever mints the
-id-only shape now; a repository that narrows `holds` to drop
-`plan/{id}-*` stops recognizing its own history of decorated branches.
-`frit orphans` lists a decorated hold as migratable, naming the
-id-only ref it corresponds to, so the old branches can be retired on
-their own schedule.
+`plan/{id}-*`, the id plus a slug, is still a hold pattern by default,
+so an older repository's branches read as claims with no flag day;
+narrowing `holds` to drop it forgets them. frit only mints the id-only
+shape, and `frit orphans` names a decorated hold's id-only ref. With no
+`plan/<id>` beside it, a decorated hold has no lease: `release` and
+`yield` refuse it alike (C17). The observer watches its tip; matured,
+`claim` and `start` park its unlanded work, CAS-delete it, and acquire
+`plan/<id>` (S100). A push meanwhile restarts the window (S101).
 
 ## Parameters
 
