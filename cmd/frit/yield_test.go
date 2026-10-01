@@ -318,7 +318,7 @@ func TestYieldOnAnUnheldPlanIsStillACleanNoOp(t *testing.T) {
 // another lane released, with nothing ever fetched or minted locally
 // — plan.HoldTip still points at the release marker, but plan.Held is
 // false. foreignYieldRefusal must key on plan.Held, not plan.HoldTip
-// == "", or this reads as "held live by another lane", a claim that is
+// == "", or this reads as "held by another lane", a claim that is
 // false of a lease that already ended.
 func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
 	isolate(t)
@@ -341,7 +341,7 @@ func TestYieldOnAnAlreadyReleasedForeignHoldIsStillACleanNoOp(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.NotContains(t, out.String(), "refused",
-		"a released hold is not held live by another lane")
+		"a released hold is not held by another lane")
 	assert.Contains(t, out.String(), "yielded plan 7")
 }
 
@@ -355,7 +355,7 @@ func TestRefuseForeignHold(t *testing.T) {
 	live := discovery.Plan{Held: true, Holds: []string{"plan/7-x"}}
 	y := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
 	refuseForeignHold(y, live)
-	assert.Contains(t, y.Refused, "held live by another lane")
+	assert.Contains(t, y.Refused, "held by another lane")
 	assert.NotEmpty(t, y.NextAction, "a live hold names the way out")
 
 	r := report.NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")

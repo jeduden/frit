@@ -136,9 +136,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                               |
-| --- | ------ | --------------------------------------------------- |
-| 1   | 🔳     | [The observer watches a decorated hold](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                       |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [The observer watches a decorated hold](phase-1.md)                                                                                                                                                         |
+|     | ↳      | A plan held by a decorated branch alone now gets an observation key on the first pass that sees it. Its span grows across passes, and it reads stale once the takeover window matures, like a lease does.   |
+| 2   | ✅     | [release and yield agree on a decorated hold](phase-2.md)                                                                                                                                                   |
+|     | ↳      | release and yield now refuse a hold made of a decorated branch alone in the same words, naming the branch and the takeover that ends it. No refusal calls an unmatured hold "live" any more. C17 covers it. |
 <?/catalog?>
 
 ## Acceptance Criteria

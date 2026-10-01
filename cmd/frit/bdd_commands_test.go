@@ -49,6 +49,11 @@ type commandState struct {
 	// diverged is C11's own: the commit the lane's branch stands on
 	// once moved off its lease tip, which the refusal must name.
 	diverged string
+	// lane, released and yielded are C17's own: the decorated lane's
+	// worktree, and the --json documents release and yield answered.
+	lane     string
+	released bytes.Buffer
+	yielded  bytes.Buffer
 }
 
 func (w *world) registerCommands(sc *godog.ScenarioContext) {
@@ -60,6 +65,12 @@ func (w *world) registerCommands(sc *godog.ScenarioContext) {
 	sc.Step(`^drift reports the plan's work has landed$`, w.driftReportsThePlansWorkHasLanded)
 	sc.Step(`^drift names the commit that carries the plan's id$`, w.driftNamesTheCommitThatCarriesThePlansID)
 	sc.Step(`^it is yielded$`, w.itIsYielded)
+	sc.Step(`^a plan held only by a decorated branch checked out in its own lane$`,
+		w.aPlanHeldOnlyByADecoratedBranch)
+	sc.Step(`^it is released from its own lane$`, w.itIsReleasedFromItsOwnLane)
+	sc.Step(`^it is yielded from outside its lane$`, w.itIsYieldedFromOutsideItsLane)
+	sc.Step(`^both refuse it as held by the decorated branch, in the same words$`,
+		w.bothRefuseItAsHeldByTheDecoratedBranch)
 	sc.Step(`^yield parks nothing and refuses nothing$`, w.yieldParksNothingAndRefusesNothing)
 	sc.Step(`^a multi-phase plan in progress whose last phase's commit is on main$`,
 		w.aMultiPhasePlanInProgressWhoseLastPhasesCommitIsOnMain)
@@ -1061,6 +1072,81 @@ func assertNoOriginBranch(t *testing.T, origin, id string) error {
 	t.Helper()
 	if _, err := gitCapture(t, origin, "show-ref", "--verify", "refs/heads/plan/"+id); err == nil {
 		return fmt.Errorf("expected plan %s to hold no branch on origin", id)
+	}
+
+	return nil
+}
+
+// aPlanHeldOnlyByADecoratedBranch is C17's own setup, the #204 shape:
+// plan 7 held by a legacy decorated branch alone — its one commit a
+// legacy claim, pushed to origin, checked out in its own lane — with
+// no id-only plan/7 anywhere. The fixture is release_test.go's own, so
+// the two layers cannot drift apart on what the shape is.
+func (w *world) aPlanHeldOnlyByADecoratedBranch() error {
+	isolate(w.t)
+	withHerdr(w.t, herdrReturning())
+	w.planID = 7
+	cs := section[commandState](w)
+	cs.repo, cs.lane = decoratedLane(w.t, w.t.TempDir())
+
+	return nil
+}
+
+// itIsReleasedFromItsOwnLane drives the real `frit release --json`
+// from inside the decorated lane's worktree, where the issue saw
+// "nothing holds it".
+func (w *world) itIsReleasedFromItsOwnLane() error {
+	cs := section[commandState](w)
+	w.t.Chdir(cs.lane)
+	runCLI(&cs.released, &cs.errb, "release", strconv.Itoa(w.planID),
+		"--root", filepath.Dir(cs.repo), "--json")
+
+	return nil
+}
+
+// itIsYieldedFromOutsideItsLane drives the real `frit yield --json`
+// from a directory that is not the lane, where the issue saw "held
+// live by another lane".
+func (w *world) itIsYieldedFromOutsideItsLane() error {
+	cs := section[commandState](w)
+	w.t.Chdir(w.t.TempDir())
+	runCLI(&cs.yielded, &cs.errb, "yield", strconv.Itoa(w.planID),
+		"--root", filepath.Dir(cs.repo), "--json")
+
+	return nil
+}
+
+// bothRefuseItAsHeldByTheDecoratedBranch is C17's own Then: each verb
+// refuses — neither a no-op nor "live" — naming the decorated branch,
+// and the two documents carry the same refusal and way out.
+func (w *world) bothRefuseItAsHeldByTheDecoratedBranch() error {
+	cs := section[commandState](w)
+	type refusal struct {
+		Refused    string `json:"refused"`
+		NoOp       string `json:"no_op"`
+		NextAction string `json:"next_action"`
+	}
+	var released, yielded refusal
+	if err := json.Unmarshal(cs.released.Bytes(), &released); err != nil {
+		return fmt.Errorf("release --json: %w: %s", err, cs.released.String())
+	}
+	if err := json.Unmarshal(cs.yielded.Bytes(), &yielded); err != nil {
+		return fmt.Errorf("yield --json: %w: %s", err, cs.yielded.String())
+	}
+	branch := fmt.Sprintf("plan/%d-shader-unit", w.planID)
+	switch {
+	case released.NoOp != "":
+		return fmt.Errorf("release reads a held plan as a no-op: %q", released.NoOp)
+	case !strings.Contains(released.Refused, branch):
+		return fmt.Errorf("release does not name %s: %q", branch, released.Refused)
+	case strings.Contains(released.Refused, "live"):
+		return fmt.Errorf("release vouches for a liveness it cannot see: %q",
+			released.Refused)
+	case released.NextAction == "":
+		return fmt.Errorf("release names no way out")
+	case released != yielded:
+		return fmt.Errorf("release and yield disagree:\n release %+v\n yield   %+v",
+			released, yielded)
 	}
 
 	return nil
