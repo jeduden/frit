@@ -9,6 +9,12 @@ describe.
 Requires Go 1.25+. Dev tools build from `tools/go.mod` so their
 dependency trees never constrain consumers of this module.
 
+That floor is held, not drifted into: `gofloor_test.go` fails when
+`go.mod`'s go directive leaves Go 1.25, which is how a dependency bump
+that needs a newer Go shows up. Raising it is a decision — move
+`goFloor` there and lift the matching ignores in
+`.github/dependabot.yml` in the same change.
+
 - `go build ./...` — build all packages
 - `go test ./...` — run all tests
 - `go test -run TestName ./...` — run a specific test
