@@ -402,24 +402,24 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// TestPlanReplyFrontsReplyAndPreApprovesOnlyIt guards the reply path's
-// approval: plan-reply's allowed-tools lists the one reply command and
-// nothing else, so a responder replies with no operator sign-off and
-// the pre-approval never covers a send.
-func TestPlanReplyFrontsReplyAndPreApprovesOnlyIt(t *testing.T) {
+// TestPlanReplyFrontsReplyAndNeverSends guards the responder's skill:
+// it shows the reply command with --json, never a send, and carries no
+// allowed-tools — a real session showed that front matter grants
+// nothing, so the grant lives in the settings Install writes.
+func TestPlanReplyFrontsReplyAndNeverSends(t *testing.T) {
 	data, err := assets.ReadFile("assets/plan-reply/SKILL.md")
 	if err != nil {
 		t.Fatalf("reading plan-reply skill: %v", err)
 	}
 	body := string(data)
-	if !contains(body, "\nallowed-tools: Bash({{frit}} reply:*)\n") {
-		t.Fatal("plan-reply does not pre-approve exactly `{{frit}} reply`")
-	}
 	if !contains(body, "{{frit}} reply \"<answer>\" --json") {
 		t.Fatal("plan-reply does not show the reply command with --json")
 	}
 	if contains(body, "--go") {
 		t.Fatal("plan-reply must never send")
+	}
+	if contains(body, "allowed-tools") {
+		t.Fatal("plan-reply carries allowed-tools, which grants nothing")
 	}
 }
 
