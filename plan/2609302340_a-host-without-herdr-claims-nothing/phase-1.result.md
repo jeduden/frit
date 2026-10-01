@@ -29,6 +29,15 @@ red first. C15 and C16 run the built binary under a `$PATH` holding
 git alone. With the claim gate disabled, C15 failed on exactly the
 issue's `worktree not stood up … executable file not found` output.
 
+**Fixtures that leaned on an absent herdr.** C12, S95 and S99, and
+two claim unit tests, drove `claim` or `start --go` with no fake herdr
+at all. They passed only because the build box has none, and their
+race was lost before herdr was needed. The gate now refuses first
+there, so each names `herdr is installed on this host`. The cost, by
+design: on a headless host, a claim that would have lost its race to
+a landed winner reports herdr not found instead of already landed,
+and leaves the landed ref for a host with herdr to scavenge.
+
 **For phase 2.** Nothing here decides the herdr-less lane. The probe
 it adds is the natural switch for it: a lane with no worktree would
 skip this gate rather than remove it.

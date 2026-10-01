@@ -1003,6 +1003,8 @@ func TestClaimScavengesALandedRef(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo, _ := landedLeaseRepo(t, root)
+	// A herdr is installed: this pins the race, not the host's luck.
+	withHerdr(t, herdrReturning())
 	var out, errb bytes.Buffer
 
 	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
@@ -1376,6 +1378,8 @@ func TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire(t *testing.T) {
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+	// A herdr is installed: this pins the race, not the host's luck.
+	withHerdr(t, herdrReturning())
 	var out, errb bytes.Buffer
 
 	code := run([]string{"claim", "7", "--root", root}, &out, &errb)

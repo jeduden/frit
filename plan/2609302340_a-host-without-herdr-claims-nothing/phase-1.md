@@ -28,6 +28,9 @@ BDD coverage: command-level, one host, no lease race — so `@C<n>`, not
 runner. The lease protocol's S60 and S61 are unchanged: they drive an
 installed-but-unreachable herdr, which this gate lets through.
 
+Scenarios that run a minting verb now say `herdr is installed on this
+host`, so they reach the mint on any build box rather than by luck.
+
 Gate: C15 fails on the old code with the issue's own `worktree not
 stood up` output, and passes after. `go test ./...` and golangci-lint
 pass.

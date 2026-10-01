@@ -26,6 +26,7 @@ type missingHerdrState struct {
 
 func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^herdr is not installed on this host$`, w.herdrIsNotInstalledOnThisHost)
+	sc.Step(`^herdr is installed on this host$`, w.herdrIsInstalledOnThisHost)
 	sc.Step(`^the built frit runs "([^"]+)"$`, w.theBuiltFritRuns)
 	sc.Step(`^it refuses, naming herdr not found and nothing claimed$`,
 		w.itRefusesNamingHerdrNotFoundAndNothingClaimed)
@@ -46,6 +47,16 @@ func (w *world) herdrIsNotInstalledOnThisHost() error {
 		return err
 	}
 	section[missingHerdrState](w).path = dir
+
+	return nil
+}
+
+// herdrIsInstalledOnThisHost installs a herdr that answers with no
+// agents. A scenario whose verb mints, or races to mint, names this so
+// it reaches the mint on any build box: the missing-herdr gate would
+// otherwise refuse first wherever herdr happens not to be installed.
+func (w *world) herdrIsInstalledOnThisHost() error {
+	withHerdr(w.t, herdrReturning())
 
 	return nil
 }
