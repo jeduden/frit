@@ -56,11 +56,11 @@ dry runs until `--go` — the
 
 ## Clean and set up
 
-| Verb             | What it does                                                      |
-| ---------------- | ----------------------------------------------------------------- |
-| `reap [<plan>]`  | tear down what `orphans` reports                                  |
-| `init [<dir>]`   | write `.frit.yml` with every default; `--mdsmith` adds the schema |
-| `skills [<dir>]` | install the bundled agent skills into `.claude/skills`            |
+| Verb             | What it does                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `reap [<plan>]`  | tear down what `orphans` reports                                                                     |
+| `init [<dir>]`   | write `.frit.yml` with every default; `--mdsmith` adds the schema                                    |
+| `skills [<dir>]` | install the bundled agent skills into `.claude/skills`, and allow `reply` in `.claude/settings.json` |
 
 ## Conventions
 

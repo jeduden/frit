@@ -179,8 +179,10 @@ writes eight Claude Code skills into a repository's `.claude/skills`:
 | `plan-reply`   | answer a supervisor's `message --ask` with `reply`, which the board reads back                                                             |
 
 The skills are embedded in the binary, and `--via "go run ./cmd/frit"`
-changes how they invoke frit. The prompt frit composes for a pane is
-`/plan-phase <id> [phase]`, from
+changes how they invoke frit. `frit skills` also adds `frit reply` and
+`plan-reply` to the repository's `.claude/settings.json` allow list,
+so a lane answers a `message --ask` with no sign-off. The prompt frit
+composes for a pane is `/plan-phase <id> [phase]`, from
 [internal/dispatch](internal/dispatch/dispatch.go); `start --note`
 and `--edit` amend it, and `message` sends whatever text you give it.
 [Development](docs/development.md#the-skills-bundle) has the rest.

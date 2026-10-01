@@ -114,9 +114,13 @@ with `yield`/`release`/`reap`, never raw git), `plan-drive`
 `open`→`nudge`→`start` ladder, ask its agent with `message --ask`),
 and `plan-reply` (answer that ask with `reply`). The first seven work
 a plan; `plan-drive` orchestrates from outside, and `plan-reply` is
-the lane's side of an ask. It is the one skill carrying
-`allowed-tools`: it pre-approves `reply` alone, a local write, so a
-lane answers with no operator sign-off. Health
+the lane's side of an ask. Besides the skills, `frit skills` merges
+two rules into the repository's `.claude/settings.json` allow list:
+`Bash(<via> reply:*)` and `Skill(plan-reply)`. `reply` is a local
+write, so a lane answers with no operator sign-off. A skill's own
+`allowed-tools` granted nothing in a real session, and Claude Code
+reads project rules only in a workspace whose trust prompt was
+accepted (plan 2609181901). Health
 verbs fold into the skill owning that shape: `doctor`'s checks are what
 `plan-new` shapes a plan to satisfy, so its call lives there.
 

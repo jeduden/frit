@@ -5,7 +5,6 @@ description: >-
   reply is wanted", record the answer with frit reply, which the
   asker reads off their board. Trigger on an incoming frit ask, "a
   reply is wanted", "load the plan-reply skill".
-allowed-tools: Bash({{frit}} reply:*)
 ---
 # plan-reply
 
@@ -27,8 +26,9 @@ Answer it; frit carries the answer back to their board.
 
 ## Notes
 
-- `reply` writes one local file: no pane, no ref, no network, so it
-  needs no operator sign-off.
+- `reply` writes one local file: no pane, no ref, no network. `frit
+  skills` pre-approves it in `.claude/settings.json`, so it needs no
+  operator sign-off.
 - Never answer with `frit message`: that is a send, gated on the
   operator.
 - Off the lane's branch, pass `--plan <id>`.

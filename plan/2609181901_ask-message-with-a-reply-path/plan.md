@@ -105,7 +105,7 @@ matrix at execution time; C13 is the next free as of this writing.
    sends an envelope that tells the agent a reply is wanted and names
    the `plan-reply` skill, `reply` records the answer with no `--go`,
    and `board --json` reports the ask pending, then answered. It ships
-   `plan-reply`, whose `allowed-tools` pre-approves that command.
+   the `plan-reply` skill.
 2. Later phases are specced once Phase 1's handoff shows the real
    shape. Expected: the `board` and `who` tables render the ask state;
    the `(dead)` advice says plainly that silence is not evidence and
@@ -147,7 +147,8 @@ footer: |
 | --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [An ask and its reply, end to end](phase-1.md)                                                                                                                                                                                                                                                                                                       |
 |     | ↳      | message --ask sends an envelope and records a pending ask, reply answers it from the lane as a local write, and board --json reads none, pending or answered; C13 runs the loop through the built frit. A real session answered once the reply was a permission rule, but plan-reply's allowed-tools did not grant it, so that criterion stays open. |
-| 2   | 🔳     | [The reply is pre-approved where the harness reads it](phase-2.md)                                                                                                                                                                                                                                                                                   |
+| 2   | ✅     | [The reply is pre-approved where the harness reads it](phase-2.md)                                                                                                                                                                                                                                                                                   |
+|     | ↳      | frit skills merges Bash(<via> reply:*) and Skill(plan-reply) into the repository's .claude/settings.json allow list. A real session given only the envelope answered with no denial, once its workspace was trusted; the board read it answered.                                                                                                     |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -162,7 +163,7 @@ footer: |
       answered, with the answer text, so an agent branches on a field.
 - [ ] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
-- [ ] A `plan-reply` skill fronts `reply`, and `frit skills`
+- [x] A `plan-reply` skill fronts `reply`, and `frit skills`
       pre-approves that one command and the skill in the repository's
       `.claude/settings.json`, so a responder with the bundle
       installed replies with no operator sign-off, checked in a real

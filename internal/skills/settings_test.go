@@ -199,3 +199,16 @@ func TestDogfoodSettingsCarryTheGrants(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreSettingsFailsWhereNoDirectoryCanBeMade: a plain file where
+// .claude would go is a write failure handed back.
+func TestStoreSettingsFailsWhereNoDirectoryCanBeMade(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), ".claude")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("staging: %v", err)
+	}
+
+	if err := storeSettings(filepath.Join(blocker, "settings.json"), map[string]any{}); err == nil {
+		t.Fatal("storeSettings wrote through a file")
+	}
+}

@@ -1,7 +1,7 @@
 ---
 n: 2
 title: The reply is pre-approved where the harness reads it
-status: "🔳"
+status: "✅"
 result: false
 ---
 Phase 1 showed a skill's `allowed-tools` grants nothing: a real

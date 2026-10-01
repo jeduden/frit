@@ -44,8 +44,10 @@ var destRoot = filepath.Join(".claude", "skills")
 const invokeToken = "{{frit}}"
 
 // Install writes every bundled skill into repoDir under
-// .claude/skills/<name>/SKILL.md, mirroring the embedded tree, and
-// returns the written paths sorted.
+// .claude/skills/<name>/SKILL.md, mirroring the embedded tree, adds
+// Grants to the repository's .claude/settings.json, and returns the
+// written paths sorted — the settings among them only when a grant
+// was missing.
 //
 // invoke is substituted for every invokeToken in each asset's bytes,
 // so the laid-down skill's commands read invoke <verb> instead of the
@@ -75,7 +77,20 @@ func Install(repoDir string, force bool, invoke string) ([]string, error) {
 		}
 	}
 
-	written := make([]string, 0, len(files))
+	// The settings are read and merged before any skill lands, so a
+	// file frit cannot merge into stops the install with nothing
+	// half-applied.
+	settingsPath := filepath.Join(repoDir, settingsFile)
+	settings, err := readSettings(settingsPath)
+	if err != nil {
+		return nil, err
+	}
+	grant, err := mergeGrants(settings, Grants(invoke))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", settingsPath, err)
+	}
+
+	written := make([]string, 0, len(files)+1)
 	for _, rel := range files {
 		data, err := assets.ReadFile(path("assets", rel))
 		if err != nil {
@@ -91,6 +106,13 @@ func Install(repoDir string, force bool, invoke string) ([]string, error) {
 			return nil, err
 		}
 		written = append(written, dst)
+	}
+
+	if grant {
+		if err := storeSettings(settingsPath, settings); err != nil {
+			return nil, err
+		}
+		written = append(written, settingsPath)
 	}
 
 	sort.Strings(written)
