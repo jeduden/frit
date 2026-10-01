@@ -785,6 +785,9 @@ func startExecute(
 		return err
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
+	// A decorated takeover reports what it retired even when its
+	// acquire then lost, so the deletion is never silent.
+	recordRetired(doc, lease)
 	if err != nil {
 		// A lost race, a veto, or a resume refused over a diverged lane
 		// branch is returned, not swallowed: buildStart records it as a
@@ -792,7 +795,6 @@ func startExecute(
 		// candidate (startRefusable). Every other error is a real fault.
 		return err
 	}
-	recordRetired(doc, lease)
 
 	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
 	if err != nil {

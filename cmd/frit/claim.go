@@ -411,6 +411,7 @@ func mintClaim(
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
+			recordRetired(doc, minted)
 			scavengeLanded(rt, doc, plan, coord, err)
 			return claim.Lease{}, nil
 		}

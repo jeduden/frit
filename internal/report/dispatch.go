@@ -440,7 +440,8 @@ func (d *ClaimDoc) Unwound(reason string) {
 }
 
 // ScavengedRef records the work ref a refusal cleaned up on landed
-// evidence, and where its unlanded work was parked, if anywhere.
+// evidence, or the decorated branch a takeover retired, and where its
+// unlanded work was parked, if anywhere.
 func (d *ClaimDoc) ScavengedRef(branch, rescue string) {
 	d.Scavenged = branch
 	d.Rescue = rescue
@@ -797,7 +798,8 @@ func (d *StartDoc) MarkStarted(pane string) {
 func (d *StartDoc) MarkResumed() { d.Resumed = true }
 
 // ScavengedRef records the work ref a refusal cleaned up on landed
-// evidence, and where its unlanded work was parked, if anywhere.
+// evidence, or the decorated branch a takeover retired, and where its
+// unlanded work was parked, if anywhere.
 func (d *StartDoc) ScavengedRef(branch, rescue string) {
 	d.Scavenged = branch
 	d.Rescue = rescue

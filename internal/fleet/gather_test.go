@@ -1112,3 +1112,26 @@ func TestGatherCarriesNoDecoratedTipForAReleasedDecoratedBranch(t *testing.T) {
 	assert.False(t, p.Held)
 	assert.Empty(t, p.DecoratedTips)
 }
+
+// TestDecoratedTips is decoratedTips's own: only a live decorated
+// hold carries a tip — never the id-only work ref, nor a branch the
+// hold filters dropped — and a remote-tracking copy wins over the
+// local one whichever order the ref list carries them in.
+func TestDecoratedTips(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{
+		{Name: "refs/remotes/origin/plan/7-shader", OID: "remote"},
+		{Name: "refs/heads/plan/7-shader", OID: "local"},
+		{Name: "refs/heads/plan/7", OID: "lease"},
+		{Name: "refs/heads/plan/8-gone", OID: "released"},
+		{Name: "refs/heads/main", OID: "base"},
+	}
+	held := map[int64][]string{7: {"plan/7-shader", "plan/7"}}
+
+	got := decoratedTips(refs, holds, held)
+
+	assert.Equal(t, map[int64]map[string]string{
+		7: {"plan/7-shader": "remote"},
+	}, got)
+}

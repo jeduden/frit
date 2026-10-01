@@ -1451,10 +1451,11 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 		key := observe.Key(p.Repo, p.ID)
 		watch := p.WatchTip()
 		if watch == "" {
-			// No work ref in this pass's view, nor a decorated hold. Dropping the key keeps the
-			// state to what this host actually watches — but only when the
-			// pass was authoritative enough to confirm the ref gone. A
-			// pass that refreshed nothing (Fetched == 0) may simply have a
+			// No work ref in this pass's view, nor a decorated hold.
+			// Dropping the key keeps the state to what this host
+			// actually watches — but only when the pass was
+			// authoritative enough to confirm the ref gone. A pass
+			// that refreshed nothing (Fetched == 0) may simply have a
 			// stale or absent local view of a hold still live elsewhere;
 			// deleting the accrued window on that evidence would reset
 			// start's takeover clock to zero, so the hold could never

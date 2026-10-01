@@ -28,7 +28,9 @@ type Retired struct {
 // CASed on exactly the observed tip — and only then is the id-only
 // lease acquired, create-only, at epoch 1: a legacy claim carries no
 // epoch chain to extend. The Acquire is still the arbiter against any
-// other machine taking the plan meanwhile.
+// other machine taking the plan meanwhile. A failure past the first
+// retirement still returns the branches already retired beside the
+// error, so a deletion that already happened is reported, not lost.
 //
 // A local copy of a branch is dropped only when it still sits at the
 // observed tip and no worktree stands on it (S79); one carrying
@@ -59,14 +61,14 @@ func TakeoverDecorated(
 	for _, b := range branches {
 		r, err := retireDecorated(repoDir, opts, b, tips[b], pushed[b], run)
 		if err != nil {
-			return Lease{}, err
+			return Lease{Retired: retired}, err
 		}
 		retired = append(retired, r)
 	}
 
 	lease, err := Acquire(repoDir, opts, run)
 	if err != nil {
-		return Lease{}, err
+		return Lease{Retired: retired}, err
 	}
 	lease.Retired = retired
 

@@ -234,12 +234,14 @@ func TestTakeoverDecoratedLosesTheAcquireToAnotherMachine(t *testing.T) {
 		leaseOptions("box-c", "/lanes/c"), gitwt.Exec)
 	require.NoError(t, err)
 
-	_, err = TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+	lease, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
 
 	var held *HeldError
 	require.ErrorAs(t, err, &held)
 	assert.Equal(t, winner.Tip, held.Tip)
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit"}}, lease.Retired,
+		"the branch already retired is still reported, though the acquire lost")
 }
 
 // deleteFailing wraps the real runner so the decorated branch's delete

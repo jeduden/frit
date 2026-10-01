@@ -1444,6 +1444,32 @@ func TestMintOrTakeOverResetsTheWindowOnAMovedDecoratedHold(t *testing.T) {
 	assert.Zero(t, win.Span())
 }
 
+// TestMintClaimReportsADecoratedBranchRetiredBeforeALostAcquire: the
+// decorated takeover already parked and deleted the branch when
+// another machine minted plan/7 first. The refusal still names the
+// retired branch, so a deletion that already happened is never silent.
+func TestMintClaimReportsADecoratedBranchRetiredBeforeALostAcquire(t *testing.T) {
+	isolate(t)
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	tip := pushDecorated(t, repo)
+	_, err := claim.Acquire(cloneAgain(t, repo), claim.LeaseOptions{
+		PlanID: 7, Remote: "origin", Base: "origin/main",
+		Holder: "box-c", Lane: "/lanes/c"}, gitwt.Exec)
+	require.NoError(t, err)
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning()}
+	doc := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true,
+		Holds:         []string{"plan/7-shader-unit"},
+		DecoratedTips: map[string]string{"plan/7-shader-unit": tip}}
+
+	_, err = mintClaim(rt, doc, plan,
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, doc.Refused)
+	assert.Equal(t, "plan/7-shader-unit", doc.Scavenged)
+}
+
 // TestRecordRetiredNamesTheBranchThatParkedWork: one retired branch
 // is reported as is; of several, the one whose work was parked is the
 // one named, so its rescue is never the one left out.
