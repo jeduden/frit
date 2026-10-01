@@ -3021,22 +3021,16 @@ func TestStartDryRunComposesWithoutHerdr(t *testing.T) {
 	assert.Empty(t, doc.Refused)
 }
 
-// TestStartMissingHerdrRefusalOnlyGatesGo: without --go nothing is
-// minted, so even an absent herdr is no refusal; under --go it is,
-// and an installed herdr never is.
-func TestStartMissingHerdrRefusalOnlyGatesGo(t *testing.T) {
+// TestStartMissingHerdrRefusalCarriesTheCause: the refusal names the
+// missing herdr in plan terms and carries the raw cause as a herdr
+// problem, once, for a consumer to branch on.
+func TestStartMissingHerdrRefusalCarriesTheCause(t *testing.T) {
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
-	absent := &runtime{herdr: herdrNotInstalled}
-	present := &runtime{herdr: func(...string) ([]byte, error) {
-		return []byte(`{"result":{"agents":[]}}`), nil
-	}}
+	missing := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
 
-	assert.Nil(t, startMissingHerdrRefusal(
-		&cli{}, absent, fleet.Result{}, plan, "1", false, nil))
-	assert.Nil(t, startMissingHerdrRefusal(
-		&cli{}, present, fleet.Result{}, plan, "1", true, nil))
 	doc := startMissingHerdrRefusal(
-		&cli{}, absent, fleet.Result{}, plan, "1", true, nil)
+		&cli{}, fleet.Result{}, plan, "1", true, nil, missing)
+
 	require.NotNil(t, doc)
 	assert.Equal(t, missingHerdrRefusal, doc.Refused)
 	require.Len(t, doc.Problems, 1)
@@ -3061,6 +3055,51 @@ func TestStartPreflightReportsAMissingHerdrAsNotSkippable(t *testing.T) {
 	assert.False(t, skip)
 	assert.Empty(t, probs)
 	assert.NoError(t, herdrErr)
+}
+
+// TestStartPreflightAsksHerdrOnceForAFreshAcquire: the live-lane read
+// already ran herdr's `agent list` for a fresh acquire, so the
+// missing-herdr gate reads its answer rather than paying a second
+// round trip — a full --herdr-timeout when the socket hangs.
+func TestStartPreflightAsksHerdrOnceForAFreshAcquire(t *testing.T) {
+	isolate(t)
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	calls := 0
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		calls++
+		return []byte(`{"result":{"agents":[]}}`), nil
+	}}
+
+	doc, _, _, _ := startPreflight(
+		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
+
+	assert.Nil(t, doc)
+	assert.Equal(t, 1, calls)
+}
+
+// TestHerdrMissingAfterProbesAResume: a resume skips the live-lane
+// read, so nothing has asked herdr yet and the gate probes it itself.
+func TestHerdrMissingAfterProbesAResume(t *testing.T) {
+	rt := &runtime{herdr: herdrNotInstalled}
+
+	err := herdrMissingAfter(rt, startResumption{Tip: "abc"}, nil)
+
+	assert.ErrorIs(t, err, exec.ErrNotFound)
+}
+
+// TestHerdrMissingAfterReadsTheLiveReadsAnswer: for a fresh acquire
+// the live-lane read's own error is the probe's answer — a not-found
+// cause is missing, anything else (or nothing) is not.
+func TestHerdrMissingAfterReadsTheLiveReadsAnswer(t *testing.T) {
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		t.Fatal("herdr asked twice")
+		return nil, nil
+	}}
+	notFound := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
+
+	assert.ErrorIs(t, herdrMissingAfter(rt, startResumption{}, notFound), exec.ErrNotFound)
+	assert.NoError(t, herdrMissingAfter(rt, startResumption{}, errors.New("dial unix")))
+	assert.NoError(t, herdrMissingAfter(rt, startResumption{}, nil))
 }
 
 // TestStartPreflightPassesWithoutGo: a dry run meets neither gate, and

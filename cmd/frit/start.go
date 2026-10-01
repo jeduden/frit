@@ -76,16 +76,17 @@ func startResolved(
 // under doGo, runs start's claim-and-stand-up path. It refuses an
 // unstartable plan, an ambiguous repository, a readiness gate on the
 // plan itself (startRefusal — a deserted hold, an unparked suffix, or
-// an unmatured takeover), and a fresh acquire onto a lane herdr
-// already shows live (#126) — the refusal doc reads the same for both
-// verbs, so they cannot drift on what "startable" means. The returned
+// an unmatured takeover), a fresh acquire onto a lane herdr already
+// shows live (#126), and, under doGo, a host with no herdr installed —
+// the refusal doc reads the same for both verbs, so they cannot drift
+// on what "startable" means. The returned
 // bool, discarded by startResolved and read by pick --go's walk, is
 // true in exactly three cases: execution lost the claim's race, the
 // startRefusal readiness gate refused the candidate, or the live-lane
 // pre-flight refused a fresh acquire — all under reattach false, the
 // refusals pick --go's walk skips past rather than reports. The
-// unstartable-plan and ambiguous-repository refusals above always
-// report false, so pick --go's walk never skips them. Under reattach
+// unstartable-plan, ambiguous-repository and missing-herdr refusals
+// always report false, so pick --go's walk never skips them. Under reattach
 // true — an explicit `start <id>`, where the caller named this exact
 // lane — both the readiness gate and the live-lane refusal return
 // false too, so the caller sees them rather than silently moving on.
@@ -261,33 +262,45 @@ func startPreflight(
 	if liveDoc != nil {
 		return liveDoc, !reattach, nil, nil
 	}
-	if doc := startMissingHerdrRefusal(
-		c, rt, res, plan, phase, doGo, liveProbs); doc != nil {
-		return doc, false, nil, nil
+	if !doGo {
+		return nil, false, liveProbs, liveHerdrErr
+	}
+	if missing := herdrMissingAfter(rt, rs, liveHerdrErr); missing != nil {
+		return startMissingHerdrRefusal(
+			c, res, plan, phase, doGo, liveProbs, missing), false, nil, nil
 	}
 
 	return nil, false, liveProbs, liveHerdrErr
+}
+
+// herdrMissingAfter is herdr.Missing without a second round trip when
+// the live-lane read already asked: startLiveLaneRefusal runs herdr's
+// own `agent list` for a fresh acquire, and skips it only for a
+// resume, so only a resume is probed here. A second ask would cost a
+// stalled socket a whole --herdr-timeout more before the mint.
+func herdrMissingAfter(
+	rt *runtime, rs startResumption, liveHerdrErr error,
+) error {
+	if rs.active() {
+		return herdr.Missing(rt.herdr)
+	}
+
+	return herdr.NotFound(liveHerdrErr)
 }
 
 // startMissingHerdrRefusal is buildStart's last gate before --go
 // mints anything, claim's refuseUnmintable for the start doc: the
 // worktree, agent and pane are all herdr's, so on a host with no herdr
 // installed the escalation is certain to fail after its first push and
-// unwind with a second. nil without --go, since a dry run mints
-// nothing, and whenever herdr is installed. The live-lane read's own
-// problems ride along; its herdr error is the same missing binary, so
-// the probe's cause stands in for it rather than doubling it.
+// unwind with a second. The caller only builds it under --go, since a
+// dry run mints nothing, and only once missing names an absent herdr.
+// The live-lane read's own problems ride along; its herdr error is the
+// same missing binary, so missing stands in for it rather than
+// doubling it.
 func startMissingHerdrRefusal(
-	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
-	phase string, doGo bool, liveProbs []hostProblem,
+	c *cli, res fleet.Result, plan discovery.Plan,
+	phase string, doGo bool, liveProbs []hostProblem, missing error,
 ) *report.StartDoc {
-	if !doGo {
-		return nil
-	}
-	missing := herdr.Missing(rt.herdr)
-	if missing == nil {
-		return nil
-	}
 	doc := refusedStart(c, res, plan, phase, doGo, missingHerdrRefusal)
 	carryLiveLaneProblems(doc, liveProbs, missing)
 

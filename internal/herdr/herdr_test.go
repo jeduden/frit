@@ -133,6 +133,28 @@ func TestMissingNamesAnAbsentBinary(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrNotFound)
 }
 
+// TestMissingNamesABinaryExecRefusesToRun: a herdr found only through
+// a relative $PATH entry is one exec refuses to run every time, so it
+// is as certain to fail as an absent one and is handed back the same.
+func TestMissingNamesABinaryExecRefusesToRun(t *testing.T) {
+	want := &exec.Error{Name: "herdr", Err: exec.ErrDot}
+
+	err := Missing(func(...string) ([]byte, error) { return nil, want })
+
+	assert.ErrorIs(t, err, exec.ErrDot)
+}
+
+// TestNotFoundReadsAnErrorAlreadyReturned: a caller that already asked
+// herdr reads the same verdict off that call's error, without a second
+// round trip — the cause back for an absent binary, nil otherwise.
+func TestNotFoundReadsAnErrorAlreadyReturned(t *testing.T) {
+	absent := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
+
+	assert.ErrorIs(t, NotFound(absent), exec.ErrNotFound)
+	assert.NoError(t, NotFound(errors.New("dial unix .herdr.sock: refused")))
+	assert.NoError(t, NotFound(nil))
+}
+
 // TestMissingReadsAnUnreachableSocketAsPresent: a socket that refuses
 // a dial is not proof the binary is absent — the server may come up,
 // and the lease protocol's own unwind covers it (S60) — so Missing

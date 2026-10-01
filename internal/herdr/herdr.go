@@ -133,7 +133,17 @@ func List(runner Runner) ([]Pane, error) {
 // the lease protocol's own unwind already covers it (S60).
 func Missing(runner Runner) error {
 	_, err := runner("agent", "list")
-	if errors.Is(err, exec.ErrNotFound) {
+
+	return NotFound(err)
+}
+
+// NotFound is Missing's reading of an error some herdr call already
+// returned, for a caller that has asked herdr once and need not ask
+// again: err itself when exec could not run the binary at all — not on
+// $PATH, or found only through a relative entry exec refuses to run —
+// and nil for any other answer, a failure or none.
+func NotFound(err error) error {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) {
 		return err
 	}
 
