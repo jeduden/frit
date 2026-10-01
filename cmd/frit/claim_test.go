@@ -1383,3 +1383,108 @@ func TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire(t *testing.T) {
 	require.Equal(t, 1, code)
 	assert.NotEmpty(t, errb.String())
 }
+
+// herdrNotInstalled is the runner a host without herdr on $PATH hands
+// back: every call fails with exec's own not-found cause, the shape
+// herdr.Missing reads as certain absence rather than an unreachable
+// socket.
+func herdrNotInstalled(...string) ([]byte, error) {
+	return nil, &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
+}
+
+// TestClaimRefusesWithoutHerdrBeforePushing: on a host with no herdr
+// installed, standing the lane's worktree up is certain to fail, so
+// claim refuses locally before minting — no claim marker, no release
+// marker, no work ref on origin at all.
+func TestClaimRefusesWithoutHerdrBeforePushing(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "refused: plan 7 herdr not found; nothing claimed")
+	assert.NotContains(t, out.String(), "worktree not stood up")
+	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/7")
+	assert.Error(t, err, "origin carries no work ref for plan 7")
+	_, err = gitCapture(t, repo, "rev-parse", "--verify", "--quiet", "refs/heads/plan/7")
+	assert.Error(t, err, "nor does the local clone")
+}
+
+// TestClaimCarriesTheMissingHerdrAsAProblem: the refusal names the
+// cause in plan terms, and the raw error rides along under --json as a
+// herdr problem, so a consumer can branch on it without parsing prose.
+func TestClaimCarriesTheMissingHerdrAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--root", root)
+
+	assert.False(t, doc.Claimed)
+	assert.Contains(t, doc.Refused, "herdr not found")
+	require.NotEmpty(t, doc.Problems)
+	last := doc.Problems[len(doc.Problems)-1]
+	assert.Equal(t, "herdr", last.Repo)
+	assert.Contains(t, last.Message, "executable file not found")
+}
+
+// TestClaimStillRefusesAHeldPlanWithoutHerdr: the herdr check is the
+// last gate before the mint, so a plan claim would refuse anyway keeps
+// its own, more useful reason on a headless host.
+func TestClaimStillRefusesAHeldPlanWithoutHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := claim.Acquire(repo, claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}, gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "already held")
+	assert.NotContains(t, out.String(), "herdr not found")
+}
+
+// TestRefuseUnmintableNamesAnAmbiguousRepository: without a
+// coordinate there is nowhere to mint, whatever herdr would say.
+func TestRefuseUnmintableNamesAnAmbiguousRepository(t *testing.T) {
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+
+	assert.True(t, refuseUnmintable(&runtime{}, doc, "atlas", false))
+	assert.Equal(t, ambiguousRepo("atlas"), doc.Refused)
+}
+
+// TestRefuseUnmintablePassesAnUnreachableHerdr: a socket that
+// refuses a dial is not a missing binary, so the gate lets the claim
+// through to its mint and the stand-up's own unwind (S60).
+func TestRefuseUnmintablePassesAnUnreachableHerdr(t *testing.T) {
+	rt := &runtime{herdr: func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	}}
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+
+	assert.False(t, refuseUnmintable(rt, doc, "atlas", true))
+	assert.Empty(t, doc.Refused)
+	assert.Empty(t, doc.Problems)
+}
+
+// TestRefuseUnmintableRefusesAnAbsentHerdr: the not-found cause is
+// refused with the plan-terms reason and carried as a herdr problem.
+func TestRefuseUnmintableRefusesAnAbsentHerdr(t *testing.T) {
+	rt := &runtime{herdr: herdrNotInstalled}
+	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+
+	assert.True(t, refuseUnmintable(rt, doc, "atlas", true))
+	assert.Equal(t, missingHerdrRefusal, doc.Refused)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+}

@@ -2986,3 +2986,94 @@ func fakeEditorOnPath(t *testing.T, name, script string) {
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o700))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
+
+// TestStartGoRefusesWithoutHerdrBeforePushing: start --go stands the
+// worktree, agent and pane up through herdr, so on a host with no herdr
+// installed it refuses before minting, exactly as claim does — no work
+// ref reaches origin.
+func TestStartGoRefusesWithoutHerdrBeforePushing(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--go", "--root", root)
+
+	assert.Contains(t, doc.Refused, "herdr not found; nothing claimed")
+	assert.False(t, doc.PromptDispatched)
+	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/7")
+	assert.Error(t, err, "origin carries no work ref for plan 7")
+}
+
+// TestStartDryRunComposesWithoutHerdr: without --go nothing is minted,
+// so a missing herdr is no reason to refuse the dry run — it still
+// prints the escalation it would run.
+func TestStartDryRunComposesWithoutHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--root", root)
+
+	assert.Empty(t, doc.Refused)
+}
+
+// TestStartMissingHerdrRefusalOnlyGatesGo: without --go nothing is
+// minted, so even an absent herdr is no refusal; under --go it is,
+// and an installed herdr never is.
+func TestStartMissingHerdrRefusalOnlyGatesGo(t *testing.T) {
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	absent := &runtime{herdr: herdrNotInstalled}
+	present := &runtime{herdr: func(...string) ([]byte, error) {
+		return []byte(`{"result":{"agents":[]}}`), nil
+	}}
+
+	assert.Nil(t, startMissingHerdrRefusal(
+		&cli{}, absent, fleet.Result{}, plan, "1", false, nil))
+	assert.Nil(t, startMissingHerdrRefusal(
+		&cli{}, present, fleet.Result{}, plan, "1", true, nil))
+	doc := startMissingHerdrRefusal(
+		&cli{}, absent, fleet.Result{}, plan, "1", true, nil)
+	require.NotNil(t, doc)
+	assert.Equal(t, missingHerdrRefusal, doc.Refused)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+}
+
+// TestStartPreflightReportsAMissingHerdrAsNotSkippable: under --go on
+// a host with no herdr, the gate refuses and tells pick --go not to
+// walk on, even without a reattach — the next candidate would meet the
+// same missing herdr. The live-lane read never found a pane, so its
+// own gate stays silent first.
+func TestStartPreflightReportsAMissingHerdrAsNotSkippable(t *testing.T) {
+	isolate(t)
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	doc, skip, probs, herdrErr := startPreflight(
+		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
+
+	require.NotNil(t, doc)
+	assert.Equal(t, missingHerdrRefusal, doc.Refused)
+	assert.False(t, skip)
+	assert.Empty(t, probs)
+	assert.NoError(t, herdrErr)
+}
+
+// TestStartPreflightPassesWithoutGo: a dry run meets neither gate, and
+// the live-lane read's own herdr error rides back for the success doc.
+func TestStartPreflightPassesWithoutGo(t *testing.T) {
+	isolate(t)
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	doc, skip, _, herdrErr := startPreflight(
+		&cli{}, rt, fleet.Result{}, plan, "1", false, startResumption{}, false)
+
+	assert.Nil(t, doc)
+	assert.False(t, skip)
+	assert.ErrorIs(t, herdrErr, exec.ErrNotFound)
+}

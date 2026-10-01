@@ -96,8 +96,7 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if !ok {
-		doc.Refuse(ambiguousRepo(plan.Repo))
+	if refuseUnmintable(rt, doc, plan.Repo, ok) {
 		return renderClaim(c, rt, doc)
 	}
 
@@ -288,6 +287,38 @@ func currentSession(rt *runtime) string {
 	}
 
 	return pane.Session
+}
+
+// missingHerdrRefusal is what a claim, or a start or pick under --go,
+// answers on a host with no herdr installed: the lane's worktree is
+// herdr's to stand up, so the mint would only be unwound again.
+const missingHerdrRefusal = "herdr not found; nothing claimed, " +
+	"since the lane's worktree is herdr's to stand up"
+
+// refuseUnmintable is claim's last gate before the mint, and reports
+// whether it refused. Without the repository's coordinate there is
+// nowhere to mint the lease, so it refuses rather than guess. On a
+// host with no herdr installed, the stand-up after the mint is certain
+// to fail, and the unwind would leave origin a work ref holding only a
+// claim and a release marker; so it refuses locally, carrying the raw
+// cause as a herdr problem. A herdr that is installed but unreachable
+// passes: that failure is not certain, and the stand-up's own unwind
+// covers it (S60).
+func refuseUnmintable(
+	rt *runtime, doc *report.ClaimDoc, repo string, coordOK bool,
+) bool {
+	if !coordOK {
+		doc.Refuse(ambiguousRepo(repo))
+		return true
+	}
+	missing := herdr.Missing(rt.herdr)
+	if missing == nil {
+		return false
+	}
+	doc.Refuse(missingHerdrRefusal)
+	doc.AddProblem("herdr", missing)
+
+	return true
 }
 
 // standUpClaimWorktree hands the freshly claimed lane's checkout to

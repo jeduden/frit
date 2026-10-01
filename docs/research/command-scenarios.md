@@ -25,3 +25,5 @@ kept in bijection with `features/` the same way, by the same gate:
 | C10 | that added tier ranks correctly through frit next   | next's --json phase.tier reports the added tier, not a built-in neighbor it would otherwise always lose to (index.Build, Resume)                          |
 | C11 | claiming from a lane whose branch diverged          | refused naming the branch and both tips, not "already held" — resume's divergence is carried in the report (LeaseDivergesError)                           |
 | C12 | starting from a lane whose branch diverged          | the same refusal, not a fault — `pick --go` skips it like a lost race rather than aborting its walk (startRefusable)                                      |
+| C15 | claiming on a host with no herdr                    | refused before the mint, naming herdr not found — origin gains no work ref, not a claim and a release (herdr.Missing)                                     |
+| C16 | pick --go on a host with no herdr                   | the same refusal on the top candidate, reported rather than skipped — no candidate is claimed (startMissingHerdrRefusal)                                  |
