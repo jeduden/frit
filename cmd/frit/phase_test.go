@@ -450,9 +450,12 @@ func TestPhaseSurfacesABrokenPhaseBundle(t *testing.T) {
 	wt := filepath.Join(root, "atlas-100")
 	git(t, repo, "worktree", "add", "-q", "-b", "plan/100-layered", wt)
 	wtDir := filepath.Join(wt, "plan", filepath.Base(dir))
+	// A dangling symlink rather than a chmod: the spec is still listed,
+	// but reading it fails for every user, root included, which ignores
+	// a permission bit.
 	spec := filepath.Join(wtDir, "phase-1.md")
-	require.NoError(t, os.Chmod(spec, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(spec, 0o600) })
+	require.NoError(t, os.Remove(spec))
+	require.NoError(t, os.Symlink("missing.md", spec))
 	t.Chdir(wt)
 	var out, errb bytes.Buffer
 

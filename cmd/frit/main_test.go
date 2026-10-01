@@ -1540,6 +1540,9 @@ func TestRepoLabelNamesNoRepo(t *testing.T) {
 // already uses for a read-only-directory write failure, applied here
 // to a write-only file instead.
 func TestInitMdsmithSurfacesAnUnreadableConfigAfterWriting(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the permission bit this test relies on")
+	}
 	isolate(t)
 	repo := initRepo(t, t.TempDir(), "atlas")
 	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
