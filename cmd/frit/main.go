@@ -26,6 +26,7 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"golang.org/x/term"
 
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/config"
 	"github.com/jeduden/frit/internal/discover"
@@ -130,6 +131,7 @@ type cli struct {
 	Open    openCmd    `cmd:"" help:"Focus the pane a plan's lane is running in; sends no text."`
 	Nudge   nudgeCmd   `cmd:"" help:"Prompt a plan's phase into its idle lane; dry-run unless --go."`
 	Message messageCmd `cmd:"" help:"Send text to a plan's live lane, working or idle; dry-run unless --go."`
+	Reply   replyCmd   `cmd:"" help:"Answer the pending message --ask for this lane's plan; a local write, no --go."`
 	Claim   claimCmd   `cmd:"" help:"Mint frit's own atomic hold on a startable plan."`
 	Release releaseCmd `cmd:"" help:"End this lane's own lease with a release marker."`
 	Yield   yieldCmd   `cmd:"" help:"End a fenced lane: park its divergence to a rescue ref and tear it down."`
@@ -458,6 +460,29 @@ func boardUnproven(
 	}
 
 	return ids[p.ID]
+}
+
+// boardAsk carries where a `frit message --ask` to p's lane stands onto
+// its row, read from this host's own checkout of p's repository — the
+// same file the lane's `frit reply` writes. A plan with no checkout
+// here keeps "none"; a record frit cannot read is carried as a problem
+// rather than read as never asked.
+func boardAsk(rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan) {
+	coord, ok := res.Coords[p.Repo]
+	if !ok {
+		return
+	}
+	path, err := ask.Path(coord.Path, p.ID, rt.git)
+	if err != nil {
+		doc.AddProblem(p.Repo, err)
+		return
+	}
+	rec, found, err := ask.Read(path)
+	if err != nil {
+		doc.AddProblem(p.Repo, err)
+		return
+	}
+	doc.SetAsk(p.Repo, p.ID, ask.StateOf(rec, found), rec.Answer)
 }
 
 // tokenlessIDs resolves, once, every plan id this host's own
@@ -2204,6 +2229,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
+		boardAsk(rt, res, doc, p)
 	}
 
 	doc.SetGather(gatherStatus(res))

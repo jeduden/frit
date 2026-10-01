@@ -48,12 +48,16 @@ work is pushed and sitting in an open PR while its agent finishes the
 merge — refs read the same either way. When a held lane's state is
 unclear, ask its agent rather than reaching for `frit yield` or a
 hand-land. `go run ./cmd/frit board --json` names that case for you: a held
-row whose `ask` is non-empty carries the exact message command to run.
+row whose `ask` is non-empty is one to ask.
 
-- **`go run ./cmd/frit message <id> "text"`** — send arbitrary text to the
-  lane's live agent through herdr. Unlike `nudge`, it reaches a
-  **working** lane as readily as an idle one, because that is exactly
-  who needs asking: `go run ./cmd/frit message <id> "are you in a PR?"`.
+- **`go run ./cmd/frit message <id> --ask "are you in a PR?"`** — tell the
+  lane's live agent a reply is wanted and how to give it. It reaches
+  a **working** lane as readily as an idle one. The row's `ask_state`
+  reads `pending` until the agent runs `frit reply`, then `answered`,
+  with `answer` carrying its text.
+- An unanswered ask is not evidence the lane is gone: the agent may be
+  mid-step, or lack the plan-reply skill. Without `--ask`,
+  `go run ./cmd/frit message` sends text and asks for nothing back.
 
 ## Notes
 

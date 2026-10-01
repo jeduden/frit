@@ -11,6 +11,7 @@ import (
 
 	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/discovery"
+	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
@@ -456,4 +457,50 @@ func TestBoardCarriesAnUnreadableAskAsAProblem(t *testing.T) {
 	assert.Equal(t, "none", boardRow(t, doc, 7).AskState)
 	require.NotEmpty(t, doc.Problems)
 	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestBoardAskLeavesAPlanWithNoCheckoutHereAsNone: a repository with no
+// coordinate on this host has no record to read; the row keeps "none"
+// and nothing is reported as a fault.
+func TestBoardAskLeavesAPlanWithNoCheckoutHereAsNone(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+	doc := report.NewBoard("/fleet", true)
+	p := discovery.Plan{Repo: "atlas", ID: 7}
+	doc.AddPlan(p, "", "", false)
+
+	boardAsk(rt, fleet.Result{}, doc, p)
+
+	assert.Equal(t, "none", doc.Plans[0].AskState)
+	assert.Empty(t, doc.Problems)
+}
+
+// TestBoardAskCarriesAnUnplaceableCheckoutAsAProblem: a coordinate git
+// cannot place is a problem on the row's repository.
+func TestBoardAskCarriesAnUnplaceableCheckoutAsAProblem(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+	doc := report.NewBoard("/fleet", true)
+	p := discovery.Plan{Repo: "atlas", ID: 7}
+	doc.AddPlan(p, "", "", false)
+	res := fleet.Result{Coords: map[string]fleet.Coord{
+		"atlas": {Path: t.TempDir()},
+	}}
+
+	boardAsk(rt, res, doc, p)
+
+	assert.Equal(t, "none", doc.Plans[0].AskState)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestReplySurfacesAGetwdFailure: reply's own os.Getwd error, called
+// directly — the full CLI's parser reads the cwd first.
+func TestReplySurfacesAGetwdFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.RemoveAll(dir))
+	rt := &runtime{git: gitwt.Exec}
+
+	err := (&replyCmd{Text: "x"}).Run(&cli{}, rt)
+
+	assert.Error(t, err)
 }

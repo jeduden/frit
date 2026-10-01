@@ -8,11 +8,11 @@
     "title": "The dispatch ladder"
   },
   "text": "are you in a PR?",
-  "ask": false,
-  "envelope": "are you in a PR?",
+  "ask": true,
+  "envelope": "are you in a PR? — frit: a reply is wanted. Load the plan-reply skill to answer, or run: frit reply \"<answer>\"",
   "target": "wC:p1",
-  "go": false,
-  "sent": false,
+  "go": true,
+  "sent": true,
   "refused": "",
   "problems": []
 }

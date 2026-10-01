@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,39 @@ func TestWriteFailsWhenTheRenameIsRefused(t *testing.T) {
 	entries, readErr := os.ReadDir(dir)
 	require.NoError(t, readErr)
 	assert.Len(t, entries, 1, "the temp file does not linger")
+}
+
+// TestWriteFailsWhenTheTempFileCannotBeWritten: a directory standing
+// where the staged record goes refuses the write, and nothing lands.
+func TestWriteFailsWhenTheTempFileCannotBeWritten(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "ask-7.json")
+	require.NoError(t, os.MkdirAll(tempPath(target), 0o750))
+
+	err := Write(target, Record{})
+
+	assert.Error(t, err)
+	_, ok, readErr := Read(target)
+	require.NoError(t, readErr)
+	assert.False(t, ok)
+}
+
+// TestWriteFailsOnARecordJSONCannotCarry: a time outside JSON's range
+// is refused before anything touches disk.
+func TestWriteFailsOnARecordJSONCannotCarry(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "ask-7.json")
+
+	err := Write(target, Record{AskedAt: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)})
+
+	assert.Error(t, err)
+}
+
+// TestTempPathSitsBesideTheRecord: staged beside the record, so the
+// rename stays on one filesystem, and named per process.
+func TestTempPathSitsBesideTheRecord(t *testing.T) {
+	got := tempPath("/x/frit/ask-7.json")
+
+	assert.Equal(t, "/x/frit", filepath.Dir(got))
+	assert.Contains(t, got, strconv.Itoa(os.Getpid()))
 }
 
 // TestStateOfNamesEachShape: no record is none, a record with no

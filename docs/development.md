@@ -109,10 +109,14 @@ cue a clean session start) and `plan-new` (author a plan per
 `plan/proto.md`). It also carries `plan-start` (open the lane for one
 explicitly named plan, ranking aside), `plan-sync` (reconcile statuses
 against `drift` evidence), `plan-tidy` (read `orphans`/`stale`, act
-with `yield`/`release`/`reap`, never raw git), and `plan-drive`
+with `yield`/`release`/`reap`, never raw git), `plan-drive`
 (survey with `board`/`who`, drive a lane up the
-`open`→`nudge`→`start` ladder). The first seven work a plan;
-`plan-drive` orchestrates from outside. Health
+`open`→`nudge`→`start` ladder, ask its agent with `message --ask`),
+and `plan-reply` (answer that ask with `reply`). The first seven work
+a plan; `plan-drive` orchestrates from outside, and `plan-reply` is
+the lane's side of an ask. It is the one skill carrying
+`allowed-tools`: it pre-approves `reply` alone, a local write, so a
+lane answers with no operator sign-off. Health
 verbs fold into the skill owning that shape: `doctor`'s checks are what
 `plan-new` shapes a plan to satisfy, so its call lives there.
 

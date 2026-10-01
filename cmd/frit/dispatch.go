@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/dispatch"
@@ -344,6 +346,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
 	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
+	Ask      bool   `help:"Tell the agent a reply is wanted and record the ask; frit board shows the answer."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 
@@ -383,6 +386,9 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 
 	doc := report.NewMessage(c.Root, plan.Repo, plan.ID, plan.Title,
 		m.Text, m.Go)
+	if m.Ask {
+		doc.Wrap(ask.Envelope(m.Text))
+	}
 	carryProblems(doc, res.Problems, c.All)
 
 	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
@@ -424,8 +430,10 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 // herdr could not read at all is refused just as nudgeSend refuses it,
 // though: Pane.Presence's own rule is that an unrecognised status reads
 // as StatusUnknown, never a false idle, and message asking a pane herdr
-// cannot vouch for is no safer than nudge prompting one. A send that
-// fails is surfaced rather than reported as done.
+// cannot vouch for is no safer than nudge prompting one. An ask is
+// refused for a lane on another host, whose reply this host would
+// never read. A send that fails is surfaced rather than reported as
+// done.
 func messageSend(
 	rt *runtime, m *messageCmd, doc *report.MessageDoc,
 	plan discovery.Plan, lane herdr.Lane, found bool,
@@ -437,12 +445,14 @@ func messageSend(
 		doc.SetTarget(lane.Pane.PaneID)
 		doc.Refuse(fmt.Sprintf("lane %s is %s, not idle or working",
 			lane.Branch, lane.Pane.Presence()))
+	case m.Ask && askRefusal(lane) != "":
+		doc.SetTarget(lane.Pane.PaneID)
+		doc.Refuse(askRefusal(lane))
 	default:
 		doc.SetTarget(lane.Pane.PaneID)
 		if m.Go {
-			if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID,
-				m.Text); err != nil {
-				return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+			if err := promptMessage(rt, m, doc, plan, lane); err != nil {
+				return err
 			}
 			doc.MarkSent()
 		}
@@ -451,24 +461,64 @@ func messageSend(
 	return nil
 }
 
-// printMessage reports the text and its fate: refused, sent, or — the
-// default — held back for a --go that was not given. The text is
-// always shown, because seeing exactly what would go is the point of
-// the dry run.
+// promptMessage sends the envelope to the lane's pane. An ask is
+// recorded in the lane's repository first, so a reply that comes back
+// fast always finds it, and withdrawn if the send then fails, so the
+// lane never owes a reply to a question it never saw.
+func promptMessage(
+	rt *runtime, m *messageCmd, doc *report.MessageDoc,
+	plan discovery.Plan, lane herdr.Lane,
+) error {
+	record := ""
+	if m.Ask {
+		path, err := ask.Pose(lane.Root, plan.ID, m.Text, time.Now(), rt.git)
+		if err != nil {
+			return fmt.Errorf("record the ask for plan %d: %w", plan.ID, err)
+		}
+		record = path
+	}
+	if err := herdr.Prompt(rt.herdr, lane.Pane.PaneID, doc.Envelope); err != nil {
+		if record != "" {
+			ask.Withdraw(record)
+		}
+		return fmt.Errorf("prompt %s: %w", lane.Pane.PaneID, err)
+	}
+
+	return nil
+}
+
+// askRefusal is why an ask cannot go to lane, empty when it can. The
+// ask record and its reply are files on this host, so a lane another
+// host runs could answer only into its own checkout, which this host
+// never reads — the ask would read pending forever.
+func askRefusal(lane herdr.Lane) string {
+	if lane.Pane.Host == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"--ask reaches only a lane on this host; lane %s is on %s",
+		lane.Branch, lane.Pane.Host)
+}
+
+// printMessage reports what goes and its fate: refused, sent, or — the
+// default — held back for a --go that was not given. The envelope is
+// always shown — the text itself, or the ask wrapping it — because
+// seeing exactly what would go is the point of the dry run.
 func printMessage(out io.Writer, doc *report.MessageDoc) {
 	if doc.Refused != "" {
 		verb := "would refuse"
 		if doc.Go {
 			verb = "refused"
 		}
-		_, _ = fmt.Fprintf(out, "%s: %s\n  %q\n", verb, doc.Refused, doc.Text)
+		_, _ = fmt.Fprintf(out, "%s: %s\n  %q\n", verb, doc.Refused, doc.Envelope)
 		return
 	}
 	if doc.Sent {
-		_, _ = fmt.Fprintf(out, "sent %q → %s\n", doc.Text, doc.Target)
+		_, _ = fmt.Fprintf(out, "sent %q → %s\n", doc.Envelope, doc.Target)
 		return
 	}
 	_, _ = fmt.Fprintf(out,
 		"would send %q → %s\nrun again with --go to send\n",
-		doc.Text, doc.Target)
+		doc.Envelope, doc.Target)
 }
