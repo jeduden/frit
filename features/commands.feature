@@ -90,6 +90,15 @@ Feature: Command scenarios
     When the lane runs start --go for plan 7
     Then start refuses, naming the diverged lane branch and both tips
 
+  @C13
+  Scenario: an ask answered from its lane reads as answered on the board
+    Given plan 7 is held in a lane worktree whose agent is live on this host
+    When the supervisor's built frit asks plan 7 "are you in a PR?" with --ask --go
+    Then the lane's pane receives the ask, saying a reply is wanted and how to give it
+    When the lane's built frit replies "in PR #9"
+    Then the reply reached no pane and moved no ref
+    And board --json reports plan 7's ask answered with "in PR #9"
+
   @C15
   Scenario: claiming on a host with no herdr refuses before anything reaches origin
     Given a plan nobody has ever held

@@ -421,3 +421,53 @@ func TestStartTransitionsRecordEveryOutcome(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "beacon", doc.Problems[0].Repo)
 }
+
+// TestNewMessageSendsItsTextAsTheEnvelope: without --ask the envelope
+// is the operator's text itself, so the field always names exactly
+// what goes to the pane.
+func TestNewMessageSendsItsTextAsTheEnvelope(t *testing.T) {
+	doc := NewMessage("/fleet", "atlas", 7, "Shader unit", "status?", false)
+
+	assert.False(t, doc.Ask)
+	assert.Equal(t, "status?", doc.Envelope)
+}
+
+// TestMessageWrapMarksAnAsk: an ask keeps the operator's own words in
+// text and carries the wrapped envelope that actually goes.
+func TestMessageWrapMarksAnAsk(t *testing.T) {
+	doc := NewMessage("/fleet", "atlas", 7, "Shader unit", "status?", false)
+
+	doc.Wrap("status? — a reply is wanted")
+
+	assert.True(t, doc.Ask)
+	assert.Equal(t, "status?", doc.Text)
+	assert.Equal(t, "status? — a reply is wanted", doc.Envelope)
+}
+
+// TestNewReplyStartsUnrecorded: a reply report opens with the answer it
+// would record and nothing recorded yet.
+func TestNewReplyStartsUnrecorded(t *testing.T) {
+	doc := NewReply("atlas", 7, "in PR #9")
+
+	assert.Equal(t, "reply", doc.Command)
+	assert.Equal(t, "atlas", doc.Repo)
+	assert.Equal(t, int64(7), doc.ID)
+	assert.Equal(t, "in PR #9", doc.Answer)
+	assert.False(t, doc.Recorded)
+	assert.Empty(t, doc.Question)
+	assert.Empty(t, doc.Refused)
+}
+
+// TestReplyTransitionsRecordOrRefuse: Record names the question the
+// answer settles; Refuse says why nothing was recorded.
+func TestReplyTransitionsRecordOrRefuse(t *testing.T) {
+	recorded := NewReply("atlas", 7, "in PR #9")
+	recorded.Record("status?")
+	assert.True(t, recorded.Recorded)
+	assert.Equal(t, "status?", recorded.Question)
+
+	refused := NewReply("atlas", 7, "in PR #9")
+	refused.Refuse("no ask is pending for plan 7")
+	assert.False(t, refused.Recorded)
+	assert.Equal(t, "no ask is pending for plan 7", refused.Refused)
+}

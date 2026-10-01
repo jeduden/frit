@@ -53,6 +53,8 @@ func TestGoldenShapes(t *testing.T) {
 		{"open-nolane", goldenOpenNoLane()},
 		{"nudge", goldenNudge()},
 		{"message", goldenMessage()},
+		{"message-ask", goldenMessageAsk()},
+		{"reply", goldenReply()},
 		{"claim", goldenClaim()},
 		{"release", goldenRelease()},
 		{"yield", goldenYield()},
@@ -310,6 +312,7 @@ func goldenBoard() *BoardDoc {
 		Key: "forge:orrery:7", Repo: "orrery", ID: 7,
 		Status: "🔲", Title: "Shader unit tests", Model: "sonnet",
 	}, "", "", false)
+	doc.SetAsk("atlas", 2608161810, "answered", "in PR #9, merging")
 
 	return doc
 }
@@ -359,6 +362,29 @@ func goldenMessage() *MessageDoc {
 	doc := NewMessage("/fleet", "atlas", 2608161810,
 		"The dispatch ladder", "are you in a PR?", false)
 	doc.SetTarget("wC:p1")
+
+	return doc
+}
+
+// goldenMessageAsk pins the --ask shape: the operator's text kept
+// whole beside the envelope that actually goes, which asks for a reply
+// and names how to give one.
+func goldenMessageAsk() *MessageDoc {
+	doc := NewMessage("/fleet", "atlas", 2608161810,
+		"The dispatch ladder", "are you in a PR?", true)
+	doc.Wrap("are you in a PR? — frit: a reply is wanted. " +
+		"Load the plan-reply skill to answer, or run: frit reply \"<answer>\"")
+	doc.SetTarget("wC:p1")
+	doc.MarkSent()
+
+	return doc
+}
+
+// goldenReply pins the reply shape: the plan answered, the question it
+// settles, and the answer recorded.
+func goldenReply() *ReplyDoc {
+	doc := NewReply("atlas", 2608161810, "in PR #9, merging")
+	doc.Record("are you in a PR?")
 
 	return doc
 }

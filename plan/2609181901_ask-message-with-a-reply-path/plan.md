@@ -1,7 +1,7 @@
 ---
 id: 2609181901
 title: An ask carries its reply, so silence is no longer the only answer
-status: "🔲"
+status: "🔳"
 summary: >-
   frit message writes text into a pane and stops. The remedy frit board
   prints for a (dead) lane is that same message, so an unanswered ping
@@ -141,7 +141,7 @@ footer: |
 
 | #   | Status | Phase                                          |
 | --- | ------ | ---------------------------------------------- |
-| 1   | 🔲     | [An ask and its reply, end to end](phase-1.md) |
+| 1   | 🔳     | [An ask and its reply, end to end](phase-1.md) |
 <?/catalog?>
 
 ## Acceptance Criteria

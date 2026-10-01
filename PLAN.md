@@ -22,9 +22,10 @@ empty: |
 
 ?>
 
-| ID         | Model | Title                                                                                                                      |
-| ---------- | ----- | -------------------------------------------------------------------------------------------------------------------------- |
-| 2609302340 | opus  | [A host without herdr claims nothing it would have to unwind](plan/2609302340_a-host-without-herdr-claims-nothing/plan.md) |
+| ID         | Model  | Title                                                                                                                      |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| 2609181901 | sonnet | [An ask carries its reply, so silence is no longer the only answer](plan/2609181901_ask-message-with-a-reply-path/plan.md) |
+| 2609302340 | opus   | [A host without herdr claims nothing it would have to unwind](plan/2609302340_a-host-without-herdr-claims-nothing/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -146,7 +147,7 @@ footer: |
 | 2609091905 | ✅     | sonnet | [Scenario coverage for the masked already-landed lost-race refusal](plan/2609091905_already-landed-lost-race-scenario.md)                      |
 | 2609092113 | ✅     | opus   | [Resume relays a locally advanced lease branch instead of discarding it](plan/2609092113_resume-relays-a-locally-advanced-branch/plan.md)      |
 | 2609152125 | ✅     | sonnet | [Landed lost-race reports landed even when no marker survives](plan/2609152125_landed-lost-race-survives-an-unreadable-marker.md)              |
-| 2609181901 | 🔲     | sonnet | [An ask carries its reply, so silence is no longer the only answer](plan/2609181901_ask-message-with-a-reply-path/plan.md)                     |
+| 2609181901 | 🔳     | sonnet | [An ask carries its reply, so silence is no longer the only answer](plan/2609181901_ask-message-with-a-reply-path/plan.md)                     |
 | 2609181909 | 🔲     | sonnet | [frit tells a blocked or finished agent from an unknown one](plan/2609181909_read-blocked-and-done-from-herdr/plan.md)                         |
 | 2609302340 | 🔳     | opus   | [A host without herdr claims nothing it would have to unwind](plan/2609302340_a-host-without-herdr-claims-nothing/plan.md)                     |
 <?/catalog?>
