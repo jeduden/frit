@@ -201,3 +201,95 @@ func TestTakeoverDecoratedErrsWhenTheRemoteCannotBeRead(t *testing.T) {
 	require.ErrorIs(t, err, readErr)
 	assert.Equal(t, tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7-shader-unit"))
 }
+
+// TestTakeoverDecoratedRefusesWhenTheParkConflicts: a rescue ref
+// already standing at the content-addressed name with other work is a
+// conflict, and the decorated branch is not deleted — nothing a park
+// could not save is ever destroyed.
+func TestTakeoverDecoratedRefusesWhenTheParkConflicts(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", true, true)
+	other := gitCmd(t, work, "rev-parse", "origin/main")
+	gitCmd(t, work, "push", "-q", "origin",
+		other+":refs/frit/rescue/7/box-b-"+tip)
+
+	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
+
+	var conflict *RescueConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Contains(t, err.Error(), "not deleting plan/7-shader-unit")
+	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin",
+		"refs/heads/plan/7-shader-unit"), tip, "the decorated branch stands")
+	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
+}
+
+// TestTakeoverDecoratedLosesTheAcquireToAnotherMachine: the decorated
+// branch is retired, but another machine minted plan/7 first — the
+// acquire stays the arbiter, and its lost race is returned as is.
+func TestTakeoverDecoratedLosesTheAcquireToAnotherMachine(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+	winner, err := Acquire(cloneAgain(t, work),
+		leaseOptions("box-c", "/lanes/c"), gitwt.Exec)
+	require.NoError(t, err)
+
+	_, err = TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	assert.Equal(t, winner.Tip, held.Tip)
+}
+
+// deleteFailing wraps the real runner so the decorated branch's delete
+// push fails; after it, ls-remote fails too when confirmUnreadable.
+func deleteFailing(confirmUnreadable bool) gitwt.Runner {
+	failed := false
+
+	return func(dir string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "push" &&
+			args[len(args)-1] == ":refs/heads/plan/7-shader-unit" {
+			failed = true
+
+			return nil, errors.New("push: connection reset")
+		}
+		if failed && confirmUnreadable && len(args) > 0 && args[0] == "ls-remote" {
+			return nil, errors.New("ls-remote: connection reset")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+}
+
+// TestTakeoverDecoratedReportsAnUnconfirmedDelete: the delete push
+// failed and origin could not be read back either, so whether the
+// branch is gone is unknown — reported as such, and nothing is minted.
+func TestTakeoverDecoratedReportsAnUnconfirmedDelete(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+
+	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, deleteFailing(true))
+
+	var unconfirmed *UnconfirmedDeleteError
+	require.ErrorAs(t, err, &unconfirmed)
+	assert.Equal(t, "refs/heads/plan/7-shader-unit", unconfirmed.Ref)
+	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
+}
+
+// TestTakeoverDecoratedRefusesADeleteOriginStillHolds: the delete push
+// failed and origin still carries the branch, so the holder is named
+// as a lost race rather than the takeover minting over a live branch.
+func TestTakeoverDecoratedRefusesADeleteOriginStillHolds(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+
+	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, deleteFailing(false))
+
+	var held *HeldError
+	require.ErrorAs(t, err, &held)
+	assert.Equal(t, tip, held.Tip)
+	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
+}
