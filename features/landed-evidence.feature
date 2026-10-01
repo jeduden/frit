@@ -23,6 +23,7 @@ Feature: Lifecycle anomalies — landed evidence
     And "box-a" pushes work titled with the marker's own prefix
     And "box-a"'s branch is merged onto the default branch
     And "box-b" clones the repository into a fleet root
+    And herdr is installed on this host
     When "box-b" claims plan 95 over the landed hold
     Then the claim reports the plan already landed
     And origin's work ref for the plan is gone
@@ -32,6 +33,7 @@ Feature: Lifecycle anomalies — landed evidence
     Given "box-a" pushes a plan-authoring commit on plan 99's branch, with no lease ever claimed
     And "box-a"'s branch is merged onto the default branch
     And "box-b" clones the repository into a fleet root
+    And herdr is installed on this host
     When "box-b" claims plan 99 over the landed hold
     Then the claim reports the plan already landed
     And origin's work ref for the plan is gone

@@ -447,3 +447,25 @@ func TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, localTip, tip, "the dead lane's own commit still heads the branch")
 }
+
+// TestPickGoRefusesWithoutHerdrBeforePushing: every candidate would
+// meet the same missing herdr, so pick --go stops on the first rather
+// than walking the list — and claims none of them.
+func TestPickGoRefusesWithoutHerdrBeforePushing(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
+	git(t, repo, "push", "-q", "origin", "main")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "herdr not found; nothing claimed")
+	for _, id := range []string{"7", "8"} {
+		_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/"+id)
+		assert.Error(t, err, "origin carries no work ref for plan "+id)
+	}
+}

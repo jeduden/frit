@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +120,71 @@ func TestListReturnsTheRunnerError(t *testing.T) {
 	want := errors.New("dial unix: no such file")
 	_, err := List(func(...string) ([]byte, error) { return nil, want })
 	assert.ErrorIs(t, err, want)
+}
+
+// TestMissingNamesAnAbsentBinary: a herdr that is not on $PATH at all
+// is the one answer that makes every later herdr call certain to fail,
+// so Missing hands it back for the caller to refuse on.
+func TestMissingNamesAnAbsentBinary(t *testing.T) {
+	want := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
+
+	err := Missing(func(...string) ([]byte, error) { return nil, want })
+
+	assert.ErrorIs(t, err, exec.ErrNotFound)
+}
+
+// TestMissingNamesABinaryExecRefusesToRun: a herdr found only through
+// a relative $PATH entry is one exec refuses to run every time, so it
+// is as certain to fail as an absent one and is handed back the same.
+func TestMissingNamesABinaryExecRefusesToRun(t *testing.T) {
+	want := &exec.Error{Name: "herdr", Err: exec.ErrDot}
+
+	err := Missing(func(...string) ([]byte, error) { return nil, want })
+
+	assert.ErrorIs(t, err, exec.ErrDot)
+}
+
+// TestNotFoundReadsAnErrorAlreadyReturned: a caller that already asked
+// herdr reads the same verdict off that call's error, without a second
+// round trip — the cause back for an absent binary, nil otherwise.
+func TestNotFoundReadsAnErrorAlreadyReturned(t *testing.T) {
+	absent := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
+
+	assert.ErrorIs(t, NotFound(absent), exec.ErrNotFound)
+	assert.NoError(t, NotFound(errors.New("dial unix .herdr.sock: refused")))
+	assert.NoError(t, NotFound(nil))
+}
+
+// TestMissingReadsAnUnreachableSocketAsPresent: a socket that refuses
+// a dial is not proof the binary is absent — the server may come up,
+// and the lease protocol's own unwind covers it (S60) — so Missing
+// answers nil and leaves the caller's ordinary path the arbiter.
+func TestMissingReadsAnUnreachableSocketAsPresent(t *testing.T) {
+	err := Missing(func(...string) ([]byte, error) {
+		return nil, errors.New("dial unix .herdr.sock: no such file")
+	})
+
+	assert.NoError(t, err)
+}
+
+// TestMissingReadsAnAnsweringHerdrAsPresent covers the ordinary case:
+// herdr answers, so nothing is missing.
+func TestMissingReadsAnAnsweringHerdrAsPresent(t *testing.T) {
+	err := Missing(func(...string) ([]byte, error) {
+		return []byte(`{"result":{"agents":[]}}`), nil
+	})
+
+	assert.NoError(t, err)
+}
+
+// TestMissingSeesThroughTheRealRunner drives the production runner —
+// ExecContext under WithTimeout, exactly as cmd/frit wires it — with no
+// herdr on $PATH, so the not-found cause is proven to survive every
+// wrapping between exec and the caller rather than assumed to.
+func TestMissingSeesThroughTheRealRunner(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	err := Missing(WithTimeout(ExecContext, time.Minute))
+
+	assert.ErrorIs(t, err, exec.ErrNotFound)
 }

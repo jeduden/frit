@@ -86,5 +86,23 @@ Feature: Command scenarios
   Scenario: starting from a lane whose branch diverged names the divergence
     Given this machine holds plan 7 in a lane with its token persisted
     And the lane's branch has diverged from its lease tip
+    And herdr is installed on this host
     When the lane runs start --go for plan 7
     Then start refuses, naming the diverged lane branch and both tips
+
+  @C15
+  Scenario: claiming on a host with no herdr refuses before anything reaches origin
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "claim 7"
+    Then it refuses, naming herdr not found and nothing claimed
+    And origin carries no work ref for plan 7
+
+  @C16
+  Scenario: pick --go on a host with no herdr claims no candidate
+    Given plans 7 and 8 are ready with plan 8 ranked above plan 7
+    And herdr is not installed on this host
+    When the built frit runs "pick --go"
+    Then it refuses, naming herdr not found and nothing claimed
+    And origin carries no work ref for plan 7
+    And origin carries no work ref for plan 8

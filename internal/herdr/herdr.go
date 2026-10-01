@@ -3,6 +3,7 @@ package herdr
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -119,4 +120,32 @@ func List(runner Runner) ([]Pane, error) {
 	}
 
 	return ParseAgentList(out)
+}
+
+// Missing reports a herdr that is not installed at all: the probe's
+// call failed because the executable is not on $PATH, the one answer
+// that makes every later herdr call certain to fail too. A verb about
+// to push a lease it would only have to unwind asks this first, so a
+// headless host refuses locally rather than writing to origin twice.
+//
+// Any other failure — a socket that refuses a dial, a timeout — is not
+// proof of absence and answers nil: the server may yet come up, and
+// the lease protocol's own unwind already covers it (S60).
+func Missing(runner Runner) error {
+	_, err := runner("agent", "list")
+
+	return NotFound(err)
+}
+
+// NotFound is Missing's reading of an error some herdr call already
+// returned, for a caller that has asked herdr once and need not ask
+// again: err itself when exec could not run the binary at all — not on
+// $PATH, or found only through a relative entry exec refuses to run —
+// and nil for any other answer, a failure or none.
+func NotFound(err error) error {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) {
+		return err
+	}
+
+	return nil
 }
