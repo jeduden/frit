@@ -86,9 +86,9 @@ from the first pass that sees it.
 **Out of scope.** A local checkout still standing on a decorated
 branch after a takeover keeps its local branch: a branch a worktree
 stands on is never deleted (S79). Tearing that worktree down is
-herdr's, as for any lane. `reap`'s unstaffed pass still refuses a
-decorated hold. Teaching it the phase 3 retire is a follow-up once
-that primitive exists.
+herdr's, as for any lane; the report says this host's copy was kept.
+`reap`'s unstaffed pass still refuses a decorated hold. Teaching it
+the phase 3 retire is a follow-up once that primitive exists.
 
 ## Tasks
 
@@ -106,6 +106,12 @@ that primitive exists.
    origin by CAS on the tip the window matured on, then acquire the
    id-only lease. A decorated branch that moved since refuses as a
    lost race and resets the window.
+4. Phase 4: the PR's code-review findings. A live agent on the
+   decorated branch vetoes the takeover. A delete the server refuses is
+   a fault, not a race. A branch already gone is skipped. Every retired
+   branch is reported, with what was deleted and what this host kept.
+   The configured remote's copy is the one watched. Scavenge and the
+   takeover share one CAS delete.
 
 ## Execution
 
@@ -114,6 +120,7 @@ that primitive exists.
 | 1     | The observer watches a decorated hold       | opus   | a cmd test gathers a fleet held only by `plan/7-slug` and finds its key; a seeded 3h window reads stale; against the built frit, `start` reports a growing span |
 | 2     | release and yield agree on a decorated hold | sonnet | cmd tests: release in the lane and yield outside it both refuse as held, neither says "nothing holds it" nor "live"; `go test ./...` green                      |
 | 3     | A matured decorated hold is taken over      | opus   | new `@S100` and `@S101`: a matured decorated hold is claimed, its branch deleted on origin, `plan/<id>` minted; a moved branch is not seized; tests green       |
+| 4     | The takeover answers its code review        | opus   | new `@S102`: a live decorated lane vetoes the claim; tests green                                                                                                |
 
 ## Phases
 
@@ -144,6 +151,8 @@ footer: |
 |     | ↳      | release and yield now refuse a hold made of a decorated branch alone in the same words, naming the branch and the takeover that ends it. No refusal calls an unmatured hold "live" any more. C17 covers it.                                                |
 | 3   | ✅     | [A matured decorated hold is taken over](phase-3.md)                                                                                                                                                                                                       |
 |     | ↳      | claim and start take a matured decorated-only hold over. They park its unlanded work, delete the branch on origin by CAS on the tip the window matured on, and mint plan/<id> fresh. A holder that pushed meanwhile is not seized. S100 and S101 cover it. |
+| 4   | ✅     | [The takeover answers its code review](phase-4.md)                                                                                                                                                                                                         |
+|     | ↳      | A live agent on the decorated branch now vetoes the takeover (S102). A refused delete is a fault, a vanished branch is skipped, every retired branch is reported with what was kept, and the configured remote's copy is the one watched.                  |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -159,5 +168,9 @@ footer: |
       marker, and unlanded work on the decorated branch is parked first
 - [x] A decorated branch that moved after its window matured is not
       deleted; the takeover refuses as a lost race
+- [x] A live agent herdr shows on the decorated branch vetoes the
+      takeover, and nothing is parked, deleted or minted
+- [x] Every branch a takeover retired is reported in `--json`'s
+      `retired` list, with its rescue and what was kept on this host
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

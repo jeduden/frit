@@ -117,17 +117,17 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	w.registerYieldHonesty(sc)
 }
 
-// decoratedState is S100's and S101's own: the legacy decorated branch
+// decoratedState is S100's, S101's and S102's own: the legacy decorated branch
 // holding the plan alone, and the tip it stands on now.
 type decoratedState struct {
 	branch string
 	tip    string
 }
 
-// registerDecoratedTakeover is S100's and S101's step vocabulary: a
-// plan held by a legacy decorated branch alone, with no id-only work
-// ref, matures on the observer's clock and is taken over — unless its
-// holder moved it (#204).
+// registerDecoratedTakeover is S100's, S101's and S102's step
+// vocabulary: a plan held by a legacy decorated branch alone, with no
+// id-only work ref, matures on the observer's clock and is taken over
+// — unless its holder moved it, or herdr shows an agent on it (#204).
 func (w *world) registerDecoratedTakeover(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]+)" holds plan (\d+) on a decorated branch alone$`,
 		w.holdsPlanOnADecoratedBranchAlone)
@@ -141,6 +141,27 @@ func (w *world) registerDecoratedTakeover(sc *godog.ScenarioContext) {
 		w.theDecoratedBranchIsGoneFromOrigin)
 	sc.Step(`^the decorated branch still stands on origin at its new tip$`,
 		w.theDecoratedBranchStillStandsAtItsNewTip)
+	sc.Step(`^a live agent sits in a worktree on the decorated branch$`,
+		w.aLiveAgentSitsOnTheDecoratedBranch)
+}
+
+// aLiveAgentSitsOnTheDecoratedBranch is S102's own: the decorated lane
+// checked out in a worktree on this host, with herdr showing an agent
+// in it — quiet past the window, but not gone.
+func (w *world) aLiveAgentSitsOnTheDecoratedBranch() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[decoratedState](w)
+	lane := filepath.Join(w.t.TempDir(), "atlas-shader-unit")
+	git(w.t, repo, "worktree", "add", "-q", "-b", ds.branch, lane, "origin/"+ds.branch)
+	withHerdr(w.t, herdrReturningWithWorktree(map[string]any{
+		"agent": "claude", "agent_status": "idle", "cwd": lane, "pane_id": "wL:p1",
+	}))
+	section[cliState](w).herdrSet = true
+
+	return nil
 }
 
 // holdsPlanOnADecoratedBranchAlone pushes a legacy claim on

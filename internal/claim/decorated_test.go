@@ -54,7 +54,7 @@ func TestTakeoverDecoratedRetiresTheBranchAndMintsTheLease(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, lease.Epoch)
-	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit"}}, lease.Retired,
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", DeletedOnOrigin: true}}, lease.Retired,
 		"a claim-only chain is retired with nothing to park")
 	gone := gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7-shader-unit")
 	assert.Empty(t, gone, "the decorated branch is deleted from origin")
@@ -83,8 +83,8 @@ func TestTakeoverDecoratedParksUnlandedWorkFirst(t *testing.T) {
 	require.NoError(t, err)
 
 	rescue := "refs/frit/rescue/7/box-b-" + tip
-	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", Rescue: rescue}},
-		lease.Retired)
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", Rescue: rescue,
+		DeletedOnOrigin: true}}, lease.Retired)
 	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", rescue), tip,
 		"the rescue ref carries the decorated tip")
 	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin",
@@ -129,7 +129,7 @@ func TestTakeoverDecoratedSparesALocalBranchAWorktreeStandsOn(t *testing.T) {
 	lane := filepath.Join(t.TempDir(), "lane")
 	gitCmd(t, work, "worktree", "add", "-q", lane, "plan/7-shader-unit")
 
-	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+	lease, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
 	require.NoError(t, err)
 
@@ -137,6 +137,9 @@ func TestTakeoverDecoratedSparesALocalBranchAWorktreeStandsOn(t *testing.T) {
 		"refs/heads/plan/7-shader-unit"))
 	assert.Equal(t, tip, gitCmd(t, work, "rev-parse", "refs/heads/plan/7-shader-unit"),
 		"the local branch a worktree stands on is left alone")
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit",
+		DeletedOnOrigin: true, LocalKept: true}}, lease.Retired,
+		"the report says this host's copy still stands")
 }
 
 // TestTakeoverDecoratedParksAndDropsALocalOnlyBranch: a decorated hold
@@ -153,7 +156,7 @@ func TestTakeoverDecoratedParksAndDropsALocalOnlyBranch(t *testing.T) {
 
 	rescue := "refs/frit/rescue/7/box-b-" + tip
 	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", Rescue: rescue}},
-		lease.Retired)
+		lease.Retired, "nothing was on origin to delete")
 	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", rescue), tip)
 	_, localErr := gitCapture(t, work,
 		"rev-parse", "--verify", "refs/heads/plan/7-shader-unit")
@@ -173,11 +176,12 @@ func TestTakeoverDecoratedKeepsALocalCopyThatMovedPastTheObservedTip(t *testing.
 	local := gitCmd(t, work, "rev-parse", "HEAD")
 	gitCmd(t, work, "checkout", "-q", "main")
 
-	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+	lease, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
 	require.NoError(t, err)
 
 	assert.Equal(t, local, gitCmd(t, work, "rev-parse", "refs/heads/plan/7-shader-unit"))
+	assert.True(t, lease.Retired[0].LocalKept)
 }
 
 // TestTakeoverDecoratedErrsWhenTheRemoteCannotBeRead: an unreadable
@@ -240,7 +244,7 @@ func TestTakeoverDecoratedLosesTheAcquireToAnotherMachine(t *testing.T) {
 	var held *HeldError
 	require.ErrorAs(t, err, &held)
 	assert.Equal(t, winner.Tip, held.Tip)
-	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit"}}, lease.Retired,
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", DeletedOnOrigin: true}}, lease.Retired,
 		"the branch already retired is still reported, though the acquire lost")
 }
 
@@ -280,18 +284,97 @@ func TestTakeoverDecoratedReportsAnUnconfirmedDelete(t *testing.T) {
 	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
 }
 
-// TestTakeoverDecoratedRefusesADeleteOriginStillHolds: the delete push
-// failed and origin still carries the branch, so the holder is named
-// as a lost race rather than the takeover minting over a live branch.
-func TestTakeoverDecoratedRefusesADeleteOriginStillHolds(t *testing.T) {
+// TestTakeoverDecoratedFaultsOnADeleteTheServerRefuses: the delete push
+// failed while origin still carries the branch at the very tip the
+// window matured on — a protected branch or a hook refused it, nobody
+// moved it. That is a fault naming the push's own error, not a lost
+// race that would restart the window over a branch that never moved.
+func TestTakeoverDecoratedFaultsOnADeleteTheServerRefuses(t *testing.T) {
 	work := originAndClone(t)
 	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
 
 	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
 		map[string]string{"plan/7-shader-unit": tip}, deleteFailing(false))
 
+	var refused *DeleteRefusedError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, tip, refused.Holder)
+	assert.ErrorContains(t, err, "connection reset", "the push's own error is kept")
+	assert.NotErrorIs(t, err, ErrLostRace)
+	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
+}
+
+// TestTakeoverDecoratedLosesToABranchThatMovesDuringTheDelete: the
+// holder pushed between the read and the delete, so the CAS delete
+// fails with a new tip on origin — a lost race naming it, and nothing
+// minted.
+func TestTakeoverDecoratedLosesToABranchThatMovesDuringTheDelete(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+	holder := cloneAgain(t, work)
+	moved := ""
+	racing := func(dir string, args ...string) ([]byte, error) {
+		if moved == "" && len(args) > 0 && args[0] == "push" &&
+			args[len(args)-1] == ":refs/heads/plan/7-shader-unit" {
+			gitCmd(t, holder, "checkout", "-q", "plan/7-shader-unit")
+			gitCmd(t, holder, "commit", "--allow-empty", "-q", "-m", "still here")
+			gitCmd(t, holder, "push", "-q", "origin", "plan/7-shader-unit")
+			moved = gitCmd(t, holder, "rev-parse", "HEAD")
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, racing)
+
 	var held *HeldError
 	require.ErrorAs(t, err, &held)
-	assert.Equal(t, tip, held.Tip)
+	assert.Equal(t, moved, held.Tip)
 	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"))
+}
+
+// TestTakeoverDecoratedSkipsABranchAlreadyGone: the decorated branch
+// vanished from origin, and this clone holds no copy, between the read
+// that matured the window and the takeover. Nothing holds the plan
+// through it any more, so it is skipped — not reported as a lost race
+// — and the lease is acquired.
+func TestTakeoverDecoratedSkipsABranchAlreadyGone(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+	gitCmd(t, work, "push", "-q", "origin", ":refs/heads/plan/7-shader-unit")
+	gitCmd(t, work, "branch", "-q", "-D", "plan/7-shader-unit")
+
+	lease, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Empty(t, lease.Retired, "nothing was left to retire")
+	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"),
+		lease.Tip)
+}
+
+// TestTakeoverDecoratedTakesADeleteThatLandedDespiteAnError: the
+// delete push reported an error, yet origin no longer carries the
+// branch — a connection dropped after the ref transaction committed.
+// Gone is gone: the retirement stands and the lease is acquired.
+func TestTakeoverDecoratedTakesADeleteThatLandedDespiteAnError(t *testing.T) {
+	work := originAndClone(t)
+	tip := decoratedHold(t, work, "plan/7-shader-unit", false, true)
+	droppedAfter := func(dir string, args ...string) ([]byte, error) {
+		out, err := gitwt.Exec(dir, args...)
+		if err == nil && len(args) > 0 && args[0] == "push" &&
+			args[len(args)-1] == ":refs/heads/plan/7-shader-unit" {
+			return out, errors.New("push: connection reset after commit")
+		}
+
+		return out, err
+	}
+
+	lease, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
+		map[string]string{"plan/7-shader-unit": tip}, droppedAfter)
+
+	require.NoError(t, err)
+	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", DeletedOnOrigin: true}},
+		lease.Retired)
 }

@@ -1406,7 +1406,8 @@ func TestMintOrTakeOverRetiresAMaturedDecoratedHold(t *testing.T) {
 		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, opts)
 
 	require.NoError(t, err)
-	assert.Equal(t, []claim.Retired{{Branch: "plan/7-shader-unit"}}, lease.Retired)
+	assert.Equal(t, []claim.Retired{{Branch: "plan/7-shader-unit",
+		DeletedOnOrigin: true}}, lease.Retired)
 	remote, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
 	require.NoError(t, err)
 	assert.Contains(t, remote, lease.Tip)
@@ -1467,43 +1468,117 @@ func TestMintClaimReportsADecoratedBranchRetiredBeforeALostAcquire(t *testing.T)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, doc.Refused)
-	assert.Equal(t, "plan/7-shader-unit", doc.Scavenged)
+	assert.Equal(t, []report.RetiredBranch{{Branch: "plan/7-shader-unit",
+		DeletedOnOrigin: true}}, doc.Retired)
 }
 
-// TestRecordRetiredNamesTheBranchThatParkedWork: one retired branch
-// is reported as is; of several, the one whose work was parked is the
-// one named, so its rescue is never the one left out.
-func TestRecordRetiredNamesTheBranchThatParkedWork(t *testing.T) {
-	one := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
-	recordRetired(one, claim.Lease{Retired: []claim.Retired{{Branch: "plan/7-a"}}})
-	assert.Equal(t, "plan/7-a", one.Scavenged)
-	assert.Empty(t, one.Rescue)
-
+// TestRecordRetiredNamesEveryRetiredBranch (review finding 4): every
+// branch a takeover retired is recorded with its own rescue, so when
+// several parked work none is left unnamed; nothing is recorded for a
+// transition that retired nothing.
+func TestRecordRetiredNamesEveryRetiredBranch(t *testing.T) {
 	several := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
 	recordRetired(several, claim.Lease{Retired: []claim.Retired{
-		{Branch: "plan/7-a"}, {Branch: "plan/7-b", Rescue: "refs/frit/rescue/7/h-b"},
-		{Branch: "plan/7-c"},
+		{Branch: "plan/7-a", Rescue: "refs/frit/rescue/7/h-a", DeletedOnOrigin: true},
+		{Branch: "plan/7-b", Rescue: "refs/frit/rescue/7/h-b", DeletedOnOrigin: true,
+			LocalKept: true},
 	}})
-	assert.Equal(t, "plan/7-b", several.Scavenged)
-	assert.Equal(t, "refs/frit/rescue/7/h-b", several.Rescue)
+	assert.Equal(t, []report.RetiredBranch{
+		{Branch: "plan/7-a", Rescue: "refs/frit/rescue/7/h-a", DeletedOnOrigin: true},
+		{Branch: "plan/7-b", Rescue: "refs/frit/rescue/7/h-b", DeletedOnOrigin: true,
+			LocalKept: true},
+	}, several.Retired)
+	assert.Empty(t, several.Scavenged, "a retirement is not a refusal's scavenge")
 
 	none := report.NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
 	recordRetired(none, claim.Lease{})
-	assert.Empty(t, none.Scavenged)
+	assert.Empty(t, none.Retired)
 }
 
-// TestPrintRetiredNamesTheBranchAndItsRescue: a successful claim or
-// start that retired a decorated branch names it, and the rescue when
-// there is one; nothing is printed when nothing was retired.
-func TestPrintRetiredNamesTheBranchAndItsRescue(t *testing.T) {
+// TestPrintRetiredNamesWhatWasRemovedAndWhatWasKept (review finding
+// 5): a branch deleted from origin reads retired, noting when this
+// host's copy still stands; one never pushed and kept here reads kept,
+// never retired; each names its rescue; nothing is printed when
+// nothing was retired.
+func TestPrintRetiredNamesWhatWasRemovedAndWhatWasKept(t *testing.T) {
 	var out bytes.Buffer
-	printRetired(&out, "plan/7-a", "refs/frit/rescue/7/h-a")
-	assert.Equal(t,
-		"  retired:  plan/7-a\n  rescued:  refs/frit/rescue/7/h-a\n", out.String())
+	printRetired(&out, []report.RetiredBranch{
+		{Branch: "plan/7-a", Rescue: "refs/frit/rescue/7/h-a", DeletedOnOrigin: true},
+		{Branch: "plan/7-b", DeletedOnOrigin: true, LocalKept: true},
+		{Branch: "plan/7-c", LocalKept: true},
+	})
+	assert.Equal(t, ""+
+		"  retired:  plan/7-a\n"+
+		"  rescued:  refs/frit/rescue/7/h-a\n"+
+		"  retired:  plan/7-b  (this host's copy still stands)\n"+
+		"  kept:     plan/7-c  (never pushed; this host's copy still stands)\n",
+		out.String())
 
 	out.Reset()
-	printRetired(&out, "", "")
+	printRetired(&out, nil)
 	assert.Empty(t, out.String())
+}
+
+// TestMintOrTakeOverVetoesADecoratedHoldWithALiveAgent (review finding
+// 2): a decorated hold's window matured, but herdr shows a live agent
+// in a local worktree on that very branch — a quiet lane, not a
+// deserted one. The takeover is vetoed and nothing is touched.
+func TestMintOrTakeOverVetoesADecoratedHoldWithALiveAgent(t *testing.T) {
+	isolate(t)
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	tip := pushDecorated(t, repo)
+	lane := filepath.Join(t.TempDir(), "atlas-shader-unit")
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7-shader-unit")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning(map[string]any{
+		"agent": "claude", "agent_status": "idle", "cwd": lane, "pane_id": "wL:p1",
+	})}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true, Stale: true,
+		Holds:         []string{"plan/7-shader-unit"},
+		DecoratedTips: map[string]string{"plan/7-shader-unit": tip}}
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: "/lanes/mine"}
+
+	_, err := mintOrTakeOver(rt, plan,
+		fleet.Coord{Path: repo, Remote: "origin", Base: "origin/main"}, opts)
+
+	var veto *claim.VetoError
+	require.ErrorAs(t, err, &veto)
+	assert.Contains(t, vetoRefusal(veto), "live agent session")
+	remote, err := gitCapture(t, repo, "ls-remote", "origin",
+		"refs/heads/plan/7-shader-unit")
+	require.NoError(t, err)
+	assert.Contains(t, remote, tip, "the decorated branch is not deleted")
+}
+
+// TestDecoratedLaneLiveIgnoresWhatDoesNotProveALiveLane: an
+// unreachable herdr, a pane with no agent, a pane on another branch
+// and a pane on the same branch name in another repository all leave
+// the window to decide.
+func TestDecoratedLaneLiveIgnoresWhatDoesNotProveALiveLane(t *testing.T) {
+	isolate(t)
+	repo := claimableRepo(t, t.TempDir(), "atlas", 7, "Shader unit")
+	pushDecorated(t, repo)
+	lane := filepath.Join(t.TempDir(), "atlas-shader-unit")
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7-shader-unit")
+	other := claimableRepo(t, t.TempDir(), "orrery", 7, "Shader unit")
+	git(t, other, "checkout", "-q", "-b", "plan/7-shader-unit")
+	plan := discovery.Plan{Repo: "atlas", ID: 7,
+		DecoratedTips: map[string]string{"plan/7-shader-unit": "x"}}
+
+	unreachable := &runtime{git: gitwt.Exec,
+		herdr: func(...string) ([]byte, error) { return nil, errors.New("dial") }}
+	_, ok := decoratedLaneLive(unreachable, plan)
+	assert.False(t, ok, "an unreachable herdr is no veto")
+
+	panes := &runtime{git: gitwt.Exec, herdr: herdrReturning(
+		map[string]any{"agent": "", "cwd": lane, "pane_id": "w1:p1"},
+		map[string]any{"agent": "claude", "agent_status": "idle", "cwd": repo,
+			"pane_id": "w3:p1"},
+		map[string]any{"agent": "claude", "agent_status": "idle", "cwd": other,
+			"pane_id": "w4:p1"},
+	)}
+	_, ok = decoratedLaneLive(panes, plan)
+	assert.False(t, ok)
 }
 
 // TestClaimSurfacesAGenuineGitFaultDuringAFreshAcquire: Run's own

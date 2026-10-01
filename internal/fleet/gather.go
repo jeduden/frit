@@ -491,21 +491,24 @@ func heldBranches(
 	}
 
 	return held, holdTips{
-		lease:     leaseTips(refs, holds),
-		decorated: decoratedTips(refs, holds, held),
+		lease:     leaseTips(refs, holds, cfg.Remote),
+		decorated: decoratedTips(refs, holds, held, cfg.Remote),
 	}, nil
 }
 
 // decoratedTips maps each plan's live decorated holds — every branch in
 // held other than the id-only work ref — to its tip, read off the raw
-// ref list the way leaseTips reads the lease's, origin's copy winning
-// over a local one. A plan held by such a branch alone has no lease
-// tip, so this is what the staleness observer watches instead (#204);
-// a branch held reports nothing here, since only a live hold matures.
+// ref list the way leaseTips reads the lease's, the configured remote's
+// copy preferred (tipRank). A plan held by such a branch alone has no
+// lease tip, so this is what the staleness observer watches instead
+// (#204), and what a decorated takeover CASes each delete on; a branch
+// not held reports nothing here, since only a live hold matures.
 func decoratedTips(
 	refs []gitobj.Ref, holds repocfg.Holds, held map[int64][]string,
+	remote string,
 ) map[int64]map[string]string {
 	tips := map[int64]map[string]string{}
+	ranks := map[string]int{}
 	for _, r := range refs {
 		branch, ok := r.Branch()
 		if !ok || r.OID == "" {
@@ -518,8 +521,8 @@ func decoratedTips(
 		if tips[id] == nil {
 			tips[id] = map[string]string{}
 		}
-		if tips[id][branch] == "" || strings.HasPrefix(r.Name, "refs/remotes/") {
-			tips[id][branch] = r.OID
+		if rank := tipRank(r.Name, remote); tips[id][branch] == "" || rank > ranks[branch] {
+			tips[id][branch], ranks[branch] = r.OID, rank
 		}
 	}
 
@@ -536,11 +539,14 @@ type holdTips struct {
 // leaseTips maps each plan to the tip of its id-only work ref — read
 // off the raw ref list, not the hold filters, because the observer
 // watches the ref itself and scavenge needs the tip of exactly the
-// states the filters drop: released, merged, landed. When both a
-// local and a remote-tracking copy exist the remote-tracking one
-// wins: origin is the arbiter, and its copy is the lease observed.
-func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
+// states the filters drop: released, merged, landed. Of the copies the
+// ref list carries, the configured remote's wins (tipRank): it is the
+// arbiter, and its copy is the lease observed.
+func leaseTips(
+	refs []gitobj.Ref, holds repocfg.Holds, remote string,
+) map[int64]string {
 	tips := map[int64]string{}
+	ranks := map[int64]int{}
 	for _, r := range refs {
 		branch, ok := r.Branch()
 		if !ok {
@@ -550,12 +556,28 @@ func leaseTips(refs []gitobj.Ref, holds repocfg.Holds) map[int64]string {
 		if !ok || branch != claim.Branch(id) || r.OID == "" {
 			continue
 		}
-		if tips[id] == "" || strings.HasPrefix(r.Name, "refs/remotes/") {
-			tips[id] = r.OID
+		if rank := tipRank(r.Name, remote); tips[id] == "" || rank > ranks[id] {
+			tips[id], ranks[id] = r.OID, rank
 		}
 	}
 
 	return tips
+}
+
+// tipRank orders the copies of one branch a ref list can carry, the
+// higher preferred: the configured remote's remote-tracking copy —
+// what every transition CASes against — then the local branch, then
+// any other remote's copy, which no transition ever reads and so must
+// never decide what the observer watches.
+func tipRank(name, remote string) int {
+	switch {
+	case strings.HasPrefix(name, "refs/remotes/"+remote+"/"):
+		return 2
+	case strings.HasPrefix(name, "refs/heads/"):
+		return 1
+	}
+
+	return 0
 }
 
 // planOf projects a plan's authoritative version into the discovery

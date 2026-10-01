@@ -385,9 +385,26 @@ type ClaimDoc struct {
 	// Scavenged is the work ref a refusal cleaned up on landed evidence,
 	// "" when nothing was scavenged; Rescue is where its unlanded work was
 	// parked, "" when the chain held nothing a delete could destroy.
-	Scavenged string    `json:"scavenged"`
-	Rescue    string    `json:"rescue"`
-	Problems  []Problem `json:"problems"`
+	Scavenged string `json:"scavenged"`
+	Rescue    string `json:"rescue"`
+	// Retired is every legacy decorated branch a decorated takeover
+	// retired on its way to the lease, one entry per branch (#204) —
+	// reported even when the acquire then lost, since the retirement
+	// already happened. [] for every other claim.
+	Retired  []RetiredBranch `json:"retired"`
+	Problems []Problem       `json:"problems"`
+}
+
+// RetiredBranch is one decorated branch a takeover retired: the
+// branch, the rescue ref its unlanded work was parked to ("" when
+// nothing needed parking), whether origin's copy was deleted, and
+// whether this host's own copy still stands — a worktree on it, or
+// commits past the observed tip — and so still reads as a hold here.
+type RetiredBranch struct {
+	Branch          string `json:"branch"`
+	Rescue          string `json:"rescue"`
+	DeletedOnOrigin bool   `json:"deleted_on_origin"`
+	LocalKept       bool   `json:"local_kept"`
 }
 
 // NewClaim opens a claim report for a resolved plan and the branch it
@@ -400,9 +417,13 @@ func NewClaim(
 		Root:     root,
 		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
 		Branch:   branch,
+		Retired:  []RetiredBranch{},
 		Problems: []Problem{},
 	}
 }
+
+// Retire records one decorated branch a takeover retired.
+func (d *ClaimDoc) Retire(r RetiredBranch) { d.Retired = append(d.Retired, r) }
 
 // Minted records a lease that went through, dated against a base commit.
 func (d *ClaimDoc) Minted(baseSHA string) {
@@ -440,8 +461,7 @@ func (d *ClaimDoc) Unwound(reason string) {
 }
 
 // ScavengedRef records the work ref a refusal cleaned up on landed
-// evidence, or the decorated branch a takeover retired, and where its
-// unlanded work was parked, if anywhere.
+// evidence, and where its unlanded work was parked, if anywhere.
 func (d *ClaimDoc) ScavengedRef(branch, rescue string) {
 	d.Scavenged = branch
 	d.Rescue = rescue
@@ -708,6 +728,9 @@ type StartDoc struct {
 	// delete could destroy.
 	Scavenged string `json:"scavenged"`
 	Rescue    string `json:"rescue"`
+	// Retired is every legacy decorated branch a decorated takeover
+	// retired on its way to the lease, as ClaimDoc.Retired.
+	Retired []RetiredBranch `json:"retired"`
 	// Warning is a non-fatal failure alongside a scavenge.
 	Warning  string    `json:"warning"`
 	Problems []Problem `json:"problems"`
@@ -749,6 +772,7 @@ func NewStart(
 		Lane:     sp.Lane,
 		Prompt:   sp.Prompt,
 		Go:       wantGo,
+		Retired:  []RetiredBranch{},
 		Problems: []Problem{},
 	}
 	d.setHandoff(HandoffPreview)
@@ -797,9 +821,11 @@ func (d *StartDoc) MarkStarted(pane string) {
 // acquired or taken over.
 func (d *StartDoc) MarkResumed() { d.Resumed = true }
 
+// Retire records one decorated branch a takeover retired.
+func (d *StartDoc) Retire(r RetiredBranch) { d.Retired = append(d.Retired, r) }
+
 // ScavengedRef records the work ref a refusal cleaned up on landed
-// evidence, or the decorated branch a takeover retired, and where its
-// unlanded work was parked, if anywhere.
+// evidence, and where its unlanded work was parked, if anywhere.
 func (d *StartDoc) ScavengedRef(branch, rescue string) {
 	d.Scavenged = branch
 	d.Rescue = rescue

@@ -421,3 +421,24 @@ func TestStartTransitionsRecordEveryOutcome(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "beacon", doc.Problems[0].Repo)
 }
+
+// TestRetireRecordsEachBranchOnClaimAndStart: both documents open with
+// an empty retired list — [] on the wire, never null — and carry one
+// entry per branch a takeover retired, in the order recorded.
+func TestRetireRecordsEachBranchOnClaimAndStart(t *testing.T) {
+	a := RetiredBranch{Branch: "plan/7-a", Rescue: "refs/frit/rescue/7/h-a",
+		DeletedOnOrigin: true}
+	b := RetiredBranch{Branch: "plan/7-b", LocalKept: true}
+
+	claim := NewClaim("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	assert.NotNil(t, claim.Retired)
+	assert.Empty(t, claim.Retired)
+	claim.Retire(a)
+	claim.Retire(b)
+	assert.Equal(t, []RetiredBranch{a, b}, claim.Retired)
+
+	start := NewStart("/fleet", "atlas", 7, "Shader unit", StartPlan{}, false)
+	assert.NotNil(t, start.Retired)
+	start.Retire(b)
+	assert.Equal(t, []RetiredBranch{b}, start.Retired)
+}

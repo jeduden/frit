@@ -1358,6 +1358,7 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
 		printNextAction(out, doc.NextAction)
+		printRetired(out, doc.Retired)
 		if doc.Warning != "" {
 			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
 		}
@@ -1373,7 +1374,7 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	}
 	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Plan.Title)
 	_, _ = fmt.Fprintf(out, "  claim:    %s  (base %s)\n", doc.Branch, doc.Base)
-	printRetired(out, doc.Scavenged, doc.Rescue)
+	printRetired(out, doc.Retired)
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
 	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
 		doc.Kind, modelLabel(doc.Tier))

@@ -1,18 +1,26 @@
 package claim
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/jeduden/frit/internal/gitwt"
 )
 
-// Retired is one decorated branch a decorated takeover removed: the
-// branch, and the rescue ref its unlanded work was parked to, "" when
-// the chain held nothing a delete could destroy.
+// Retired is one decorated branch a decorated takeover retired: the
+// branch, the rescue ref its unlanded work was parked to ("" when the
+// chain held nothing a delete could destroy), and what was actually
+// removed. DeletedOnOrigin says origin's copy is gone; LocalKept says
+// this clone's own copy still stands — a worktree is on it, or it
+// carries commits past the observed tip — so it still reads as a hold
+// on this host until that checkout is dealt with. A branch never
+// pushed and kept locally had nothing removed at all.
 type Retired struct {
-	Branch string
-	Rescue string
+	Branch          string
+	Rescue          string
+	DeletedOnOrigin bool
+	LocalKept       bool
 }
 
 // TakeoverDecorated seizes a matured hold made of legacy decorated
@@ -23,7 +31,8 @@ type Retired struct {
 // Every branch is read on origin first, and the takeover refuses as a
 // lost race, naming the new tip, if any has moved: a holder that
 // pushed since is not deserted, and nothing is parked or deleted for
-// it (A2). Then each branch is retired the way a scavenge retires a
+// it (A2). A branch already gone from origin and this clone alike has
+// nothing left to retire and is skipped. Then each branch is retired the way a scavenge retires a
 // work ref — unlanded work parked to the rescue ref, then a delete
 // CASed on exactly the observed tip — and only then is the id-only
 // lease acquired, create-only, at epoch 1: a legacy claim carries no
@@ -46,19 +55,25 @@ func TakeoverDecorated(
 	sort.Strings(branches)
 
 	pushed := map[string]bool{}
+	standing := make([]string, 0, len(branches))
 	for _, b := range branches {
 		now, onOrigin, err := decoratedTip(repoDir, opts, b, run)
 		if err != nil {
 			return Lease{}, err
 		}
-		if now != tips[b] {
+		switch now {
+		case "":
+			continue
+		case tips[b]:
+		default:
 			return Lease{}, &HeldError{PlanID: opts.PlanID, Tip: now}
 		}
 		pushed[b] = onOrigin
+		standing = append(standing, b)
 	}
 
-	retired := make([]Retired, 0, len(branches))
-	for _, b := range branches {
+	retired := make([]Retired, 0, len(standing))
+	for _, b := range standing {
 		r, err := retireDecorated(repoDir, opts, b, tips[b], pushed[b], run)
 		if err != nil {
 			return Lease{Retired: retired}, err
@@ -96,8 +111,12 @@ func decoratedTip(
 }
 
 // retireDecorated parks one decorated branch's unlanded work and then
-// deletes it: on origin by CAS on tip when origin carries it, and
-// locally when the local copy still sits at tip with no worktree on it.
+// deletes it: on origin by the same CAS delete a scavenge runs, when
+// origin carries it, and locally when the local copy still sits at tip
+// with no worktree on it. A delete the remote refused because the
+// branch moved is a lost race naming the new tip; one it refused
+// while still holding the observed tip — a protected branch, a hook —
+// is a fault, returned as is, never dressed up as a race (A2).
 func retireDecorated(
 	repoDir string, opts LeaseOptions, branch, tip string, pushed bool,
 	run gitwt.Runner,
@@ -109,22 +128,21 @@ func retireDecorated(
 	}
 	ref := "refs/heads/" + branch
 	if pushed {
-		if err, holder, readErr := pushThenConfirm(
-			repoDir, opts, ref, tip, "", run); err != nil {
-			if readErr != nil {
-				return Retired{}, &UnconfirmedDeleteError{
-					PlanID: opts.PlanID, Ref: ref,
-					Err: fmt.Errorf("%w; confirm: %w", err, readErr),
-				}
-			}
-			if holder != "" {
-				return Retired{}, &HeldError{PlanID: opts.PlanID, Tip: holder}
-			}
+		err := casDelete(repoDir, opts, ref, tip, run)
+		var refused *DeleteRefusedError
+		if errors.As(err, &refused) && refused.Holder != tip {
+			return Retired{}, &HeldError{PlanID: opts.PlanID, Tip: refused.Holder}
+		}
+		if err != nil {
+			return Retired{}, err
 		}
 	}
 	if localTip(repoDir, ref, run) == tip && !checkedOut(repoDir, branch, run) {
 		_, _ = run(repoDir, "update-ref", "-d", ref, tip)
 	}
 
-	return Retired{Branch: branch, Rescue: parked.Rescue}, nil
+	return Retired{
+		Branch: branch, Rescue: parked.Rescue, DeletedOnOrigin: pushed,
+		LocalKept: localTip(repoDir, ref, run) != "",
+	}, nil
 }

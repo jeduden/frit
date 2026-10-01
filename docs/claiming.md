@@ -223,12 +223,12 @@ plan in both until one is renamed.
 
 `plan/{id}-*`, the id plus a slug, is still a hold pattern by default,
 so an older repository's branches read as claims with no flag day;
-narrowing `holds` to drop it forgets them. frit only mints the id-only
-shape, and `frit orphans` names a decorated hold's id-only ref. With no
-`plan/<id>` beside it, a decorated hold has no lease: `release` and
-`yield` refuse it alike (C17). The observer watches its tip; matured,
-`claim` and `start` park its unlanded work, CAS-delete it, and acquire
-`plan/<id>` (S100). A push meanwhile restarts the window (S101).
+narrowing `holds` to drop it forgets them. `frit orphans` names a
+decorated hold's id-only ref. With no `plan/<id>` beside it, a decorated
+hold has no lease: `release` and `yield` refuse it alike (C17). The
+observer watches its tip; matured, `claim` and `start` park its work,
+CAS-delete it and acquire `plan/<id>` (S100), unless it moved (S101) or
+herdr shows an agent on it (S102).
 
 ## Parameters
 

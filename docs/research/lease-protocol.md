@@ -327,8 +327,7 @@ OBS (staleness window), TAKE (takeover), SCAV (scavenge), RESUME
 (self-resume), YIELD (rescue), VETO (herdr precedence), ID (id-only
 ref, machine-id identity), PARK (rescue before delete), TRUST (an
 actor inside the trust domain — anyone with write access to origin;
-frit reports what it sees via `orphans` and `board` and does not
-defend against them).
+frit reports it via `orphans` and `board`, never defends against it).
 
 ### Process death, at every lifecycle step
 
@@ -368,6 +367,7 @@ dies with the host.
 | S93  | distant host `yield`s a hold it never fetched | refused like release's foreign hold, naming the takeover; origin untouched (YIELD) |
 | S100 | deserted decorated hold, no lease ref         | OBS→TAKE: PARK, CAS delete, acquire (#204)                                         |
 | S101 | decorated holder pushes after T               | OBS restarts; no TAKE (A2)                                                         |
+| S102 | agent on a matured decorated lane             | VETO via herdr's panes                                                             |
 
 ### Partitions
 
@@ -448,59 +448,59 @@ dies with the host.
 [landed-evidence.feature](../../features/landed-evidence.feature)
 (scavenge).
 
-| #   | Scenario                                                                             | Outcome and mechanism                                                                                                                                                 |
-| --- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S50 | plan file renamed after claim                                                        | ID: ref name never contained the slug                                                                                                                                 |
-| S51 | slug collision across plans                                                          | ID: no slugs                                                                                                                                                          |
-| S52 | plan deleted while claimed                                                           | SCAV on plan-gone evidence after a window; PARK                                                                                                                       |
-| S53 | plan id reused                                                                       | forbidden by proto (minute ids); scavenge old ref by evidence                                                                                                         |
-| S54 | squash-merge, status never ✅                                                        | SCAV accepts content evidence (merge-tree no-op), not only the glyph                                                                                                  |
-| S55 | merge + branch auto-delete                                                           | ref gone is released; a 🔳 unheld plan is claimable                                                                                                                   |
-| S56 | local branch deleted by hand                                                         | origin is the only authority consulted (CAS)                                                                                                                          |
-| S57 | plan re-opened after done                                                            | old ref scavenged if landed; fresh acquire (SCAV, CAS)                                                                                                                |
-| S58 | released before the PR merges                                                        | window of duplicate claim; human process, TRUST                                                                                                                       |
-| S59 | status flipped ✅ early by hand                                                      | dependents unblock too early; TRUST, `doctor`'s concern                                                                                                               |
-| S70 | claim dated against an old base                                                      | acquire fetches the base at claim (CAS)                                                                                                                               |
-| S75 | default branch renamed                                                               | evidence follows origin's HEAD, refreshed per read                                                                                                                    |
-| S79 | scavenge deletes a branch a worktree still stands on                                 | a fresh worktree-list read gates every local `update-ref -d`; a checked-out branch keeps its copy, only the delete and park proceed (SCAV); Mint shared it, removed   |
-| S80 | local default branch lags its own fetched remote-tracking ref                        | `Gather` fetches `--prune` first (S87), then compares; a local `main` still behind the refreshed ref is the "fetch ran, merge did not" problem                        |
-| S81 | unstaffed hold, holder alive on another machine                                      | `reap` refuses: a drop needs abandonment evidence — a matured window or a dead session — not the missing checkout (OBS, SCAV, A2)                                     |
-| S82 | reaped squash-landed branch carries a follow-up commit                               | the tip is parked to the rescue ref before `branch -D`; a park that cannot happen refuses the teardown (PARK)                                                         |
-| S83 | origin unreadable while scavenge classifies the ref                                  | surfaced as a fault, local ref kept; "gone" is only a remote's positive answer (SCAV)                                                                                 |
-| S84 | local default branch normally lags origin, so it is never authoritative for evidence | landed evidence reads origin's default branch via its remote-tracking ref, never a local `main` that normally trails (SCAV; S13, S75)                                 |
-| S85 | `origin/HEAD` unset, so `DefaultRef` falls back to a local default branch            | `DefaultRef` reaches `refs/remotes/origin/<default>` before any local `main`, so a squash-landed `✅` is seen however far `main` lags (SCAV; S54, S80, S84)           |
-| S87 | read verb reads landed evidence off a checkout unfetched since a PR merged           | `Gather` fetches `--prune` before reading, gated by `--fetch` (default on); `--no-fetch` or an offline fetch falls back to the local view, naming staleness (S80/S84) |
-| S92 | plan claimed by `frit claim` alone, released from its own lane                       | claim persists the minted tip as the lane's token once herdr stands the worktree up; release resumes on it unaided (RESUME)                                           |
-| S95 | lost race against a masked landed winner reports landed                              | a masking work commit must not read as no marker (CAS)                                                                                                                |
-| S96 | lane branch fast-forwarded locally past its renewal's tip                            | the beat relays the local tip; divergence refuses (CAS)                                                                                                               |
-| S99 | lost race against an unmarked landed lane reports landed                             | landed reads off ancestry, not the marker (#195, CAS)                                                                                                                 |
+| #   | Scenario                                                                             | Outcome and mechanism                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S50 | plan file renamed after claim                                                        | ID: ref name never contained the slug                                                                                                                               |
+| S51 | slug collision across plans                                                          | ID: no slugs                                                                                                                                                        |
+| S52 | plan deleted while claimed                                                           | SCAV on plan-gone evidence after a window; PARK                                                                                                                     |
+| S53 | plan id reused                                                                       | forbidden by proto (minute ids); scavenge old ref by evidence                                                                                                       |
+| S54 | squash-merge, status never ✅                                                        | SCAV accepts content evidence (merge-tree no-op), not only the glyph                                                                                                |
+| S55 | merge + branch auto-delete                                                           | ref gone is released; a 🔳 unheld plan is claimable                                                                                                                 |
+| S56 | local branch deleted by hand                                                         | origin is the only authority consulted (CAS)                                                                                                                        |
+| S57 | plan re-opened after done                                                            | old ref scavenged if landed; fresh acquire (SCAV, CAS)                                                                                                              |
+| S58 | released before the PR merges                                                        | window of duplicate claim; human process, TRUST                                                                                                                     |
+| S59 | status flipped ✅ early by hand                                                      | dependents unblock too early; TRUST, `doctor`'s concern                                                                                                             |
+| S70 | claim dated against an old base                                                      | acquire fetches the base at claim (CAS)                                                                                                                             |
+| S75 | default branch renamed                                                               | evidence follows origin's HEAD, refreshed per read                                                                                                                  |
+| S79 | scavenge deletes a branch a worktree still stands on                                 | a fresh worktree-list read gates every local `update-ref -d`; a checked-out branch keeps its copy, only the delete and park proceed (SCAV); Mint shared it, removed |
+| S80 | local default branch lags its own fetched remote-tracking ref                        | `Gather` fetches `--prune` first (S87), then compares; a local `main` still behind the refreshed ref is the "fetch ran, merge did not" problem                      |
+| S81 | unstaffed hold, holder alive on another machine                                      | `reap` refuses: a drop needs abandonment evidence (a matured window, a dead session), not a missing checkout (OBS, SCAV, A2)                                        |
+| S82 | reaped squash-landed branch carries a follow-up commit                               | the tip is parked to the rescue ref before `branch -D`; a park that cannot happen refuses the teardown (PARK)                                                       |
+| S83 | origin unreadable while scavenge classifies the ref                                  | surfaced as a fault, local ref kept; "gone" is only a remote's positive answer (SCAV)                                                                               |
+| S84 | local default branch normally lags origin, so it is never authoritative for evidence | landed evidence reads origin's default branch via its remote-tracking ref, never a trailing local `main` (SCAV; S13, S75)                                           |
+| S85 | `origin/HEAD` unset, so `DefaultRef` falls back to a local default branch            | `DefaultRef` reaches `refs/remotes/origin/<default>` before any local `main`, so a squash-landed `✅` is seen however far `main` lags (SCAV; S54, S80, S84)         |
+| S87 | read verb reads landed evidence off a checkout unfetched since a PR merged           | `Gather` fetches `--prune` first (`--fetch`, default on); `--no-fetch` or an offline fetch reads the local view, naming staleness (S80/S84)                         |
+| S92 | plan claimed by `frit claim` alone, released from its own lane                       | claim persists the minted tip as the lane's token once herdr stands it up; release resumes on it unaided (RESUME)                                                   |
+| S95 | lost race against a masked landed winner reports landed                              | a masking work commit must not read as no marker (CAS)                                                                                                              |
+| S96 | lane branch fast-forwarded locally past its renewal's tip                            | the beat relays the local tip; divergence refuses (CAS)                                                                                                             |
+| S99 | lost race against an unmarked landed lane reports landed                             | landed reads off ancestry, not the marker (#195, CAS)                                                                                                               |
 
-S87 was S86, an id the own-token row below also held, until plan
+S87 was S86, which the own-token row below also held, until plan
 2609012000; 85cee2e and PR #79 cite S86.
 
 ### Cross-layer: herdr and frit disagree
 
 [cross-layer.feature](../../features/cross-layer.feature).
 
-| #   | Scenario                                                    | Outcome and mechanism                                                                                                                                                               |
-| --- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S60 | herdr down at claim time                                    | lease valid, lane pending; RESUME stands it up later                                                                                                                                |
-| S61 | herdr down at observation                                   | no veto either way; OBS window governs (VETO)                                                                                                                                       |
-| S62 | host unreachable, agents pushing                            | tip advances → observations reset; no takeover (OBS)                                                                                                                                |
-| S63 | pane alive, lease released                                  | agent's next CAS fails → fenced → YIELD                                                                                                                                             |
-| S64 | branch repurposed by hand                                   | the lane's token no longer matches the tip; verbs refuse to act as holder (FENCE)                                                                                                   |
-| S65 | herdr restarts, loses panes                                 | renewals continue via the agent's own verbs; veto lapses to OBS                                                                                                                     |
-| S72 | claim and start race on one host                            | one winner; the loser's refusal names the winning lane                                                                                                                              |
-| S73 | prompt fails after agent start                              | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)                                                                                                          |
-| S74 | same plan id in two repos                                   | lanes key host:repo:id; pane names carry the repo                                                                                                                                   |
-| S76 | pane gone before the window matures                         | `start` locates the lane by its marker, resumes on its token without waiting; absent token or live session vetoes (plan 2609011836, RESUME)                                         |
-| S77 | deserted lane on its own host                               | `start` resumes on the lane's token but refuses an unpushed suffix until yield parks it (plan 2609011836, RESUME, YIELD)                                                            |
-| S86 | a live lane's raw commits advance its token                 | same-epoch, same-holder descendants permit release/renew/resume; a new-epoch takeover fences (RESUME, FENCE)                                                                        |
-| S88 | a live top lane in pick's walk                              | `pick --go` skips the live-lane refusal (#126) to the next ready plan; an explicit `start <id>` still refuses (plan 2609031211)                                                     |
-| S89 | bound session gone, pane still attends                      | board and ready render the lane attended, not dead; start's deserted refusal leads with resuming the pane, `frit yield` the fallback (plan 2609031939) (RESUME, YIELD)              |
-| S90 | a deserted top lane in pick's walk                          | `pick --go` skips `startRefusal`'s own refusals too, to the next ready plan; an explicit `start <id>` still refuses (plan 2609031951)                                               |
-| S91 | bound session gone, pane still working, work unclassifiable | board and ready carry `ask` naming `frit message`; start's deserted refusal leads with it, `frit yield` trailing; `message --go` reaches the pane (plan 2609032048) (RESUME, YIELD) |
-| S94 | a started lane resumes after work advances its beat token   | marker lookup walks past a work commit sharing the marker's own prefix; checkout, pushed work and epoch preserved (plan 2609082010, #186, RESUME, FENCE)                            |
+| #   | Scenario                                                    | Outcome and mechanism                                                                                                                                                          |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S60 | herdr down at claim time                                    | lease valid, lane pending; RESUME stands it up later                                                                                                                           |
+| S61 | herdr down at observation                                   | no veto either way; OBS window governs (VETO)                                                                                                                                  |
+| S62 | host unreachable, agents pushing                            | tip advances → observations reset; no takeover (OBS)                                                                                                                           |
+| S63 | pane alive, lease released                                  | agent's next CAS fails → fenced → YIELD                                                                                                                                        |
+| S64 | branch repurposed by hand                                   | the lane's token no longer matches the tip; verbs refuse to act as holder (FENCE)                                                                                              |
+| S65 | herdr restarts, loses panes                                 | renewals continue via the agent's own verbs; veto lapses to OBS                                                                                                                |
+| S72 | claim and start race on one host                            | one winner; the loser's refusal names the winning lane                                                                                                                         |
+| S73 | prompt fails after agent start                              | release marker, agent fenced at its first verb, pane reported (CAS, FENCE)                                                                                                     |
+| S74 | same plan id in two repos                                   | lanes key host:repo:id; pane names carry the repo                                                                                                                              |
+| S76 | pane gone before the window matures                         | `start` locates the lane by its marker and resumes on its token at once; absent token or live session vetoes (plan 2609011836, RESUME)                                         |
+| S77 | deserted lane on its own host                               | `start` resumes on the lane's token but refuses an unpushed suffix until yield parks it (plan 2609011836, RESUME, YIELD)                                                       |
+| S86 | a live lane's raw commits advance its token                 | same-epoch, same-holder descendants permit release/renew/resume; a new-epoch takeover fences (RESUME, FENCE)                                                                   |
+| S88 | a live top lane in pick's walk                              | `pick --go` skips the live-lane refusal (#126) to the next ready plan; an explicit `start <id>` still refuses (plan 2609031211)                                                |
+| S89 | bound session gone, pane still attends                      | board and ready render the lane attended, not dead; start's deserted refusal leads with resuming the pane, `frit yield` the fallback (plan 2609031939, RESUME, YIELD)          |
+| S90 | a deserted top lane in pick's walk                          | `pick --go` skips `startRefusal`'s own refusals too, to the next ready plan; an explicit `start <id>` still refuses (plan 2609031951)                                          |
+| S91 | bound session gone, pane still working, work unclassifiable | board and ready carry `ask` naming `frit message`; start's deserted refusal leads with it, then `frit yield`; `message --go` reaches the pane (plan 2609032048, RESUME, YIELD) |
+| S94 | a started lane resumes after work advances its beat token   | marker lookup skips a work commit sharing the marker's prefix; checkout, pushed work and epoch kept (plan 2609082010, #186, RESUME, FENCE)                                     |
 
 ### Liveness traps, from the blind liveness attack
 
