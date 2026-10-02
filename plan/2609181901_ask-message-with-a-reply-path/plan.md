@@ -121,6 +121,7 @@ matrix at execution time; C13 is the next free as of this writing.
 | ----- | ---------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
 | 1     | An ask and its reply, end to end                     | sonnet | C13 runs the built frit: ask, reply, answered in `board --json`; a real session replies with no prompt; `go test ./...` |
 | 2     | The reply is pre-approved where the harness reads it | sonnet | `frit skills` writes the allow rules; a real session given only the envelope replies with no denial; `go test ./...`    |
+| 3     | Silence reads as no answer, never as gone            | sonnet | the `(dead)` advice names `--ask` and says silence is not evidence; board and who show the ask; `go test ./...`         |
 
 ## Phases
 
@@ -149,6 +150,7 @@ footer: |
 |     | ↳      | message --ask sends an envelope and records a pending ask, reply answers it from the lane as a local write, and board --json reads none, pending or answered; C13 runs the loop through the built frit. A real session answered once the reply was a permission rule, but plan-reply's allowed-tools did not grant it, so that criterion stays open. |
 | 2   | ✅     | [The reply is pre-approved where the harness reads it](phase-2.md)                                                                                                                                                                                                                                                                                   |
 |     | ↳      | frit skills merges Bash(<via> reply:*) and Skill(plan-reply) into the repository's .claude/settings.json allow list. A real session given only the envelope answered with no denial, once its workspace was trusted; the board read it answered.                                                                                                     |
+| 3   | 🔳     | [Silence reads as no answer, never as gone](phase-3.md)                                                                                                                                                                                                                                                                                              |
 <?/catalog?>
 
 ## Acceptance Criteria

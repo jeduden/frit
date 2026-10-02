@@ -504,3 +504,118 @@ func TestReplySurfacesAGetwdFailure(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+// whoLaneFor finds the lane on pane in a who document.
+func whoLaneFor(t *testing.T, doc report.WhoDoc, pane string) report.WhoLane {
+	t.Helper()
+	for _, l := range doc.Lanes {
+		if l.Pane == pane {
+			return l
+		}
+	}
+	t.Fatalf("pane %s not in who", pane)
+
+	return report.WhoLane{}
+}
+
+// TestWhoReportsALanesPendingAsk: who reads the ask record from the
+// lane's own checkout, so a lane asked and not yet answered reads
+// pending.
+func TestWhoReportsALanesPendingAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	assert.Equal(t, "pending", whoLaneFor(t, doc, "wC:p1").AskState)
+}
+
+// TestWhoReportsAnAnsweredAskWithItsText: the answer rides the lane.
+func TestWhoReportsAnAnsweredAskWithItsText(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Answer(repo, 7, "in PR #9", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	lane := whoLaneFor(t, doc, "wC:p1")
+	assert.Equal(t, "answered", lane.AskState)
+	assert.Equal(t, "in PR #9", lane.Answer)
+}
+
+// TestWhoCarriesAnUnreadableAskAsAProblem: a torn record is a problem
+// in the document, and the lane keeps "none".
+func TestWhoCarriesAnUnreadableAskAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	assert.Equal(t, "none", whoLaneFor(t, doc, "wC:p1").AskState)
+	require.NotEmpty(t, doc.Problems)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestWhoAskReadsNoneOffThisHostOrOffAPlan: a lane on another host has
+// no record here, and a lane whose branch names no plan was never
+// asked — both read none without touching git.
+func TestWhoAskReadsNoneOffThisHostOrOffAPlan(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		t.Fatal("whoAsk reached git")
+		return nil, nil
+	}}
+
+	for name, lane := range map[string]herdr.Lane{
+		"remote":   {Pane: herdr.Pane{Host: "box"}, Root: "/r", PlanID: 7},
+		"planless": {Root: "/r"},
+	} {
+		state, answer, err := whoAsk(rt, lane)
+		require.NoError(t, err, name)
+		assert.Equal(t, "none", state, name)
+		assert.Empty(t, answer, name)
+	}
+}
+
+// TestWhoAskSurfacesAnUnplaceableCheckout: a lane root git cannot
+// place is an error handed back.
+func TestWhoAskSurfacesAnUnplaceableCheckout(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+
+	_, _, err := whoAsk(rt, herdr.Lane{Root: t.TempDir(), PlanID: 7})
+
+	assert.Error(t, err)
+}
+
+// TestPrintWhoShowsTheAskState: the who table prints the same ask
+// lines as the board, beneath its rows.
+func TestPrintWhoShowsTheAskState(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"}, PlanID: 7,
+	})
+	doc.SetAsk("wC:p1", "pending", "")
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Contains(t, buf.String(),
+		"7: asked, no reply yet — silence is not evidence the lane is gone")
+}

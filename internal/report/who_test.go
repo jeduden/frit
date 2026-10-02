@@ -54,3 +54,27 @@ func TestWhoKeepsAnUnreachableSocket(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
+
+// TestWhoAddLaneReportsNoAskByDefault: every lane carries ask_state and
+// answer, "none" and empty until SetAsk says otherwise.
+func TestWhoAddLaneReportsNoAskByDefault(t *testing.T) {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, PlanID: 7})
+
+	assert.Equal(t, "none", doc.Lanes[0].AskState)
+	assert.Empty(t, doc.Lanes[0].Answer)
+}
+
+// TestWhoSetAskMarksTheMatchingPaneOnly: SetAsk is keyed by pane, so a
+// second pane on another lane is left alone.
+func TestWhoSetAskMarksTheMatchingPaneOnly(t *testing.T) {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, PlanID: 7})
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wD:p1"}, PlanID: 8})
+
+	doc.SetAsk("wD:p1", "answered", "in PR #9")
+
+	assert.Equal(t, "none", doc.Lanes[0].AskState)
+	assert.Equal(t, "answered", doc.Lanes[1].AskState)
+	assert.Equal(t, "in PR #9", doc.Lanes[1].Answer)
+}

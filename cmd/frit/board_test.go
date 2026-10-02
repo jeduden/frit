@@ -773,7 +773,8 @@ func TestBoardAsks(t *testing.T) {
 	assert.Empty(t, boardAsks([]report.BoardPlan{quiet}), "no ask, no line")
 	assert.Equal(t, []string{
 		"7: the bound session is confirmed gone but claude still attends it; " +
-			"ask before yielding: " + report.AskCommand(7),
+			"ask before yielding: " + report.AskCommand(7) +
+			" — no reply is not evidence it is gone",
 	}, boardAsks([]report.BoardPlan{quiet, asked}))
 }
 
@@ -986,4 +987,31 @@ func TestFitLastColumnClampsTheBudgetToTheMinimum(t *testing.T) {
 	fitLastColumn(5, rows)
 
 	assert.LessOrEqual(t, textw.Width(rows[0][1]), 12)
+}
+
+// TestAskLinesNameEachAskedLane: a pending ask reads as asked with no
+// reply yet, and says silence is not evidence; an answered one prints
+// its answer; a lane never asked prints nothing.
+func TestAskLinesNameEachAskedLane(t *testing.T) {
+	assert.Empty(t, askLines(nil), "no rows, no lines")
+	assert.Equal(t, []string{
+		"7: asked, no reply yet — silence is not evidence the lane is gone",
+		`8: answered: "in PR #9"`,
+	}, askLines([]askRow{
+		{id: 6, state: "none"},
+		{id: 7, state: "pending"},
+		{id: 8, state: "answered", answer: "in PR #9"},
+	}))
+}
+
+// TestPrintBoardShowsTheAskState: the board prints the ask lines
+// beneath the table, read off each row's own fields.
+func TestPrintBoardShowsTheAskState(t *testing.T) {
+	doc := deadHeldBoard(100, "", "", false)
+	doc.SetAsk("atlas", 100, "answered", "merging PR #9")
+	var buf bytes.Buffer
+
+	printBoard(&buf, doc, 0, boardCols)
+
+	assert.Contains(t, buf.String(), `100: answered: "merging PR #9"`)
 }

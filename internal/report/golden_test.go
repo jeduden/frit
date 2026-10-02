@@ -615,6 +615,7 @@ func goldenWho() *WhoDoc {
 			Workspace: "wP", PaneID: "wP:p2", Title: "off the record",
 		},
 	})
+	doc.SetAsk("wC:p1", "pending", "")
 
 	return doc
 }
