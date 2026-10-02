@@ -1088,7 +1088,7 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 // or one whose branch names no plan, reads "none" without touching
 // git: this host holds no record for it.
 func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
-	if lane.Pane.Host != "" || lane.PlanID == 0 {
+	if lane.Pane.Host != "" || !lane.HasPlan() {
 		return ask.StateNone, "", nil
 	}
 
@@ -1158,7 +1158,9 @@ func printWho(out io.Writer, doc *report.WhoDoc) {
 	_ = tw.Flush()
 	asks := make([]askRow, 0, len(doc.Lanes))
 	for _, lane := range doc.Lanes {
-		asks = append(asks, askRow{id: lane.PlanID, state: lane.AskState, answer: lane.Answer})
+		asks = append(asks, askRow{
+			repo: lane.Repo, id: lane.PlanID, state: lane.AskState, answer: lane.Answer,
+		})
 	}
 	for _, line := range askLines(asks) {
 		_, _ = fmt.Fprintln(out, line)
@@ -2319,7 +2321,10 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // list is resolved once per distinct root — two panes in the same
 // lane, e.g. two terminals on one worktree, share the answer rather
 // than each paying their own git call (an ssh round trip, for a
-// remote pane).
+// remote pane). When several panes share one (repository, branch) —
+// two terminals on a lane, or a pane left on another host — the first
+// in whoLanes' order is kept, the one liveLaneFor finds, so the agent
+// and ask a survey names belong to the lane message actually reaches.
 func liveByBranch(
 	c *cli, rt *runtime,
 ) (map[repoBranch]herdr.Lane, []hostProblem, error) {
@@ -2340,7 +2345,10 @@ func liveByBranch(
 			repo = laneRepo(lane, rt.git)
 			repos[rootKey] = repo
 		}
-		live[repoBranch{repo: repo, branch: lane.Branch}] = lane
+		key := repoBranch{repo: repo, branch: lane.Branch}
+		if _, seen := live[key]; !seen {
+			live[key] = lane
+		}
 	}
 
 	return live, probs, nil
@@ -2365,32 +2373,25 @@ func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool
 
 // remoteLane reports whether the live lane on one of p's hold
 // branches runs on another host — the case the ask remedy must name
-// the plain message for, since --ask refuses it.
+// the plain message for, since --ask refuses it. It reads askRefusal,
+// message's own rule, so the remedy and the refusal never drift.
 func remoteLane(p discovery.Plan, live map[repoBranch]herdr.Lane) bool {
 	lane, ok := laneFor(p, live)
 
-	return ok && lane.Pane.Host != ""
+	return ok && askRefusal(lane) != ""
 }
 
 // askRemoteCards gives each card whose live lane runs on another host
-// the plain message remedy, matched to its plan on (repo, id).
+// the plain message remedy. cards are SetPlans' own projection of
+// plans — one card per plan, in the same order — so each pairs with
+// its plan by index.
 func askRemoteCards(
 	cards []report.PlanCard, plans []discovery.Plan,
 	live map[repoBranch]herdr.Lane,
 ) {
-	type planKey struct {
-		repo string
-		id   int64
-	}
-	remote := map[planKey]bool{}
-	for _, p := range plans {
-		if remoteLane(p, live) {
-			remote[planKey{p.Repo, p.ID}] = true
-		}
-	}
-	for i := range cards {
-		if cards[i].Ask != "" && remote[planKey{cards[i].Repo, cards[i].ID}] {
-			cards[i].Ask = report.AskCommandFor(cards[i].ID, true)
+	for i, p := range plans {
+		if cards[i].Ask != "" && remoteLane(p, live) {
+			cards[i].Ask = report.AskCommandFor(p.ID, true)
 		}
 	}
 }
@@ -2591,7 +2592,9 @@ func printBoard(
 	}
 	asks := make([]askRow, 0, len(doc.Plans))
 	for _, p := range doc.Plans {
-		asks = append(asks, askRow{id: p.ID, state: p.AskState, answer: p.Answer})
+		asks = append(asks, askRow{
+			repo: p.Repo, id: p.ID, state: p.AskState, answer: p.Answer,
+		})
 	}
 	for _, line := range askLines(asks) {
 		_, _ = fmt.Fprintln(out, line)
@@ -2645,6 +2648,7 @@ func boardAsks(plans []report.BoardPlan) []string {
 // askRow is the part of a board row or a who lane the ask lines read:
 // the plan, and where an ask to it stands.
 type askRow struct {
+	repo   string
 	id     int64
 	state  string
 	answer string
@@ -2655,12 +2659,21 @@ type askRow struct {
 // --json carries. A pending ask says plainly that silence is not
 // evidence the lane is gone, the misread an unanswered ping invited
 // (issue #198); an answered one prints the answer. A plan never asked
-// prints nothing, so a quiet table pays nothing extra. Rows arrive
-// sorted by plan, so two agent panes on one lane — reading the one
-// record — sit side by side and print their line once.
+// prints nothing, so a quiet table pays nothing extra. Two agent panes
+// on one lane read the one record and print their line once; the same
+// plan id in two repositories (S74) is two asks, and prints twice.
 func askLines(rows []askRow) []string {
+	type planKey struct {
+		repo string
+		id   int64
+	}
 	var lines []string
+	seen := map[planKey]bool{}
 	for _, r := range rows {
+		key := planKey{r.repo, r.id}
+		if seen[key] {
+			continue
+		}
 		var line string
 		switch r.state {
 		case ask.StatePending:
@@ -2672,9 +2685,7 @@ func askLines(rows []askRow) []string {
 		default:
 			continue
 		}
-		if len(lines) > 0 && lines[len(lines)-1] == line {
-			continue
-		}
+		seen[key] = true
 		lines = append(lines, line)
 	}
 

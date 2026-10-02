@@ -680,7 +680,7 @@ func resumeRefusal(plan discovery.Plan, lane herdr.Lane) string {
 		"deserted hold: %s attends it; ask it with `%s` "+
 			"or resume it with `frit open %d` — "+
 			"run `frit yield %d` only to set the work aside instead",
-		paneNaming(lane), report.AskCommandFor(plan.ID, lane.Pane.Host != ""),
+		paneNaming(lane), report.AskCommandFor(plan.ID, askRefusal(lane) != ""),
 		plan.ID, plan.ID)
 }
 

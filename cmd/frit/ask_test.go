@@ -639,6 +639,24 @@ func TestPrintWhoNamesALanesAskOnce(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(buf.String(), "7: asked, no reply yet"))
 }
 
+// TestPrintWhoKeepsEachRepositorysAsk: plan 7 in two repositories is
+// two lanes and two asks, so the table names both, not one.
+func TestPrintWhoKeepsEachRepositorysAsk(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	for _, repo := range []string{"atlas", "zephyr"} {
+		doc.AddLane(herdr.Lane{
+			Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"},
+			Repo: repo, PlanID: 7,
+		})
+		doc.SetLastAsk("pending", "")
+	}
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Equal(t, 2, strings.Count(buf.String(), "7: asked, no reply yet"))
+}
+
 // TestReadAskReadsTheRecordFromAnyCheckout: none before an ask,
 // pending once posed, answered with its text once replied.
 func TestReadAskReadsTheRecordFromAnyCheckout(t *testing.T) {

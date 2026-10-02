@@ -281,6 +281,38 @@ func TestLiveByBranchResolvesEachWorktreeRootOnlyOnce(t *testing.T) {
 		"two panes sharing one worktree root resolve its repository once, not once per pane")
 }
 
+// TestLiveByBranchKeepsTheLaneMessageTargets: two panes on one lane
+// key the same (repo, branch), and the survey keeps the one
+// liveLaneFor finds first — the lane message, open and nudge act on —
+// so a remedy the board derives from it names the lane message will
+// actually reach, never the one it skips.
+func TestLiveByBranchKeepsTheLaneMessageTargets(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	git(t, repo, "checkout", "-q", "-b", "plan/7")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrReturning(
+		map[string]any{
+			"agent": "claude", "agent_status": "working", "cwd": repo,
+			"pane_id": "wA:p1",
+		},
+		map[string]any{
+			"agent": "claude", "agent_status": "idle", "cwd": repo,
+			"pane_id": "wA:p2",
+		},
+	)}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7"}}
+
+	live, _, err := liveByBranch(&cli{}, rt)
+	require.NoError(t, err)
+	want, found, _, err := liveLaneFor(&cli{}, plan, rt)
+	require.NoError(t, err)
+	require.True(t, found)
+
+	got, ok := laneFor(plan, live)
+	require.True(t, ok)
+	assert.Equal(t, want.Pane.PaneID, got.Pane.PaneID)
+}
+
 // TestLiveByBranchHandsBackFleetPresencesError: liveByBranch used to
 // discard fleetPresence's own error, leaving no caller able to feed it
 // to presenceUnknown — the same rule open, nudge and message already
@@ -1008,6 +1040,18 @@ func TestAskLinesNameEachAskedLane(t *testing.T) {
 		{id: 7, state: "pending"},
 		{id: 7, state: "pending"},
 	}), "two panes on one lane, one line")
+}
+
+// TestAskLinesKeepTheSameIDInTwoRepositories: a plan id is unique only
+// within a repository (S74), so two repositories' asks to plan 7 are
+// two asks and print two lines, even when their text reads alike.
+func TestAskLinesKeepTheSameIDInTwoRepositories(t *testing.T) {
+	pending := "7: asked, no reply yet — silence is not evidence the lane is gone"
+
+	assert.Equal(t, []string{pending, pending}, askLines([]askRow{
+		{repo: "atlas", id: 7, state: "pending"},
+		{repo: "zephyr", id: 7, state: "pending"},
+	}))
 }
 
 // TestPrintBoardShowsTheAskState: the board prints the ask lines
