@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -611,11 +612,66 @@ func TestPrintWhoShowsTheAskState(t *testing.T) {
 	doc.AddLane(herdr.Lane{
 		Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"}, PlanID: 7,
 	})
-	doc.SetAsk("wC:p1", "pending", "")
+	doc.SetLastAsk("pending", "")
 	var buf bytes.Buffer
 
 	printWho(&buf, doc)
 
 	assert.Contains(t, buf.String(),
 		"7: asked, no reply yet — silence is not evidence the lane is gone")
+}
+
+// TestPrintWhoNamesALanesAskOnce: two agents on one lane read the one
+// record, and the table says where its ask stands once, not per pane.
+func TestPrintWhoNamesALanesAskOnce(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	for _, pane := range []string{"wC:p1", "wC:p2"} {
+		doc.AddLane(herdr.Lane{
+			Pane: herdr.Pane{PaneID: pane, Agent: "claude"}, PlanID: 7,
+		})
+		doc.SetLastAsk("pending", "")
+	}
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Equal(t, 1, strings.Count(buf.String(), "7: asked, no reply yet"))
+}
+
+// TestReadAskReadsTheRecordFromAnyCheckout: none before an ask,
+// pending once posed, answered with its text once replied.
+func TestReadAskReadsTheRecordFromAnyCheckout(t *testing.T) {
+	isolate(t)
+	repo := heldPlan(t, t.TempDir(), "atlas", 7, "Dispatch me")
+	rt := &runtime{git: gitwt.Exec}
+
+	state, answer, err := readAsk(rt, repo, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "none", state)
+	assert.Empty(t, answer)
+
+	_, err = ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Answer(repo, 7, "in PR #9", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+
+	state, answer, err = readAsk(rt, repo, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "answered", state)
+	assert.Equal(t, "in PR #9", answer)
+}
+
+// TestReadAskSurfacesATornRecord: a record that cannot be parsed is an
+// error handed back, never a silent "none".
+func TestReadAskSurfacesATornRecord(t *testing.T) {
+	isolate(t)
+	repo := heldPlan(t, t.TempDir(), "atlas", 7, "Dispatch me")
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+
+	_, _, err = readAsk(&runtime{git: gitwt.Exec}, repo, 7)
+
+	assert.Error(t, err)
 }

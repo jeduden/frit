@@ -1002,6 +1002,12 @@ func TestAskLinesNameEachAskedLane(t *testing.T) {
 		{id: 7, state: "pending"},
 		{id: 8, state: "answered", answer: "in PR #9"},
 	}))
+	assert.Equal(t, []string{
+		"7: asked, no reply yet — silence is not evidence the lane is gone",
+	}, askLines([]askRow{
+		{id: 7, state: "pending"},
+		{id: 7, state: "pending"},
+	}), "two panes on one lane, one line")
 }
 
 // TestPrintBoardShowsTheAskState: the board prints the ask lines

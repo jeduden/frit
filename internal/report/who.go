@@ -67,16 +67,17 @@ func (d *WhoDoc) AddLane(l herdr.Lane) {
 	})
 }
 
-// SetAsk records where an ask to the lane on pane stands and its
-// answer; a no-op when no lane is on that pane.
-func (d *WhoDoc) SetAsk(pane, state, answer string) {
-	for i := range d.Lanes {
-		if d.Lanes[i].Pane == pane {
-			d.Lanes[i].AskState = state
-			d.Lanes[i].Answer = answer
-			return
-		}
+// SetLastAsk records where an ask to the lane AddLane just recorded
+// stands, and its answer; a no-op before any lane. It marks that lane
+// rather than looking one up by pane, because a pane id is unique only
+// on its own host — a remote lane can share it with a local one.
+func (d *WhoDoc) SetLastAsk(state, answer string) {
+	if len(d.Lanes) == 0 {
+		return
 	}
+	last := &d.Lanes[len(d.Lanes)-1]
+	last.AskState = state
+	last.Answer = answer
 }
 
 // AddProblem records a socket frit could not read. An unreachable

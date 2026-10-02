@@ -2707,7 +2707,7 @@ func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing
 	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: askCmd}
 	assert.NoError(t, w.theBoardNamesTheAskForPlanNotDead(7))
 
-	st.readyRow = report.PlanCard{ID: 7, Ask: "frit message 8 \"what is your status?\""}
+	st.readyRow = report.PlanCard{ID: 7, Ask: report.AskCommand(8)}
 	require.Error(t, w.readyNamesTheSameAskForPlan(7), "the ask names another plan")
 	st.readyRow = report.PlanCard{ID: 7, Ask: askCmd}
 	assert.NoError(t, w.readyNamesTheSameAskForPlan(7))

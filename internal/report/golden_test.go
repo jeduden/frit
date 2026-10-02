@@ -609,13 +609,13 @@ func goldenWho() *WhoDoc {
 		Branch: "plan/2608161808-herdr-join",
 		PlanID: 2608161808,
 	})
+	doc.SetLastAsk("pending", "")
 	doc.AddLane(herdr.Lane{
 		Pane: herdr.Pane{
 			Agent: "pi", Status: herdr.StatusUnknown,
 			Workspace: "wP", PaneID: "wP:p2", Title: "off the record",
 		},
 	})
-	doc.SetAsk("wC:p1", "pending", "")
 
 	return doc
 }

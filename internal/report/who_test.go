@@ -65,16 +65,28 @@ func TestWhoAddLaneReportsNoAskByDefault(t *testing.T) {
 	assert.Empty(t, doc.Lanes[0].Answer)
 }
 
-// TestWhoSetAskMarksTheMatchingPaneOnly: SetAsk is keyed by pane, so a
-// second pane on another lane is left alone.
-func TestWhoSetAskMarksTheMatchingPaneOnly(t *testing.T) {
+// TestWhoSetLastAskMarksTheLaneJustAdded: a pane id is unique only on
+// its own host, so SetLastAsk marks the lane AddLane just recorded,
+// never an earlier lane from another host that shares its pane id.
+func TestWhoSetLastAskMarksTheLaneJustAdded(t *testing.T) {
 	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wC:p1"}, PlanID: 5})
+	doc.SetLastAsk("none", "")
 	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, PlanID: 7})
-	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wD:p1"}, PlanID: 8})
 
-	doc.SetAsk("wD:p1", "answered", "in PR #9")
+	doc.SetLastAsk("answered", "in PR #9")
 
 	assert.Equal(t, "none", doc.Lanes[0].AskState)
 	assert.Equal(t, "answered", doc.Lanes[1].AskState)
 	assert.Equal(t, "in PR #9", doc.Lanes[1].Answer)
+}
+
+// TestWhoSetLastAskWithNoLaneIsANoOp: with nothing added there is no
+// lane to mark, and nothing panics.
+func TestWhoSetLastAskWithNoLaneIsANoOp(t *testing.T) {
+	doc := NewWho("/fleet")
+
+	doc.SetLastAsk("pending", "")
+
+	assert.Empty(t, doc.Lanes)
 }

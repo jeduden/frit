@@ -472,17 +472,28 @@ func boardAsk(rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.P
 	if !ok {
 		return
 	}
-	path, err := ask.Path(coord.Path, p.ID, rt.git)
+	state, answer, err := readAsk(rt, coord.Path, p.ID)
 	if err != nil {
 		doc.AddProblem(p.Repo, err)
 		return
+	}
+	doc.SetAsk(p.Repo, p.ID, state, answer)
+}
+
+// readAsk reads where an ask to planID stands, and its answer, from any
+// checkout of its repository — the one record board and who both
+// show. A record frit cannot place or parse is an error, never "none".
+func readAsk(rt *runtime, checkout string, planID int64) (string, string, error) {
+	path, err := ask.Path(checkout, planID, rt.git)
+	if err != nil {
+		return ask.StateNone, "", err
 	}
 	rec, found, err := ask.Read(path)
 	if err != nil {
-		doc.AddProblem(p.Repo, err)
-		return
+		return ask.StateNone, "", err
 	}
-	doc.SetAsk(p.Repo, p.ID, ask.StateOf(rec, found), rec.Answer)
+
+	return ask.StateOf(rec, found), rec.Answer, nil
 }
 
 // tokenlessIDs resolves, once, every plan id this host's own
@@ -1059,7 +1070,7 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 				doc.AddProblem(lane.Repo, err)
 				continue
 			}
-			doc.SetAsk(lane.Pane.PaneID, state, answer)
+			doc.SetLastAsk(state, answer)
 		}
 	}
 
@@ -1080,16 +1091,8 @@ func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
 	if lane.Pane.Host != "" || lane.PlanID == 0 {
 		return ask.StateNone, "", nil
 	}
-	path, err := ask.Path(lane.Root, lane.PlanID, rt.git)
-	if err != nil {
-		return ask.StateNone, "", err
-	}
-	rec, found, err := ask.Read(path)
-	if err != nil {
-		return ask.StateNone, "", err
-	}
 
-	return ask.StateOf(rec, found), rec.Answer, nil
+	return readAsk(rt, lane.Root, lane.PlanID)
 }
 
 // whoLanes keeps the panes with an agent, resolves each to its lane,
@@ -2607,18 +2610,27 @@ type askRow struct {
 // --json carries. A pending ask says plainly that silence is not
 // evidence the lane is gone, the misread an unanswered ping invited
 // (issue #198); an answered one prints the answer. A plan never asked
-// prints nothing, so a quiet table pays nothing extra.
+// prints nothing, so a quiet table pays nothing extra. Rows arrive
+// sorted by plan, so two agent panes on one lane — reading the one
+// record — sit side by side and print their line once.
 func askLines(rows []askRow) []string {
 	var lines []string
 	for _, r := range rows {
+		var line string
 		switch r.state {
 		case ask.StatePending:
-			lines = append(lines, fmt.Sprintf(
+			line = fmt.Sprintf(
 				"%d: asked, no reply yet — silence is not evidence the lane is gone",
-				r.id))
+				r.id)
 		case ask.StateAnswered:
-			lines = append(lines, fmt.Sprintf("%d: answered: %q", r.id, r.answer))
+			line = fmt.Sprintf("%d: answered: %q", r.id, r.answer)
+		default:
+			continue
 		}
+		if len(lines) > 0 && lines[len(lines)-1] == line {
+			continue
+		}
+		lines = append(lines, line)
 	}
 
 	return lines
