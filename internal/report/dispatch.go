@@ -280,14 +280,23 @@ func (d *NudgeDoc) AddProblem(repo string, err error) {
 // carries the operator's own words rather than a composed slash
 // command, and it reaches a working agent as readily as an idle one —
 // asking whether a lane is mid-merge is the whole point, and a busy
-// refusal would defeat it. It never carries a reply — message sends
-// and hands over, like every rung below it.
+// refusal would defeat it. It never reads a reply — message sends and
+// hands over, like every rung below it. Under --ask it tells the agent
+// a reply is wanted; the answer comes back through `frit reply` and is
+// read off the board, never off the pane.
 type MessageDoc struct {
 	header
 	Root string       `json:"root"`
 	Plan DispatchPlan `json:"plan"`
-	// Text is the operator's own words, sent whole and unmodified.
+	// Text is the operator's own words.
 	Text string `json:"text"`
+	// Ask is whether --ask was given: the text goes wrapped in an
+	// envelope telling the agent a reply is wanted and how to give it,
+	// and a pending ask is recorded for `frit reply` to answer.
+	Ask bool `json:"ask"`
+	// Envelope is exactly what goes to the pane, whole: the text
+	// itself, or under --ask the text wrapped.
+	Envelope string `json:"envelope"`
 	// Target is the pane a send would land in, empty when no lane is
 	// live to take it.
 	Target string `json:"target"`
@@ -328,6 +337,7 @@ func NewMessage(
 		Root:     root,
 		Plan:     DispatchPlan{Repo: repo, ID: id, Title: title},
 		Text:     text,
+		Envelope: text,
 		Go:       wantGo,
 		Problems: []Problem{},
 	}
@@ -346,6 +356,48 @@ func (d *MessageDoc) MarkSent() { d.Sent = true }
 func (d *MessageDoc) AddProblem(repo string, err error) {
 	d.Problems = append(d.Problems, problemOf(repo, err))
 }
+
+// Wrap marks the message an ask: envelope, not the bare text, is what
+// goes to the pane.
+func (d *MessageDoc) Wrap(envelope string) {
+	d.Ask = true
+	d.Envelope = envelope
+}
+
+// ReplyDoc is what `frit reply` recorded: a lane's answer to the
+// pending `frit message --ask` for its plan, or why nothing was
+// recorded. A reply writes one local file — no pane, no ref, no
+// network — so it carries no --go and no target.
+type ReplyDoc struct {
+	header
+	Repo string `json:"repo"`
+	ID   int64  `json:"id"`
+	// Question is the ask the answer settles, empty when refused.
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+	// Recorded is whether the answer was written; Refused says why not.
+	Recorded bool   `json:"recorded"`
+	Refused  string `json:"refused"`
+}
+
+// NewReply opens a reply report for the plan the reply answers.
+func NewReply(repo string, id int64, answer string) *ReplyDoc {
+	return &ReplyDoc{
+		header: newHeader("reply"),
+		Repo:   repo,
+		ID:     id,
+		Answer: answer,
+	}
+}
+
+// Record marks the answer written against question.
+func (d *ReplyDoc) Record(question string) {
+	d.Recorded = true
+	d.Question = question
+}
+
+// Refuse records why no answer was written.
+func (d *ReplyDoc) Refuse(reason string) { d.Refused = reason }
 
 // ClaimDoc is what `frit claim` did: the hold branch it minted for a
 // plan, or the reason the plan was not claimable.

@@ -401,3 +401,37 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestPlanReplyFrontsReplyAndNeverSends guards the responder's skill:
+// it shows the reply command with --json, never a send, and carries no
+// allowed-tools — a real session showed that front matter grants
+// nothing, so the grant lives in the settings Install writes.
+func TestPlanReplyFrontsReplyAndNeverSends(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-reply/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-reply skill: %v", err)
+	}
+	body := string(data)
+	if !contains(body, "{{frit}} reply \"<answer>\" --json") {
+		t.Fatal("plan-reply does not show the reply command with --json")
+	}
+	if contains(body, "--go") {
+		t.Fatal("plan-reply must never send")
+	}
+	if contains(body, "allowed-tools") {
+		t.Fatal("plan-reply carries allowed-tools, which grants nothing")
+	}
+}
+
+// TestPlanDrivePointsTheAskerAtAsk: the supervisor's "ask directly"
+// rung asks with --ask, so the agent is told a reply is wanted and an
+// unanswered plain message is never read as proof the lane is gone.
+func TestPlanDrivePointsTheAskerAtAsk(t *testing.T) {
+	data, err := assets.ReadFile("assets/plan-drive/SKILL.md")
+	if err != nil {
+		t.Fatalf("reading plan-drive skill: %v", err)
+	}
+	if !contains(string(data), "{{frit}} message <id> --ask") {
+		t.Fatal("plan-drive does not point the asker at message --ask")
+	}
+}

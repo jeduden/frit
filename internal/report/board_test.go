@@ -102,3 +102,29 @@ func TestBoardMarkUnprovenNamesTheWayOut(t *testing.T) {
 	doc.MarkUnproven(deadHeldPlan.Repo, deadHeldPlan.ID)
 	assert.Equal(t, unprovenNextAction(deadHeldPlan.ID), doc.Plans[0].NextAction)
 }
+
+// TestBoardAddPlanReportsNoAskByDefault: a row nobody has asked
+// carries ask_state "none" and an empty answer — every key present,
+// per the JSON contract, so a consumer branches on the field.
+func TestBoardAddPlanReportsNoAskByDefault(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "", "", false)
+
+	assert.Equal(t, "none", doc.Plans[0].AskState)
+	assert.Empty(t, doc.Plans[0].Answer)
+}
+
+// TestBoardSetAskMarksTheMatchingRowOnly: SetAsk carries a lane's ask
+// state and answer onto its row, matched on (repo, id) like
+// MarkUnproven, so another repository's same id is left alone.
+func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "", "", false)
+
+	doc.SetAsk("wrong-repo", deadHeldPlan.ID, "answered", "in PR #9")
+	assert.Equal(t, "none", doc.Plans[0].AskState, "a repo mismatch is a no-op")
+
+	doc.SetAsk(deadHeldPlan.Repo, deadHeldPlan.ID, "answered", "in PR #9")
+	assert.Equal(t, "answered", doc.Plans[0].AskState)
+	assert.Equal(t, "in PR #9", doc.Plans[0].Answer)
+}

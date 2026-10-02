@@ -1,7 +1,7 @@
 ---
 n: 1
 title: An ask and its reply, end to end
-status: "🔲"
+status: "✅"
 result: false
 ---
 Prove the loop on one host, then fix the test approach later phases
@@ -20,18 +20,22 @@ RED, in order, each failing on today's code:
    argument, finds the plan from the checkout and stores the answer
    against the pending ask. It takes no `--go`, prompts no pane, and
    touches no ref. With no ask pending it refuses, and says why.
-3. `board --json` reports the row's ask as `none`, `pending` or
-   `answered`, with the answer text when answered. Every key is present
-   and a lane with no ask reports `none`, per the JSON contract.
+3. `board --json` reports the row's `ask_state` as `none`, `pending`
+   or `answered`, with the `answer` text when answered. Every key is
+   present and a lane with no ask reports `none`, per the JSON
+   contract. (`ask` already names the remedy command, so the state
+   takes its own key.)
 
 GREEN: `--ask` on the message verb wraps the text and, when a send
-happens, writes the record beside the lane's token. Reuse
-`claim.TokenPath`'s placement, keyed so the asker in the main checkout
-and the responder in the lane's worktree read the same file. Write it
-atomically, as the presence cache does. Add `reply` as its own verb
-with an optional selector inferred from the cwd, the way `open` and
-`nudge` infer theirs. Carry the ask state on the board row through the
-one report model, so the table and `--json` never diverge.
+happens, writes the record in the lane's repository. Follow
+`claim.TokenPath`'s shape, one file per plan under a `frit` dir, but
+under the common git dir, so the asker in the main checkout and the
+responder in the lane's worktree read the same file. Write it
+atomically, as the presence cache does. Add `reply` as its
+own verb whose plan is inferred from the cwd, the way `open` and
+`nudge` infer theirs, or named with `--plan <id>`; a slug would need
+the fleet gather, which fetches. Carry the ask state on the board row
+through the one report model, so the table and `--json` never diverge.
 
 Skill front: `reply` ships with its skill in this change. Add
 `plan-reply` under `internal/skills/assets`. Its front matter carries

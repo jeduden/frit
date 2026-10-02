@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "command": "reply",
+  "repo": "atlas",
+  "id": 2608161810,
+  "question": "are you in a PR?",
+  "answer": "in PR #9, merging",
+  "recorded": true,
+  "refused": ""
+}

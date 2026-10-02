@@ -50,16 +50,17 @@ dry runs until `--go` — the
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `open <plan>`        | focus the pane a plan's lane runs in; reads only, sends no text                                                       |
 | `nudge <plan>`       | prompt the next open phase into an idle lane                                                                          |
-| `message <plan> ...` | send text to a live lane, working or idle                                                                             |
+| `message <plan> ...` | send text to a live lane, working or idle; `--ask` tells its agent a reply is wanted and records the ask              |
+| `reply <answer>`     | answer the pending ask from inside the lane; a local write, no `--go`; `board --json` reads it                        |
 | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR` |
 
 ## Clean and set up
 
-| Verb             | What it does                                                      |
-| ---------------- | ----------------------------------------------------------------- |
-| `reap [<plan>]`  | tear down what `orphans` reports                                  |
-| `init [<dir>]`   | write `.frit.yml` with every default; `--mdsmith` adds the schema |
-| `skills [<dir>]` | install the bundled agent skills into `.claude/skills`            |
+| Verb             | What it does                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `reap [<plan>]`  | tear down what `orphans` reports                                                                     |
+| `init [<dir>]`   | write `.frit.yml` with every default; `--mdsmith` adds the schema                                    |
+| `skills [<dir>]` | install the bundled agent skills into `.claude/skills`, and allow `reply` in `.claude/settings.json` |
 
 ## Conventions
 
