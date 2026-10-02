@@ -54,6 +54,17 @@ dry runs until `--go` — the
 | `reply <answer>`     | answer the pending ask from inside the lane; a local write, no `--go`; `board --json` reads it                        |
 | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR` |
 
+An ask and its reply meet in one file under the repository's shared
+git directory, so `message --ask` reaches a lane only on this host and
+only through a worktree of one clone — the shape `frit start` stands a
+lane up in. The ask is recorded in the lane's own clone. For a lane in
+a separate clone, `who` reads its ask and answer from that clone, but
+`board` reads your checkout's and shows `none`. A lane on another host
+is not asked at all: its row's suggested ask is the plain `message`,
+whose silence proves nothing either. An ask is cleared when its lane
+ends: on `release`, on `yield`, and when a fresh `claim` or `start`
+stands up a new lane.
+
 ## Clean and set up
 
 | Verb             | What it does                                                                                         |

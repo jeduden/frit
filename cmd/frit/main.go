@@ -464,15 +464,30 @@ func boardUnproven(
 
 // boardAsk carries where a `frit message --ask` to p's lane stands onto
 // its row, read from this host's own checkout of p's repository — the
-// same file the lane's `frit reply` writes. A plan with no checkout
-// here keeps "none"; a record frit cannot read is carried as a problem
-// rather than read as never asked.
-func boardAsk(rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan) {
+// same file the lane's `frit reply` writes. dirs caches each
+// repository's ask directory, so a board of many plans asks git once
+// per repository. A plan with no checkout here keeps "none"; a record
+// frit cannot read is carried as a problem rather than read as never
+// asked.
+func boardAsk(
+	rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan,
+	dirs map[string]string,
+) {
 	coord, ok := res.Coords[p.Repo]
 	if !ok {
 		return
 	}
-	state, answer, err := readAsk(rt, coord.Path, p.ID)
+	dir, cached := dirs[p.Repo]
+	if !cached {
+		d, err := ask.Dir(coord.Path, rt.git)
+		if err != nil {
+			doc.AddProblem(p.Repo, err)
+			return
+		}
+		dir = d
+		dirs[p.Repo] = d
+	}
+	state, answer, err := readAskFile(ask.File(dir, p.ID))
 	if err != nil {
 		doc.AddProblem(p.Repo, err)
 		return
@@ -488,12 +503,28 @@ func readAsk(rt *runtime, checkout string, planID int64) (string, string, error)
 	if err != nil {
 		return ask.StateNone, "", err
 	}
+
+	return readAskFile(path)
+}
+
+// readAskFile reads the ask record at path as a state and its answer.
+func readAskFile(path string) (string, string, error) {
 	rec, found, err := ask.Read(path)
 	if err != nil {
 		return ask.StateNone, "", err
 	}
 
 	return ask.StateOf(rec, found), rec.Answer, nil
+}
+
+// clearAsk clears planID's ask when its lane ends — release, yield, or
+// a fresh claim that starts a new lane — so no later lane inherits a
+// question it never saw, and the board stops reporting one. A record
+// that will not go is warned about through warn, never dropped.
+func clearAsk(rt *runtime, checkout string, planID int64, warn func(string)) {
+	if err := ask.Clear(checkout, planID, rt.git); err != nil {
+		warn(fmt.Sprintf("the lane's ask was not cleared: %v", err))
+	}
 }
 
 // tokenlessIDs resolves, once, every plan id this host's own
@@ -1239,24 +1270,11 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 	paths := []string{cfgPath}
 
 	if i.Mdsmith {
-		cfg, err := repocfg.Load(i.Dir)
+		written, err := scaffoldMdsmith(i.Dir, i.Force)
 		if err != nil {
 			return err
 		}
-		mdsmithPath, err := scaffold.WriteMdsmithConfig(i.Dir, i.Force)
-		if err != nil {
-			return err
-		}
-		protoPath, err := scaffold.WriteProto(
-			filepath.Join(i.Dir, cfg.PlanDir), i.Force)
-		if err != nil {
-			return err
-		}
-		indexPath, err := scaffold.WritePlanIndex(i.Dir, i.Force)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, mdsmithPath, protoPath, indexPath)
+		paths = append(paths, written...)
 	}
 
 	if c.JSON {
@@ -1267,6 +1285,32 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	return nil
+}
+
+// scaffoldMdsmith lays down the mdsmith machinery in dir — its config,
+// the plan template under the repository's own plan dir, and the plan
+// index — and returns the paths it wrote. It reads dir's .frit.yml for
+// the plan dir, so a config that will not load stops it before any
+// file is written.
+func scaffoldMdsmith(dir string, force bool) ([]string, error) {
+	cfg, err := repocfg.Load(dir)
+	if err != nil {
+		return nil, err
+	}
+	mdsmithPath, err := scaffold.WriteMdsmithConfig(dir, force)
+	if err != nil {
+		return nil, err
+	}
+	protoPath, err := scaffold.WriteProto(filepath.Join(dir, cfg.PlanDir), force)
+	if err != nil {
+		return nil, err
+	}
+	indexPath, err := scaffold.WritePlanIndex(dir, force)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{mdsmithPath, protoPath, indexPath}, nil
 }
 
 type skillsCmd struct {
@@ -2298,6 +2342,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHostProblems(doc, hostProbs)
 	unprovenCache := map[string]map[int64]bool{}
+	askDirs := map[string]string{}
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status, unknown)
@@ -2305,7 +2350,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
-		boardAsk(rt, res, doc, p)
+		boardAsk(rt, res, doc, p, askDirs)
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2719,11 +2764,10 @@ func askLines(rows []askRow) []string {
 		var line string
 		switch r.state {
 		case ask.StatePending:
-			line = fmt.Sprintf(
-				"%d: asked, no reply yet — silence is not evidence the lane is gone",
-				r.id)
+			line = askLabel(r) +
+				": asked, no reply yet — silence is not evidence the lane is gone"
 		case ask.StateAnswered:
-			line = fmt.Sprintf("%d: answered: %q", r.id, r.answer)
+			line = fmt.Sprintf("%s: answered: %q", askLabel(r), r.answer)
 		default:
 			continue
 		}
@@ -2732,6 +2776,17 @@ func askLines(rows []askRow) []string {
 	}
 
 	return lines
+}
+
+// askLabel names the plan an ask line is about: its id, and its
+// repository when known — a plan id is unique only within one, so two
+// repositories' answers to plan 7 must never read as one another's.
+func askLabel(r askRow) string {
+	if r.repo == "" {
+		return strconv.FormatInt(r.id, 10)
+	}
+
+	return fmt.Sprintf("%d (%s)", r.id, r.repo)
 }
 
 // boardLegend explains the `(stale …)` and `(dead)` hold markers when

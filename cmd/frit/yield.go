@@ -226,6 +226,7 @@ func tearDownLane(rt *runtime, doc *report.YieldDoc) {
 		return
 	}
 	doc.Torn()
+	clearAsk(rt, pane.CWD, doc.Plan.ID, doc.Warn)
 }
 
 // renderYield prints the yield as a table or emits it as JSON.

@@ -796,6 +796,11 @@ func startExecute(
 		// candidate (startRefusable). Every other error is a real fault.
 		return err
 	}
+	if !rs.active() {
+		// A fresh acquire or takeover starts a new lane, which never saw
+		// an earlier lane's question; a resume keeps its own ask.
+		clearAsk(rt, sc.repoPath, plan.ID, doc.Warn)
+	}
 
 	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
 	if err != nil {

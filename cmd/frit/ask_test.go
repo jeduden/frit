@@ -473,7 +473,7 @@ func TestBoardAskLeavesAPlanWithNoCheckoutHereAsNone(t *testing.T) {
 	p := discovery.Plan{Repo: "atlas", ID: 7}
 	doc.AddPlan(p, "", "", false)
 
-	boardAsk(rt, fleet.Result{}, doc, p)
+	boardAsk(rt, fleet.Result{}, doc, p, map[string]string{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	assert.Empty(t, doc.Problems)
@@ -490,7 +490,7 @@ func TestBoardAskCarriesAnUnplaceableCheckoutAsAProblem(t *testing.T) {
 		"atlas": {Path: t.TempDir()},
 	}}
 
-	boardAsk(rt, res, doc, p)
+	boardAsk(rt, res, doc, p, map[string]string{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	require.Len(t, doc.Problems, 1)
@@ -1008,4 +1008,50 @@ func TestBoardFindsEachRepositorysAskDirOnce(t *testing.T) {
 	}
 
 	assert.Equal(t, 1, calls)
+}
+
+// TestStartGoClearsAStaleAsk: a fresh start stands up a new lane, which
+// never saw an earlier lane's question.
+func TestStartGoClearsAStaleAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "started plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the new lane inherits no ask")
+}
+
+// TestStartResumeKeepsTheLanesAsk: a resume is the same lane carrying
+// on, so a question put to it still waits for its answer.
+func TestStartResumeKeepsTheLanesAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var claimed struct {
+		Worktree string `json:"worktree"`
+	}
+	emit(t, &claimed, "claim", "7", "--root", root)
+	require.NotEmpty(t, claimed.Worktree)
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(claimed.Worktree)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "resumed plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.True(t, ok, "the resumed lane's ask stands")
 }

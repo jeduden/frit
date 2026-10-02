@@ -44,6 +44,18 @@ both the remedy and its pending state, as this phase specifies; and
 `who` runs one git call per planned lane, a cost a cache would trade
 for state.
 
+**Second review, owner's calls.** Each ask line names its
+repository, `7 (atlas): …`, so two repositories' answers to one id
+never read as one another's. An ask is cleared when its lane ends: on
+release, on yield, and when a fresh claim or start stands up a new
+lane; a resume keeps it. A record that will not go is a warning. The
+board finds each repository's ask directory once, not once per plan.
+Where an ask can reach is now said where a user meets it: the `--ask`
+help, reply's refusal, and the command reference. It reaches only a
+lane on this host, through a worktree of one clone. The mdsmith
+scaffold's config read moved into its own function with a unit test
+that holds for root.
+
 **Plan close.** Every acceptance criterion is met. What stays out of
 scope, as the plan said from the start: an ask to a lane on another
 host is refused, since its reply would land where this host never

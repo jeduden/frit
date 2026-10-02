@@ -122,6 +122,7 @@ func releaseHeld(
 		return
 	}
 	doc.MarkReleased()
+	clearAsk(rt, coord.Path, plan.ID, doc.Warn)
 }
 
 // refuseUnproved records why a held plan the calling lane cannot prove

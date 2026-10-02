@@ -42,7 +42,8 @@ func (r *replyCmd) Run(c *cli, rt *runtime) error {
 	rec, err := ask.Answer(cwd, id, r.Text, time.Now(), rt.git)
 	switch {
 	case errors.Is(err, ask.ErrNoPending):
-		doc.Refuse(fmt.Sprintf("no ask is pending for plan %d", id))
+		doc.Refuse(fmt.Sprintf("no ask is pending for plan %d in this clone; "+
+			"an ask reaches a lane only through a worktree of the asker's clone", id))
 	case err != nil:
 		return err
 	default:

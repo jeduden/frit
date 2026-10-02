@@ -346,7 +346,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
 	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
-	Ask      bool   `help:"Tell the agent a reply is wanted and record the ask; frit board shows the answer."`
+	Ask      bool   `help:"Ask for a reply that frit board shows; reaches a lane on this host and clone only."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 

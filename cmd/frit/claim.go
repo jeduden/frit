@@ -419,6 +419,7 @@ func mintClaim(
 	}
 	doc.Minted(minted.BaseSHA)
 	recordRetired(doc, minted)
+	clearAsk(rt, coord.Path, plan.ID, doc.Warn)
 
 	return minted, nil
 }
