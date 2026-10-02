@@ -245,17 +245,6 @@ func TestGatherReadsALegacyDecoratedHoldAsHeld(t *testing.T) {
 		"a legacy decorated hold still carries a marker")
 }
 
-// TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold pins a deliberate
-// limit: HoldTip is only ever the bare, id-only plan/<id> ref's tip —
-// the one ref Takeover's CAS targets — never a decorated or legacy
-// branch's, even when that branch alone is what makes Held true. A
-// plan held only through such a branch stays outside the staleness
-// window and the dead-session read (observeHolds's HoldTip == ""
-// guard), because there is no id-only ref a takeover could seize
-// anyway; seeding a tip from the decorated branch would let Stale or
-// Dead mature and send claim's takeover at the bare ref regardless,
-// which does not exist, turning the attempt into a raw push failure
-// instead of a graceful refusal.
 // TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags pins
 // S84/S85: a working checkout's local main advances only on an
 // explicit merge or pull, so it routinely lags the remote-tracking
@@ -288,6 +277,13 @@ func TestGatherReadsASquashLandedPlanAsLandedThoughLocalMainLags(t *testing.T) {
 		"a squash-landed plan reads as landed though local main lags")
 }
 
+// TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold pins a deliberate
+// limit: HoldTip is only ever the bare, id-only plan/<id> ref's tip —
+// the one ref a lease transition CASes on — never a decorated or
+// legacy branch's, even when that branch alone is what makes Held
+// true. The decorated branch's own tip rides in DecoratedTips instead
+// (#204), so the observer can still watch it without any lease verb
+// mistaking it for the work ref.
 func TestGatherLeavesHoldTipEmptyForADecoratedOnlyHold(t *testing.T) {
 	root := t.TempDir()
 	repo := repoWithPlan(t, root, "atlas", 7)
@@ -1048,4 +1044,124 @@ func TestGatherDedupesALocalAndRemoteTrackingCopyOfTheSameBranch(t *testing.T) {
 	assert.Equal(t, []string{"plan/7"}, plan.Holds,
 		"the same branch is counted once though it exists both locally "+
 			"and as a remote-tracking ref")
+}
+
+// TestGatherCarriesADecoratedOnlyHoldsTip (#204): a plan held by a
+// legacy decorated branch alone carries that branch's tip, so the
+// staleness observer has something to watch — without it the plan was
+// held with nothing to sample, and its window never started.
+func TestGatherCarriesADecoratedOnlyHoldsTip(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	tip := gitOut(t, repo, "rev-parse", "HEAD")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	p := planByID(t, res, 7)
+	assert.Equal(t, map[string]string{"plan/7-shader": tip}, p.DecoratedTips)
+	assert.Equal(t, "plan/7-shader="+tip, p.WatchTip(),
+		"with no lease ref, the decorated tip is what the observer watches")
+}
+
+// TestGatherPrefersOriginsCopyOfADecoratedHold: a decorated branch
+// present locally and as a remote-tracking ref reports origin's tip,
+// the same arbiter leaseTips prefers for the id-only ref.
+func TestGatherPrefersOriginsCopyOfADecoratedHold(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	remote := gitOut(t, repo, "rev-parse", "HEAD")
+	gitCmd(t, repo, "update-ref", "refs/remotes/origin/plan/7-shader", remote)
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m", "local work")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"plan/7-shader": remote},
+		planByID(t, res, 7).DecoratedTips)
+}
+
+// TestGatherCarriesNoDecoratedTipForAReleasedDecoratedBranch: only a
+// live hold is watched — a decorated branch whose marker reads
+// released holds nothing, so it carries no tip to mature.
+func TestGatherCarriesNoDecoratedTipForAReleasedDecoratedBranch(t *testing.T) {
+	root := t.TempDir()
+	repo := repoWithPlan(t, root, "atlas", 7)
+	gitCmd(t, repo, "checkout", "-q", "-b", "plan/7-shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader")
+	gitCmd(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: release")
+	gitCmd(t, repo, "checkout", "-q", "main")
+
+	res, err := Gather(root, "testhost", gitwt.Exec, gitwt.ExecPipe,
+		Options{}, DiscardReporter{})
+	require.NoError(t, err)
+
+	p := planByID(t, res, 7)
+	assert.False(t, p.Held)
+	assert.Empty(t, p.DecoratedTips)
+}
+
+// TestDecoratedTips is decoratedTips's own: only a live decorated
+// hold carries a tip — never the id-only work ref, nor a branch the
+// hold filters dropped — and the configured remote's copy wins over
+// the local one and over another remote's stale copy, whichever order
+// the ref list carries them in.
+func TestDecoratedTips(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{
+		{Name: "refs/remotes/origin/plan/7-shader", OID: "remote"},
+		{Name: "refs/heads/plan/7-shader", OID: "local"},
+		{Name: "refs/remotes/upstream/plan/7-shader", OID: "stale"},
+		{Name: "refs/heads/plan/7", OID: "lease"},
+		{Name: "refs/heads/plan/8-gone", OID: "released"},
+		{Name: "refs/heads/main", OID: "base"},
+	}
+	held := map[int64][]string{7: {"plan/7-shader", "plan/7"}}
+
+	got := decoratedTips(refs, holds, held, "origin")
+
+	assert.Equal(t, map[int64]map[string]string{
+		7: {"plan/7-shader": "remote"},
+	}, got)
+}
+
+// TestLeaseTipsPrefersTheConfiguredRemote: a second remote's copy of
+// plan/7, listed last, never outranks the configured remote's — the
+// observer watches the tip every transition CASes against.
+func TestLeaseTipsPrefersTheConfiguredRemote(t *testing.T) {
+	holds, err := repocfg.Default().Compiled()
+	require.NoError(t, err)
+	refs := []gitobj.Ref{
+		{Name: "refs/heads/plan/7", OID: "local"},
+		{Name: "refs/remotes/origin/plan/7", OID: "origin"},
+		{Name: "refs/remotes/upstream/plan/7", OID: "upstream"},
+		{Name: "refs/remotes/upstream/plan/8", OID: "only-upstream"},
+	}
+
+	assert.Equal(t, map[int64]string{7: "origin", 8: "only-upstream"},
+		leaseTips(refs, holds, "origin"))
+}
+
+// TestTipRank orders a branch's copies: the configured remote's, then
+// the local branch, then any other remote's.
+func TestTipRank(t *testing.T) {
+	origin := tipRank("refs/remotes/origin/plan/7", "origin")
+	local := tipRank("refs/heads/plan/7", "origin")
+	other := tipRank("refs/remotes/upstream/plan/7", "origin")
+
+	assert.Greater(t, origin, local)
+	assert.Greater(t, local, other)
 }

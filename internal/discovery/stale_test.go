@@ -177,3 +177,30 @@ func TestPlanDesertedIsHeldDeadAndUnmatured(t *testing.T) {
 	matured.Stale = true
 	assert.False(t, matured.Deserted(), "a matured window is the stale reading's own cell")
 }
+
+// TestWatchTipIsTheLeaseTipWhenOneExists: a plan with an id-only work
+// ref is watched on that ref alone, even beside a decorated hold — the
+// migration shape — since the lease tip is what a takeover CASes on.
+func TestWatchTipIsTheLeaseTipWhenOneExists(t *testing.T) {
+	p := Plan{HoldTip: "aaa", DecoratedTips: map[string]string{"plan/7-x": "bbb"}}
+
+	assert.Equal(t, "aaa", p.WatchTip())
+}
+
+// TestWatchTipJoinsDecoratedTipsInBranchOrder (#204): with no lease
+// ref, every decorated hold's tip is watched at once, joined in branch
+// order so the token is stable across passes and a move on any one of
+// them restarts the window.
+func TestWatchTipJoinsDecoratedTipsInBranchOrder(t *testing.T) {
+	p := Plan{DecoratedTips: map[string]string{
+		"plan/7-zeta": "ccc", "plan/7-alpha": "aaa",
+	}}
+
+	assert.Equal(t, "plan/7-alpha=aaa plan/7-zeta=ccc", p.WatchTip())
+}
+
+// TestWatchTipIsEmptyWithNothingToWatch: no lease ref and no decorated
+// hold leaves nothing to observe.
+func TestWatchTipIsEmptyWithNothingToWatch(t *testing.T) {
+	assert.Empty(t, Plan{}.WatchTip())
+}

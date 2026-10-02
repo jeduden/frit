@@ -48,6 +48,10 @@ type Lease struct {
 	Tip     string
 	Epoch   int
 	BaseSHA string // acquire only: the base the claim was dated against
+	// Retired is the decorated branches a decorated takeover removed
+	// before it acquired, in branch order; nil for every other
+	// transition.
+	Retired []Retired
 }
 
 // Marker is one lease marker read off the work ref: its kind from the
@@ -243,6 +247,53 @@ func (e *UnconfirmedPushError) Error() string {
 }
 
 func (e *UnconfirmedPushError) Unwrap() error { return e.Err }
+
+// casDelete deletes ref on the remote by CAS on exactly from, and
+// classifies a failed push like every push: by what holds the ref now,
+// never by stderr. Gone is a win. An unreadable confirmation is an
+// UnconfirmedDeleteError — reading it as "gone" would delete the local
+// copy of a ref the remote may still carry — and a ref the remote
+// still carries is a DeleteRefusedError naming what holds it, so a
+// caller can tell a ref that moved from a delete the server rejected.
+// The one delete Scavenge and a decorated takeover share.
+func casDelete(
+	repoDir string, opts LeaseOptions, ref, from string, run gitwt.Runner,
+) error {
+	err, holder, readErr := pushThenConfirm(repoDir, opts, ref, from, "", run)
+	switch {
+	case err == nil:
+		return nil
+	case readErr != nil:
+		return &UnconfirmedDeleteError{
+			PlanID: opts.PlanID,
+			Ref:    ref,
+			Err:    fmt.Errorf("%w; confirm: %w", err, readErr),
+		}
+	case holder != "":
+		return &DeleteRefusedError{
+			PlanID: opts.PlanID, Ref: ref, Holder: holder, Err: err}
+	}
+
+	return nil
+}
+
+// DeleteRefusedError reports a CAS delete whose push failed while the
+// remote still carries the ref: Holder is the tip that holds it now —
+// the observed one when the server itself refused the delete (a
+// protected branch, a hook), another when the ref moved since — and
+// Err is the push's own error.
+type DeleteRefusedError struct {
+	PlanID int64
+	Ref    string
+	Holder string
+	Err    error
+}
+
+func (e *DeleteRefusedError) Error() string {
+	return fmt.Sprintf("delete %s for plan %d: %v", e.Ref, e.PlanID, e.Err)
+}
+
+func (e *DeleteRefusedError) Unwrap() error { return e.Err }
 
 // UnconfirmedDeleteError reports a delete push that failed and whose
 // confirmation read also failed — the same stalled or dropped
@@ -513,25 +564,8 @@ func Scavenge(
 		return res, err
 	}
 
-	// The delete is classified like every push: by what holds the ref
-	// now, never by stderr. Gone is a win; anything else is not.
-	if err, holder, readErr := pushThenConfirm(
-		repoDir, opts, ref, from, "", run); err != nil {
-		if readErr != nil {
-			// The confirmation read failed too — the same stalled or
-			// dropped connection took out both calls. Reading that as
-			// "gone" would delete the local copy of a lease the remote
-			// may still carry.
-			return res, &UnconfirmedDeleteError{
-				PlanID: opts.PlanID,
-				Ref:    ref,
-				Err:    fmt.Errorf("%w; confirm: %w", err, readErr),
-			}
-		}
-		if holder != "" {
-			return res, fmt.Errorf(
-				"delete %s for plan %d: %w", ref, opts.PlanID, err)
-		}
+	if err := casDelete(repoDir, opts, ref, from, run); err != nil {
+		return res, err
 	}
 	if !checkedOut(repoDir, branch, run) {
 		_, _ = run(repoDir, "update-ref", "-d", ref)

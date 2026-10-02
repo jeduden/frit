@@ -785,6 +785,9 @@ func startExecute(
 		return err
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
+	// A decorated takeover reports what it retired even when its
+	// acquire then lost, so the deletion is never silent.
+	recordRetired(doc, lease)
 	if err != nil {
 		// A lost race, a veto, or a resume refused over a diverged lane
 		// branch is returned, not swallowed: buildStart records it as a
@@ -1355,6 +1358,7 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		_, _ = fmt.Fprintf(out, "refused: plan %d %s\n",
 			doc.Plan.ID, doc.Refused)
 		printNextAction(out, doc.NextAction)
+		printRetired(out, doc.Retired)
 		if doc.Warning != "" {
 			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
 		}
@@ -1370,6 +1374,7 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	}
 	_, _ = fmt.Fprintf(out, head, doc.Plan.ID, doc.Plan.Title)
 	_, _ = fmt.Fprintf(out, "  claim:    %s  (base %s)\n", doc.Branch, doc.Base)
+	printRetired(out, doc.Retired)
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
 	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
 		doc.Kind, modelLabel(doc.Tier))

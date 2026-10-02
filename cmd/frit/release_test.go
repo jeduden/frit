@@ -27,12 +27,56 @@ func TestForeignHoldRefusalPointsAtClaimWhenTheSessionIsConfirmedDead(t *testing
 	assert.NotContains(t, reason, "held live")
 }
 
-// TestForeignHoldRefusalStillNamesALiveHold pins the baseline: neither
-// signal present reads as an ordinary live hold, worded as before.
-func TestForeignHoldRefusalStillNamesALiveHold(t *testing.T) {
+// TestForeignHoldRefusalNamesAnUnmaturedHoldWithoutCallingItLive pins
+// the baseline: neither signal present reads as an ordinary hold by
+// another lane, naming its branch — but never as "live", which an
+// unmatured window does not vouch for (#204).
+func TestForeignHoldRefusalNamesAnUnmaturedHoldWithoutCallingItLive(t *testing.T) {
 	reason := foreignHoldRefusal(discovery.Plan{Holds: []string{"plan/7-x"}})
 
-	assert.Contains(t, reason, "held live")
+	assert.Contains(t, reason, "held by another lane (plan/7-x)")
+	assert.NotContains(t, reason, "live")
+}
+
+// TestDecoratedHoldRefusalNamesTheBranchAndTheTakeover: a hold with no
+// lease ref is named by its decorated branch, and the only way out
+// named is a takeover — no release can end it.
+func TestDecoratedHoldRefusalNamesTheBranchAndTheTakeover(t *testing.T) {
+	reason := decoratedHoldRefusal(discovery.Plan{
+		Held: true, Holds: []string{"plan/7-shader-unit"}})
+
+	assert.Contains(t, reason, "decorated branch")
+	assert.Contains(t, reason, "plan/7-shader-unit")
+	assert.Contains(t, reason, "takeover")
+}
+
+// TestRefuseUnprovedSortsEachHoldItsOwnWay pins the one decision
+// release and yield share: a matured decorated hold points at claim,
+// an unmatured one is named decorated with the wait-or-take-over way
+// out, and a hold with a lease ref the caller is not standing in reads
+// as another lane's.
+func TestRefuseUnprovedSortsEachHoldItsOwnWay(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+	decorated := discovery.Plan{ID: 7, Held: true,
+		Holds:         []string{"plan/7-x"},
+		DecoratedTips: map[string]string{"plan/7-x": "aaa"}}
+
+	matured := report.NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	stale := decorated
+	stale.Stale = true
+	refuseUnproved(rt, matured, stale, "")
+	assert.Contains(t, matured.Refused, "frit claim")
+	assert.Empty(t, matured.NextAction)
+
+	young := report.NewYield("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseUnproved(rt, young, decorated, "")
+	assert.Equal(t, decoratedHoldRefusal(decorated), young.Refused)
+	assert.Contains(t, young.NextAction, "takeover window")
+
+	foreign := report.NewRelease("/fleet", "atlas", 7, "Shader unit", "plan/7")
+	refuseUnproved(rt, foreign, discovery.Plan{ID: 7, Held: true,
+		HoldTip: "bbb", Holds: []string{"plan/7"}}, "")
+	assert.Contains(t, foreign.Refused, "held by another lane (plan/7)")
 }
 
 // TestReleaseIsANoOpOnAnAbsentPlan: nothing has ever held the plan, so
@@ -194,7 +238,7 @@ func TestReleaseEndsALaneClaimAloneStoodUp(t *testing.T) {
 // lane this host claimed and stood up, its token then dropped — the
 // S49 shape a legacy claim-only lane, or one whose token write never
 // landed, leaves behind. release refuses, but never claims the hold is
-// "held live by another lane": it is this very lane, just unable to
+// "held by another lane": it is this very lane, just unable to
 // prove itself. The refusal's own next_action names the honest way
 // out — the same wording open already gives the identical hold.
 func TestReleaseNamesTheWayOutForATokenlessOwnLane(t *testing.T) {
@@ -213,7 +257,7 @@ func TestReleaseNamesTheWayOutForATokenlessOwnLane(t *testing.T) {
 	code := run([]string{"release", "7", "--root", root}, &out, &errb)
 
 	require.Equal(t, 0, code, errb.String())
-	assert.NotContains(t, out.String(), "held live",
+	assert.NotContains(t, out.String(), "another lane",
 		"this is the lane's own checkout, not a stranger's")
 	assert.Contains(t, out.String(), "takeover window",
 		"the table names the way out too")
@@ -224,7 +268,7 @@ func TestReleaseNamesTheWayOutForATokenlessOwnLane(t *testing.T) {
 	}
 	emit(t, &doc, "release", "7", "--root", root)
 
-	assert.NotContains(t, doc.Refused, "held live",
+	assert.NotContains(t, doc.Refused, "another lane",
 		"this is the lane's own checkout, not a stranger's")
 	assert.NotEmpty(t, doc.NextAction)
 	assert.Contains(t, doc.NextAction, "takeover window")
@@ -309,7 +353,7 @@ func TestReleaseStillRefusesAGenuineTakeoverAfterItsOwnRenewal(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	got := out.String()
 	assert.Contains(t, got, "refused")
-	assert.Contains(t, got, "held live")
+	assert.Contains(t, got, "held by another lane")
 	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
 	require.NoError(t, err)
 	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", tip)
@@ -523,4 +567,53 @@ func TestReleaseEmitsJSON(t *testing.T) {
 	assert.Equal(t, "release", doc.Command)
 	assert.True(t, doc.Released)
 	assert.Equal(t, "plan/7", doc.Branch)
+}
+
+// decoratedLane builds the #204 shape: plan 7 held only by a legacy
+// decorated branch, plan/7-shader-unit, its one commit a legacy claim
+// pushed to origin, checked out in its own lane worktree — and no
+// id-only plan/7 anywhere. It returns the repository and the lane.
+func decoratedLane(t *testing.T, root string) (string, string) {
+	t.Helper()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-shader-unit")
+	git(t, repo, "worktree", "add", "-q", "-b", "plan/7-shader-unit", lane)
+	git(t, lane, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader-unit")
+	git(t, lane, "push", "-q", "origin", "plan/7-shader-unit")
+
+	return repo, lane
+}
+
+// TestReleaseAndYieldAgreeOnADecoratedOnlyHold (#204): release, run
+// inside the decorated lane, used to call the plan "nothing holds it"
+// because no id-only lease ref exists, while yield, run from outside
+// it, called the same plan "held live by another lane". Both now
+// refuse it as the held plan it is, in the same words and with the
+// same way out — and neither claims a liveness frit cannot vouch for.
+func TestReleaseAndYieldAgreeOnADecoratedOnlyHold(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	_, lane := decoratedLane(t, root)
+	outside := t.TempDir()
+	type refusal struct {
+		Refused    string `json:"refused"`
+		NoOp       string `json:"no_op"`
+		NextAction string `json:"next_action"`
+	}
+
+	t.Chdir(lane)
+	var released refusal
+	emit(t, &released, "release", "7", "--root", root)
+	t.Chdir(outside)
+	var yielded refusal
+	emit(t, &yielded, "yield", "7", "--root", root)
+
+	assert.Empty(t, released.NoOp, "a held plan is not a no-op to release")
+	assert.NotEmpty(t, released.Refused)
+	assert.Contains(t, released.Refused, "plan/7-shader-unit")
+	assert.NotContains(t, released.Refused, "live")
+	assert.Contains(t, released.NextAction, "takeover window")
+	assert.Equal(t, released, yielded,
+		"release and yield word the same hold identically")
 }

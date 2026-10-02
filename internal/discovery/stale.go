@@ -2,6 +2,8 @@ package discovery
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -81,4 +83,27 @@ func StaleHold(w Window, now time.Time, t, sMax time.Duration) bool {
 	}
 
 	return w.Span() > t
+}
+
+// WatchTip is the tip the staleness observer watches for a plan: its
+// id-only work ref's tip when one exists — the lease a takeover CASes
+// on — else every decorated hold's tip joined in branch order, so a
+// hold made of a legacy branch alone still matures (#204) and a move
+// on any one of its branches restarts the window. "" when there is
+// nothing to watch.
+func (p Plan) WatchTip() string {
+	if p.HoldTip != "" || len(p.DecoratedTips) == 0 {
+		return p.HoldTip
+	}
+	branches := make([]string, 0, len(p.DecoratedTips))
+	for b := range p.DecoratedTips {
+		branches = append(branches, b)
+	}
+	sort.Strings(branches)
+	parts := make([]string, len(branches))
+	for i, b := range branches {
+		parts[i] = b + "=" + p.DecoratedTips[b]
+	}
+
+	return strings.Join(parts, " ")
 }

@@ -27,3 +27,4 @@ kept in bijection with `features/` the same way, by the same gate:
 | C12 | starting from a lane whose branch diverged          | the same refusal, not a fault — `pick --go` skips it like a lost race rather than aborting its walk (startRefusable)                                      |
 | C15 | claiming on a host with no herdr                    | refused before the mint, naming herdr not found — origin gains no work ref, not a claim and a release (herdr.Missing)                                     |
 | C16 | pick --go on a host with no herdr                   | the same refusal on the top candidate, reported rather than skipped — no candidate is claimed (startMissingHerdrRefusal)                                  |
+| C17 | release and yield on a decorated hold with no lease | both refuse it as held by the decorated branch, in the same words and way out — never "nothing holds it", never "live" (refuseUnproved, #204)             |

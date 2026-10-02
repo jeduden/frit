@@ -57,6 +57,13 @@ type Plan struct {
 	// when no lease ref exists. It is what the staleness observer
 	// watches and exactly what a takeover CASes on.
 	HoldTip string
+	// DecoratedTips maps each live decorated hold — a hold branch other
+	// than the id-only work ref, the legacy plan/<id>-<slug> shape — to
+	// its tip, origin's copy preferred. Nil when there is none. No lease
+	// marker is ever CASed onto these; they are what the observer
+	// watches when no work ref exists (WatchTip), and the tips a
+	// decorated takeover CASes each branch's delete on.
+	DecoratedTips map[string]string
 	// Stale reports a held plan whose takeover window has matured: the
 	// tip sat unchanged for more than the window under sound sampling,
 	// so the hold is a takeover candidate.
