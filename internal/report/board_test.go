@@ -1,9 +1,9 @@
 package report
 
 import (
-	"github.com/jeduden/frit/internal/discovery"
 	"testing"
 
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
