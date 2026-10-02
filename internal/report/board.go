@@ -83,20 +83,21 @@ func NewBoard(root string, presence bool) *BoardDoc {
 	}
 }
 
-// AddPlan records one outstanding plan, with the agent joined to it or
-// empty when none is live on its lane. p.Dead is the identity fact —
-// the bound session herdr confirms gone — but a live pane on the lane
-// still working or idling means someone is there, so the rendered
-// Dead is cleared whenever agent is non-empty rather than copied
-// straight through. That same pairing — session gone, agent live — is
-// the lane git cannot classify, so it is the one that carries Ask,
-// provided status is one message would send to; askOf owns that gate.
-// unknown is presenceUnknown's own answer for this read — true when a
-// configured host went unread with no cache, or the read failed
-// outright — and withholds Ask the same way, without touching
-// AgentStatus: that column reports exactly what herdr saw, whether or
-// not this read was complete enough to trust for an ask.
-func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string, unknown bool) {
+// AddPlan records one outstanding plan, with the attendance of the
+// live pane on its lane — the zero value when none is live. p.Dead is
+// the identity fact — the bound session herdr confirms gone — but a
+// live agent on the lane still working or idling means someone is
+// there, so the rendered Dead is cleared whenever at.Agent is
+// non-empty rather than copied straight through. That same pairing —
+// session gone, agent live — is the lane git cannot classify, so it is
+// the one that carries Ask, in the form the lane can take; askOf owns
+// that gate and that choice. unknown is presenceUnknown's own answer
+// for this read — true when a configured host went unread with no
+// cache, or the read failed outright — and withholds Ask the same way,
+// without touching AgentStatus: that column reports exactly what herdr
+// saw, whether or not this read was complete enough to trust for an
+// ask.
+func (d *BoardDoc) AddPlan(p discovery.Plan, at Attendance, unknown bool) {
 	d.Plans = append(d.Plans, BoardPlan{
 		Key:          p.Key,
 		Host:         hostOf(p.Key),
@@ -109,10 +110,10 @@ func (d *BoardDoc) AddPlan(p discovery.Plan, agent, status string, unknown bool)
 		Holds:        refsOf(p.Holds),
 		Stale:        p.Stale,
 		StaleSeconds: int64(p.StaleFor / time.Second),
-		Dead:         p.Dead && agent == "",
-		Agent:        agent,
-		AgentStatus:  status,
-		Ask:          askOf(p, status, unknown),
+		Dead:         p.Dead && at.Agent == "",
+		Agent:        at.Agent,
+		AgentStatus:  at.Status,
+		Ask:          askOf(p, at, unknown),
 		AskState:     "none",
 	})
 }
@@ -144,21 +145,6 @@ func (d *BoardDoc) SetAsk(repo string, id int64, state, answer string) {
 		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
 			d.Plans[i].AskState = state
 			d.Plans[i].Answer = answer
-			return
-		}
-	}
-}
-
-// AskRemote swaps the row for (repo, id)'s ask, when it carries one,
-// for the plain message a lane on another host can take — the live
-// pane's host is known only to the caller. A no-op for a row with no
-// ask, or none matching.
-func (d *BoardDoc) AskRemote(repo string, id int64) {
-	for i := range d.Plans {
-		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
-			if d.Plans[i].Ask != "" {
-				d.Plans[i].Ask = AskCommandFor(id, true)
-			}
 			return
 		}
 	}

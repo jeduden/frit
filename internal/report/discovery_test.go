@@ -205,14 +205,18 @@ func TestShowAddProblemRecordsAnUnreadRepository(t *testing.T) {
 
 // attendedLane is the presence callback a working pane on the lane
 // answers with.
-func attendedLane(discovery.Plan) string { return herdr.StatusWorking }
+func attendedLane(discovery.Plan) Attendance {
+	return Attendance{Status: herdr.StatusWorking}
+}
 
 // unattendedLane is the presence callback no live pane answers with.
-func unattendedLane(discovery.Plan) string { return "" }
+func unattendedLane(discovery.Plan) Attendance { return Attendance{} }
 
 // unvouchedLane is the presence callback a pane herdr cannot vouch for
 // answers with: someone is there, but message would refuse them.
-func unvouchedLane(discovery.Plan) string { return herdr.StatusUnknown }
+func unvouchedLane(discovery.Plan) Attendance {
+	return Attendance{Status: herdr.StatusUnknown}
+}
 
 // TestReadySetPlansNamesTheAskForAnAttendedDeadLane: a held lane whose
 // bound session is gone but whose branch a live pane attends is the
@@ -315,15 +319,16 @@ func TestAskOfIsGatedOnEveryDesertedInput(t *testing.T) {
 	unheld := deadHeldPlan
 	unheld.Held = false
 
-	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusWorking, false))
-	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, herdr.StatusIdle, false),
+	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, Attendance{Status: herdr.StatusWorking}, false))
+	assert.Equal(t, AskCommand(100), askOf(deadHeldPlan, Attendance{Status: herdr.StatusIdle}, false),
 		"message reaches an idle pane too")
-	assert.Empty(t, askOf(deadHeldPlan, "", false), "unattended")
-	assert.Empty(t, askOf(deadHeldPlan, herdr.StatusUnknown, false),
+	assert.Empty(t, askOf(deadHeldPlan, Attendance{}, false), "unattended")
+	assert.Empty(t, askOf(deadHeldPlan, Attendance{Status: herdr.StatusUnknown}, false),
 		"message refuses a pane herdr cannot vouch for")
-	assert.Empty(t, askOf(stale, herdr.StatusWorking, false), "a matured window is staleHeld's own cell")
-	assert.Empty(t, askOf(unheld, herdr.StatusWorking, false), "nobody holds it")
-	assert.Empty(t, askOf(deadHeldPlan, herdr.StatusWorking, true),
+	assert.Empty(t, askOf(stale, Attendance{Status: herdr.StatusWorking}, false),
+		"a matured window is staleHeld's own cell")
+	assert.Empty(t, askOf(unheld, Attendance{Status: herdr.StatusWorking}, false), "nobody holds it")
+	assert.Empty(t, askOf(deadHeldPlan, Attendance{Status: herdr.StatusWorking}, true),
 		"a configured host went unread, so this read is not vouched for either")
 }
 
@@ -346,4 +351,11 @@ func TestCardsAskARemoteLanePlainly(t *testing.T) {
 	}, false)
 
 	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
+}
+
+// TestAskOfPicksTheFormTheLaneCanTake: the remedy askOf names follows
+// the lane's host — --ask on this host, the plain message elsewhere.
+func TestAskOfPicksTheFormTheLaneCanTake(t *testing.T) {
+	assert.Equal(t, AskCommandFor(100, true), askOf(deadHeldPlan,
+		Attendance{Status: herdr.StatusWorking, Remote: true}, false))
 }

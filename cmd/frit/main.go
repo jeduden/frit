@@ -1993,8 +1993,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
-	askRemoteCards(doc.Plans, list, live)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -2040,8 +2039,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	doc.SetGather(gatherStatus(res))
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
-	askRemoteCards(doc.Plans, list, live)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -2344,9 +2342,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	unprovenCache := map[string]map[int64]bool{}
 	askDirs := map[string]string{}
 	for _, p := range list {
-		agent, status := agentFor(p, live)
-		doc.AddPlan(p, agent, status, unknown)
-		askRemoteRow(doc, p, live)
+		doc.AddPlan(p, attendanceFor(p, live), unknown)
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
@@ -2431,14 +2427,11 @@ func liveByBranch(
 
 // laneFor finds the live lane on one of a plan's hold branches, in the
 // plan's own repository, if any is live. A plan nobody holds has no
-// lane to be worked on, so it reports none. agentFor and attendedFor
-// both ask this same question — which of a plan's branches is live
-// now — and differ only in what they read off the answer, so they
-// share this one walk of p.Holds rather than each keeping its own
-// copy. When more than one hold branch is live, the lane first in
-// laneBefore's order wins, whatever order p.Holds lists the branches
-// in: that is the lane liveLaneFor finds, so the agent and ask a
-// survey names belong to the lane message actually reaches.
+// lane to be worked on, so it reports none. When more than one hold
+// branch is live, the lane first in laneBefore's order wins, whatever
+// order p.Holds lists the branches in: that is the lane liveLaneFor
+// finds, so the attendance a survey reads, and the ask it names,
+// belong to the lane message actually reaches.
 func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool) {
 	var first herdr.Lane
 	found := false
@@ -2452,73 +2445,27 @@ func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool
 	return first, found
 }
 
-// remoteLane reports whether the live lane on one of p's hold
-// branches runs on another host — the case the ask remedy must name
-// the plain message for, since --ask refuses it. It reads askReaches,
-// message's own rule, so the remedy and the refusal never drift.
-func remoteLane(p discovery.Plan, live map[repoBranch]herdr.Lane) bool {
+// attendanceFor reads the live lane on one of a plan's hold branches —
+// the one laneFor picks, which message also reaches — as the survey
+// builds from it: the agent, the pane's status as herdr reported it,
+// and whether it runs on another host. The zero value means no lane is
+// live. A pane herdr reports with no agent attached still carries its
+// status, which is what clears a card's Dead; the status is never
+// rewritten — withholding an ask off an incomplete presence read is
+// the report's own job, downstream of this call. Remote reads
+// askReaches, message's own rule, so the remedy the report composes
+// and message's refusal never drift.
+func attendanceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) report.Attendance {
 	lane, ok := laneFor(p, live)
-
-	return ok && !askReaches(lane)
-}
-
-// askRemoteCards gives each card whose live lane runs on another host
-// the plain message remedy. cards are SetPlans' own projection of
-// plans — one card per plan, in the same order — so each pairs with
-// its plan by index.
-func askRemoteCards(
-	cards []report.PlanCard, plans []discovery.Plan,
-	live map[repoBranch]herdr.Lane,
-) {
-	for i, p := range plans {
-		if cards[i].Ask != "" && remoteLane(p, live) {
-			cards[i].Ask = report.AskCommandFor(p.ID, true)
-		}
-	}
-}
-
-// askRemoteRow gives p's board row the plain message remedy when its
-// live lane runs on another host.
-func askRemoteRow(
-	doc *report.BoardDoc, p discovery.Plan, live map[repoBranch]herdr.Lane,
-) {
-	if remoteLane(p, live) {
-		doc.AskRemote(p.Repo, p.ID)
-	}
-}
-
-// agentFor finds the agent working one of a plan's hold branches, if
-// any is live. A plan nobody holds has no lane to be worked on, so it
-// reports none.
-func agentFor(
-	p discovery.Plan, live map[repoBranch]herdr.Lane,
-) (agent, status string) {
-	if lane, ok := laneFor(p, live); ok {
-		return lane.Pane.Agent, lane.Pane.Presence()
+	if !ok {
+		return report.Attendance{}
 	}
 
-	return "", ""
-}
-
-// presenceFor reports what the live pane on one of a plan's hold
-// branches is doing now — working, idle or unknown — or "" when none
-// is there. A non-empty answer is the fact that clears a rendered
-// Dead, since a pane there disproves "nobody is here" regardless of
-// what it is doing; the status itself is what decides whether that
-// pane can be asked, since message refuses one herdr cannot vouch
-// for. It reads lane presence directly rather than agentFor's returned
-// agent so that a live pane herdr ever reports with no agent attached
-// still counts as attended. It never rewrites the status itself —
-// board's agent_status column reports exactly what herdr saw whether
-// or not this call's presence read was complete; withholding the ask
-// on an incomplete read is askOf's own second input, not a reason to
-// misreport what a pane herdr did see is doing.
-func presenceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) string {
-	if lane, ok := laneFor(p, live); ok {
-		return lane.Pane.Presence()
+	return report.Attendance{
+		Agent:  lane.Pane.Agent,
+		Status: lane.Pane.Presence(),
+		Remote: !askReaches(lane),
 	}
-
-	return ""
 }
 
 // boardRow is one board line's cells, computed once so the title can be
@@ -3026,8 +2973,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
-	askRemoteCards(doc.Plans, list, live)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {

@@ -71,9 +71,10 @@ func cardOf(p discovery.Plan) PlanCard {
 }
 
 // cardsOf projects a list, returning [] rather than nil so the encoded
-// form is a list and never null. presence reports, for one plan, what
-// a live pane on its lane is doing now — working, idle or unknown —
-// or "" when none attends it; when one does, the copied
+// form is a list and never null. presence reports, for one plan, the
+// live pane on its lane — what it is doing now, working, idle or
+// unknown, and whether it runs on another host — or the zero
+// Attendance when none attends it; when one does, the copied
 // Dead is cleared — a live pane, working or idle, disproves "nobody is
 // here". A nil presence leaves every card's Dead exactly as cardOf
 // would render it alone. unknown is presenceUnknown's own answer for
@@ -82,16 +83,18 @@ func cardOf(p discovery.Plan) PlanCard {
 // Ask without touching the status a live pane's own presence already
 // named: a read frit could not vouch for in full earns no ask, but a
 // pane herdr did show is not misreported as unknown just to get there.
-func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool) []PlanCard {
+func cardsOf(
+	plans []discovery.Plan, presence func(discovery.Plan) Attendance, unknown bool,
+) []PlanCard {
 	out := make([]PlanCard, 0, len(plans))
 	for _, p := range plans {
 		card := cardOf(p)
-		status := ""
+		var at Attendance
 		if presence != nil {
-			status = presence(p)
+			at = presence(p)
 		}
-		card.Dead = p.Dead && status == ""
-		card.Ask = askOf(p, status, unknown)
+		card.Dead = p.Dead && at.Status == ""
+		card.Ask = askOf(p, at, unknown)
 		out = append(out, card)
 	}
 
@@ -109,12 +112,25 @@ func cardsOf(plans []discovery.Plan, presence func(discovery.Plan) string, unkno
 // herdr cannot vouch for, so a lane read unknown earns no ask, and so
 // does one read off an incomplete survey — offering either would hand
 // the reader a command that refuses when run.
-func askOf(p discovery.Plan, status string, unknown bool) string {
-	if unknown || !p.Deserted() || !askable(status) {
+func askOf(p discovery.Plan, at Attendance, unknown bool) string {
+	if unknown || !p.Deserted() || !askable(at.Status) {
 		return ""
 	}
 
-	return AskCommand(p.ID)
+	return AskCommandFor(p.ID, at.Remote)
+}
+
+// Attendance is what a survey read of the live pane on a plan's lane:
+// the agent and its status as herdr reported them, and whether the
+// pane runs on another host. The zero value is a lane no pane attends.
+// Together they decide, where a board row or card is built, whether
+// the lane can be asked and how — --ask for a lane on this host, the
+// plain message for one on another, which --ask refuses — so no caller
+// patches the remedy afterward.
+type Attendance struct {
+	Agent  string
+	Status string
+	Remote bool
 }
 
 // askable reports whether a pane with this presence is one message
@@ -151,7 +167,7 @@ func NewReady(root, host string) *ReadyDoc {
 // unknown withholds every card's Ask, never its Dead-clearing, when
 // the fleet's presence read was incomplete — see cardsOf.
 func (d *ReadyDoc) SetPlans(
-	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+	plans []discovery.Plan, presence func(discovery.Plan) Attendance, unknown bool,
 ) {
 	d.Plans = cardsOf(plans, presence, unknown)
 }
@@ -190,7 +206,7 @@ func NewPick(root, host string) *PickDoc {
 // Ask, never its Dead-clearing, when the fleet's presence read was
 // incomplete — see cardsOf.
 func (d *PickDoc) SetPlans(
-	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+	plans []discovery.Plan, presence func(discovery.Plan) Attendance, unknown bool,
 ) {
 	d.Plans = cardsOf(plans, presence, unknown)
 }
@@ -233,7 +249,7 @@ func NewFind(root, host, query string) *FindDoc {
 // Ask, never its Dead-clearing, when the fleet's presence read was
 // incomplete — see cardsOf.
 func (d *FindDoc) SetPlans(
-	plans []discovery.Plan, presence func(discovery.Plan) string, unknown bool,
+	plans []discovery.Plan, presence func(discovery.Plan) Attendance, unknown bool,
 ) {
 	d.Plans = cardsOf(plans, presence, unknown)
 }

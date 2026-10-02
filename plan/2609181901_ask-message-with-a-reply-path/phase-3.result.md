@@ -56,6 +56,12 @@ lane on this host, through a worktree of one clone. The mdsmith
 scaffold's config read moved into its own function with a unit test
 that holds for root.
 
+**The ask's form is decided where it is built.** A board row and a
+card take the live lane's attendance — agent, status, and whether it
+runs on another host — and pick `--ask` or the plain message
+themselves. The after-the-fact swaps on board rows and cards are gone,
+so a new caller cannot forget one.
+
 **Plan close.** Every acceptance criterion is met. What stays out of
 scope, as the plan said from the start: an ask to a lane on another
 host is refused, since its reply would land where this host never

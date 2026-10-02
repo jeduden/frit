@@ -3,7 +3,6 @@ package report
 import (
 	"testing"
 
-	"github.com/jeduden/frit/internal/discovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +14,7 @@ import (
 // can tell a PR-in-flight from an abandoned lane.
 func TestBoardAddPlanNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "working", false)
+	doc.AddPlan(deadHeldPlan, Attendance{Agent: "claude", Status: "working"}, false)
 
 	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask)
 	assert.False(t, doc.Plans[0].Dead, "the live agent still clears dead")
@@ -25,7 +24,7 @@ func TestBoardAddPlanNamesTheAskForAnAttendedDeadLane(t *testing.T) {
 // lane means nobody to ask; the dead reading stands as before.
 func TestBoardAddPlanLeavesAskEmptyWhenNoAgentIsLive(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "", "", false)
+	doc.AddPlan(deadHeldPlan, Attendance{}, false)
 
 	assert.Empty(t, doc.Plans[0].Ask)
 	assert.True(t, doc.Plans[0].Dead)
@@ -36,7 +35,7 @@ func TestBoardAddPlanLeavesAskEmptyWhenNoAgentIsLive(t *testing.T) {
 // but earns no ask, since message refuses exactly that pane.
 func TestBoardAddPlanLeavesAskEmptyForAnUnvouchedAgent(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "unknown", false)
+	doc.AddPlan(deadHeldPlan, Attendance{Agent: "claude", Status: "unknown"}, false)
 
 	assert.False(t, doc.Plans[0].Dead, "a pane there still disproves dead")
 	assert.Empty(t, doc.Plans[0].Ask, "but one message would refuse is not offered")
@@ -48,7 +47,7 @@ func TestBoardAddPlanLeavesAskEmptyForABoundLiveLane(t *testing.T) {
 	bound := deadHeldPlan
 	bound.Dead = false
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(bound, "claude", "working", false)
+	doc.AddPlan(bound, Attendance{Agent: "claude", Status: "working"}, false)
 
 	assert.Empty(t, doc.Plans[0].Ask)
 }
@@ -60,7 +59,7 @@ func TestBoardAddPlanLeavesAskEmptyForABoundLiveLane(t *testing.T) {
 // herdr actually saw a working pane doing.
 func TestBoardAddPlanWithholdsAskOnIncompletePresenceWithoutRewritingStatus(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "working", true)
+	doc.AddPlan(deadHeldPlan, Attendance{Agent: "claude", Status: "working"}, true)
 
 	assert.False(t, doc.Plans[0].Dead, "the live agent still clears dead")
 	assert.Equal(t, "working", doc.Plans[0].AgentStatus,
@@ -94,7 +93,7 @@ func TestHostOfReturnsEmptyForAKeyWithNoColon(t *testing.T) {
 // leaving every other row untouched.
 func TestBoardMarkUnprovenNamesTheWayOut(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "", "", false)
+	doc.AddPlan(deadHeldPlan, Attendance{}, false)
 	assert.Empty(t, doc.Plans[0].NextAction)
 
 	doc.MarkUnproven("wrong-repo", deadHeldPlan.ID)
@@ -109,7 +108,7 @@ func TestBoardMarkUnprovenNamesTheWayOut(t *testing.T) {
 // per the JSON contract, so a consumer branches on the field.
 func TestBoardAddPlanReportsNoAskByDefault(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "", "", false)
+	doc.AddPlan(deadHeldPlan, Attendance{}, false)
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	assert.Empty(t, doc.Plans[0].Answer)
@@ -120,7 +119,7 @@ func TestBoardAddPlanReportsNoAskByDefault(t *testing.T) {
 // MarkUnproven, so another repository's same id is left alone.
 func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "", "", false)
+	doc.AddPlan(deadHeldPlan, Attendance{}, false)
 
 	doc.SetAsk("wrong-repo", deadHeldPlan.ID, "answered", "in PR #9")
 	assert.Equal(t, "none", doc.Plans[0].AskState, "a repo mismatch is a no-op")

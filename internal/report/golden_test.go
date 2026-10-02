@@ -307,11 +307,11 @@ func goldenBoard() *BoardDoc {
 		Key: "forge:atlas:2608161810", Repo: "atlas", ID: 2608161810,
 		Status: "🔳", Title: "The dispatch ladder", Model: "opus",
 		Held: true, Holds: []string{"plan/2608161810-dispatch"},
-	}, "claude", "working", false)
+	}, Attendance{Agent: "claude", Status: "working"}, false)
 	doc.AddPlan(discovery.Plan{
 		Key: "forge:orrery:7", Repo: "orrery", ID: 7,
 		Status: "🔲", Title: "Shader unit tests", Model: "sonnet",
-	}, "", "", false)
+	}, Attendance{}, false)
 	doc.SetAsk("atlas", 2608161810, "answered", "in PR #9, merging")
 
 	return doc
