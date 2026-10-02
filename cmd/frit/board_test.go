@@ -1051,12 +1051,13 @@ func TestAskLinesNameEachAskedLane(t *testing.T) {
 // within a repository (S74), so two repositories' asks to plan 7 are
 // two asks and print two lines, even when their text reads alike.
 func TestAskLinesKeepTheSameIDInTwoRepositories(t *testing.T) {
-	pending := "7: asked, no reply yet — silence is not evidence the lane is gone"
-
-	assert.Equal(t, []string{pending, pending}, askLines([]askRow{
+	assert.Equal(t, []string{
+		"7 (atlas): asked, no reply yet — silence is not evidence the lane is gone",
+		`7 (zephyr): answered: "in PR #9"`,
+	}, askLines([]askRow{
 		{repo: "atlas", id: 7, state: "pending"},
-		{repo: "zephyr", id: 7, state: "pending"},
-	}))
+		{repo: "zephyr", id: 7, state: "answered", answer: "in PR #9"},
+	}), "each line names its repository, so an answer is never read as another's")
 }
 
 // TestPrintBoardShowsTheAskState: the board prints the ask lines
@@ -1068,5 +1069,5 @@ func TestPrintBoardShowsTheAskState(t *testing.T) {
 
 	printBoard(&buf, doc, 0, boardCols)
 
-	assert.Contains(t, buf.String(), `100: answered: "merging PR #9"`)
+	assert.Contains(t, buf.String(), `100 (atlas): answered: "merging PR #9"`)
 }

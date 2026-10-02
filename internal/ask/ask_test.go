@@ -332,3 +332,61 @@ func TestEnvelopeAsksForAReplyAndNamesBothWaysToGiveIt(t *testing.T) {
 	assert.Contains(t, got, `frit reply "<answer>"`)
 	assert.NotContains(t, got, "\n")
 }
+
+// TestDirAndFileComposeThePath: Dir is the repository's ask directory,
+// found once, and File names a plan's record inside it — together the
+// same path Path gives, so a caller asking about many plans pays one
+// git call.
+func TestDirAndFileComposeThePath(t *testing.T) {
+	main, lane := repoWithLane(t)
+
+	dir, err := Dir(lane, gitwt.Exec)
+	require.NoError(t, err)
+	want, err := Path(main, 7, gitwt.Exec)
+	require.NoError(t, err)
+
+	assert.Equal(t, want, File(dir, 7))
+}
+
+// TestDirFailsOutsideARepository: no repository, no ask directory.
+func TestDirFailsOutsideARepository(t *testing.T) {
+	_, err := Dir(t.TempDir(), gitwt.Exec)
+
+	assert.Error(t, err)
+}
+
+// TestClearRemovesAPosedAsk: a lane that ends takes its ask with it.
+func TestClearRemovesAPosedAsk(t *testing.T) {
+	main, lane := repoWithLane(t)
+	path, err := Pose(main, 7, "status?", asked, gitwt.Exec)
+	require.NoError(t, err)
+
+	require.NoError(t, Clear(lane, 7, gitwt.Exec))
+
+	_, ok, err := Read(path)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// TestClearOfNoAskIsFine: nothing asked, nothing to clear, no fault.
+func TestClearOfNoAskIsFine(t *testing.T) {
+	main, _ := repoWithLane(t)
+
+	assert.NoError(t, Clear(main, 7, gitwt.Exec))
+}
+
+// TestClearSurfacesARecordItCannotRemove: a record that will not go is
+// a fault the caller hears about, so a stale ask is never left silent.
+func TestClearSurfacesARecordItCannotRemove(t *testing.T) {
+	main, _ := repoWithLane(t)
+	path, err := Path(main, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "x"), 0o750))
+
+	assert.Error(t, Clear(main, 7, gitwt.Exec))
+}
+
+// TestClearFailsOutsideARepository: no repository, no record to clear.
+func TestClearFailsOutsideARepository(t *testing.T) {
+	assert.Error(t, Clear(t.TempDir(), 7, gitwt.Exec))
+}
