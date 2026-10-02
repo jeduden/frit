@@ -411,14 +411,37 @@ func mintClaim(
 	if err != nil {
 		if errors.Is(err, claim.ErrLostRace) {
 			doc.Refuse(lostRaceRefusal(err))
+			recordRetired(doc, minted)
 			scavengeLanded(rt, doc, plan, coord, err)
 			return claim.Lease{}, nil
 		}
 		return claim.Lease{}, err
 	}
 	doc.Minted(minted.BaseSHA)
+	recordRetired(doc, minted)
 
 	return minted, nil
+}
+
+// retiredReporter is what a decorated takeover's retirements are
+// recorded into: claim's report or start's, each carrying the same
+// retired list.
+type retiredReporter interface {
+	Retire(r report.RetiredBranch)
+}
+
+// recordRetired reports every decorated branch a decorated takeover
+// retired on its way to the lease — its rescue, whether origin's copy
+// was deleted, and whether this host's copy still stands — one entry
+// per branch, so no branch's parked work goes unnamed. Nothing is
+// recorded for any other transition.
+func recordRetired(doc retiredReporter, lease claim.Lease) {
+	for _, r := range lease.Retired {
+		doc.Retire(report.RetiredBranch{
+			Branch: r.Branch, Rescue: r.Rescue,
+			DeletedOnOrigin: r.DeletedOnOrigin, LocalKept: r.LocalKept,
+		})
+	}
 }
 
 // scavengeLanded cleans the ref behind a lost race whose winner has
@@ -500,6 +523,29 @@ func mintOrTakeOver(
 	if !plan.Held || (!plan.Stale && !plan.Dead) {
 		return claim.Acquire(coord.Path, opts, rt.git)
 	}
+	if plan.HoldTip == "" && len(plan.DecoratedTips) > 0 {
+		// A hold made of decorated branches alone (#204) has no work
+		// ref to CAS a takeover marker onto, and no marker naming a
+		// session to veto with. The veto reads herdr's panes instead:
+		// a live agent in a local worktree on one of those branches is
+		// a quiet lane, not a deserted one. Otherwise the decorated
+		// takeover CASes each branch's delete on the tips the window
+		// matured on, then acquires the id-only lease.
+		if lane, ok := decoratedLaneLive(rt, plan); ok {
+			return claim.Lease{}, &claim.VetoError{
+				PlanID: plan.ID,
+				Marker: claim.Marker{Holder: hostname(), Lane: lane},
+			}
+		}
+		lease, err := claim.TakeoverDecorated(
+			coord.Path, opts, plan.DecoratedTips, rt.git)
+		var held *claim.HeldError
+		if errors.As(err, &held) && held.Tip != "" {
+			resetWindow(plan, held.Tip, time.Now())
+		}
+
+		return lease, err
+	}
 
 	// Held and (matured or confirmed dead): the one place a herdr veto
 	// can change the answer. The marker is read from the exact tip the
@@ -523,6 +569,34 @@ func mintOrTakeOver(
 	}
 
 	return lease, err
+}
+
+// decoratedLaneLive reports the worktree of a live agent standing on
+// one of a decorated hold's branches in this plan's own repository,
+// read off herdr's local panes — the liveness a decorated hold's legacy
+// marker cannot name a session for. herdr.List reads this host's own
+// socket, so every pane is local and its cwd resolves against local
+// git. Only a herdr that answered counts: an unreachable one, like an
+// unknown session on a lease, is no veto, and the window alone decides.
+func decoratedLaneLive(rt *runtime, plan discovery.Plan) (string, bool) {
+	panes, err := herdr.List(rt.herdr)
+	if err != nil {
+		return "", false
+	}
+	for _, p := range panes {
+		if !p.HasAgent() {
+			continue
+		}
+		site := herdr.Resolve(p.CWD, rt.git)
+		if _, ok := plan.DecoratedTips[site.Branch]; !ok || site.Root == "" {
+			continue
+		}
+		if fleet.RepoName(site.Root, rt.git) == plan.Repo {
+			return site.Root, true
+		}
+	}
+
+	return "", false
 }
 
 // beatForHolder renews a vetoed lease on its own holder's behalf: a
@@ -737,6 +811,7 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 		if doc.Rescue != "" {
 			_, _ = fmt.Fprintf(out, "  rescued:   %s\n", doc.Rescue)
 		}
+		printRetired(out, doc.Retired)
 		if doc.Warning != "" {
 			_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
 		}
@@ -754,7 +829,29 @@ func printClaim(out io.Writer, doc *report.ClaimDoc) {
 	if doc.Worktree != "" {
 		_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Worktree)
 	}
+	printRetired(out, doc.Retired)
 	if doc.Warning != "" {
 		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
+}
+
+// printRetired names, under a claim or start, each decorated branch
+// its takeover retired: deleted from origin, or kept when it was never
+// pushed and this host's copy still stands, with a note when this
+// host's copy outlives the deletion and where its work was parked.
+// Nothing when the transition retired nothing.
+func printRetired(out io.Writer, retired []report.RetiredBranch) {
+	for _, r := range retired {
+		verb, note := "retired:", ""
+		switch {
+		case r.LocalKept && !r.DeletedOnOrigin:
+			verb, note = "kept:", "  (never pushed; this host's copy still stands)"
+		case r.LocalKept:
+			note = "  (this host's copy still stands)"
+		}
+		_, _ = fmt.Fprintf(out, "  %-10s%s%s\n", verb, r.Branch, note)
+		if r.Rescue != "" {
+			_, _ = fmt.Fprintf(out, "  rescued:  %s\n", r.Rescue)
+		}
 	}
 }

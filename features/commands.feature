@@ -115,3 +115,10 @@ Feature: Command scenarios
     Then it refuses, naming herdr not found and nothing claimed
     And origin carries no work ref for plan 7
     And origin carries no work ref for plan 8
+
+  @C17
+  Scenario: release and yield agree on a decorated hold with no lease
+    Given a plan held only by a decorated branch checked out in its own lane
+    When it is released from its own lane
+    And it is yielded from outside its lane
+    Then both refuse it as held by the decorated branch, in the same words

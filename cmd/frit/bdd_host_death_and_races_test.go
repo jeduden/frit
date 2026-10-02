@@ -15,6 +15,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
+	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/report"
@@ -28,7 +29,8 @@ import (
 // re-claimed. It registers itself, like the lease section did.
 func init() {
 	registrars = append(registrars,
-		(*world).registerHostDeathAndRaces, (*world).registerMidPushRace)
+		(*world).registerHostDeathAndRaces, (*world).registerMidPushRace,
+		(*world).registerDecoratedTakeover)
 }
 
 // raceAttempt is one machine's Acquire, kept beside the world so a
@@ -113,6 +115,186 @@ func (w *world) registerHostDeathAndRaces(sc *godog.ScenarioContext) {
 	sc.Step(`^the second start is refused, naming the lane the first stood up$`,
 		w.theSecondStartIsRefusedNamingTheLane)
 	w.registerYieldHonesty(sc)
+}
+
+// decoratedState is S100's, S101's and S102's own: the legacy decorated branch
+// holding the plan alone, and the tip it stands on now.
+type decoratedState struct {
+	branch string
+	tip    string
+}
+
+// registerDecoratedTakeover is S100's, S101's and S102's step
+// vocabulary: a plan held by a legacy decorated branch alone, with no
+// id-only work ref, matures on the observer's clock and is taken over
+// — unless its holder moved it, or herdr shows an agent on it (#204).
+func (w *world) registerDecoratedTakeover(sc *godog.ScenarioContext) {
+	sc.Step(`^"([^"]+)" holds plan (\d+) on a decorated branch alone$`,
+		w.holdsPlanOnADecoratedBranchAlone)
+	sc.Step(`^the decorated hold's takeover window has matured$`,
+		w.theDecoratedHoldsWindowHasMatured)
+	sc.Step(`^"([^"]+)" pushes to its decorated branch$`,
+		w.pushesToItsDecoratedBranch)
+	sc.Step(`^this host holds a fresh id-only lease for plan (\d+)$`,
+		w.thisHostHoldsAFreshIDOnlyLease)
+	sc.Step(`^the decorated branch is gone from origin$`,
+		w.theDecoratedBranchIsGoneFromOrigin)
+	sc.Step(`^the decorated branch still stands on origin at its new tip$`,
+		w.theDecoratedBranchStillStandsAtItsNewTip)
+	sc.Step(`^a live agent sits in a worktree on the decorated branch$`,
+		w.aLiveAgentSitsOnTheDecoratedBranch)
+}
+
+// aLiveAgentSitsOnTheDecoratedBranch is S102's own: the decorated lane
+// checked out in a worktree on this host, with herdr showing an agent
+// in it — quiet past the window, but not gone.
+func (w *world) aLiveAgentSitsOnTheDecoratedBranch() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[decoratedState](w)
+	lane := filepath.Join(w.t.TempDir(), "atlas-shader-unit")
+	git(w.t, repo, "worktree", "add", "-q", "-b", ds.branch, lane, "origin/"+ds.branch)
+	withHerdr(w.t, herdrReturningWithWorktree(map[string]any{
+		"agent": "claude", "agent_status": "idle", "cwd": lane, "pane_id": "wL:p1",
+	}))
+	section[cliState](w).herdrSet = true
+
+	return nil
+}
+
+// holdsPlanOnADecoratedBranchAlone pushes a legacy claim on
+// plan/<id>-shader-unit to origin, then drops the local branch, so
+// this clone sees the hold only as origin's — another machine's
+// decorated lane, never given a lease ref.
+func (w *world) holdsPlanOnADecoratedBranchAlone(holder string, planID int) error {
+	isolate(w.t)
+	w.planID = planID
+	repo := claimableRepo(w.t, w.t.TempDir(), "atlas", planID, "Shader unit")
+	w.clones[holder] = repo
+	w.holder = holder
+	ds := section[decoratedState](w)
+	ds.branch = fmt.Sprintf("plan/%d-shader-unit", planID)
+	git(w.t, repo, "checkout", "-q", "-b", ds.branch)
+	git(w.t, repo, "commit", "--allow-empty", "-q", "-m",
+		fmt.Sprintf("plan %d: claim shader-unit\n\nhost:     %s\n", planID, holder))
+	git(w.t, repo, "push", "-q", "origin", ds.branch)
+	tip, err := gitCapture(w.t, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tip, err)
+	}
+	ds.tip = tip
+	git(w.t, repo, "checkout", "-q", "main")
+	git(w.t, repo, "branch", "-q", "-D", ds.branch)
+
+	return nil
+}
+
+// theDecoratedHoldsWindowHasMatured seeds the observer with a window
+// three hours wide on exactly the token it watches a decorated-only
+// hold by — the S15 seed, for the hold phase 1 of plan 2610011805
+// taught the observer to see.
+func (w *world) theDecoratedHoldsWindowHasMatured() error {
+	ds := section[decoratedState](w)
+	watch := discovery.Plan{
+		DecoratedTips: map[string]string{ds.branch: ds.tip}}.WatchTip()
+	seedWindow(w.t, "atlas", int64(w.planID), watch, 3*time.Hour)
+
+	return nil
+}
+
+// pushesToItsDecoratedBranch lands one more commit on origin's
+// decorated branch, on top of the tip the window matured on — the
+// holder was quiet, not gone.
+func (w *world) pushesToItsDecoratedBranch(holder string) error {
+	repo, err := w.cloneOf(holder)
+	if err != nil {
+		return err
+	}
+	ds := section[decoratedState](w)
+	tree, err := gitCapture(w.t, repo, "rev-parse", ds.tip+"^{tree}")
+	if err != nil {
+		return fmt.Errorf("%s: %w", tree, err)
+	}
+	next, err := gitCapture(w.t, repo, "commit-tree", "-p", ds.tip,
+		"-m", "still here", tree)
+	if err != nil {
+		return fmt.Errorf("%s: %w", next, err)
+	}
+	git(w.t, repo, "push", "-q", "origin", next+":refs/heads/"+ds.branch)
+	ds.tip = next
+
+	return nil
+}
+
+// thisHostHoldsAFreshIDOnlyLease is S100's Then: the claim landed, and
+// origin's id-only work ref now carries a plain claim marker at epoch
+// 1 — a fresh acquisition, since a legacy claim has no epoch chain to
+// extend.
+func (w *world) thisHostHoldsAFreshIDOnlyLease(planID int) error {
+	got := section[cliState](w).out.String()
+	if !strings.Contains(got, "claimed plan") {
+		return fmt.Errorf("expected a takeover, got: %s", got)
+	}
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ref := "refs/heads/" + claim.Branch(int64(planID))
+	remote, err := gitCapture(w.t, repo, "ls-remote", "origin", ref)
+	if err != nil || remote == "" {
+		return fmt.Errorf("origin carries no %s: %s %v", ref, remote, err)
+	}
+	tip := strings.Fields(remote)[0]
+	body, err := gitCapture(w.t, repo, "log", "-1", "--format=%B", tip)
+	if err != nil {
+		return fmt.Errorf("%s: %w", body, err)
+	}
+	if !strings.HasPrefix(body, fmt.Sprintf("plan %d: claim\n", planID)) ||
+		!strings.Contains(body, "epoch:   1") {
+		return fmt.Errorf("the lease tip is not a fresh claim at epoch 1: %q", body)
+	}
+
+	return nil
+}
+
+// theDecoratedBranchIsGoneFromOrigin is S100's retirement: origin no
+// longer carries the decorated branch, so nothing reads it as a hold.
+func (w *world) theDecoratedBranchIsGoneFromOrigin() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[decoratedState](w)
+	remote, err := gitCapture(w.t, repo, "ls-remote", "origin", "refs/heads/"+ds.branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", remote, err)
+	}
+	if remote != "" {
+		return fmt.Errorf("origin still carries %s: %s", ds.branch, remote)
+	}
+
+	return nil
+}
+
+// theDecoratedBranchStillStandsAtItsNewTip is S101's guard: a holder
+// that moved its branch is not deserted, so nothing was deleted.
+func (w *world) theDecoratedBranchStillStandsAtItsNewTip() error {
+	repo, err := w.cloneOf(w.holder)
+	if err != nil {
+		return err
+	}
+	ds := section[decoratedState](w)
+	remote, err := gitCapture(w.t, repo, "ls-remote", "origin", "refs/heads/"+ds.branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", remote, err)
+	}
+	if !strings.HasPrefix(remote, ds.tip) {
+		return fmt.Errorf("origin's %s is %q, want %s", ds.branch, remote, ds.tip)
+	}
+
+	return nil
 }
 
 // registerYieldHonesty is S93's own step vocabulary: a distant host

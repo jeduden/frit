@@ -1474,11 +1474,13 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 	for i := range res.Plans {
 		p := &res.Plans[i]
 		key := observe.Key(p.Repo, p.ID)
-		if p.HoldTip == "" {
-			// No work ref in this pass's view. Dropping the key keeps the
-			// state to what this host actually watches — but only when the
-			// pass was authoritative enough to confirm the ref gone. A
-			// pass that refreshed nothing (Fetched == 0) may simply have a
+		watch := p.WatchTip()
+		if watch == "" {
+			// No work ref in this pass's view, nor a decorated hold.
+			// Dropping the key keeps the state to what this host
+			// actually watches — but only when the pass was
+			// authoritative enough to confirm the ref gone. A pass
+			// that refreshed nothing (Fetched == 0) may simply have a
 			// stale or absent local view of a hold still live elsewhere;
 			// deleting the accrued window on that evidence would reset
 			// start's takeover clock to zero, so the hold could never
@@ -1492,10 +1494,14 @@ func observeHolds(res *fleet.Result, rt *runtime, now time.Time) {
 			continue
 		}
 		window, sampleGap := staleClock(res, p.Repo)
-		w := discovery.Observe(state[key], p.HoldTip, now, sampleGap)
+		w := discovery.Observe(state[key], watch, now, sampleGap)
 		state[key] = w
 		threshold := window
-		if coord, ok := res.Coords[p.Repo]; ok {
+		// A hold made of decorated branches alone (#204) is watched on
+		// their tips, but has no lease chain to count takeovers in and
+		// no marker naming a bound session, so it matures on the bare
+		// window and is never read dead.
+		if coord, ok := res.Coords[p.Repo]; ok && p.HoldTip != "" {
 			k := claim.TakeoverCount(coord.Path, p.ID, coord.Base, p.HoldTip, rt.git)
 			threshold = time.Duration(k+1) * window
 			if p.Held {

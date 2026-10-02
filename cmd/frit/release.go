@@ -57,7 +57,7 @@ func (rc *releaseCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	switch {
-	case plan.HoldTip == "":
+	case plan.HoldTip == "" && !plan.Held:
 		doc.Nothing("nothing holds it")
 	case !plan.Held:
 		releaseUnheld(rt, doc, plan, coord)
@@ -124,24 +124,40 @@ func releaseHeld(
 	doc.MarkReleased()
 }
 
-// refuseUnproved records why a hold ownToken could not prove is left
-// standing. A checkout that is genuinely this plan's own lane but never
-// carried a token — the S49 shape — gets its own honest wording rather
-// than foreignHoldRefusal's "held live by another lane", which would be
-// a lie about this very lane, plus the same wait-or-take-over
-// next_action open already gives that hold. Every other unproven hold —
-// a genuine foreign move (S86), a matured window, a confirmed-dead
-// session — is a hold this lane cannot end, worded and routed through
-// the shared refuseForeignHold so release and yield never drift.
+// refuseUnproved records why a held plan the calling lane cannot prove
+// its own is left standing — the one decision release and yield share,
+// so the two never answer the same hold differently (#204). A matured
+// window or a confirmed-dead session points at claim's takeover. A
+// hold made of a decorated branch alone has no lease ref, so nothing
+// can release it, wherever the verb runs: it is named as such, with
+// the wait-or-take-over next_action. A checkout that is genuinely this
+// plan's own lane but never carried a token — the S49 shape — gets its
+// own honest wording rather than "held by another lane", which would
+// be a lie about this very lane. Every other unproven hold — a genuine
+// foreign move (S86) — is a hold this lane cannot end, worded through
+// the shared refuseForeignHold.
 func refuseUnproved(
-	rt *runtime, doc *report.ReleaseDoc, plan discovery.Plan, cwd string,
+	rt *runtime, doc foreignRefuser, plan discovery.Plan, cwd string,
 ) {
-	if !plan.Stale && !plan.Dead && tokenlessOwnLane(rt, plan, cwd) {
+	switch {
+	case plan.Stale || plan.Dead:
+		refuseForeignHold(doc, plan)
+	case plan.HoldTip == "":
+		doc.RefuseUnproven(decoratedHoldRefusal(plan), plan.ID)
+	case tokenlessOwnLane(rt, plan, cwd):
 		doc.RefuseUnproven(tokenlessOwnLaneRefusal(plan), plan.ID)
-
-		return
+	default:
+		refuseForeignHold(doc, plan)
 	}
-	refuseForeignHold(doc, plan)
+}
+
+// decoratedHoldRefusal names a hold made of legacy decorated branches
+// alone: no id-only lease ref exists, so there is no lease for any
+// lane to release, its own included. It ends once its window matures,
+// by takeover — the way out the next_action beside it names.
+func decoratedHoldRefusal(plan discovery.Plan) string {
+	return "is held by a decorated branch with no lease ref (" +
+		heldLabel(plan.Holds) + "); only a takeover can end it"
 }
 
 // foreignRefuser is the pair of setters a dispatch doc offers for a
@@ -184,7 +200,8 @@ func tokenlessOwnLaneRefusal(plan discovery.Plan) string {
 }
 
 // foreignHoldRefusal names why a hold this lane cannot end is left
-// standing: a live one names the holder, and a matured window or a
+// standing: an unmatured one names the holder — never "live", which an
+// unmatured window does not vouch for (#204) — and a matured window or a
 // bound session herdr confirms gone both point at claim's takeover
 // instead — neither release nor yield seizes a lease that is not its
 // own, whatever its window or session says. Shared by release and
@@ -200,7 +217,7 @@ func foreignHoldRefusal(plan discovery.Plan) string {
 			"to take it over rather than wait on a release that will not come"
 	}
 
-	return "is held live by another lane (" + heldLabel(plan.Holds) +
+	return "is held by another lane (" + heldLabel(plan.Holds) +
 		"); only its own lane can end it"
 }
 

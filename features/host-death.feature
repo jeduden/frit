@@ -20,6 +20,34 @@ Feature: Host death, suspension, zombies
     And this host claims plan 7
     Then this host takes the lease over, epoch 2, child of the stale tip
 
+  @S100
+  Scenario: a decorated hold deserted for days, with no lease ref
+    Given "elsewhere" holds plan 7 on a decorated branch alone
+    When the decorated hold's takeover window has matured
+    And this host claims plan 7
+    Then this host holds a fresh id-only lease for plan 7
+    And the decorated branch is gone from origin
+
+  @S101
+  Scenario: a decorated holder pushes after its window matured
+    Given "elsewhere" holds plan 7 on a decorated branch alone
+    When the decorated hold's takeover window has matured
+    And "elsewhere" pushes to its decorated branch
+    And this host claims plan 7
+    Then the claim is refused, naming the lease already held
+    And the decorated branch still stands on origin at its new tip
+    And origin still has no work ref
+
+  @S102
+  Scenario: a live agent sits on a matured decorated lane
+    Given "elsewhere" holds plan 7 on a decorated branch alone
+    When the decorated hold's takeover window has matured
+    And a live agent sits in a worktree on the decorated branch
+    And this host claims plan 7
+    Then the takeover is refused, naming a live agent session
+    And the decorated branch still stands on origin at its new tip
+    And origin still has no work ref
+
   @S16
   Scenario: host resurrected days later
     Given "box-a" holds the lease for plan 7

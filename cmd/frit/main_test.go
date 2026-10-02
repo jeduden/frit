@@ -886,6 +886,75 @@ func TestObserveHoldsPrunesAWindowAFetchingPassConfirmedGone(t *testing.T) {
 	assert.False(t, ok, "a fetching pass that finds no ref drops the window")
 }
 
+// TestObserveHoldsWatchesADecoratedOnlyHold (#204): a plan held by a
+// legacy decorated branch alone, with no id-only lease ref, used to be
+// skipped — and its key deleted on a fetching pass — so its window
+// never started and start read "seen unchanged for 0s" forever. The
+// decorated tip is now what the observer watches.
+func TestObserveHoldsWatchesADecoratedOnlyHold(t *testing.T) {
+	isolate(t)
+	now := time.Now()
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true,
+		DecoratedTips: map[string]string{"plan/7-shader": "tip-7"}}
+	res := &fleet.Result{
+		Plans:   []discovery.Plan{plan},
+		Summary: fleet.Summary{Fetched: 1},
+	}
+
+	observeHolds(res, &runtime{git: gitwt.Exec}, now)
+
+	path, err := observe.Path()
+	require.NoError(t, err)
+	win, ok := observe.Load(path)[observe.Key("atlas", 7)]
+	require.True(t, ok, "the first pass that sees the hold starts its window")
+	assert.Equal(t, plan.WatchTip(), win.Tip)
+}
+
+// TestObserveHoldsMaturesADecoratedOnlyHold: a decorated hold's window,
+// once it spans the takeover window, reads stale like a lease's does.
+func TestObserveHoldsMaturesADecoratedOnlyHold(t *testing.T) {
+	isolate(t)
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Held: true,
+		DecoratedTips: map[string]string{"plan/7-shader": "tip-7"}}
+	seedWindow(t, "atlas", 7, plan.WatchTip(), 3*time.Hour)
+	res := &fleet.Result{Plans: []discovery.Plan{plan}}
+
+	observeHolds(res, &runtime{git: gitwt.Exec}, time.Now())
+
+	assert.True(t, res.Plans[0].Stale)
+	assert.GreaterOrEqual(t, res.Plans[0].StaleFor, 3*time.Hour)
+}
+
+// TestGatherFleetObservesADecoratedHoldPushedToOrigin drives the
+// issue's own shape end to end: a legacy claim on plan/7-shader-unit,
+// pushed to origin, no plan/7 anywhere. The gather that sees it records
+// a window on it.
+func TestGatherFleetObservesADecoratedHoldPushedToOrigin(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	git(t, repo, "checkout", "-q", "-b", "plan/7-shader-unit")
+	git(t, repo, "commit", "--allow-empty", "-q", "-m",
+		"plan 7: claim shader-unit")
+	git(t, repo, "push", "-q", "origin", "plan/7-shader-unit")
+	git(t, repo, "checkout", "-q", "main")
+	rt := &runtime{git: gitwt.Exec, gitPipe: gitwt.ExecPipe,
+		herdr: herdrReturning()}
+
+	res, err := gatherFleet(&cli{Root: root}, rt)
+	require.NoError(t, err)
+	require.Len(t, res.Plans, 1)
+	p := res.Plans[0]
+	require.True(t, p.Held)
+	require.Empty(t, p.HoldTip, "no lease ref: the hold is the decorated branch alone")
+
+	path, err := observe.Path()
+	require.NoError(t, err)
+	win, ok := observe.Load(path)[observe.Key("atlas", 7)]
+	require.True(t, ok, "the decorated hold gets an observation key")
+	assert.Equal(t, p.WatchTip(), win.Tip)
+}
+
 // TestStaleHeldExcludesADeadSessionWithNoMaturedWindow: a bound
 // session herdr confirms gone is desertedHeld's own cell, not
 // staleHeld's — the two kinds never collide (2608212346).

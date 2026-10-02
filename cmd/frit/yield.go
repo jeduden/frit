@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -112,7 +113,8 @@ func yieldError(
 ) error {
 	var empty *claim.EmptyLocalError
 	if errors.As(err, &empty) {
-		yieldNothingLocal(rt, doc, plan)
+		cwd, _ := os.Getwd()
+		yieldNothingLocal(rt, doc, plan, cwd)
 
 		return renderYield(c, rt, doc)
 	}
@@ -137,16 +139,20 @@ func yieldError(
 }
 
 // yieldNothingLocal reports a yield with no local copy of the work ref
-// to park. A plan another lane holds is refused the way release refuses
-// it — the shared refuseForeignHold words it and its way out; a plan
+// to park. A held plan is refused exactly the way release refuses it —
+// the shared refuseUnproved words it and its way out, so a decorated
+// hold with no lease ref, or this lane's own tokenless one, reads the
+// same from either verb (#204); a plan
 // nobody holds is the honest clean no-op, parking nothing and handing
 // the calling lane's teardown to herdr as before. The held-or-not fact
 // is the gather's own (plan.Held), never a fresh remote read here:
 // claim.Yield already declined to guess it, and deciding holdership
 // from a local view is exactly what frit does not do.
-func yieldNothingLocal(rt *runtime, doc *report.YieldDoc, plan discovery.Plan) {
+func yieldNothingLocal(
+	rt *runtime, doc *report.YieldDoc, plan discovery.Plan, cwd string,
+) {
 	if plan.Held {
-		refuseForeignHold(doc, plan)
+		refuseUnproved(rt, doc, plan, cwd)
 
 		return
 	}
