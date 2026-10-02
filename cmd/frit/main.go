@@ -1063,14 +1063,25 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 		for _, p := range hostProbs {
 			doc.AddProblem(p.name, p.err)
 		}
+		// Two agent panes on one lane read the one record: it is read
+		// once per (host, root, plan), so it costs one git call and a
+		// torn record is one problem, not one per pane.
+		asks := map[string]askRead{}
 		for _, lane := range whoLanes(panes, rt.git) {
 			doc.AddLane(lane)
-			state, answer, err := whoAsk(rt, lane)
-			if err != nil {
-				doc.AddProblem(lane.Repo, err)
-				continue
+			key := string(lane.Pane.Host) + "\x00" + lane.Root + "\x00" +
+				strconv.FormatInt(lane.PlanID, 10)
+			got, seen := asks[key]
+			if !seen {
+				got.state, got.answer, got.err = whoAsk(rt, lane)
+				asks[key] = got
+				if got.err != nil {
+					doc.AddProblem(lane.Repo, got.err)
+				}
 			}
-			doc.SetLastAsk(state, answer)
+			if got.err == nil {
+				doc.SetLastAsk(got.state, got.answer)
+			}
 		}
 	}
 
@@ -1088,18 +1099,25 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 // or one whose branch names no plan, reads "none" without touching
 // git: this host holds no record for it.
 func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
-	if lane.Pane.Host != "" || !lane.HasPlan() {
+	if !askReaches(lane) || !lane.HasPlan() {
 		return ask.StateNone, "", nil
 	}
 
 	return readAsk(rt, lane.Root, lane.PlanID)
 }
 
+// askRead is one readAsk result, kept so every pane on a lane shares
+// it.
+type askRead struct {
+	state, answer string
+	err           error
+}
+
 // whoLanes keeps the panes with an agent, resolves each to its lane,
-// and orders them so the board reads the same way twice: by repository,
-// then plan, then pane. Each pane is resolved against its own host's
-// git, so a pane read from another machine lands on the right lane
-// rather than being lost or misresolved by the local git.
+// and orders them by laneBefore so the board reads the same way twice.
+// Each pane is resolved against its own host's git, so a pane read
+// from another machine lands on the right lane rather than being lost
+// or misresolved by the local git.
 func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 	staffed := make([]herdr.Pane, 0, len(panes))
 	for _, p := range panes {
@@ -1109,18 +1127,28 @@ func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 	}
 
 	lanes := herdr.Join(staffed, gitForHost(git), holdsForRoot)
-	sort.Slice(lanes, func(i, j int) bool {
-		if lanes[i].Repo != lanes[j].Repo {
-			return lanes[i].Repo < lanes[j].Repo
-		}
-		if lanes[i].PlanID != lanes[j].PlanID {
-			return lanes[i].PlanID < lanes[j].PlanID
-		}
-
-		return lanes[i].Pane.PaneID < lanes[j].Pane.PaneID
-	})
+	sort.Slice(lanes, func(i, j int) bool { return laneBefore(lanes[i], lanes[j]) })
 
 	return lanes
+}
+
+// laneBefore is whoLanes' order: by repository, then plan, then pane,
+// then host. A pane id is unique only on its own host, so a local and
+// a remote lane can tie on the rest; the host breaks it — the local
+// one, which --ask can reach, first — so "the first lane" liveLaneFor
+// and laneFor both name is one lane, never left to an unstable sort.
+func laneBefore(a, b herdr.Lane) bool {
+	if a.Repo != b.Repo {
+		return a.Repo < b.Repo
+	}
+	if a.PlanID != b.PlanID {
+		return a.PlanID < b.PlanID
+	}
+	if a.Pane.PaneID != b.Pane.PaneID {
+		return a.Pane.PaneID < b.Pane.PaneID
+	}
+
+	return a.Pane.Host < b.Pane.Host
 }
 
 // holdsForRoot reads a worktree root's hold patterns. A root with a
@@ -1159,7 +1187,8 @@ func printWho(out io.Writer, doc *report.WhoDoc) {
 	asks := make([]askRow, 0, len(doc.Lanes))
 	for _, lane := range doc.Lanes {
 		asks = append(asks, askRow{
-			repo: lane.Repo, id: lane.PlanID, state: lane.AskState, answer: lane.Answer,
+			repo: lane.Repo, root: lane.Root, id: lane.PlanID,
+			state: lane.AskState, answer: lane.Answer,
 		})
 	}
 	for _, line := range askLines(asks) {
@@ -2323,8 +2352,9 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // than each paying their own git call (an ssh round trip, for a
 // remote pane). When several panes share one (repository, branch) —
 // two terminals on a lane, or a pane left on another host — the first
-// in whoLanes' order is kept, the one liveLaneFor finds, so the agent
-// and ask a survey names belong to the lane message actually reaches.
+// in whoLanes' order is kept, the one liveLaneFor finds; laneFor keeps
+// that order across a plan's hold branches, so the agent and ask a
+// survey names belong to the lane message actually reaches.
 func liveByBranch(
 	c *cli, rt *runtime,
 ) (map[repoBranch]herdr.Lane, []hostProblem, error) {
@@ -2360,25 +2390,31 @@ func liveByBranch(
 // both ask this same question — which of a plan's branches is live
 // now — and differ only in what they read off the answer, so they
 // share this one walk of p.Holds rather than each keeping its own
-// copy.
+// copy. When more than one hold branch is live, the lane first in
+// laneBefore's order wins, whatever order p.Holds lists the branches
+// in: that is the lane liveLaneFor finds, so the agent and ask a
+// survey names belong to the lane message actually reaches.
 func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool) {
+	var first herdr.Lane
+	found := false
 	for _, branch := range p.Holds {
-		if lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]; ok {
-			return lane, true
+		lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]
+		if ok && (!found || laneBefore(lane, first)) {
+			first, found = lane, true
 		}
 	}
 
-	return herdr.Lane{}, false
+	return first, found
 }
 
 // remoteLane reports whether the live lane on one of p's hold
 // branches runs on another host — the case the ask remedy must name
-// the plain message for, since --ask refuses it. It reads askRefusal,
+// the plain message for, since --ask refuses it. It reads askReaches,
 // message's own rule, so the remedy and the refusal never drift.
 func remoteLane(p discovery.Plan, live map[repoBranch]herdr.Lane) bool {
 	lane, ok := laneFor(p, live)
 
-	return ok && askRefusal(lane) != ""
+	return ok && !askReaches(lane)
 }
 
 // askRemoteCards gives each card whose live lane runs on another host
@@ -2628,8 +2664,10 @@ func boardUnprovenLines(plans []report.BoardPlan) []string {
 // it keys no marker, it points the reader at the one party who can
 // settle the lane, ahead of `frit yield` or a hand-landing. The dead
 // clause is foreignHoldRefusal's and the legend's own wording, so a
-// reader meets one phrasing of that fact everywhere. Empty when no
-// row carries an ask, so an unambiguous board pays nothing extra.
+// reader meets one phrasing of that fact everywhere. The command ends
+// the line, so copying from it to the end of the line copies only
+// what runs. Empty when no row carries an ask, so an unambiguous board
+// pays nothing extra.
 func boardAsks(plans []report.BoardPlan) []string {
 	var lines []string
 	for _, p := range plans {
@@ -2637,8 +2675,8 @@ func boardAsks(plans []report.BoardPlan) []string {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf(
-			"%d: the bound session is confirmed gone but %s still attends it; "+
-				"ask before yielding: %s — no reply is not evidence it is gone",
+			"%d: the bound session is confirmed gone but %s still attends it, "+
+				"and no reply is not evidence it is gone; ask before yielding: %s",
 			p.ID, p.Agent, p.Ask))
 	}
 
@@ -2646,9 +2684,13 @@ func boardAsks(plans []report.BoardPlan) []string {
 }
 
 // askRow is the part of a board row or a who lane the ask lines read:
-// the plan, and where an ask to it stands.
+// the plan, and where an ask to it stands. root is a who lane's
+// checkout, empty on the board: a lane's repo is its checkout's
+// basename, which two repositories can share, so who tells their
+// records apart by root.
 type askRow struct {
 	repo   string
+	root   string
 	id     int64
 	state  string
 	answer string
@@ -2664,13 +2706,13 @@ type askRow struct {
 // plan id in two repositories (S74) is two asks, and prints twice.
 func askLines(rows []askRow) []string {
 	type planKey struct {
-		repo string
-		id   int64
+		repo, root string
+		id         int64
 	}
 	var lines []string
 	seen := map[planKey]bool{}
 	for _, r := range rows {
-		key := planKey{r.repo, r.id}
+		key := planKey{r.repo, r.root, r.id}
 		if seen[key] {
 			continue
 		}

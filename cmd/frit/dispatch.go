@@ -492,13 +492,21 @@ func promptMessage(
 // host runs could answer only into its own checkout, which this host
 // never reads — the ask would read pending forever.
 func askRefusal(lane herdr.Lane) string {
-	if lane.Pane.Host == "" {
+	if askReaches(lane) {
 		return ""
 	}
 
 	return fmt.Sprintf(
 		"--ask reaches only a lane on this host; lane %s is on %s",
 		lane.Branch, lane.Pane.Host)
+}
+
+// askReaches reports whether an ask can go to lane: only a lane on
+// this host, the one place its record and reply are read. askRefusal,
+// the survey's remedy and who's read all ask this one question, so
+// they never drift apart.
+func askReaches(lane herdr.Lane) bool {
+	return lane.Pane.Host == ""
 }
 
 // printMessage reports what goes and its fate: refused, sent, or — the

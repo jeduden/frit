@@ -35,7 +35,10 @@ report model's own fields, so the table and `--json` never diverge.
 BDD coverage: no new row. The `(dead)` advice is pinned by the
 cross-layer scenario that already names the ask command; its step
 text follows the new command. The table lines are presentation of
-fields C13 already proves. The remote-lane remedy, surfaced in code
+fields C13 already proves. `who --json`'s `ask_state` and `answer`
+add no row either: they read the record C13 proves through the one
+helper `board` reads it with, and unit tests pin who's read of it.
+The remote-lane remedy, surfaced in code
 review, adds no row either: no C or S row covers it, but it mirrors
 message's own refusal of `--ask` on another host, the plan's one-host
 boundary, and unit tests pin it at each of the three sites.

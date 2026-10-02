@@ -796,18 +796,23 @@ func TestPrintBoardNeverTrimsTheAskToWidth(t *testing.T) {
 // TestBoardAsks pins boardAsks's own contract apart from the printed
 // board: one line per row carrying an ask, naming the plan, the agent
 // attending it and the verbatim command, and nothing at all for a
-// board no row of which carries one.
+// board no row of which carries one. The command ends the line, so a
+// reader copying from it to the end of the line copies only what runs.
 func TestBoardAsks(t *testing.T) {
 	asked := report.BoardPlan{ID: 7, Agent: "claude", Ask: report.AskCommand(7)}
 	quiet := report.BoardPlan{ID: 8, Agent: "claude"}
 
 	assert.Empty(t, boardAsks(nil), "no rows, no lines")
 	assert.Empty(t, boardAsks([]report.BoardPlan{quiet}), "no ask, no line")
+	lines := boardAsks([]report.BoardPlan{quiet, asked})
 	assert.Equal(t, []string{
-		"7: the bound session is confirmed gone but claude still attends it; " +
-			"ask before yielding: " + report.AskCommand(7) +
-			" — no reply is not evidence it is gone",
-	}, boardAsks([]report.BoardPlan{quiet, asked}))
+		"7: the bound session is confirmed gone but claude still attends it, " +
+			"and no reply is not evidence it is gone; " +
+			"ask before yielding: " + report.AskCommand(7),
+	}, lines)
+	require.Len(t, lines, 1)
+	assert.True(t, strings.HasSuffix(lines[0], report.AskCommand(7)),
+		"the runnable command ends the line")
 }
 
 // TestPrintBoardTruncatesTheLegendToWidth: a legend line is trimmed to
