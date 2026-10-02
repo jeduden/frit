@@ -130,19 +130,16 @@ func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
 	assert.Equal(t, "in PR #9", doc.Plans[0].Answer)
 }
 
-// TestBoardAskRemoteSwapsOnlyAnAskedRow: a row carrying an ask whose
-// lane runs on another host gets the plain message; a row with no ask
-// gains none, and another repository's same id is left alone.
-func TestBoardAskRemoteSwapsOnlyAnAskedRow(t *testing.T) {
+// TestBoardAddPlanAsksARemoteLanePlainly: the ask's form is decided
+// where the row is built — --ask for a lane on this host, the plain
+// message for one on another host, since --ask refuses it.
+func TestBoardAddPlanAsksARemoteLanePlainly(t *testing.T) {
 	doc := NewBoard("/fleet", true)
-	doc.AddPlan(deadHeldPlan, "claude", "working", false)
-	doc.AddPlan(discovery.Plan{Repo: "atlas", ID: 9}, "", "", false)
+	doc.AddPlan(deadHeldPlan,
+		Attendance{Agent: "claude", Status: "working", Remote: true}, false)
+	doc.AddPlan(deadHeldPlan,
+		Attendance{Agent: "claude", Status: "working"}, false)
 
-	doc.AskRemote("wrong-repo", deadHeldPlan.ID)
-	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask, "a repo mismatch is a no-op")
-	doc.AskRemote("atlas", 9)
-	assert.Empty(t, doc.Plans[1].Ask, "no ask, none gained")
-
-	doc.AskRemote(deadHeldPlan.Repo, deadHeldPlan.ID)
 	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
+	assert.Equal(t, AskCommand(100), doc.Plans[1].Ask)
 }

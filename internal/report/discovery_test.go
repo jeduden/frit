@@ -335,3 +335,15 @@ func TestAskableNamesTheStatusesMessageSendsTo(t *testing.T) {
 	assert.False(t, askable(herdr.StatusUnknown))
 	assert.False(t, askable(""))
 }
+
+// TestCardsAskARemoteLanePlainly: a card's ask is decided where the card
+// is built, from the lane's attendance — the plain message for a lane
+// on another host.
+func TestCardsAskARemoteLanePlainly(t *testing.T) {
+	doc := NewReady("/fleet", "forge")
+	doc.SetPlans([]discovery.Plan{deadHeldPlan}, func(discovery.Plan) Attendance {
+		return Attendance{Status: herdr.StatusWorking, Remote: true}
+	}, false)
+
+	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
+}

@@ -1071,3 +1071,25 @@ func TestPrintBoardShowsTheAskState(t *testing.T) {
 
 	assert.Contains(t, buf.String(), `100 (atlas): answered: "merging PR #9"`)
 }
+
+// TestAttendanceForReadsTheLiveLane: one read of the live lane on a
+// plan's hold branches gives the survey everything it builds from —
+// the agent, the pane's status as herdr reported it, and whether the
+// pane runs on another host — and the zero value when none is live.
+func TestAttendanceForReadsTheLiveLane(t *testing.T) {
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}: {
+			Pane: herdr.Pane{Agent: "claude", Status: "working", Host: "box"},
+		},
+		{repo: "atlas", branch: "plan/8"}: {Pane: herdr.Pane{Agent: "pi", Status: "idle"}},
+	}
+
+	assert.Equal(t,
+		report.Attendance{Agent: "claude", Status: herdr.StatusWorking, Remote: true},
+		attendanceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/7"}}, live))
+	assert.Equal(t,
+		report.Attendance{Agent: "pi", Status: herdr.StatusIdle},
+		attendanceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/8"}}, live))
+	assert.Equal(t, report.Attendance{},
+		attendanceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/9"}}, live))
+}
