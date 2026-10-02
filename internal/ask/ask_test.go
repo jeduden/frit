@@ -390,3 +390,22 @@ func TestClearSurfacesARecordItCannotRemove(t *testing.T) {
 func TestClearFailsOutsideARepository(t *testing.T) {
 	assert.Error(t, Clear(t.TempDir(), 7, gitwt.Exec))
 }
+
+// TestClearFileRemovesARecordAtItsPath: a record placed before its
+// checkout went away is cleared by path alone, with no git call; no
+// record is fine, and one that will not go is a fault.
+func TestClearFileRemovesARecordAtItsPath(t *testing.T) {
+	main, _ := repoWithLane(t)
+	path, err := Pose(main, 7, "status?", asked, gitwt.Exec)
+	require.NoError(t, err)
+
+	require.NoError(t, ClearFile(path))
+	_, ok, err := Read(path)
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	assert.NoError(t, ClearFile(path), "no record, nothing to clear")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "x"), 0o750))
+	assert.Error(t, ClearFile(path))
+}

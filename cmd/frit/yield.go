@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
@@ -221,12 +222,19 @@ func tearDownLane(rt *runtime, doc *report.YieldDoc) {
 				"was left standing", doc.Plan.ID))
 		return
 	}
+	// The ask lives under the shared git dir and outlives the worktree,
+	// but git can name it only from a checkout that still stands, so it
+	// is placed before herdr removes this one.
+	askPath, askErr := ask.Path(pane.CWD, doc.Plan.ID, rt.git)
 	if err := herdr.WorktreeRemove(rt.herdr, pane.Workspace); err != nil {
 		doc.Warn(fmt.Sprintf("worktree remove: %v", err))
 		return
 	}
 	doc.Torn()
-	clearAsk(rt, pane.CWD, doc.Plan.ID, doc.Warn)
+	if askErr == nil {
+		askErr = ask.ClearFile(askPath)
+	}
+	warnAskStays(askErr, doc.Warn)
 }
 
 // renderYield prints the yield as a table or emits it as JSON.

@@ -1048,3 +1048,23 @@ func TestAttendanceForReadsTheLiveLane(t *testing.T) {
 	assert.Equal(t, report.Attendance{},
 		attendanceFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/9"}}, live))
 }
+
+// TestAskLabelNamesThePlanAndItsRepository: a plan id is unique only
+// within a repository, so an ask line's label carries the repository
+// whenever it is known.
+func TestAskLabelNamesThePlanAndItsRepository(t *testing.T) {
+	assert.Equal(t, "7", askLabel(askRow{id: 7}))
+	assert.Equal(t, "7 (atlas)", askLabel(askRow{repo: "atlas", id: 7}))
+}
+
+// TestLaneForSkipsAHoldBranchNobodyIsOn: a plan whose first hold branch
+// has no live lane is still attended when a later one does.
+func TestLaneForSkipsAHoldBranchNobodyIsOn(t *testing.T) {
+	onLater := herdr.Lane{Pane: herdr.Pane{Agent: "claude", Status: "idle"}}
+	live := map[repoBranch]herdr.Lane{{repo: "atlas", branch: "plan/100"}: onLater}
+
+	got, ok := laneFor(discovery.Plan{Repo: "atlas", Holds: []string{"plan/99", "plan/100"}}, live)
+
+	require.True(t, ok)
+	assert.Equal(t, onLater, got)
+}

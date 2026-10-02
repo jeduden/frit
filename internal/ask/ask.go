@@ -186,6 +186,15 @@ func Clear(checkout string, planID int64, run gitwt.Runner) error {
 	if err != nil {
 		return err
 	}
+
+	return ClearFile(path)
+}
+
+// ClearFile removes the ask record at path: Clear for a caller that
+// placed the record before the checkout it named it from went away, as
+// a lane's own worktree does when it is torn down. No record is fine;
+// a record that will not go is an error.
+func ClearFile(path string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}

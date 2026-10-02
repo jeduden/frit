@@ -465,13 +465,14 @@ func boardUnproven(
 // boardAsk carries where a `frit message --ask` to p's lane stands onto
 // its row, read from this host's own checkout of p's repository — the
 // same file the lane's `frit reply` writes. dirs caches each
-// repository's ask directory, so a board of many plans asks git once
-// per repository. A plan with no checkout here keeps "none"; a record
-// frit cannot read is carried as a problem rather than read as never
-// asked.
+// repository's ask directory, or the failure to find it, so a board of
+// many plans asks git once per repository and carries one problem for
+// it, not one per plan. A plan with no checkout here keeps "none"; a
+// record frit cannot read is carried as a problem rather than read as
+// never asked.
 func boardAsk(
 	rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan,
-	dirs map[string]string,
+	dirs map[string]askDir,
 ) {
 	coord, ok := res.Coords[p.Repo]
 	if !ok {
@@ -479,20 +480,28 @@ func boardAsk(
 	}
 	dir, cached := dirs[p.Repo]
 	if !cached {
-		d, err := ask.Dir(coord.Path, rt.git)
-		if err != nil {
-			doc.AddProblem(p.Repo, err)
-			return
+		dir.path, dir.err = ask.Dir(coord.Path, rt.git)
+		dirs[p.Repo] = dir
+		if dir.err != nil {
+			doc.AddProblem(p.Repo, dir.err)
 		}
-		dir = d
-		dirs[p.Repo] = d
 	}
-	state, answer, err := readAskFile(ask.File(dir, p.ID))
+	if dir.err != nil {
+		return
+	}
+	state, answer, err := readAskFile(ask.File(dir.path, p.ID))
 	if err != nil {
 		doc.AddProblem(p.Repo, err)
 		return
 	}
 	doc.SetAsk(p.Repo, p.ID, state, answer)
+}
+
+// askDir is one repository's ask directory as boardAsk found it, or the
+// error finding it gave.
+type askDir struct {
+	path string
+	err  error
 }
 
 // readAsk reads where an ask to planID stands, and its answer, from any
@@ -522,7 +531,13 @@ func readAskFile(path string) (string, string, error) {
 // question it never saw, and the board stops reporting one. A record
 // that will not go is warned about through warn, never dropped.
 func clearAsk(rt *runtime, checkout string, planID int64, warn func(string)) {
-	if err := ask.Clear(checkout, planID, rt.git); err != nil {
+	warnAskStays(ask.Clear(checkout, planID, rt.git), warn)
+}
+
+// warnAskStays warns through warn when an ask that should have gone
+// with its lane stays, so every clear words the failure one way.
+func warnAskStays(err error, warn func(string)) {
+	if err != nil {
 		warn(fmt.Sprintf("the lane's ask was not cleared: %v", err))
 	}
 }
@@ -2340,7 +2355,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHostProblems(doc, hostProbs)
 	unprovenCache := map[string]map[int64]bool{}
-	askDirs := map[string]string{}
+	askDirs := map[string]askDir{}
 	for _, p := range list {
 		doc.AddPlan(p, attendanceFor(p, live), unknown)
 		if boardUnproven(rt, res, p, unprovenCache) {

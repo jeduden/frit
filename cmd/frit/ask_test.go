@@ -472,7 +472,7 @@ func TestBoardAskLeavesAPlanWithNoCheckoutHereAsNone(t *testing.T) {
 	p := discovery.Plan{Repo: "atlas", ID: 7}
 	doc.AddPlan(p, report.Attendance{}, false)
 
-	boardAsk(rt, fleet.Result{}, doc, p, map[string]string{})
+	boardAsk(rt, fleet.Result{}, doc, p, map[string]askDir{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	assert.Empty(t, doc.Problems)
@@ -489,7 +489,7 @@ func TestBoardAskCarriesAnUnplaceableCheckoutAsAProblem(t *testing.T) {
 		"atlas": {Path: t.TempDir()},
 	}}
 
-	boardAsk(rt, res, doc, p, map[string]string{})
+	boardAsk(rt, res, doc, p, map[string]askDir{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	require.Len(t, doc.Problems, 1)
@@ -683,6 +683,28 @@ func TestReadAskReadsTheRecordFromAnyCheckout(t *testing.T) {
 	assert.Equal(t, "in PR #9", answer)
 }
 
+// TestReadAskFileReadsAStateAndItsAnswer: no record reads none, a
+// record reads its state and answer, and a torn one is an error, never
+// a silent none.
+func TestReadAskFileReadsAStateAndItsAnswer(t *testing.T) {
+	path := ask.File(t.TempDir(), 7)
+
+	state, answer, err := readAskFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "none", state)
+	assert.Empty(t, answer)
+
+	require.NoError(t, ask.Write(path, ask.Record{Question: "status?", Answer: "in PR #9"}))
+	state, answer, err = readAskFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "answered", state)
+	assert.Equal(t, "in PR #9", answer)
+
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+	_, _, err = readAskFile(path)
+	assert.Error(t, err)
+}
+
 // TestReadAskSurfacesATornRecord: a record that cannot be parsed is an
 // error handed back, never a silent "none".
 func TestReadAskSurfacesATornRecord(t *testing.T) {
@@ -849,6 +871,19 @@ func TestClearAskWarnsWhenTheRecordStays(t *testing.T) {
 	assert.Contains(t, warned[0], "ask")
 }
 
+// TestWarnAskStaysWordsOnlyAFailure: an ask that went says nothing; one
+// that stayed is one warning naming why.
+func TestWarnAskStaysWordsOnlyAFailure(t *testing.T) {
+	var warned []string
+	warn := func(s string) { warned = append(warned, s) }
+
+	warnAskStays(nil, warn)
+	assert.Empty(t, warned)
+
+	warnAskStays(errors.New("busy"), warn)
+	assert.Equal(t, []string{"the lane's ask was not cleared: busy"}, warned)
+}
+
 // TestReleaseClearsTheLanesAsk: a released lane's ask goes with it, so
 // the board stops reporting a question to a lane that has ended.
 func TestReleaseClearsTheLanesAsk(t *testing.T) {
@@ -922,6 +957,42 @@ func TestYieldClearsTheLanesAsk(t *testing.T) {
 	assert.False(t, ok, "the yielded lane's ask is cleared")
 }
 
+// TestYieldClearsTheAskOfTheWorktreeItRemoves: herdr's teardown removes
+// the yielded lane's own worktree, so the ask is placed while that
+// worktree still stands — git cannot name the shared record from a
+// directory that is gone, and the ask would stay pending forever.
+func TestYieldClearsTheAskOfTheWorktreeItRemoves(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	fenceWithATakeover(t, repo, 7)
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err := ask.Pose(lane, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	base, _ := yieldHerdr("w1A", lane)
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+			git(t, repo, "worktree", "remove", "--force", lane)
+		}
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.NoDirExists(t, lane, "herdr removed the lane's worktree")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the removed lane's ask is cleared")
+	assert.NotContains(t, out.String(), "not cleared")
+}
+
 // TestBoardFindsEachRepositorysAskDirOnce: a board of many plans in one
 // repository asks git for the ask directory once, not once per plan.
 func TestBoardFindsEachRepositorysAskDirOnce(t *testing.T) {
@@ -938,7 +1009,7 @@ func TestBoardFindsEachRepositorysAskDirOnce(t *testing.T) {
 	}}
 	res := fleet.Result{Coords: map[string]fleet.Coord{"atlas": {Path: repo}}}
 	doc := report.NewBoard("/fleet", true)
-	dirs := map[string]string{}
+	dirs := map[string]askDir{}
 	for _, id := range []int64{7, 8, 9} {
 		p := discovery.Plan{Repo: "atlas", ID: id}
 		doc.AddPlan(p, report.Attendance{}, false)
@@ -946,6 +1017,31 @@ func TestBoardFindsEachRepositorysAskDirOnce(t *testing.T) {
 	}
 
 	assert.Equal(t, 1, calls)
+}
+
+// TestBoardPlacesAFailedAskDirOnce: a repository whose ask directory
+// git cannot place costs one git call and one problem, not one of each
+// per plan, and every row keeps "none".
+func TestBoardPlacesAFailedAskDirOnce(t *testing.T) {
+	calls := 0
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		calls++
+		return gitwt.Exec(dir, args...)
+	}}
+	res := fleet.Result{Coords: map[string]fleet.Coord{"atlas": {Path: t.TempDir()}}}
+	doc := report.NewBoard("/fleet", true)
+	dirs := map[string]askDir{}
+	for _, id := range []int64{7, 8, 9} {
+		p := discovery.Plan{Repo: "atlas", ID: id}
+		doc.AddPlan(p, report.Attendance{}, false)
+		boardAsk(rt, res, doc, p, dirs)
+	}
+
+	assert.Equal(t, 1, calls)
+	assert.Len(t, doc.Problems, 1)
+	for _, p := range doc.Plans {
+		assert.Equal(t, "none", p.AskState, p.ID)
+	}
 }
 
 // TestStartGoClearsAStaleAsk: a fresh start stands up a new lane, which
