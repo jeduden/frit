@@ -32,6 +32,18 @@ the refusal names it, `--ask` included, and checks the pane receives
 the envelope rather than the bare text. No new scenario row: the
 table lines present fields C13 already proves.
 
+**Code review.** A high-effort review found seven things. Fixed:
+`who` set a lane's ask by pane id, which a remote and a local lane
+can share, so it now marks the lane just added. Two panes on one lane
+print their ask line once. `board` and `who` read the record through
+one helper. A read-back test now differs from the right answer by
+plan id alone. And `--ask` refuses a lane on another host, so such a
+lane's remedy is the plain message on the board, the discovery cards
+and start's refusal. Left as is: an already-asked dead lane shows
+both the remedy and its pending state, as this phase specifies; and
+`who` runs one git call per planned lane, a cost a cache would trade
+for state.
+
 **Plan close.** Every acceptance criterion is met. What stays out of
 scope, as the plan said from the start: an ask to a lane on another
 host is refused, since its reply would land where this host never

@@ -149,6 +149,21 @@ func (d *BoardDoc) SetAsk(repo string, id int64, state, answer string) {
 	}
 }
 
+// AskRemote swaps the row for (repo, id)'s ask, when it carries one,
+// for the plain message a lane on another host can take — the live
+// pane's host is known only to the caller. A no-op for a row with no
+// ask, or none matching.
+func (d *BoardDoc) AskRemote(repo string, id int64) {
+	for i := range d.Plans {
+		if d.Plans[i].Repo == repo && d.Plans[i].ID == id {
+			if d.Plans[i].Ask != "" {
+				d.Plans[i].Ask = AskCommandFor(id, true)
+			}
+			return
+		}
+	}
+}
+
 // hostOf pulls the machine out of a host:repo:id key, so each row names
 // the machine its plan lives on even before multi-host fans the board
 // across more than one.

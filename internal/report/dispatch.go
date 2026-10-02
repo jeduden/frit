@@ -329,6 +329,18 @@ func AskCommand(planID int64) string {
 	return fmt.Sprintf("frit message %d --ask %q", planID, AskText)
 }
 
+// AskCommandFor is AskCommand for a lane whose host is known: a lane
+// on another host gets the plain message instead, since --ask refuses
+// a lane whose reply this host would never read. Its silence still
+// proves nothing — the board's ask line says so either way.
+func AskCommandFor(planID int64, remote bool) string {
+	if !remote {
+		return AskCommand(planID)
+	}
+
+	return fmt.Sprintf("frit message %d %q", planID, AskText)
+}
+
 // NewMessage opens a message report for a resolved plan and the text
 // it would carry.
 func NewMessage(

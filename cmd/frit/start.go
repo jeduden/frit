@@ -680,7 +680,8 @@ func resumeRefusal(plan discovery.Plan, lane herdr.Lane) string {
 		"deserted hold: %s attends it; ask it with `%s` "+
 			"or resume it with `frit open %d` — "+
 			"run `frit yield %d` only to set the work aside instead",
-		paneNaming(lane), report.AskCommand(plan.ID), plan.ID, plan.ID)
+		paneNaming(lane), report.AskCommandFor(plan.ID, lane.Pane.Host != ""),
+		plan.ID, plan.ID)
 }
 
 // refusedStart composes the escalation doc for a plan buildStart is

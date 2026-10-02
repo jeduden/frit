@@ -1919,6 +1919,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	askRemoteCards(doc.Plans, list, live)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1965,6 +1966,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	askRemoteCards(doc.Plans, list, live)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -2268,6 +2270,7 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	for _, p := range list {
 		agent, status := agentFor(p, live)
 		doc.AddPlan(p, agent, status, unknown)
+		askRemoteRow(doc, p, live)
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
@@ -2358,6 +2361,48 @@ func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool
 	}
 
 	return herdr.Lane{}, false
+}
+
+// remoteLane reports whether the live lane on one of p's hold
+// branches runs on another host — the case the ask remedy must name
+// the plain message for, since --ask refuses it.
+func remoteLane(p discovery.Plan, live map[repoBranch]herdr.Lane) bool {
+	lane, ok := laneFor(p, live)
+
+	return ok && lane.Pane.Host != ""
+}
+
+// askRemoteCards gives each card whose live lane runs on another host
+// the plain message remedy, matched to its plan on (repo, id).
+func askRemoteCards(
+	cards []report.PlanCard, plans []discovery.Plan,
+	live map[repoBranch]herdr.Lane,
+) {
+	type planKey struct {
+		repo string
+		id   int64
+	}
+	remote := map[planKey]bool{}
+	for _, p := range plans {
+		if remoteLane(p, live) {
+			remote[planKey{p.Repo, p.ID}] = true
+		}
+	}
+	for i := range cards {
+		if cards[i].Ask != "" && remote[planKey{cards[i].Repo, cards[i].ID}] {
+			cards[i].Ask = report.AskCommandFor(cards[i].ID, true)
+		}
+	}
+}
+
+// askRemoteRow gives p's board row the plain message remedy when its
+// live lane runs on another host.
+func askRemoteRow(
+	doc *report.BoardDoc, p discovery.Plan, live map[repoBranch]herdr.Lane,
+) {
+	if remoteLane(p, live) {
+		doc.AskRemote(p.Repo, p.ID)
+	}
 }
 
 // agentFor finds the agent working one of a plan's hold branches, if
@@ -2874,6 +2919,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
 	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	askRemoteCards(doc.Plans, list, live)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {

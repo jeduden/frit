@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -721,4 +722,30 @@ func TestResumeRefusalAsksARemoteLanePlainly(t *testing.T) {
 	})
 
 	assert.Contains(t, reason, "`"+report.AskCommandFor(7, true)+"`")
+}
+
+// TestAskRemoteRowSwapsOnlyARemoteLanesAsk: a board row whose live lane
+// runs on another host gets the plain message; a local lane's row keeps
+// --ask.
+func TestAskRemoteRowSwapsOnlyARemoteLanesAsk(t *testing.T) {
+	plan := func(id int64) discovery.Plan {
+		return discovery.Plan{
+			Key: "forge:atlas:" + strconv.FormatInt(id, 10), Repo: "atlas", ID: id,
+			Status: "🔳", Held: true, Dead: true,
+			Holds: []string{"plan/" + strconv.FormatInt(id, 10)},
+		}
+	}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}: {Pane: herdr.Pane{Host: "box"}},
+		{repo: "atlas", branch: "plan/8"}: {},
+	}
+	doc := report.NewBoard("/fleet", true)
+	doc.AddPlan(plan(7), "claude", "working", false)
+	doc.AddPlan(plan(8), "claude", "working", false)
+
+	askRemoteRow(doc, plan(7), live)
+	askRemoteRow(doc, plan(8), live)
+
+	assert.Equal(t, report.AskCommandFor(7, true), doc.Plans[0].Ask)
+	assert.Equal(t, report.AskCommand(8), doc.Plans[1].Ask)
 }
