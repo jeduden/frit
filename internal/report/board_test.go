@@ -1,6 +1,7 @@
 package report
 
 import (
+	"github.com/jeduden/frit/internal/discovery"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,4 +128,21 @@ func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
 	doc.SetAsk(deadHeldPlan.Repo, deadHeldPlan.ID, "answered", "in PR #9")
 	assert.Equal(t, "answered", doc.Plans[0].AskState)
 	assert.Equal(t, "in PR #9", doc.Plans[0].Answer)
+}
+
+// TestBoardAskRemoteSwapsOnlyAnAskedRow: a row carrying an ask whose
+// lane runs on another host gets the plain message; a row with no ask
+// gains none, and another repository's same id is left alone.
+func TestBoardAskRemoteSwapsOnlyAnAskedRow(t *testing.T) {
+	doc := NewBoard("/fleet", true)
+	doc.AddPlan(deadHeldPlan, "claude", "working", false)
+	doc.AddPlan(discovery.Plan{Repo: "atlas", ID: 9}, "", "", false)
+
+	doc.AskRemote("wrong-repo", deadHeldPlan.ID)
+	assert.Equal(t, AskCommand(100), doc.Plans[0].Ask, "a repo mismatch is a no-op")
+	doc.AskRemote("atlas", 9)
+	assert.Empty(t, doc.Plans[1].Ask, "no ask, none gained")
+
+	doc.AskRemote(deadHeldPlan.Repo, deadHeldPlan.ID)
+	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
 }

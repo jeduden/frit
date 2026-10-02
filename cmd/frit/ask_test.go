@@ -675,3 +675,50 @@ func TestReadAskSurfacesATornRecord(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+// TestRemoteLaneReadsTheLiveLanesHost: a plan whose live lane runs on
+// another host is remote; one on this host, or with no live lane, is
+// not.
+func TestRemoteLaneReadsTheLiveLanesHost(t *testing.T) {
+	p := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7"}}
+	key := repoBranch{repo: "atlas", branch: "plan/7"}
+
+	assert.False(t, remoteLane(p, nil))
+	assert.False(t, remoteLane(p, map[repoBranch]herdr.Lane{key: {}}))
+	assert.True(t, remoteLane(p, map[repoBranch]herdr.Lane{
+		key: {Pane: herdr.Pane{Host: "box"}},
+	}))
+}
+
+// TestCardsAskRemoteLanesPlainly: a card whose lane runs on another
+// host carries the plain message; a local one keeps --ask.
+func TestCardsAskRemoteLanesPlainly(t *testing.T) {
+	plans := []discovery.Plan{
+		{Repo: "atlas", ID: 7, Holds: []string{"plan/7"}},
+		{Repo: "atlas", ID: 8, Holds: []string{"plan/8"}},
+	}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}: {Pane: herdr.Pane{Host: "box"}},
+		{repo: "atlas", branch: "plan/8"}: {},
+	}
+	cards := []report.PlanCard{
+		{Repo: "atlas", ID: 7, Ask: report.AskCommand(7)},
+		{Repo: "atlas", ID: 8, Ask: report.AskCommand(8)},
+	}
+
+	askRemoteCards(cards, plans, live)
+
+	assert.Equal(t, report.AskCommandFor(7, true), cards[0].Ask)
+	assert.Equal(t, report.AskCommand(8), cards[1].Ask)
+}
+
+// TestResumeRefusalAsksARemoteLanePlainly: start's deserted refusal
+// names the plain message for a lane another host runs, since --ask
+// would refuse it.
+func TestResumeRefusalAsksARemoteLanePlainly(t *testing.T) {
+	reason := resumeRefusal(discovery.Plan{ID: 7}, herdr.Lane{
+		Pane: herdr.Pane{PaneID: "wLive:p1", Host: "box"}, Branch: "plan/7",
+	})
+
+	assert.Contains(t, reason, "`"+report.AskCommandFor(7, true)+"`")
+}
