@@ -34,6 +34,18 @@ updates:
     open-pull-requests-limit: 1
     cooldown:
       default-days: 7
+    # The golang.org/x releases below require go 1.26, and taking one
+    # raises go.mod's go directive past the floor gofloor_test.go
+    # holds. Each would open a pull request that can never go green,
+    # and with a limit of one it would hold the only slot and starve
+    # every other module bump. Lift these together with goFloor.
+    ignore:
+      - dependency-name: "golang.org/x/term"
+        versions: [">= 0.46.0"]
+      - dependency-name: "golang.org/x/sys"
+        versions: [">= 0.48.0"]
+      - dependency-name: "golang.org/x/sync"
+        versions: [">= 0.23.0"]
 
   # Dev tools build from their own modfile, so they update on their
   # own schedule and never constrain consumers of this module.

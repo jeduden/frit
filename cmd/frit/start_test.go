@@ -2935,17 +2935,19 @@ func TestEditInEditorRefusesAWhitespaceOnlyEditor(t *testing.T) {
 }
 
 // TestEditInEditorSurfacesATempFileCreationFailure: os.CreateTemp
-// fails when $TMPDIR is not writable.
+// fails when $TMPDIR does not exist — for every user, where a
+// read-only one stops all but root. The editor is a fake that fails,
+// so a temp file that is created after all never opens a real editor:
+// the error is the editor's, and the assertion below rejects it.
 func TestEditInEditorSurfacesATempFileCreationFailure(t *testing.T) {
-	t.Setenv("VISUAL", "vi")
-	dir := t.TempDir()
-	require.NoError(t, os.Chmod(dir, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-	t.Setenv("TMPDIR", dir)
+	fakeEditorOnPath(t, "frit-test-editor", "exit 1")
+	t.Setenv("VISUAL", "frit-test-editor")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 
 	_, err := editInEditor("draft")
 
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "editor:")
 }
 
 // TestEditInEditorSurfacesAFailedEditorCommand: the editor exiting
