@@ -1,7 +1,7 @@
 ---
 id: 2609181901
 title: An ask carries its reply, so silence is no longer the only answer
-status: "🔳"
+status: "✅"
 summary: >-
   frit message writes text into a pane and stops. The remedy frit board
   prints for a (dead) lane is that same message, so an unanswered ping
@@ -150,7 +150,8 @@ footer: |
 |     | ↳      | message --ask sends an envelope and records a pending ask, reply answers it from the lane as a local write, and board --json reads none, pending or answered; C13 runs the loop through the built frit. A real session answered once the reply was a permission rule, but plan-reply's allowed-tools did not grant it, so that criterion stays open. |
 | 2   | ✅     | [The reply is pre-approved where the harness reads it](phase-2.md)                                                                                                                                                                                                                                                                                   |
 |     | ↳      | frit skills merges Bash(<via> reply:*) and Skill(plan-reply) into the repository's .claude/settings.json allow list. A real session given only the envelope answered with no denial, once its workspace was trusted; the board read it answered.                                                                                                     |
-| 3   | 🔳     | [Silence reads as no answer, never as gone](phase-3.md)                                                                                                                                                                                                                                                                                              |
+| 3   | ✅     | [Silence reads as no answer, never as gone](phase-3.md)                                                                                                                                                                                                                                                                                              |
+|     | ↳      | Every ask remedy now reads frit message <id> --ask, the board's ask line says no reply is not evidence, and board and who print each lane's ask state beneath their tables; who --json carries ask_state and answer.                                                                                                                                 |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -163,7 +164,7 @@ footer: |
       no `--go`. With no ask pending it refuses.
 - [x] `frit board --json` reports each lane's ask as none, pending or
       answered, with the answer text, so an agent branches on a field.
-- [ ] The `(dead)` advice says an unanswered ask is not evidence the
+- [x] The `(dead)` advice says an unanswered ask is not evidence the
       lane is gone, and points at `--ask`.
 - [x] A `plan-reply` skill fronts `reply`, and `frit skills`
       pre-approves that one command and the skill in the repository's

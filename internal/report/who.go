@@ -29,6 +29,12 @@ type WhoLane struct {
 	Session   string `json:"session"`
 	Pane      string `json:"pane"`
 	Title     string `json:"title"`
+	// AskState and Answer are where a `frit message --ask` to this
+	// lane's plan stands, as board carries them: "none", "pending" or
+	// "answered", with the reply text once answered. Read from this
+	// host's checkout; a lane on another host reads "none".
+	AskState string `json:"ask_state"`
+	Answer   string `json:"answer"`
 }
 
 // NewWho opens a presence report.
@@ -57,7 +63,20 @@ func (d *WhoDoc) AddLane(l herdr.Lane) {
 		Session:   l.Pane.Session,
 		Pane:      l.Pane.PaneID,
 		Title:     l.Pane.Title,
+		AskState:  "none",
 	})
+}
+
+// SetAsk records where an ask to the lane on pane stands and its
+// answer; a no-op when no lane is on that pane.
+func (d *WhoDoc) SetAsk(pane, state, answer string) {
+	for i := range d.Lanes {
+		if d.Lanes[i].Pane == pane {
+			d.Lanes[i].AskState = state
+			d.Lanes[i].Answer = answer
+			return
+		}
+	}
 }
 
 // AddProblem records a socket frit could not read. An unreachable

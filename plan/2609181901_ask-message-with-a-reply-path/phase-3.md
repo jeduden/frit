@@ -1,7 +1,7 @@
 ---
 n: 3
 title: Silence reads as no answer, never as gone
-status: "🔳"
+status: "✅"
 result: false
 ---
 The issue's own ask: the advice a `(dead)` lane gets must not send an

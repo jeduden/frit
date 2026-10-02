@@ -315,8 +315,10 @@ type MessageDoc struct {
 const AskText = "what is your status?"
 
 // AskCommand is the one remedy text every site that points a reader at
-// a lane's agent shares: the `frit message` invocation, with the plan's
-// own selector and AskText, so it runs verbatim — as a dry run naming
+// a lane's agent shares: the `frit message --ask` invocation, with the
+// plan's own selector and AskText, so it runs verbatim and the agent is
+// told a reply is wanted — a plain message asks for nothing back, so
+// its silence would prove nothing — as a dry run naming
 // the pane and the text, like every rung that sends into a pane;
 // `--go` sends. message takes its text as a required positional, which
 // is why the question rides along rather than leaving the reader to
@@ -324,7 +326,7 @@ const AskText = "what is your status?"
 // cards name when git cannot classify a held lane's work — open as a
 // PR it reads unlanded — and only the agent on it can.
 func AskCommand(planID int64) string {
-	return fmt.Sprintf("frit message %d %q", planID, AskText)
+	return fmt.Sprintf("frit message %d --ask %q", planID, AskText)
 }
 
 // NewMessage opens a message report for a resolved plan and the text

@@ -1054,6 +1054,12 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 		}
 		for _, lane := range whoLanes(panes, rt.git) {
 			doc.AddLane(lane)
+			state, answer, err := whoAsk(rt, lane)
+			if err != nil {
+				doc.AddProblem(lane.Repo, err)
+				continue
+			}
+			doc.SetAsk(lane.Pane.PaneID, state, answer)
 		}
 	}
 
@@ -1064,6 +1070,26 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// whoAsk reads where an ask to lane's plan stands, from the lane's own
+// checkout — the file its `frit reply` writes. A lane on another host,
+// or one whose branch names no plan, reads "none" without touching
+// git: this host holds no record for it.
+func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
+	if lane.Pane.Host != "" || lane.PlanID == 0 {
+		return ask.StateNone, "", nil
+	}
+	path, err := ask.Path(lane.Root, lane.PlanID, rt.git)
+	if err != nil {
+		return ask.StateNone, "", err
+	}
+	rec, found, err := ask.Read(path)
+	if err != nil {
+		return ask.StateNone, "", err
+	}
+
+	return ask.StateOf(rec, found), rec.Answer, nil
 }
 
 // whoLanes keeps the panes with an agent, resolves each to its lane,
@@ -1127,6 +1153,13 @@ func printWho(out io.Writer, doc *report.WhoDoc) {
 			lane.Agent, lane.Status, lane.Title)
 	}
 	_ = tw.Flush()
+	asks := make([]askRow, 0, len(doc.Lanes))
+	for _, lane := range doc.Lanes {
+		asks = append(asks, askRow{id: lane.PlanID, state: lane.AskState, answer: lane.Answer})
+	}
+	for _, line := range askLines(asks) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 }
 
 // repoLabel names the repository a lane sits in, or says plainly that
@@ -2508,6 +2541,13 @@ func printBoard(
 	for _, line := range boardUnprovenLines(doc.Plans) {
 		_, _ = fmt.Fprintln(out, line)
 	}
+	asks := make([]askRow, 0, len(doc.Plans))
+	for _, p := range doc.Plans {
+		asks = append(asks, askRow{id: p.ID, state: p.AskState, answer: p.Answer})
+	}
+	for _, line := range askLines(asks) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 }
 
 // boardUnprovenLines names, one line per plan, the way out for a held
@@ -2547,7 +2587,38 @@ func boardAsks(plans []report.BoardPlan) []string {
 		}
 		lines = append(lines, fmt.Sprintf(
 			"%d: the bound session is confirmed gone but %s still attends it; "+
-				"ask before yielding: %s", p.ID, p.Agent, p.Ask))
+				"ask before yielding: %s — no reply is not evidence it is gone",
+			p.ID, p.Agent, p.Ask))
+	}
+
+	return lines
+}
+
+// askRow is the part of a board row or a who lane the ask lines read:
+// the plan, and where an ask to it stands.
+type askRow struct {
+	id     int64
+	state  string
+	answer string
+}
+
+// askLines names, one line per asked plan, where its ask stands — the
+// shared tail of the board and who tables, read off the same fields
+// --json carries. A pending ask says plainly that silence is not
+// evidence the lane is gone, the misread an unanswered ping invited
+// (issue #198); an answered one prints the answer. A plan never asked
+// prints nothing, so a quiet table pays nothing extra.
+func askLines(rows []askRow) []string {
+	var lines []string
+	for _, r := range rows {
+		switch r.state {
+		case ask.StatePending:
+			lines = append(lines, fmt.Sprintf(
+				"%d: asked, no reply yet — silence is not evidence the lane is gone",
+				r.id))
+		case ask.StateAnswered:
+			lines = append(lines, fmt.Sprintf("%d: answered: %q", r.id, r.answer))
+		}
 	}
 
 	return lines
