@@ -54,12 +54,12 @@ dry runs until `--go` — the
 | `reply <answer>`     | answer the pending ask from inside the lane; a local write, no `--go`; `board --json` reads it                        |
 | `start <plan>`       | claim, stand up the worktree, start the agent, send the prompt; `--note` adds a rider, `--edit` opens it in `$EDITOR` |
 
-An ask and its reply meet in one file under the repository's shared
-git directory, so `message --ask` reaches a lane only on this host and
-only through a worktree of one clone — the shape `frit start` stands a
-lane up in. The ask is recorded in the lane's own clone. For a lane in
-a separate clone, `who` reads its ask and answer from that clone, but
-`board` reads your checkout's and shows `none`. frit reaches a lane
+An ask and its reply meet in one file under the shared git directory
+of the lane's own clone, where `message --ask` records it. `board`
+reads your checkout's record, so it shows the answer of a lane that
+is a worktree of your clone — the shape `frit start` stands a lane up
+in. For a lane in a separate clone, `who` reads its ask and answer
+from that clone, but `board` shows `none`. frit reaches a lane
 only on this host: `message` and `nudge` send through this host's
 herdr, so they refuse a lane on another host, and its row offers no
 ask — run them on that host instead. An ask is cleared when its lane

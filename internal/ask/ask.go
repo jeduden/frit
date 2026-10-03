@@ -206,7 +206,7 @@ func ClearFile(path string) error {
 // so the lane is not left owing a reply. A record already gone is
 // fine; there is nothing to report to a caller already failing.
 func Withdraw(path string) {
-	_ = os.Remove(path)
+	_ = ClearFile(path)
 }
 
 // Envelope wraps a supervisor's text so the agent that reads it knows

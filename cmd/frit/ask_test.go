@@ -223,9 +223,11 @@ func TestReplyRefusesWithNoAskPending(t *testing.T) {
 	emit(t, &doc, "reply", "in PR #9")
 
 	assert.False(t, doc.Recorded)
-	assert.Contains(t, doc.Refused, "no ask is pending for plan 7")
-	assert.Contains(t, doc.Refused, "worktree of the asker's clone",
-		"the refusal says where an ask can reach, so a lane in a separate clone knows why")
+	assert.Contains(t, doc.Refused, "no ask is pending for plan 7 in this clone")
+	assert.Contains(t, doc.Refused, "already answered",
+		"the refusal names the real causes: message --ask records the ask in "+
+			"the lane's own clone, so a separate clone is never why")
+	assert.NotContains(t, doc.Refused, "asker's clone")
 	_, ok := askRecord(t, repo, 7)
 	assert.False(t, ok, "a refused reply writes nothing")
 }
@@ -726,6 +728,84 @@ func TestLaneBeforeOrdersByRepoPlanPaneThenHost(t *testing.T) {
 	assert.False(t, laneBefore(lane("atlas", 7, "wA:p1", ""), lane("atlas", 7, "wA:p1", "")))
 }
 
+// TestLaneFirstPutsALaneThisHostReachesFirst: a plan's live lanes are
+// chosen local first, whatever the basename or pane id says, since only
+// a local lane is one message and nudge can reach; between two lanes on
+// the same side, laneBefore's order decides.
+func TestLaneFirstPutsALaneThisHostReachesFirst(t *testing.T) {
+	remote := herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas-a", PlanID: 7}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wZ:p9"}, Repo: "atlas-z", PlanID: 7}
+	later := herdr.Lane{Pane: herdr.Pane{PaneID: "wZ:p9"}, Repo: "atlas-zz", PlanID: 7}
+
+	assert.True(t, laneFirst(local, remote), "the local lane wins though it sorts later")
+	assert.False(t, laneFirst(remote, local))
+	assert.True(t, laneFirst(local, later), "two local lanes keep laneBefore's order")
+	assert.False(t, laneFirst(later, local))
+}
+
+// TestLaneForPrefersALaneThisHostReaches: a stale remote pane — a fenced
+// lane awaiting its yield (S63) — that sorts ahead of the plan's live
+// local lane does not hide it: the survey reads the local lane, which
+// message can ask.
+func TestLaneForPrefersALaneThisHostReaches(t *testing.T) {
+	p := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7", "plan/7-x"}}
+	remote := herdr.Lane{
+		Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas-a", PlanID: 7,
+	}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Repo: "atlas-z", PlanID: 7}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}:   remote,
+		{repo: "atlas", branch: "plan/7-x"}: local,
+	}
+
+	got, ok := laneFor(p, live)
+
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+}
+
+// TestKeepLiveLaneKeepsTheLaneThisHostReaches: two panes keyed to one
+// (repo, branch) — a stale remote one and the live local lane — keep the
+// local one whichever comes first, and otherwise the first seen.
+func TestKeepLiveLaneKeepsTheLaneThisHostReaches(t *testing.T) {
+	key := repoBranch{repo: "atlas", branch: "plan/7"}
+	remote := herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas", PlanID: 7}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Repo: "atlas", PlanID: 7}
+	second := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p2"}, Repo: "atlas", PlanID: 7}
+
+	live := map[repoBranch]herdr.Lane{}
+	keepLiveLane(live, key, remote)
+	keepLiveLane(live, key, local)
+	keepLiveLane(live, key, second)
+
+	assert.Equal(t, local, live[key])
+}
+
+// TestFirstLiveLanePrefersALaneThisHostReaches: liveLaneFor's pick, the
+// lane message, open and nudge act on, is the local lane when one is on
+// the plan's hold branches in its own repository — a remote pane that
+// sorts first does not shadow it — and the first remote one otherwise.
+func TestFirstLiveLanePrefersALaneThisHostReaches(t *testing.T) {
+	holds := map[string]bool{"plan/7": true}
+	remote := herdr.Lane{
+		Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Root: "/r/atlas", Branch: "plan/7",
+	}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Root: "/l/atlas", Branch: "plan/7"}
+	elsewhere := herdr.Lane{Pane: herdr.Pane{PaneID: "wA:p0"}, Root: "/l/orrery", Branch: "plan/7"}
+	repoOf := func(l herdr.Lane) string { return filepath.Base(l.Root) }
+
+	got, ok := firstLiveLane([]herdr.Lane{elsewhere, remote, local}, holds, "atlas", repoOf)
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+
+	got, ok = firstLiveLane([]herdr.Lane{remote}, holds, "atlas", repoOf)
+	require.True(t, ok)
+	assert.Equal(t, remote, got, "a remote lane alone is still the plan's live lane")
+
+	_, ok = firstLiveLane([]herdr.Lane{elsewhere, {Root: "", Branch: "plan/7"}}, holds, "atlas", repoOf)
+	assert.False(t, ok, "another repository's branch, or a lane with no root, is not this plan's")
+}
+
 // TestPrintWhoKeepsTwoRootsSharingABasename: two repositories whose
 // checkouts share a basename are two records, so both asks print — the
 // lane's repo label alone would fold them into one line.
@@ -854,6 +934,38 @@ func TestReleaseClearsTheLanesAsk(t *testing.T) {
 	require.Contains(t, out.String(), "released plan 7")
 	_, ok := askRecord(t, repo, 7)
 	assert.False(t, ok, "the released lane's ask is cleared")
+}
+
+// TestReleaseClearsTheAskInTheLanesOwnClone: message --ask records the
+// ask in the lane's own clone, so release clears it there — not in the
+// fleet's checkout of the repository, which a lane in a separate clone
+// never shares a git dir with.
+func TestReleaseClearsTheAskInTheLanesOwnClone(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	origin, err := gitCapture(t, repo, "remote", "get-url", "origin")
+	require.NoError(t, err)
+	git(t, repo, "clone", "-q", "-b", "plan/7", strings.TrimSpace(origin), lane)
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Pose(lane, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "released plan 7")
+	_, ok := askRecord(t, lane, 7)
+	assert.False(t, ok, "the ask in the lane's own clone is cleared")
+	assert.NotContains(t, out.String(), "not cleared")
 }
 
 // TestClaimClearsAStaleAsk: a fresh claim starts a new lane, which never
@@ -1035,10 +1147,11 @@ func TestStartResumeKeepsTheLanesAsk(t *testing.T) {
 	assert.True(t, ok, "the resumed lane's ask stands")
 }
 
-// remoteLane is a working lane on host box whose pane id a local pane
+// remoteIdleLane is an idle lane on host box whose pane id a local pane
 // could share — the shape a send through this host's herdr would land
-// in the wrong pane for.
-func remoteWorkingLane(t *testing.T) herdr.Lane {
+// in the wrong pane for. Idle, so nudge's refusal of it can only be the
+// remote one, never its not-idle refusal.
+func remoteIdleLane(t *testing.T) herdr.Lane {
 	t.Helper()
 
 	return herdr.Lane{
@@ -1057,7 +1170,7 @@ func TestLaneReachesOnlyALaneOnThisHost(t *testing.T) {
 	assert.True(t, laneReaches(herdr.Lane{}))
 	assert.False(t, laneReaches(herdr.Lane{Pane: herdr.Pane{Host: "box"}}))
 
-	got := remoteRefusal(remoteWorkingLane(t))
+	got := remoteRefusal(remoteIdleLane(t))
 	assert.Contains(t, got, "this host")
 	assert.Contains(t, got, "box")
 }
@@ -1073,7 +1186,7 @@ func TestMessageSendRefusesALaneOnAnotherHost(t *testing.T) {
 		m := &messageCmd{Selector: "7", Text: "status?", Ask: askFlag, Go: true}
 		doc := report.NewMessage("/fleet", "atlas", 7, "t", "status?", true)
 
-		err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, remoteWorkingLane(t), true)
+		err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, remoteIdleLane(t), true)
 
 		require.NoError(t, err)
 		assert.Contains(t, doc.Refused, "box", "ask=%v", askFlag)
@@ -1092,7 +1205,7 @@ func TestNudgeSendRefusesALaneOnAnotherHost(t *testing.T) {
 	doc := report.NewNudge("/fleet", "atlas", 7, "t", "1", "sonnet",
 		"/plan-phase 7 1", true)
 
-	err := nudgeSend(rt, n, doc, discovery.Plan{ID: 7}, remoteWorkingLane(t), true,
+	err := nudgeSend(rt, n, doc, discovery.Plan{ID: 7}, remoteIdleLane(t), true,
 		"/plan-phase 7 1")
 
 	require.NoError(t, err)
@@ -1105,7 +1218,7 @@ func TestNudgeSendRefusesALaneOnAnotherHost(t *testing.T) {
 // lane another host runs points the reader at that host, where the ask
 // can reach it, rather than at a message this host would refuse.
 func TestResumeRefusalNamesTheHostToAskFrom(t *testing.T) {
-	reason := resumeRefusal(discovery.Plan{ID: 7}, remoteWorkingLane(t))
+	reason := resumeRefusal(discovery.Plan{ID: 7}, remoteIdleLane(t))
 
 	assert.Contains(t, reason, "on box")
 	assert.Contains(t, reason, "`"+report.AskCommand(7)+"`")

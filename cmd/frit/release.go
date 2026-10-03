@@ -122,7 +122,10 @@ func releaseHeld(
 		return
 	}
 	doc.MarkReleased()
-	clearAsk(rt, coord.Path, plan.ID, doc.Warn)
+	// The ask lives in the lane's own clone, where message --ask
+	// recorded it, so it is cleared through the lane — never the
+	// fleet's checkout, which a lane in a separate clone does not share.
+	clearAsk(rt, lane, plan.ID, doc.Warn)
 }
 
 // refuseUnproved records why a held plan the calling lane cannot prove

@@ -67,6 +67,16 @@ the id. Both now refuse a remote lane, ask or not. Board rows and
 cards offer such a lane no ask, and start's deserted refusal names the
 host to ask it from.
 
+**Fourth review.** A plan's local lane is now chosen ahead of a stale
+remote pane on the same plan, so message and nudge no longer refuse a
+lane they can reach. Release clears the ask in the lane's own clone,
+where message recorded it. Reply's refusal and the `--ask` help no
+longer blame a separate clone: the ask is recorded in the lane's own
+clone, so only `board` misses an answer from one. Left open: `open`
+still focuses a remote lane's pane through this host's herdr, and an
+ask stays pending when its lane ends where no clearing verb runs, as
+in a takeover from another host or a reap.
+
 **Plan close.** Every acceptance criterion is met. What stays out of
 scope, as the plan said from the start: an ask to a lane on another
 host is refused, since its reply would land where this host never

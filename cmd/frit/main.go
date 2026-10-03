@@ -1180,9 +1180,8 @@ func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 
 // laneBefore is whoLanes' order: by repository, then plan, then pane,
 // then host. A pane id is unique only on its own host, so a local and
-// a remote lane can tie on the rest; the host breaks it — the local
-// one, which --ask can reach, first — so "the first lane" liveLaneFor
-// and laneFor both name is one lane, never left to an unstable sort.
+// a remote lane can tie on the rest; the host breaks it, the local one
+// first, so the order is total and never left to an unstable sort.
 func laneBefore(a, b herdr.Lane) bool {
 	if a.Repo != b.Repo {
 		return a.Repo < b.Repo
@@ -1195,6 +1194,21 @@ func laneBefore(a, b herdr.Lane) bool {
 	}
 
 	return a.Pane.Host < b.Pane.Host
+}
+
+// laneFirst is the order a plan's live lanes are chosen in: a lane on
+// this host ahead of one on another, whatever its basename or pane id,
+// since only a local lane is one message and nudge can reach — a stale
+// remote pane, a fenced lane awaiting its yield, must not shadow the
+// live local one. Between two lanes on the same side, laneBefore
+// decides. liveLaneFor, liveByBranch and laneFor all choose by it, so
+// "the first lane" each names is one lane.
+func laneFirst(a, b herdr.Lane) bool {
+	if laneReaches(a) != laneReaches(b) {
+		return laneReaches(a)
+	}
+
+	return laneBefore(a, b)
 }
 
 // holdsForRoot reads a worktree root's hold patterns. A root with a
@@ -2408,9 +2422,10 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // than each paying their own git call (an ssh round trip, for a
 // remote pane). When several panes share one (repository, branch) —
 // two terminals on a lane, or a pane left on another host — the first
-// in whoLanes' order is kept, the one liveLaneFor finds; laneFor keeps
-// that order across a plan's hold branches, so the agent and ask a
-// survey names belong to the lane message actually reaches.
+// in laneFirst's order is kept (keepLiveLane), the one liveLaneFor
+// finds; laneFor keeps that order across a plan's hold branches, so
+// the agent and ask a survey names belong to the lane message actually
+// reaches.
 func liveByBranch(
 	c *cli, rt *runtime,
 ) (map[repoBranch]herdr.Lane, []hostProblem, error) {
@@ -2431,19 +2446,26 @@ func liveByBranch(
 			repo = laneRepo(lane, rt.git)
 			repos[rootKey] = repo
 		}
-		key := repoBranch{repo: repo, branch: lane.Branch}
-		if _, seen := live[key]; !seen {
-			live[key] = lane
-		}
+		keepLiveLane(live, repoBranch{repo: repo, branch: lane.Branch}, lane)
 	}
 
 	return live, probs, nil
 }
 
+// keepLiveLane records lane under key unless the lane already kept
+// there comes first in laneFirst's order, so a stale remote pane never
+// displaces — nor is kept ahead of — the live local lane on the same
+// branch.
+func keepLiveLane(live map[repoBranch]herdr.Lane, key repoBranch, lane herdr.Lane) {
+	if kept, seen := live[key]; !seen || laneFirst(lane, kept) {
+		live[key] = lane
+	}
+}
+
 // laneFor finds the live lane on one of a plan's hold branches, in the
 // plan's own repository, if any is live. A plan nobody holds has no
 // lane to be worked on, so it reports none. When more than one hold
-// branch is live, the lane first in laneBefore's order wins, whatever
+// branch is live, the lane first in laneFirst's order wins, whatever
 // order p.Holds lists the branches in: that is the lane liveLaneFor
 // finds, so the attendance a survey reads, and the ask it names,
 // belong to the lane message actually reaches.
@@ -2452,7 +2474,7 @@ func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool
 	found := false
 	for _, branch := range p.Holds {
 		lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]
-		if ok && (!found || laneBefore(lane, first)) {
+		if ok && (!found || laneFirst(lane, first)) {
 			first, found = lane, true
 		}
 	}

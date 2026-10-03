@@ -131,17 +131,37 @@ func liveLaneFor(
 	for _, branch := range p.Holds {
 		holds[branch] = true
 	}
+	lane, found := firstLiveLane(whoLanes(panes, rt.git), holds, p.Repo,
+		func(l herdr.Lane) string { return laneRepo(l, rt.git) })
 
-	for _, lane := range whoLanes(panes, rt.git) {
+	return lane, found, probs, nil
+}
+
+// firstLiveLane picks, from lanes, the one on a branch in holds whose
+// repository (repoOf) is repo, first in laneFirst's order: a local lane
+// ahead of any remote one, so a stale pane on another host never
+// shadows the lane message and nudge can reach. repoOf costs a git
+// call — an ssh round trip for a remote pane — so it is asked only of
+// a lane that would beat the one already found.
+func firstLiveLane(
+	lanes []herdr.Lane, holds map[string]bool, repo string,
+	repoOf func(herdr.Lane) string,
+) (herdr.Lane, bool) {
+	var first herdr.Lane
+	found := false
+	for _, lane := range lanes {
 		if lane.Root == "" || lane.Branch == "" || !holds[lane.Branch] {
 			continue
 		}
-		if laneRepo(lane, rt.git) == p.Repo {
-			return lane, true, probs, nil
+		if found && !laneFirst(lane, first) {
+			continue
+		}
+		if repoOf(lane) == repo {
+			first, found = lane, true
 		}
 	}
 
-	return herdr.Lane{}, false, probs, nil
+	return first, found
 }
 
 // printOpen reports the pane open raised, or that no lane was live to
@@ -349,7 +369,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
 	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
-	Ask      bool   `help:"Ask for a reply that frit board shows; reaches a lane on this host and clone only."`
+	Ask      bool   `help:"Ask for a reply; who shows it, and board when the lane is a worktree of this clone."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 

@@ -42,7 +42,12 @@ helper `board` reads it with, and unit tests pin who's read of it.
 The remote-lane refusal, surfaced in code review, adds no row either:
 no C or S row covers it, but it is the plan's one-host boundary, and
 unit tests pin it in message, nudge, the board, the cards and start's
-refusal.
+refusal. The same holds for choosing a plan's local lane ahead of a
+stale remote pane, so message and nudge never refuse a lane they can
+reach. An ask cleared when its lane ends — on release, yield and a
+fresh claim or start, kept by a resume — was also an owner's call in
+review. It adds no row: C13 proves the record it clears, no C or S row
+covers a lane's end, and run-level tests pin each verb's clear.
 
 Gate: unit tests for each RED item; the cross-layer scenario passes
 against the new command; `go test ./...`, lint and `mdsmith check .`.
