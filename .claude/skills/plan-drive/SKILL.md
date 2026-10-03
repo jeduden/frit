@@ -55,6 +55,8 @@ row whose `ask` is non-empty is one to ask.
   a **working** lane as readily as an idle one. The row's `ask_state`
   reads `pending` until the agent runs `frit reply`, then `answered`,
   with `answer` carrying its text.
+- `message` and `nudge` refuse a lane on another host; its row has no
+  `ask`.
 - An unanswered ask is not evidence the lane is gone: the agent may be
   mid-step, or lack the plan-reply skill. Without `--ask`,
   `go run ./cmd/frit message` sends text and asks for nothing back.

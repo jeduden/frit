@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/jeduden/frit/internal/ask"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/gitwt"
 	"github.com/jeduden/frit/internal/report"
@@ -2625,8 +2626,8 @@ func (w *world) startRefusesNamingFritMessageAheadOfFritYield() error {
 	return nil
 }
 
-// theLaneRunsTheAskForPlanWithGo runs the exact ask phase 2 names —
-// `frit message <id> "what is your status?"` — under --go, from the
+// theLaneRunsTheAskForPlanWithGo runs the exact ask the refusal names —
+// `frit message <id> --ask "what is your status?"` — under --go, from the
 // lane, against whatever herdr fake the live-pane Given armed. The
 // text is AskText — the one AskCommand carries — rather than a fresh
 // literal, so a reader running the refusal's own remedy is what is
@@ -2637,8 +2638,8 @@ func (w *world) theLaneRunsTheAskForPlanWithGo(planID int) error {
 		return fmt.Errorf("no root to run message from; the held-lane step comes first")
 	}
 	var out, errb strings.Builder
-	code := run([]string{"message", strconv.Itoa(planID), report.AskText, "--go",
-		"--root", st.root}, &out, &errb)
+	code := run([]string{"message", strconv.Itoa(planID), "--ask", report.AskText,
+		"--go", "--root", st.root}, &out, &errb)
 	st.out, st.errOut, st.code = out.String(), errb.String(), code
 
 	return nil
@@ -2646,7 +2647,8 @@ func (w *world) theLaneRunsTheAskForPlanWithGo(planID int) error {
 
 // theTextReachesTheLivePane checks S91's last observable: the fake
 // herdr recorded an `agent prompt` to the live pane carrying the ask's
-// own text whole, and message reported it sent rather than refusing a
+// envelope whole — the text and the reply it asks for — and message
+// reported it sent rather than refusing a
 // working lane the way nudge would.
 func (w *world) theTextReachesTheLivePane() error {
 	st := section[identityAndCrossLayerState](w)
@@ -2659,7 +2661,7 @@ func (w *world) theTextReachesTheLivePane() error {
 	if !strings.Contains(st.out, "sent") {
 		return fmt.Errorf("message did not report the text sent: %s", st.out)
 	}
-	if !st.rec.verb("agent", "prompt", "wLive:p1", report.AskText) {
+	if !st.rec.verb("agent", "prompt", "wLive:p1", ask.Envelope(report.AskText)) {
 		return fmt.Errorf("the ask never reached pane wLive:p1 whole: %v", st.rec.calls)
 	}
 
@@ -2696,18 +2698,18 @@ func TestAskTheAgentIdentityAndCrossLayerStepsRefuseTheirMissingPrecondition(t *
 func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing.T) {
 	w := newWorld(t)
 	st := section[identityAndCrossLayerState](w)
-	ask := report.AskCommand(7)
+	askCmd := report.AskCommand(7)
 
-	st.boardRow = report.BoardPlan{ID: 7, Dead: true, Ask: ask}
+	st.boardRow = report.BoardPlan{ID: 7, Dead: true, Ask: askCmd}
 	require.Error(t, w.theBoardNamesTheAskForPlanNotDead(7), "the board row still reads dead")
 	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: ""}
 	require.Error(t, w.theBoardNamesTheAskForPlanNotDead(7), "not dead, but no ask")
-	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: ask}
+	st.boardRow = report.BoardPlan{ID: 7, Dead: false, Ask: askCmd}
 	assert.NoError(t, w.theBoardNamesTheAskForPlanNotDead(7))
 
-	st.readyRow = report.PlanCard{ID: 7, Ask: "frit message 8 \"what is your status?\""}
+	st.readyRow = report.PlanCard{ID: 7, Ask: report.AskCommand(8)}
 	require.Error(t, w.readyNamesTheSameAskForPlan(7), "the ask names another plan")
-	st.readyRow = report.PlanCard{ID: 7, Ask: ask}
+	st.readyRow = report.PlanCard{ID: 7, Ask: askCmd}
 	assert.NoError(t, w.readyNamesTheSameAskForPlan(7))
 
 	st.out = "started plan 7"
@@ -2716,11 +2718,11 @@ func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing
 		"run `frit yield 7` to retire this lane"
 	require.Error(t, w.startRefusesNamingFritMessageAheadOfFritYield(),
 		"refused, but never names the ask")
-	st.out = "refused: run `frit yield 7` to set the work aside, or ask it with `" + ask + "`"
+	st.out = "refused: run `frit yield 7` to set the work aside, or ask it with `" + askCmd + "`"
 	require.Error(t, w.startRefusesNamingFritMessageAheadOfFritYield(),
 		"the ask trails yield")
 	st.out = "refused: plan 7 deserted hold: a live herdr pane (wLive:p1) on lane plan/7 " +
-		"attends it; ask it with `" + ask + "` or resume it with `frit open 7` — " +
+		"attends it; ask it with `" + askCmd + "` or resume it with `frit open 7` — " +
 		"run `frit yield 7` only to set the work aside instead"
 	assert.NoError(t, w.startRefusesNamingFritMessageAheadOfFritYield())
 
@@ -2731,8 +2733,11 @@ func TestAskTheAgentIdentityAndCrossLayerReadBacksWantTheirExactShape(t *testing
 	require.Error(t, w.theTextReachesTheLivePane(), "a dry-run never reports sent")
 	st.out = "sent"
 	require.Error(t, w.theTextReachesTheLivePane(), "reported sent, but nothing was recorded")
-	st.rec.calls = [][]string{{"agent", "prompt", "wOther:p1", report.AskText}}
+	envelope := ask.Envelope(report.AskText)
+	st.rec.calls = [][]string{{"agent", "prompt", "wOther:p1", envelope}}
 	require.Error(t, w.theTextReachesTheLivePane(), "sent to a different pane")
 	st.rec.calls = [][]string{{"agent", "prompt", "wLive:p1", report.AskText}}
+	require.Error(t, w.theTextReachesTheLivePane(), "sent bare, asking for no reply")
+	st.rec.calls = [][]string{{"agent", "prompt", "wLive:p1", envelope}}
 	assert.NoError(t, w.theTextReachesTheLivePane())
 }

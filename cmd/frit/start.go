@@ -676,6 +676,16 @@ func liveLaneRefusal(lane herdr.Lane) string {
 // rides along as the trailing fallback, for when the work genuinely
 // should be set aside.
 func resumeRefusal(plan discovery.Plan, lane herdr.Lane) string {
+	if !laneReaches(lane) {
+		// message and open act through this host's herdr, which cannot
+		// reach a pane on another host, so the reader is pointed at the
+		// host where they can.
+		return fmt.Sprintf(
+			"deserted hold: %s on %s attends it; ask it there with `%s` — "+
+				"run `frit yield %d` only to set the work aside instead",
+			paneNaming(lane), lane.Pane.Host, report.AskCommand(plan.ID), plan.ID)
+	}
+
 	return fmt.Sprintf(
 		"deserted hold: %s attends it; ask it with `%s` "+
 			"or resume it with `frit open %d` — "+
@@ -794,6 +804,11 @@ func startExecute(
 		// refusal for start, and pick --go retries past it to the next
 		// candidate (startRefusable). Every other error is a real fault.
 		return err
+	}
+	if !rs.active() {
+		// A fresh acquire or takeover starts a new lane, which never saw
+		// an earlier lane's question; a resume keeps its own ask.
+		clearAsk(rt, sc.repoPath, plan.ID, doc.Warn)
 	}
 
 	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)

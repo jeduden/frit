@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jeduden/frit/internal/ask"
+	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
@@ -163,43 +165,6 @@ func TestMessageAskGoSendsNothingWhenTheAskCannotBeRecorded(t *testing.T) {
 	assert.False(t, rec.verb("agent", "prompt"), "nothing is sent")
 }
 
-// TestAskRefusalNamesALaneOnAnotherHost: the ask record is a local
-// file, so an ask reaches only a lane on this host; a remote lane is
-// refused by name rather than left pending forever.
-func TestAskRefusalNamesALaneOnAnotherHost(t *testing.T) {
-	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, Branch: "plan/7"}
-	remote := herdr.Lane{
-		Pane: herdr.Pane{PaneID: "wC:p1", Host: "box"}, Branch: "plan/7",
-	}
-
-	assert.Empty(t, askRefusal(local))
-	assert.Contains(t, askRefusal(remote), "box")
-	assert.Contains(t, askRefusal(remote), "this host")
-}
-
-// TestMessageSendRefusesAnAskToALaneOnAnotherHost: messageSend applies
-// askRefusal before anything is recorded or sent.
-func TestMessageSendRefusesAnAskToALaneOnAnotherHost(t *testing.T) {
-	runner, rec := recordingHerdr()
-	rt := &runtime{git: gitwt.Exec, herdr: runner}
-	m := &messageCmd{Selector: "7", Text: "status?", Ask: true, Go: true}
-	doc := report.NewMessage("/fleet", "atlas", 7, "t", "status?", true)
-	lane := herdr.Lane{
-		Pane: herdr.Pane{
-			PaneID: "wC:p1", Host: "box", Agent: "claude",
-			Status: herdr.StatusWorking,
-		},
-		Root: t.TempDir(), Branch: "plan/7",
-	}
-
-	err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, lane, true)
-
-	require.NoError(t, err)
-	assert.Contains(t, doc.Refused, "box")
-	assert.False(t, doc.Sent)
-	assert.False(t, rec.verb("agent", "prompt"))
-}
-
 // TestReplyRecordsTheAnswerFromTheLane: run from the lane with no plan
 // argument, reply finds the plan from the checkout and records the
 // answer against the pending ask — no --go, no herdr call at all.
@@ -258,7 +223,11 @@ func TestReplyRefusesWithNoAskPending(t *testing.T) {
 	emit(t, &doc, "reply", "in PR #9")
 
 	assert.False(t, doc.Recorded)
-	assert.Contains(t, doc.Refused, "no ask is pending for plan 7")
+	assert.Contains(t, doc.Refused, "no ask is pending for plan 7 in this clone")
+	assert.Contains(t, doc.Refused, "already answered",
+		"the refusal names the real causes: message --ask records the ask in "+
+			"the lane's own clone, so a separate clone is never why")
+	assert.NotContains(t, doc.Refused, "asker's clone")
 	_, ok := askRecord(t, repo, 7)
 	assert.False(t, ok, "a refused reply writes nothing")
 }
@@ -466,9 +435,9 @@ func TestBoardAskLeavesAPlanWithNoCheckoutHereAsNone(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec}
 	doc := report.NewBoard("/fleet", true)
 	p := discovery.Plan{Repo: "atlas", ID: 7}
-	doc.AddPlan(p, "", "", false)
+	doc.AddPlan(p, report.Attendance{}, false)
 
-	boardAsk(rt, fleet.Result{}, doc, p)
+	boardAsk(rt, fleet.Result{}, doc, p, map[string]askDir{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	assert.Empty(t, doc.Problems)
@@ -480,12 +449,12 @@ func TestBoardAskCarriesAnUnplaceableCheckoutAsAProblem(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec}
 	doc := report.NewBoard("/fleet", true)
 	p := discovery.Plan{Repo: "atlas", ID: 7}
-	doc.AddPlan(p, "", "", false)
+	doc.AddPlan(p, report.Attendance{}, false)
 	res := fleet.Result{Coords: map[string]fleet.Coord{
 		"atlas": {Path: t.TempDir()},
 	}}
 
-	boardAsk(rt, res, doc, p)
+	boardAsk(rt, res, doc, p, map[string]askDir{})
 
 	assert.Equal(t, "none", doc.Plans[0].AskState)
 	require.Len(t, doc.Problems, 1)
@@ -503,4 +472,757 @@ func TestReplySurfacesAGetwdFailure(t *testing.T) {
 	err := (&replyCmd{Text: "x"}).Run(&cli{}, rt)
 
 	assert.Error(t, err)
+}
+
+// whoLaneFor finds the lane on pane in a who document.
+func whoLaneFor(t *testing.T, doc report.WhoDoc, pane string) report.WhoLane {
+	t.Helper()
+	for _, l := range doc.Lanes {
+		if l.Pane == pane {
+			return l
+		}
+	}
+	t.Fatalf("pane %s not in who", pane)
+
+	return report.WhoLane{}
+}
+
+// TestWhoReportsALanesPendingAsk: who reads the ask record from the
+// lane's own checkout, so a lane asked and not yet answered reads
+// pending.
+func TestWhoReportsALanesPendingAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	assert.Equal(t, "pending", whoLaneFor(t, doc, "wC:p1").AskState)
+}
+
+// TestWhoReportsAnAnsweredAskWithItsText: the answer rides the lane.
+func TestWhoReportsAnAnsweredAskWithItsText(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Answer(repo, 7, "in PR #9", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	lane := whoLaneFor(t, doc, "wC:p1")
+	assert.Equal(t, "answered", lane.AskState)
+	assert.Equal(t, "in PR #9", lane.Answer)
+}
+
+// TestWhoCarriesAnUnreadableAskAsAProblem: a torn record is a problem
+// in the document, and the lane keeps "none".
+func TestWhoCarriesAnUnreadableAskAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+	withHerdr(t, herdrReturning(idleLane(repo)))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	assert.Equal(t, "none", whoLaneFor(t, doc, "wC:p1").AskState)
+	require.NotEmpty(t, doc.Problems)
+	assert.Equal(t, "atlas", doc.Problems[0].Repo)
+}
+
+// TestWhoAskReadsNoneOffThisHostOrOffAPlan: a lane on another host has
+// no record here, and a lane whose branch names no plan was never
+// asked — both read none without touching git.
+func TestWhoAskReadsNoneOffThisHostOrOffAPlan(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		t.Fatal("whoAsk reached git")
+		return nil, nil
+	}}
+
+	for name, lane := range map[string]herdr.Lane{
+		"remote":   {Pane: herdr.Pane{Host: "box"}, Root: "/r", PlanID: 7},
+		"planless": {Root: "/r"},
+	} {
+		state, answer, err := whoAsk(rt, lane)
+		require.NoError(t, err, name)
+		assert.Equal(t, "none", state, name)
+		assert.Empty(t, answer, name)
+	}
+}
+
+// TestWhoAskSurfacesAnUnplaceableCheckout: a lane root git cannot
+// place is an error handed back.
+func TestWhoAskSurfacesAnUnplaceableCheckout(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec}
+
+	_, _, err := whoAsk(rt, herdr.Lane{Root: t.TempDir(), PlanID: 7})
+
+	assert.Error(t, err)
+}
+
+// TestPrintWhoShowsTheAskState: the who table prints the same ask
+// lines as the board, beneath its rows.
+func TestPrintWhoShowsTheAskState(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	doc.AddLane(herdr.Lane{
+		Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"}, PlanID: 7,
+	})
+	doc.SetLastAsk("pending", "")
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Contains(t, buf.String(),
+		"7: asked, no reply yet — silence is not evidence the lane is gone")
+}
+
+// TestPrintWhoNamesALanesAskOnce: two agents on one lane read the one
+// record, and the table says where its ask stands once, not per pane.
+func TestPrintWhoNamesALanesAskOnce(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	for _, pane := range []string{"wC:p1", "wC:p2"} {
+		doc.AddLane(herdr.Lane{
+			Pane: herdr.Pane{PaneID: pane, Agent: "claude"}, PlanID: 7,
+		})
+		doc.SetLastAsk("pending", "")
+	}
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Equal(t, 1, strings.Count(buf.String(), "7: asked, no reply yet"))
+}
+
+// TestPrintWhoKeepsEachRepositorysAsk: plan 7 in two repositories is
+// two lanes and two asks, so the table names both, not one.
+func TestPrintWhoKeepsEachRepositorysAsk(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	for _, repo := range []string{"atlas", "zephyr"} {
+		doc.AddLane(herdr.Lane{
+			Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"},
+			Repo: repo, PlanID: 7,
+		})
+		doc.SetLastAsk("pending", "")
+	}
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Equal(t, 1, strings.Count(buf.String(), "7 (atlas): asked, no reply yet"))
+	assert.Equal(t, 1, strings.Count(buf.String(), "7 (zephyr): asked, no reply yet"))
+}
+
+// TestReadAskReadsTheRecordFromAnyCheckout: none before an ask,
+// pending once posed, answered with its text once replied.
+func TestReadAskReadsTheRecordFromAnyCheckout(t *testing.T) {
+	isolate(t)
+	repo := heldPlan(t, t.TempDir(), "atlas", 7, "Dispatch me")
+	rt := &runtime{git: gitwt.Exec}
+
+	state, answer, err := readAsk(rt, repo, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "none", state)
+	assert.Empty(t, answer)
+
+	_, err = ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Answer(repo, 7, "in PR #9", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+
+	state, answer, err = readAsk(rt, repo, 7)
+	require.NoError(t, err)
+	assert.Equal(t, "answered", state)
+	assert.Equal(t, "in PR #9", answer)
+}
+
+// TestReadAskFileReadsAStateAndItsAnswer: no record reads none, a
+// record reads its state and answer, and a torn one is an error, never
+// a silent none.
+func TestReadAskFileReadsAStateAndItsAnswer(t *testing.T) {
+	path := ask.File(t.TempDir(), 7)
+
+	state, answer, err := readAskFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "none", state)
+	assert.Empty(t, answer)
+
+	require.NoError(t, ask.Write(path, ask.Record{Question: "status?", Answer: "in PR #9"}))
+	state, answer, err = readAskFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "answered", state)
+	assert.Equal(t, "in PR #9", answer)
+
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+	_, _, err = readAskFile(path)
+	assert.Error(t, err)
+}
+
+// TestReadAskSurfacesATornRecord: a record that cannot be parsed is an
+// error handed back, never a silent "none".
+func TestReadAskSurfacesATornRecord(t *testing.T) {
+	isolate(t)
+	repo := heldPlan(t, t.TempDir(), "atlas", 7, "Dispatch me")
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+
+	_, _, err = readAsk(&runtime{git: gitwt.Exec}, repo, 7)
+
+	assert.Error(t, err)
+}
+
+// TestLaneForPicksTheLaneMessageTargetsAcrossHoldBranches: a plan whose
+// two hold branches both carry a live lane is answered with the lane
+// liveLaneFor finds first — the one message, open and nudge act on —
+// not whichever branch p.Holds happens to list first, so the remedy a
+// survey derives names the lane message actually reaches.
+func TestLaneForPicksTheLaneMessageTargetsAcrossHoldBranches(t *testing.T) {
+	p := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7", "plan/7-x"}}
+	remote := herdr.Lane{
+		Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas-z", PlanID: 7,
+	}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wA:p1"}, Repo: "atlas-a", PlanID: 7}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}:   remote,
+		{repo: "atlas", branch: "plan/7-x"}: local,
+	}
+
+	got, ok := laneFor(p, live)
+
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+	assert.False(t, attendanceFor(p, live).Remote,
+		"message reaches the local lane, which --ask can take")
+}
+
+// TestLaneBeforeOrdersByRepoPlanPaneThenHost: whoLanes' own order, with
+// the host as the last tie-break, since a pane id is unique only on its
+// own host — a local and a remote lane can match on everything else,
+// and the local one, which --ask can reach, sorts first.
+func TestLaneBeforeOrdersByRepoPlanPaneThenHost(t *testing.T) {
+	lane := func(repo string, id int64, pane, host string) herdr.Lane {
+		return herdr.Lane{
+			Pane: herdr.Pane{PaneID: pane, Host: herdr.Host(host)}, Repo: repo, PlanID: id,
+		}
+	}
+
+	assert.True(t, laneBefore(lane("atlas", 9, "wZ:p9", ""), lane("zephyr", 1, "wA:p1", "")))
+	assert.True(t, laneBefore(lane("atlas", 1, "wZ:p9", ""), lane("atlas", 9, "wA:p1", "")))
+	assert.True(t, laneBefore(lane("atlas", 7, "wA:p1", "box"), lane("atlas", 7, "wA:p2", "")))
+	assert.True(t, laneBefore(lane("atlas", 7, "wA:p1", ""), lane("atlas", 7, "wA:p1", "box")))
+	assert.False(t, laneBefore(lane("atlas", 7, "wA:p1", "box"), lane("atlas", 7, "wA:p1", "")))
+	assert.False(t, laneBefore(lane("atlas", 7, "wA:p1", ""), lane("atlas", 7, "wA:p1", "")))
+}
+
+// TestLaneFirstPutsALaneThisHostReachesFirst: a plan's live lanes are
+// chosen local first, whatever the basename or pane id says, since only
+// a local lane is one message and nudge can reach; between two lanes on
+// the same side, laneBefore's order decides.
+func TestLaneFirstPutsALaneThisHostReachesFirst(t *testing.T) {
+	remote := herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas-a", PlanID: 7}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wZ:p9"}, Repo: "atlas-z", PlanID: 7}
+	later := herdr.Lane{Pane: herdr.Pane{PaneID: "wZ:p9"}, Repo: "atlas-zz", PlanID: 7}
+
+	assert.True(t, laneFirst(local, remote), "the local lane wins though it sorts later")
+	assert.False(t, laneFirst(remote, local))
+	assert.True(t, laneFirst(local, later), "two local lanes keep laneBefore's order")
+	assert.False(t, laneFirst(later, local))
+}
+
+// TestLaneForPrefersALaneThisHostReaches: a stale remote pane — a fenced
+// lane awaiting its yield (S63) — that sorts ahead of the plan's live
+// local lane does not hide it: the survey reads the local lane, which
+// message can ask.
+func TestLaneForPrefersALaneThisHostReaches(t *testing.T) {
+	p := discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{"plan/7", "plan/7-x"}}
+	remote := herdr.Lane{
+		Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas-a", PlanID: 7,
+	}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Repo: "atlas-z", PlanID: 7}
+	live := map[repoBranch]herdr.Lane{
+		{repo: "atlas", branch: "plan/7"}:   remote,
+		{repo: "atlas", branch: "plan/7-x"}: local,
+	}
+
+	got, ok := laneFor(p, live)
+
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+}
+
+// TestKeepLiveLaneKeepsTheLaneThisHostReaches: two panes keyed to one
+// (repo, branch) — a stale remote one and the live local lane — keep the
+// local one whichever comes first, and otherwise the first seen.
+func TestKeepLiveLaneKeepsTheLaneThisHostReaches(t *testing.T) {
+	key := repoBranch{repo: "atlas", branch: "plan/7"}
+	remote := herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Repo: "atlas", PlanID: 7}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Repo: "atlas", PlanID: 7}
+	second := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p2"}, Repo: "atlas", PlanID: 7}
+
+	live := map[repoBranch]herdr.Lane{}
+	keepLiveLane(live, key, remote)
+	keepLiveLane(live, key, local)
+	keepLiveLane(live, key, second)
+
+	assert.Equal(t, local, live[key])
+}
+
+// TestFirstLiveLanePrefersALaneThisHostReaches: liveLaneFor's pick, the
+// lane message, open and nudge act on, is the local lane when one is on
+// the plan's hold branches in its own repository — a remote pane that
+// sorts first does not shadow it — and the first remote one otherwise.
+func TestFirstLiveLanePrefersALaneThisHostReaches(t *testing.T) {
+	holds := map[string]bool{"plan/7": true}
+	remote := herdr.Lane{
+		Pane: herdr.Pane{Host: "box", PaneID: "wA:p1"}, Root: "/r/atlas", Branch: "plan/7",
+	}
+	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wB:p1"}, Root: "/l/atlas", Branch: "plan/7"}
+	elsewhere := herdr.Lane{Pane: herdr.Pane{PaneID: "wA:p0"}, Root: "/l/orrery", Branch: "plan/7"}
+	repoOf := func(l herdr.Lane) string { return filepath.Base(l.Root) }
+
+	got, ok := firstLiveLane([]herdr.Lane{elsewhere, remote, local}, holds, "atlas", repoOf)
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+
+	got, ok = firstLiveLane([]herdr.Lane{remote}, holds, "atlas", repoOf)
+	require.True(t, ok)
+	assert.Equal(t, remote, got, "a remote lane alone is still the plan's live lane")
+
+	_, ok = firstLiveLane([]herdr.Lane{elsewhere, {Root: "", Branch: "plan/7"}}, holds, "atlas", repoOf)
+	assert.False(t, ok, "another repository's branch, or a lane with no root, is not this plan's")
+}
+
+// TestPrintWhoKeepsTwoRootsSharingABasename: two repositories whose
+// checkouts share a basename are two records, so both asks print — the
+// lane's repo label alone would fold them into one line.
+func TestPrintWhoKeepsTwoRootsSharingABasename(t *testing.T) {
+	doc := report.NewWho("/fleet")
+	for _, root := range []string{"/a/atlas", "/b/atlas"} {
+		doc.AddLane(herdr.Lane{
+			Pane: herdr.Pane{PaneID: "wC:p1", Agent: "claude"},
+			Root: root, Repo: "atlas", PlanID: 7,
+		})
+		doc.SetLastAsk("pending", "")
+	}
+	var buf bytes.Buffer
+
+	printWho(&buf, doc)
+
+	assert.Equal(t, 2, strings.Count(buf.String(), "7 (atlas): asked, no reply yet"))
+}
+
+// TestWhoReadsALanesAskOnceForTwoPanes: two agent panes on one lane
+// read the one record once, so a torn record is one problem, not one
+// per pane, and both lanes keep "none".
+func TestWhoReadsALanesAskOnceForTwoPanes(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	path, err := ask.Path(repo, 7, gitwt.Exec)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{torn"), 0o600))
+	second := idleLane(repo)
+	second["pane_id"] = "wC:p2"
+	withHerdr(t, herdrReturning(idleLane(repo), second))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	require.Len(t, doc.Lanes, 2)
+	assert.Len(t, doc.Problems, 1)
+	assert.Equal(t, "none", doc.Lanes[0].AskState)
+	assert.Equal(t, "none", doc.Lanes[1].AskState)
+}
+
+// TestWhoSharesOneReadAcrossALanesPanes: the answer read once is the
+// answer every pane on the lane carries.
+func TestWhoSharesOneReadAcrossALanesPanes(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Answer(repo, 7, "in PR #9", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	second := idleLane(repo)
+	second["pane_id"] = "wC:p2"
+	withHerdr(t, herdrReturning(idleLane(repo), second))
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", root)
+
+	require.Len(t, doc.Lanes, 2)
+	for _, lane := range doc.Lanes {
+		assert.Equal(t, "answered", lane.AskState, lane.Pane)
+		assert.Equal(t, "in PR #9", lane.Answer, lane.Pane)
+	}
+}
+
+// TestClearAskWarnsWhenTheRecordStays: a lane that ends clears its ask,
+// and a record that will not go is warned about rather than dropped.
+func TestClearAskWarnsWhenTheRecordStays(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	rt := &runtime{git: gitwt.Exec}
+	path, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	var warned []string
+	warn := func(s string) { warned = append(warned, s) }
+
+	clearAsk(rt, repo, 7, warn)
+	_, ok, err := ask.Read(path)
+	require.NoError(t, err)
+	assert.False(t, ok, "the ask is cleared")
+	assert.Empty(t, warned)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "x"), 0o750))
+	clearAsk(rt, repo, 7, warn)
+	require.Len(t, warned, 1)
+	assert.Contains(t, warned[0], "ask")
+}
+
+// TestWarnAskStaysWordsOnlyAFailure: an ask that went says nothing; one
+// that stayed is one warning naming why.
+func TestWarnAskStaysWordsOnlyAFailure(t *testing.T) {
+	var warned []string
+	warn := func(s string) { warned = append(warned, s) }
+
+	warnAskStays(nil, warn)
+	assert.Empty(t, warned)
+
+	warnAskStays(errors.New("busy"), warn)
+	assert.Equal(t, []string{"the lane's ask was not cleared: busy"}, warned)
+}
+
+// TestReleaseClearsTheLanesAsk: a released lane's ask goes with it, so
+// the board stops reporting a question to a lane that has ended.
+func TestReleaseClearsTheLanesAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "released plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the released lane's ask is cleared")
+}
+
+// TestReleaseClearsTheAskInTheLanesOwnClone: message --ask records the
+// ask in the lane's own clone, so release clears it there — not in the
+// fleet's checkout of the repository, which a lane in a separate clone
+// never shares a git dir with.
+func TestReleaseClearsTheAskInTheLanesOwnClone(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lane := filepath.Join(t.TempDir(), "atlas")
+	opts := claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: hostname(), Lane: lane}
+	lease, err := claim.Acquire(repo, opts, gitwt.Exec)
+	require.NoError(t, err)
+	origin, err := gitCapture(t, repo, "remote", "get-url", "origin")
+	require.NoError(t, err)
+	git(t, repo, "clone", "-q", "-b", "plan/7", strings.TrimSpace(origin), lane)
+	_, err = claim.Renew(repo, opts, lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	_, err = ask.Pose(lane, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(lane)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"release", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "released plan 7")
+	_, ok := askRecord(t, lane, 7)
+	assert.False(t, ok, "the ask in the lane's own clone is cleared")
+	assert.NotContains(t, out.String(), "not cleared")
+}
+
+// TestClaimClearsAStaleAsk: a fresh claim starts a new lane, which never
+// saw an earlier lane's question, so the old ask is cleared.
+func TestClaimClearsAStaleAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "claimed plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the new lane inherits no ask")
+}
+
+// TestYieldClearsTheLanesAsk: a yielded lane is torn down, and its ask
+// goes with it.
+func TestYieldClearsTheLanesAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	fenceWithATakeover(t, repo, 7)
+	git(t, repo, "checkout", "-q", "plan/7")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := yieldHerdr("w1A", repo)
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the yielded lane's ask is cleared")
+}
+
+// TestYieldClearsTheAskOfTheWorktreeItRemoves: herdr's teardown removes
+// the yielded lane's own worktree, so the ask is placed while that
+// worktree still stands — git cannot name the shared record from a
+// directory that is gone, and the ask would stay pending forever.
+func TestYieldClearsTheAskOfTheWorktreeItRemoves(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cr, _ := startHerdr()
+	withHerdr(t, cr)
+	var claimed bytes.Buffer
+	code := run([]string{"claim", "7", "--root", root}, &claimed, &claimed)
+	require.Equal(t, 0, code, claimed.String())
+	fenceWithATakeover(t, repo, 7)
+	lane := filepath.Join(t.TempDir(), "atlas-lane")
+	git(t, repo, "worktree", "add", "-q", lane, "plan/7")
+	_, err := ask.Pose(lane, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	base, _ := yieldHerdr("w1A", lane)
+	withHerdr(t, func(args ...string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+			git(t, repo, "worktree", "remove", "--force", lane)
+		}
+		return base(args...)
+	})
+	var out, errb bytes.Buffer
+
+	code = run([]string{"yield", "7", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.NoDirExists(t, lane, "herdr removed the lane's worktree")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the removed lane's ask is cleared")
+	assert.NotContains(t, out.String(), "not cleared")
+}
+
+// TestBoardFindsEachRepositorysAskDirOnce: a board of many plans in one
+// repository asks git for the ask directory once, not once per plan.
+func TestBoardFindsEachRepositorysAskDirOnce(t *testing.T) {
+	isolate(t)
+	repo := initRepo(t, t.TempDir(), "atlas")
+	calls := 0
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		for _, a := range args {
+			if a == "--git-common-dir" {
+				calls++
+			}
+		}
+		return gitwt.Exec(dir, args...)
+	}}
+	res := fleet.Result{Coords: map[string]fleet.Coord{"atlas": {Path: repo}}}
+	doc := report.NewBoard("/fleet", true)
+	dirs := map[string]askDir{}
+	for _, id := range []int64{7, 8, 9} {
+		p := discovery.Plan{Repo: "atlas", ID: id}
+		doc.AddPlan(p, report.Attendance{}, false)
+		boardAsk(rt, res, doc, p, dirs)
+	}
+
+	assert.Equal(t, 1, calls)
+}
+
+// TestBoardPlacesAFailedAskDirOnce: a repository whose ask directory
+// git cannot place costs one git call and one problem, not one of each
+// per plan, and every row keeps "none".
+func TestBoardPlacesAFailedAskDirOnce(t *testing.T) {
+	calls := 0
+	rt := &runtime{git: func(dir string, args ...string) ([]byte, error) {
+		calls++
+		return gitwt.Exec(dir, args...)
+	}}
+	res := fleet.Result{Coords: map[string]fleet.Coord{"atlas": {Path: t.TempDir()}}}
+	doc := report.NewBoard("/fleet", true)
+	dirs := map[string]askDir{}
+	for _, id := range []int64{7, 8, 9} {
+		p := discovery.Plan{Repo: "atlas", ID: id}
+		doc.AddPlan(p, report.Attendance{}, false)
+		boardAsk(rt, res, doc, p, dirs)
+	}
+
+	assert.Equal(t, 1, calls)
+	assert.Len(t, doc.Problems, 1)
+	for _, p := range doc.Plans {
+		assert.Equal(t, "none", p.AskState, p.ID)
+	}
+}
+
+// TestStartGoClearsAStaleAsk: a fresh start stands up a new lane, which
+// never saw an earlier lane's question.
+func TestStartGoClearsAStaleAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "started plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.False(t, ok, "the new lane inherits no ask")
+}
+
+// TestStartResumeKeepsTheLanesAsk: a resume is the same lane carrying
+// on, so a question put to it still waits for its answer.
+func TestStartResumeKeepsTheLanesAsk(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, _ := liveLaneHerdr(t, repo, claim.Branch(7))
+	withHerdr(t, runner)
+	var claimed struct {
+		Worktree string `json:"worktree"`
+	}
+	emit(t, &claimed, "claim", "7", "--root", root)
+	require.NotEmpty(t, claimed.Worktree)
+	_, err := ask.Pose(repo, 7, "status?", time.Now(), gitwt.Exec)
+	require.NoError(t, err)
+	t.Chdir(claimed.Worktree)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	require.Contains(t, out.String(), "resumed plan 7")
+	_, ok := askRecord(t, repo, 7)
+	assert.True(t, ok, "the resumed lane's ask stands")
+}
+
+// remoteIdleLane is an idle lane on host box whose pane id a local pane
+// could share — the shape a send through this host's herdr would land
+// in the wrong pane for. Idle, so nudge's refusal of it can only be the
+// remote one, never its not-idle refusal.
+func remoteIdleLane(t *testing.T) herdr.Lane {
+	t.Helper()
+
+	return herdr.Lane{
+		Pane: herdr.Pane{
+			PaneID: "wC:p1", Host: "box", Agent: "claude",
+			Status: herdr.StatusIdle,
+		},
+		Root: t.TempDir(), Branch: "plan/7",
+	}
+}
+
+// TestLaneReachesOnlyALaneOnThisHost: message and nudge send through
+// this host's herdr, so they reach only a lane here; remoteRefusal
+// names the host to run the verb on instead.
+func TestLaneReachesOnlyALaneOnThisHost(t *testing.T) {
+	assert.True(t, laneReaches(herdr.Lane{}))
+	assert.False(t, laneReaches(herdr.Lane{Pane: herdr.Pane{Host: "box"}}))
+
+	got := remoteRefusal(remoteIdleLane(t))
+	assert.Contains(t, got, "this host")
+	assert.Contains(t, got, "box")
+}
+
+// TestMessageSendRefusesALaneOnAnotherHost: any message — an ask or a
+// plain one — to a lane another host runs is refused before anything
+// is recorded or sent, since this host's herdr would deliver it to
+// whatever local pane shares the id.
+func TestMessageSendRefusesALaneOnAnotherHost(t *testing.T) {
+	for _, askFlag := range []bool{true, false} {
+		runner, rec := recordingHerdr()
+		rt := &runtime{git: gitwt.Exec, herdr: runner}
+		m := &messageCmd{Selector: "7", Text: "status?", Ask: askFlag, Go: true}
+		doc := report.NewMessage("/fleet", "atlas", 7, "t", "status?", true)
+
+		err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, remoteIdleLane(t), true)
+
+		require.NoError(t, err)
+		assert.Contains(t, doc.Refused, "box", "ask=%v", askFlag)
+		assert.False(t, doc.Sent)
+		assert.False(t, rec.verb("agent", "prompt"))
+	}
+}
+
+// TestNudgeSendRefusesALaneOnAnotherHost: nudge prompts through this
+// host's herdr too, so an idle lane on another host is refused rather
+// than prompted into a local pane that shares its id.
+func TestNudgeSendRefusesALaneOnAnotherHost(t *testing.T) {
+	runner, rec := recordingHerdr()
+	rt := &runtime{git: gitwt.Exec, herdr: runner}
+	n := &nudgeCmd{Selector: "7", Go: true}
+	doc := report.NewNudge("/fleet", "atlas", 7, "t", "1", "sonnet",
+		"/plan-phase 7 1", true)
+
+	err := nudgeSend(rt, n, doc, discovery.Plan{ID: 7}, remoteIdleLane(t), true,
+		"/plan-phase 7 1")
+
+	require.NoError(t, err)
+	assert.Contains(t, doc.Refused, "box")
+	assert.False(t, doc.Sent)
+	assert.False(t, rec.verb("agent", "prompt"))
+}
+
+// TestResumeRefusalNamesTheHostToAskFrom: start's deserted refusal for a
+// lane another host runs points the reader at that host, where the ask
+// can reach it, rather than at a message this host would refuse.
+func TestResumeRefusalNamesTheHostToAskFrom(t *testing.T) {
+	reason := resumeRefusal(discovery.Plan{ID: 7}, remoteIdleLane(t))
+
+	assert.Contains(t, reason, "on box")
+	assert.Contains(t, reason, "`"+report.AskCommand(7)+"`")
+	assert.Contains(t, reason, "frit yield 7")
+	assert.NotContains(t, reason, "frit open 7",
+		"open focuses through this host's herdr too, so it is not offered")
 }

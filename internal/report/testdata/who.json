@@ -13,7 +13,9 @@
       "workspace": "wC",
       "session": "8e6a81ff-63e8-410c-ac6c",
       "pane": "wC:p1",
-      "title": "Land the herdr join"
+      "title": "Land the herdr join",
+      "ask_state": "pending",
+      "answer": ""
     },
     {
       "agent": "pi",
@@ -25,7 +27,9 @@
       "workspace": "wP",
       "session": "",
       "pane": "wP:p2",
-      "title": "off the record"
+      "title": "off the record",
+      "ask_state": "none",
+      "answer": ""
     }
   ],
   "problems": []

@@ -191,3 +191,19 @@ func TestPathIsBesideThePresenceCache(t *testing.T) {
 	assert.Equal(t, filepath.Dir(presPath), filepath.Dir(obsPath))
 	assert.Equal(t, "observations.json", filepath.Base(obsPath))
 }
+
+// TestSaveSurfacesACreateTempFailure: the temp file Save stages the
+// state in cannot be made — driven through the createTemp seam, so the
+// check holds for every user, root included, which the permission bit
+// in TestSaveFailsWhenTempFileCannotBeCreated cannot stop.
+func TestSaveSurfacesACreateTempFailure(t *testing.T) {
+	restore := createTemp
+	createTemp = func(string, string) (tempFile, error) {
+		return nil, assert.AnError
+	}
+	t.Cleanup(func() { createTemp = restore })
+
+	err := Save(filepath.Join(t.TempDir(), "observations.json"), State{})
+
+	assert.ErrorIs(t, err, assert.AnError)
+}

@@ -54,3 +54,39 @@ func TestWhoKeepsAnUnreachableSocket(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
+
+// TestWhoAddLaneReportsNoAskByDefault: every lane carries ask_state and
+// answer, "none" and empty until SetAsk says otherwise.
+func TestWhoAddLaneReportsNoAskByDefault(t *testing.T) {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, PlanID: 7})
+
+	assert.Equal(t, "none", doc.Lanes[0].AskState)
+	assert.Empty(t, doc.Lanes[0].Answer)
+}
+
+// TestWhoSetLastAskMarksTheLaneJustAdded: a pane id is unique only on
+// its own host, so SetLastAsk marks the lane AddLane just recorded,
+// never an earlier lane from another host that shares its pane id.
+func TestWhoSetLastAskMarksTheLaneJustAdded(t *testing.T) {
+	doc := NewWho("/fleet")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{Host: "box", PaneID: "wC:p1"}, PlanID: 5})
+	doc.SetLastAsk("none", "")
+	doc.AddLane(herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, PlanID: 7})
+
+	doc.SetLastAsk("answered", "in PR #9")
+
+	assert.Equal(t, "none", doc.Lanes[0].AskState)
+	assert.Equal(t, "answered", doc.Lanes[1].AskState)
+	assert.Equal(t, "in PR #9", doc.Lanes[1].Answer)
+}
+
+// TestWhoSetLastAskWithNoLaneIsANoOp: with nothing added there is no
+// lane to mark, and nothing panics.
+func TestWhoSetLastAskWithNoLaneIsANoOp(t *testing.T) {
+	doc := NewWho("/fleet")
+
+	doc.SetLastAsk("pending", "")
+
+	assert.Empty(t, doc.Lanes)
+}

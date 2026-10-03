@@ -464,25 +464,82 @@ func boardUnproven(
 
 // boardAsk carries where a `frit message --ask` to p's lane stands onto
 // its row, read from this host's own checkout of p's repository — the
-// same file the lane's `frit reply` writes. A plan with no checkout
-// here keeps "none"; a record frit cannot read is carried as a problem
-// rather than read as never asked.
-func boardAsk(rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan) {
+// same file the lane's `frit reply` writes. dirs caches each
+// repository's ask directory, or the failure to find it, so a board of
+// many plans asks git once per repository and carries one problem for
+// it, not one per plan. A plan with no checkout here keeps "none"; a
+// record frit cannot read is carried as a problem rather than read as
+// never asked.
+func boardAsk(
+	rt *runtime, res fleet.Result, doc *report.BoardDoc, p discovery.Plan,
+	dirs map[string]askDir,
+) {
 	coord, ok := res.Coords[p.Repo]
 	if !ok {
 		return
 	}
-	path, err := ask.Path(coord.Path, p.ID, rt.git)
+	dir, cached := dirs[p.Repo]
+	if !cached {
+		dir.path, dir.err = ask.Dir(coord.Path, rt.git)
+		dirs[p.Repo] = dir
+		if dir.err != nil {
+			doc.AddProblem(p.Repo, dir.err)
+		}
+	}
+	if dir.err != nil {
+		return
+	}
+	state, answer, err := readAskFile(ask.File(dir.path, p.ID))
 	if err != nil {
 		doc.AddProblem(p.Repo, err)
 		return
 	}
+	doc.SetAsk(p.Repo, p.ID, state, answer)
+}
+
+// askDir is one repository's ask directory as boardAsk found it, or the
+// error finding it gave.
+type askDir struct {
+	path string
+	err  error
+}
+
+// readAsk reads where an ask to planID stands, and its answer, from any
+// checkout of its repository — the one record board and who both
+// show. A record frit cannot place or parse is an error, never "none".
+func readAsk(rt *runtime, checkout string, planID int64) (string, string, error) {
+	path, err := ask.Path(checkout, planID, rt.git)
+	if err != nil {
+		return ask.StateNone, "", err
+	}
+
+	return readAskFile(path)
+}
+
+// readAskFile reads the ask record at path as a state and its answer.
+func readAskFile(path string) (string, string, error) {
 	rec, found, err := ask.Read(path)
 	if err != nil {
-		doc.AddProblem(p.Repo, err)
-		return
+		return ask.StateNone, "", err
 	}
-	doc.SetAsk(p.Repo, p.ID, ask.StateOf(rec, found), rec.Answer)
+
+	return ask.StateOf(rec, found), rec.Answer, nil
+}
+
+// clearAsk clears planID's ask when its lane ends — release, yield, or
+// a fresh claim that starts a new lane — so no later lane inherits a
+// question it never saw, and the board stops reporting one. A record
+// that will not go is warned about through warn, never dropped.
+func clearAsk(rt *runtime, checkout string, planID int64, warn func(string)) {
+	warnAskStays(ask.Clear(checkout, planID, rt.git), warn)
+}
+
+// warnAskStays warns through warn when an ask that should have gone
+// with its lane stays, so every clear words the failure one way.
+func warnAskStays(err error, warn func(string)) {
+	if err != nil {
+		warn(fmt.Sprintf("the lane's ask was not cleared: %v", err))
+	}
 }
 
 // tokenlessIDs resolves, once, every plan id this host's own
@@ -1052,8 +1109,25 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 		for _, p := range hostProbs {
 			doc.AddProblem(p.name, p.err)
 		}
+		// Two agent panes on one lane read the one record: it is read
+		// once per (host, root, plan), so it costs one git call and a
+		// torn record is one problem, not one per pane.
+		asks := map[string]askRead{}
 		for _, lane := range whoLanes(panes, rt.git) {
 			doc.AddLane(lane)
+			key := string(lane.Pane.Host) + "\x00" + lane.Root + "\x00" +
+				strconv.FormatInt(lane.PlanID, 10)
+			got, seen := asks[key]
+			if !seen {
+				got.state, got.answer, got.err = whoAsk(rt, lane)
+				asks[key] = got
+				if got.err != nil {
+					doc.AddProblem(lane.Repo, got.err)
+				}
+			}
+			if got.err == nil {
+				doc.SetLastAsk(got.state, got.answer)
+			}
 		}
 	}
 
@@ -1066,11 +1140,30 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
+// whoAsk reads where an ask to lane's plan stands, from the lane's own
+// checkout — the file its `frit reply` writes. A lane on another host,
+// or one whose branch names no plan, reads "none" without touching
+// git: this host holds no record for it.
+func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
+	if !laneReaches(lane) || !lane.HasPlan() {
+		return ask.StateNone, "", nil
+	}
+
+	return readAsk(rt, lane.Root, lane.PlanID)
+}
+
+// askRead is one readAsk result, kept so every pane on a lane shares
+// it.
+type askRead struct {
+	state, answer string
+	err           error
+}
+
 // whoLanes keeps the panes with an agent, resolves each to its lane,
-// and orders them so the board reads the same way twice: by repository,
-// then plan, then pane. Each pane is resolved against its own host's
-// git, so a pane read from another machine lands on the right lane
-// rather than being lost or misresolved by the local git.
+// and orders them by laneBefore so the board reads the same way twice.
+// Each pane is resolved against its own host's git, so a pane read
+// from another machine lands on the right lane rather than being lost
+// or misresolved by the local git.
 func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 	staffed := make([]herdr.Pane, 0, len(panes))
 	for _, p := range panes {
@@ -1080,18 +1173,42 @@ func whoLanes(panes []herdr.Pane, git gitwt.Runner) []herdr.Lane {
 	}
 
 	lanes := herdr.Join(staffed, gitForHost(git), holdsForRoot)
-	sort.Slice(lanes, func(i, j int) bool {
-		if lanes[i].Repo != lanes[j].Repo {
-			return lanes[i].Repo < lanes[j].Repo
-		}
-		if lanes[i].PlanID != lanes[j].PlanID {
-			return lanes[i].PlanID < lanes[j].PlanID
-		}
-
-		return lanes[i].Pane.PaneID < lanes[j].Pane.PaneID
-	})
+	sort.Slice(lanes, func(i, j int) bool { return laneBefore(lanes[i], lanes[j]) })
 
 	return lanes
+}
+
+// laneBefore is whoLanes' order: by repository, then plan, then pane,
+// then host. A pane id is unique only on its own host, so a local and
+// a remote lane can tie on the rest; the host breaks it, the local one
+// first, so the order is total and never left to an unstable sort.
+func laneBefore(a, b herdr.Lane) bool {
+	if a.Repo != b.Repo {
+		return a.Repo < b.Repo
+	}
+	if a.PlanID != b.PlanID {
+		return a.PlanID < b.PlanID
+	}
+	if a.Pane.PaneID != b.Pane.PaneID {
+		return a.Pane.PaneID < b.Pane.PaneID
+	}
+
+	return a.Pane.Host < b.Pane.Host
+}
+
+// laneFirst is the order a plan's live lanes are chosen in: a lane on
+// this host ahead of one on another, whatever its basename or pane id,
+// since only a local lane is one message and nudge can reach — a stale
+// remote pane, a fenced lane awaiting its yield, must not shadow the
+// live local one. Between two lanes on the same side, laneBefore
+// decides. liveLaneFor, liveByBranch and laneFor all choose by it, so
+// "the first lane" each names is one lane.
+func laneFirst(a, b herdr.Lane) bool {
+	if laneReaches(a) != laneReaches(b) {
+		return laneReaches(a)
+	}
+
+	return laneBefore(a, b)
 }
 
 // holdsForRoot reads a worktree root's hold patterns. A root with a
@@ -1127,6 +1244,16 @@ func printWho(out io.Writer, doc *report.WhoDoc) {
 			lane.Agent, lane.Status, lane.Title)
 	}
 	_ = tw.Flush()
+	asks := make([]askRow, 0, len(doc.Lanes))
+	for _, lane := range doc.Lanes {
+		asks = append(asks, askRow{
+			repo: lane.Repo, root: lane.Root, id: lane.PlanID,
+			state: lane.AskState, answer: lane.Answer,
+		})
+	}
+	for _, line := range askLines(asks) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 }
 
 // repoLabel names the repository a lane sits in, or says plainly that
@@ -1172,24 +1299,11 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 	paths := []string{cfgPath}
 
 	if i.Mdsmith {
-		cfg, err := repocfg.Load(i.Dir)
+		written, err := scaffoldMdsmith(i.Dir, i.Force)
 		if err != nil {
 			return err
 		}
-		mdsmithPath, err := scaffold.WriteMdsmithConfig(i.Dir, i.Force)
-		if err != nil {
-			return err
-		}
-		protoPath, err := scaffold.WriteProto(
-			filepath.Join(i.Dir, cfg.PlanDir), i.Force)
-		if err != nil {
-			return err
-		}
-		indexPath, err := scaffold.WritePlanIndex(i.Dir, i.Force)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, mdsmithPath, protoPath, indexPath)
+		paths = append(paths, written...)
 	}
 
 	if c.JSON {
@@ -1200,6 +1314,32 @@ func (i *initCmd) Run(c *cli, rt *runtime) error {
 	}
 
 	return nil
+}
+
+// scaffoldMdsmith lays down the mdsmith machinery in dir — its config,
+// the plan template under the repository's own plan dir, and the plan
+// index — and returns the paths it wrote. It reads dir's .frit.yml for
+// the plan dir, so a config that will not load stops it before any
+// file is written.
+func scaffoldMdsmith(dir string, force bool) ([]string, error) {
+	cfg, err := repocfg.Load(dir)
+	if err != nil {
+		return nil, err
+	}
+	mdsmithPath, err := scaffold.WriteMdsmithConfig(dir, force)
+	if err != nil {
+		return nil, err
+	}
+	protoPath, err := scaffold.WriteProto(filepath.Join(dir, cfg.PlanDir), force)
+	if err != nil {
+		return nil, err
+	}
+	indexPath, err := scaffold.WritePlanIndex(dir, force)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{mdsmithPath, protoPath, indexPath}, nil
 }
 
 type skillsCmd struct {
@@ -1882,7 +2022,7 @@ func (r *readyCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {
@@ -1928,7 +2068,7 @@ func (pc *pickCmd) Run(c *cli, rt *runtime) error {
 	doc.SetGather(gatherStatus(res))
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	if c.JSON {
 		return report.WriteJSON(rt.stdout, doc)
@@ -2229,13 +2369,13 @@ func (b *boardCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHostProblems(doc, hostProbs)
 	unprovenCache := map[string]map[int64]bool{}
+	askDirs := map[string]askDir{}
 	for _, p := range list {
-		agent, status := agentFor(p, live)
-		doc.AddPlan(p, agent, status, unknown)
+		doc.AddPlan(p, attendanceFor(p, live), unknown)
 		if boardUnproven(rt, res, p, unprovenCache) {
 			doc.MarkUnproven(p.Repo, p.ID)
 		}
-		boardAsk(rt, res, doc, p)
+		boardAsk(rt, res, doc, p, askDirs)
 	}
 
 	doc.SetGather(gatherStatus(res))
@@ -2280,7 +2420,12 @@ func laneRepo(lane herdr.Lane, git gitwt.Runner) string {
 // list is resolved once per distinct root — two panes in the same
 // lane, e.g. two terminals on one worktree, share the answer rather
 // than each paying their own git call (an ssh round trip, for a
-// remote pane).
+// remote pane). When several panes share one (repository, branch) —
+// two terminals on a lane, or a pane left on another host — the first
+// in laneFirst's order is kept (keepLiveLane), the one liveLaneFor
+// finds; laneFor keeps that order across a plan's hold branches, so
+// the agent and ask a survey names belong to the lane message actually
+// reaches.
 func liveByBranch(
 	c *cli, rt *runtime,
 ) (map[repoBranch]herdr.Lane, []hostProblem, error) {
@@ -2301,61 +2446,63 @@ func liveByBranch(
 			repo = laneRepo(lane, rt.git)
 			repos[rootKey] = repo
 		}
-		live[repoBranch{repo: repo, branch: lane.Branch}] = lane
+		keepLiveLane(live, repoBranch{repo: repo, branch: lane.Branch}, lane)
 	}
 
 	return live, probs, nil
 }
 
+// keepLiveLane records lane under key unless the lane already kept
+// there comes first in laneFirst's order, so a stale remote pane never
+// displaces — nor is kept ahead of — the live local lane on the same
+// branch.
+func keepLiveLane(live map[repoBranch]herdr.Lane, key repoBranch, lane herdr.Lane) {
+	if kept, seen := live[key]; !seen || laneFirst(lane, kept) {
+		live[key] = lane
+	}
+}
+
 // laneFor finds the live lane on one of a plan's hold branches, in the
 // plan's own repository, if any is live. A plan nobody holds has no
-// lane to be worked on, so it reports none. agentFor and attendedFor
-// both ask this same question — which of a plan's branches is live
-// now — and differ only in what they read off the answer, so they
-// share this one walk of p.Holds rather than each keeping its own
-// copy.
+// lane to be worked on, so it reports none. When more than one hold
+// branch is live, the lane first in laneFirst's order wins, whatever
+// order p.Holds lists the branches in: that is the lane liveLaneFor
+// finds, so the attendance a survey reads, and the ask it names,
+// belong to the lane message actually reaches.
 func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool) {
+	var first herdr.Lane
+	found := false
 	for _, branch := range p.Holds {
-		if lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]; ok {
-			return lane, true
+		lane, ok := live[repoBranch{repo: p.Repo, branch: branch}]
+		if ok && (!found || laneFirst(lane, first)) {
+			first, found = lane, true
 		}
 	}
 
-	return herdr.Lane{}, false
+	return first, found
 }
 
-// agentFor finds the agent working one of a plan's hold branches, if
-// any is live. A plan nobody holds has no lane to be worked on, so it
-// reports none.
-func agentFor(
-	p discovery.Plan, live map[repoBranch]herdr.Lane,
-) (agent, status string) {
-	if lane, ok := laneFor(p, live); ok {
-		return lane.Pane.Agent, lane.Pane.Presence()
+// attendanceFor reads the live lane on one of a plan's hold branches —
+// the one laneFor picks, which message also reaches — as the survey
+// builds from it: the agent, the pane's status as herdr reported it,
+// and whether it runs on another host. The zero value means no lane is
+// live. A pane herdr reports with no agent attached still carries its
+// status, which is what clears a card's Dead; the status is never
+// rewritten — withholding an ask off an incomplete presence read is
+// the report's own job, downstream of this call. Remote reads
+// laneReaches, message's own rule, so the remedy the report composes
+// and message's refusal never drift.
+func attendanceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) report.Attendance {
+	lane, ok := laneFor(p, live)
+	if !ok {
+		return report.Attendance{}
 	}
 
-	return "", ""
-}
-
-// presenceFor reports what the live pane on one of a plan's hold
-// branches is doing now — working, idle or unknown — or "" when none
-// is there. A non-empty answer is the fact that clears a rendered
-// Dead, since a pane there disproves "nobody is here" regardless of
-// what it is doing; the status itself is what decides whether that
-// pane can be asked, since message refuses one herdr cannot vouch
-// for. It reads lane presence directly rather than agentFor's returned
-// agent so that a live pane herdr ever reports with no agent attached
-// still counts as attended. It never rewrites the status itself —
-// board's agent_status column reports exactly what herdr saw whether
-// or not this call's presence read was complete; withholding the ask
-// on an incomplete read is askOf's own second input, not a reason to
-// misreport what a pane herdr did see is doing.
-func presenceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) string {
-	if lane, ok := laneFor(p, live); ok {
-		return lane.Pane.Presence()
+	return report.Attendance{
+		Agent:  lane.Pane.Agent,
+		Status: lane.Pane.Presence(),
+		Remote: !laneReaches(lane),
 	}
-
-	return ""
 }
 
 // boardRow is one board line's cells, computed once so the title can be
@@ -2508,6 +2655,15 @@ func printBoard(
 	for _, line := range boardUnprovenLines(doc.Plans) {
 		_, _ = fmt.Fprintln(out, line)
 	}
+	asks := make([]askRow, 0, len(doc.Plans))
+	for _, p := range doc.Plans {
+		asks = append(asks, askRow{
+			repo: p.Repo, id: p.ID, state: p.AskState, answer: p.Answer,
+		})
+	}
+	for _, line := range askLines(asks) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 }
 
 // boardUnprovenLines names, one line per plan, the way out for a held
@@ -2537,8 +2693,10 @@ func boardUnprovenLines(plans []report.BoardPlan) []string {
 // it keys no marker, it points the reader at the one party who can
 // settle the lane, ahead of `frit yield` or a hand-landing. The dead
 // clause is foreignHoldRefusal's and the legend's own wording, so a
-// reader meets one phrasing of that fact everywhere. Empty when no
-// row carries an ask, so an unambiguous board pays nothing extra.
+// reader meets one phrasing of that fact everywhere. The command ends
+// the line, so copying from it to the end of the line copies only
+// what runs. Empty when no row carries an ask, so an unambiguous board
+// pays nothing extra.
 func boardAsks(plans []report.BoardPlan) []string {
 	var lines []string
 	for _, p := range plans {
@@ -2546,11 +2704,73 @@ func boardAsks(plans []report.BoardPlan) []string {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf(
-			"%d: the bound session is confirmed gone but %s still attends it; "+
-				"ask before yielding: %s", p.ID, p.Agent, p.Ask))
+			"%d: the bound session is confirmed gone but %s still attends it, "+
+				"and no reply is not evidence it is gone; ask before yielding: %s",
+			p.ID, p.Agent, p.Ask))
 	}
 
 	return lines
+}
+
+// askRow is the part of a board row or a who lane the ask lines read:
+// the plan, and where an ask to it stands. root is a who lane's
+// checkout, empty on the board: a lane's repo is its checkout's
+// basename, which two repositories can share, so who tells their
+// records apart by root.
+type askRow struct {
+	repo   string
+	root   string
+	id     int64
+	state  string
+	answer string
+}
+
+// askLines names, one line per asked plan, where its ask stands — the
+// shared tail of the board and who tables, read off the same fields
+// --json carries. A pending ask says plainly that silence is not
+// evidence the lane is gone, the misread an unanswered ping invited
+// (issue #198); an answered one prints the answer. A plan never asked
+// prints nothing, so a quiet table pays nothing extra. Two agent panes
+// on one lane read the one record and print their line once; the same
+// plan id in two repositories (S74) is two asks, and prints twice.
+func askLines(rows []askRow) []string {
+	type planKey struct {
+		repo, root string
+		id         int64
+	}
+	var lines []string
+	seen := map[planKey]bool{}
+	for _, r := range rows {
+		key := planKey{r.repo, r.root, r.id}
+		if seen[key] {
+			continue
+		}
+		var line string
+		switch r.state {
+		case ask.StatePending:
+			line = askLabel(r) +
+				": asked, no reply yet — silence is not evidence the lane is gone"
+		case ask.StateAnswered:
+			line = fmt.Sprintf("%s: answered: %q", askLabel(r), r.answer)
+		default:
+			continue
+		}
+		seen[key] = true
+		lines = append(lines, line)
+	}
+
+	return lines
+}
+
+// askLabel names the plan an ask line is about: its id, and its
+// repository when known — a plan id is unique only within one, so two
+// repositories' answers to plan 7 must never read as one another's.
+func askLabel(r askRow) string {
+	if r.repo == "" {
+		return strconv.FormatInt(r.id, 10)
+	}
+
+	return fmt.Sprintf("%d (%s)", r.id, r.repo)
 }
 
 // boardLegend explains the `(stale …)` and `(dead)` hold markers when
@@ -2790,7 +3010,7 @@ func (f *findCmd) Run(c *cli, rt *runtime) error {
 	carryProblems(doc, res.Problems, c.All)
 	carryHerdrProblem(doc, liveErr)
 	carryHostProblems(doc, hostProbs)
-	doc.SetPlans(list, func(p discovery.Plan) string { return presenceFor(p, live) }, unknown)
+	doc.SetPlans(list, func(p discovery.Plan) report.Attendance { return attendanceFor(p, live) }, unknown)
 
 	doc.SetGather(gatherStatus(res))
 	if c.JSON {

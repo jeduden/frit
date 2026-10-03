@@ -2142,3 +2142,17 @@ func TestExitCodeFromPanicMatchesOnlyExitCode(t *testing.T) {
 	_, ok = exitCodeFromPanic(errors.New("boom"))
 	assert.False(t, ok)
 }
+
+// TestScaffoldMdsmithSurfacesAConfigItCannotLoad: the mdsmith scaffold
+// reads the repository's .frit.yml for its plan dir, and a file that
+// will not parse stops it — a unit-level check that holds for root
+// too, unlike the permission bit the run-level test leans on.
+func TestScaffoldMdsmithSurfacesAConfigItCannotLoad(t *testing.T) {
+	repo := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("plan-dir: [unterminated\n"), 0o600))
+
+	_, err := scaffoldMdsmith(repo, false)
+
+	assert.Error(t, err)
+}

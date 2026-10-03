@@ -131,17 +131,37 @@ func liveLaneFor(
 	for _, branch := range p.Holds {
 		holds[branch] = true
 	}
+	lane, found := firstLiveLane(whoLanes(panes, rt.git), holds, p.Repo,
+		func(l herdr.Lane) string { return laneRepo(l, rt.git) })
 
-	for _, lane := range whoLanes(panes, rt.git) {
+	return lane, found, probs, nil
+}
+
+// firstLiveLane picks, from lanes, the one on a branch in holds whose
+// repository (repoOf) is repo, first in laneFirst's order: a local lane
+// ahead of any remote one, so a stale pane on another host never
+// shadows the lane message and nudge can reach. repoOf costs a git
+// call — an ssh round trip for a remote pane — so it is asked only of
+// a lane that would beat the one already found.
+func firstLiveLane(
+	lanes []herdr.Lane, holds map[string]bool, repo string,
+	repoOf func(herdr.Lane) string,
+) (herdr.Lane, bool) {
+	var first herdr.Lane
+	found := false
+	for _, lane := range lanes {
 		if lane.Root == "" || lane.Branch == "" || !holds[lane.Branch] {
 			continue
 		}
-		if laneRepo(lane, rt.git) == p.Repo {
-			return lane, true, probs, nil
+		if found && !laneFirst(lane, first) {
+			continue
+		}
+		if repoOf(lane) == repo {
+			first, found = lane, true
 		}
 	}
 
-	return herdr.Lane{}, false, probs, nil
+	return first, found
 }
 
 // printOpen reports the pane open raised, or that no lane was live to
@@ -302,6 +322,9 @@ func nudgeSend(
 	switch {
 	case !found:
 		doc.Refuse(fmt.Sprintf("no live lane for plan %d", plan.ID))
+	case !laneReaches(lane):
+		doc.SetTarget(lane.Pane.PaneID)
+		doc.Refuse(remoteRefusal(lane))
 	case lane.Pane.Presence() != herdr.StatusIdle:
 		doc.SetTarget(lane.Pane.PaneID)
 		doc.Refuse(fmt.Sprintf("lane %s is %s, not idle",
@@ -346,7 +369,7 @@ func printNudge(out io.Writer, doc *report.NudgeDoc) {
 type messageCmd struct {
 	Selector string `arg:"" help:"Plan id or slug."`
 	Text     string `arg:"" help:"Text to send to the lane's live agent; put -- before text starting with a dash."`
-	Ask      bool   `help:"Tell the agent a reply is wanted and record the ask; frit board shows the answer."`
+	Ask      bool   `help:"Ask for a reply; who shows it, and board when the lane is a worktree of this clone."`
 	Go       bool   `help:"Send the text; without it, message only prints what it would send."`
 }
 
@@ -430,10 +453,10 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 // herdr could not read at all is refused just as nudgeSend refuses it,
 // though: Pane.Presence's own rule is that an unrecognised status reads
 // as StatusUnknown, never a false idle, and message asking a pane herdr
-// cannot vouch for is no safer than nudge prompting one. An ask is
-// refused for a lane on another host, whose reply this host would
-// never read. A send that fails is surfaced rather than reported as
-// done.
+// cannot vouch for is no safer than nudge prompting one. A lane on
+// another host is refused outright, ask or not: this host's herdr
+// would deliver the text to whatever local pane shares its id. A send
+// that fails is surfaced rather than reported as done.
 func messageSend(
 	rt *runtime, m *messageCmd, doc *report.MessageDoc,
 	plan discovery.Plan, lane herdr.Lane, found bool,
@@ -441,13 +464,13 @@ func messageSend(
 	switch {
 	case !found:
 		doc.Refuse(fmt.Sprintf("no live lane for plan %d", plan.ID))
+	case !laneReaches(lane):
+		doc.SetTarget(lane.Pane.PaneID)
+		doc.Refuse(remoteRefusal(lane))
 	case lane.Pane.Presence() == herdr.StatusUnknown:
 		doc.SetTarget(lane.Pane.PaneID)
 		doc.Refuse(fmt.Sprintf("lane %s is %s, not idle or working",
 			lane.Branch, lane.Pane.Presence()))
-	case m.Ask && askRefusal(lane) != "":
-		doc.SetTarget(lane.Pane.PaneID)
-		doc.Refuse(askRefusal(lane))
 	default:
 		doc.SetTarget(lane.Pane.PaneID)
 		if m.Go {
@@ -487,17 +510,22 @@ func promptMessage(
 	return nil
 }
 
-// askRefusal is why an ask cannot go to lane, empty when it can. The
-// ask record and its reply are files on this host, so a lane another
-// host runs could answer only into its own checkout, which this host
-// never reads — the ask would read pending forever.
-func askRefusal(lane herdr.Lane) string {
-	if lane.Pane.Host == "" {
-		return ""
-	}
+// laneReaches reports whether frit can act on lane from here: only a
+// lane on this host. message and nudge prompt through this host's
+// herdr by pane id alone, and a pane id is unique only on its own
+// host, so a send to a remote lane would land in whatever local pane
+// shares the id. The ask's record and reply are this host's files
+// too. message, nudge, start's refusal, the survey and who all ask
+// this one question, so they never drift apart.
+func laneReaches(lane herdr.Lane) bool {
+	return lane.Pane.Host == ""
+}
 
+// remoteRefusal is why message and nudge refuse a lane on another
+// host, naming the host to run them on instead.
+func remoteRefusal(lane herdr.Lane) string {
 	return fmt.Sprintf(
-		"--ask reaches only a lane on this host; lane %s is on %s",
+		"frit reaches only a lane on this host; lane %s is on %s — run it there",
 		lane.Branch, lane.Pane.Host)
 }
 

@@ -48,14 +48,32 @@ type Record struct {
 // Path is where a repository keeps the ask record for a plan: one file
 // per plan under the common git dir, so every checkout of the
 // repository — the main one and each linked lane — names the same
-// file.
+// file. A lane in a separate clone has its own common dir, so an ask
+// and its reply meet only through worktrees of one clone.
 func Path(checkout string, planID int64, run gitwt.Runner) (string, error) {
+	d, err := Dir(checkout, run)
+	if err != nil {
+		return "", err
+	}
+
+	return File(d, planID), nil
+}
+
+// Dir is the directory a repository keeps its ask records in, found
+// once with one git call — a caller reading many plans of one
+// repository finds it once and names each record with File.
+func Dir(checkout string, run gitwt.Runner) (string, error) {
 	common, err := gitwt.CommonDir(checkout, run)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(common, dir, fmt.Sprintf("ask-%d.json", planID)), nil
+	return filepath.Join(common, dir), nil
+}
+
+// File names a plan's record inside a repository's ask directory.
+func File(askDir string, planID int64) string {
+	return filepath.Join(askDir, fmt.Sprintf("ask-%d.json", planID))
 }
 
 // Read reads the record at path. ok is false, with no error, when no
@@ -159,11 +177,36 @@ func Answer(
 	return rec, Write(path, rec)
 }
 
+// Clear removes a plan's ask, answered or not, when its lane ends —
+// released, yielded, or replaced by a fresh claim — so no later lane
+// inherits a question it never saw. No ask is fine; a record that will
+// not go is an error, so a stale ask is never left silently.
+func Clear(checkout string, planID int64, run gitwt.Runner) error {
+	path, err := Path(checkout, planID, run)
+	if err != nil {
+		return err
+	}
+
+	return ClearFile(path)
+}
+
+// ClearFile removes the ask record at path: Clear for a caller that
+// placed the record before the checkout it named it from went away, as
+// a lane's own worktree does when it is torn down. No record is fine;
+// a record that will not go is an error.
+func ClearFile(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	return nil
+}
+
 // Withdraw removes a posed ask whose question never reached the lane,
 // so the lane is not left owing a reply. A record already gone is
 // fine; there is nothing to report to a caller already failing.
 func Withdraw(path string) {
-	_ = os.Remove(path)
+	_ = ClearFile(path)
 }
 
 // Envelope wraps a supervisor's text so the agent that reads it knows
