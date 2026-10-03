@@ -341,7 +341,6 @@ func TestAskableNamesTheStatusesMessageSendsTo(t *testing.T) {
 	assert.False(t, askable(""))
 }
 
-
 // TestAskOfOffersNothingForARemoteLane: a lane on another host is one
 // frit's message refuses, so askOf names no remedy for it — on cards as
 // on board rows.

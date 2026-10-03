@@ -37,9 +37,7 @@ table lines present fields C13 already proves.
 can share, so it now marks the lane just added. Two panes on one lane
 print their ask line once. `board` and `who` read the record through
 one helper. A read-back test now differs from the right answer by
-plan id alone. And `--ask` refuses a lane on another host, so such a
-lane's remedy is the plain message on the board, the discovery cards
-and start's refusal. Left as is: an already-asked dead lane shows
+plan id alone. Left as is: an already-asked dead lane shows
 both the remedy and its pending state, as this phase specifies; and
 `who` runs one git call per planned lane, a cost a cache would trade
 for state.
@@ -56,11 +54,18 @@ lane on this host, through a worktree of one clone. The mdsmith
 scaffold's config read moved into its own function with a unit test
 that holds for root.
 
-**The ask's form is decided where it is built.** A board row and a
-card take the live lane's attendance — agent, status, and whether it
-runs on another host — and pick `--ask` or the plain message
-themselves. The after-the-fact swaps on board rows and cards are gone,
-so a new caller cannot forget one.
+**The ask is decided where it is built.** A board row and a card take
+the live lane's attendance — agent, status, and whether it runs on
+another host — and decide the remedy themselves. The after-the-fact
+swaps on board rows and cards are gone, so a new caller cannot forget
+one.
+
+**frit reaches a lane only on this host.** `message` and `nudge`
+prompted through this host's herdr by pane id alone, so a lane on
+another host could have its text delivered to a local pane sharing
+the id. Both now refuse a remote lane, ask or not. Board rows and
+cards offer such a lane no ask, and start's deserted refusal names the
+host to ask it from.
 
 **Plan close.** Every acceptance criterion is met. What stays out of
 scope, as the plan said from the start: an ask to a lane on another

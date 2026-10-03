@@ -14,9 +14,10 @@ RED, in order, each failing on today's code:
 1. `report.AskCommand(<id>)` reads
    `frit message <id> --ask "what is your status?"`. The board's ask
    line, the discovery card's `ask` and start's deserted refusal carry
-   it, since all three already build on it. A lane on another host,
-   which `--ask` refuses, gets the plain message at all three instead
-   — found in code review, not in the first spec.
+   it, since all three already build on it. A lane on another host
+   is offered no ask at all — message and nudge refuse it, since this
+   host's herdr cannot reach it — and start's refusal names the host
+   to ask from; found in code review, not in the first spec.
 2. The board's ask line says plainly that no reply is not evidence the
    lane is gone.
 3. Beneath the `board` table, a row whose ask is pending reads as
@@ -38,10 +39,10 @@ text follows the new command. The table lines are presentation of
 fields C13 already proves. `who --json`'s `ask_state` and `answer`
 add no row either: they read the record C13 proves through the one
 helper `board` reads it with, and unit tests pin who's read of it.
-The remote-lane remedy, surfaced in code
-review, adds no row either: no C or S row covers it, but it mirrors
-message's own refusal of `--ask` on another host, the plan's one-host
-boundary, and unit tests pin it at each of the three sites.
+The remote-lane refusal, surfaced in code review, adds no row either:
+no C or S row covers it, but it is the plan's one-host boundary, and
+unit tests pin it in message, nudge, the board, the cards and start's
+refusal.
 
 Gate: unit tests for each RED item; the cross-layer scenario passes
 against the new command; `go test ./...`, lint and `mdsmith check .`.

@@ -492,4 +492,3 @@ func TestRetireRecordsEachBranchOnClaimAndStart(t *testing.T) {
 	start.Retire(b)
 	assert.Equal(t, []RetiredBranch{b}, start.Retired)
 }
-

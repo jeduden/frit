@@ -129,7 +129,6 @@ func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
 	assert.Equal(t, "in PR #9", doc.Plans[0].Answer)
 }
 
-
 // TestBoardAddPlanOffersNoAskForARemoteLane: frit reaches a lane only
 // on this host — message and nudge refuse one on another — so a row
 // whose live lane runs elsewhere offers no command that would refuse.

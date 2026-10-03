@@ -1145,7 +1145,7 @@ func (w *whoCmd) Run(c *cli, rt *runtime) error {
 // or one whose branch names no plan, reads "none" without touching
 // git: this host holds no record for it.
 func whoAsk(rt *runtime, lane herdr.Lane) (string, string, error) {
-	if !askReaches(lane) || !lane.HasPlan() {
+	if !laneReaches(lane) || !lane.HasPlan() {
 		return ask.StateNone, "", nil
 	}
 
@@ -2468,7 +2468,7 @@ func laneFor(p discovery.Plan, live map[repoBranch]herdr.Lane) (herdr.Lane, bool
 // status, which is what clears a card's Dead; the status is never
 // rewritten — withholding an ask off an incomplete presence read is
 // the report's own job, downstream of this call. Remote reads
-// askReaches, message's own rule, so the remedy the report composes
+// laneReaches, message's own rule, so the remedy the report composes
 // and message's refusal never drift.
 func attendanceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) report.Attendance {
 	lane, ok := laneFor(p, live)
@@ -2479,7 +2479,7 @@ func attendanceFor(p discovery.Plan, live map[repoBranch]herdr.Lane) report.Atte
 	return report.Attendance{
 		Agent:  lane.Pane.Agent,
 		Status: lane.Pane.Presence(),
-		Remote: !askReaches(lane),
+		Remote: !laneReaches(lane),
 	}
 }
 

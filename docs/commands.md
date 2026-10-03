@@ -59,9 +59,10 @@ git directory, so `message --ask` reaches a lane only on this host and
 only through a worktree of one clone — the shape `frit start` stands a
 lane up in. The ask is recorded in the lane's own clone. For a lane in
 a separate clone, `who` reads its ask and answer from that clone, but
-`board` reads your checkout's and shows `none`. A lane on another host
-is not asked at all: its row's suggested ask is the plain `message`,
-whose silence proves nothing either. An ask is cleared when its lane
+`board` reads your checkout's and shows `none`. frit reaches a lane
+only on this host: `message` and `nudge` send through this host's
+herdr, so they refuse a lane on another host, and its row offers no
+ask — run them on that host instead. An ask is cleared when its lane
 ends: on `release`, on `yield`, and when a fresh `claim` or `start`
 stands up a new lane.
 

@@ -113,20 +113,19 @@ func cardsOf(
 // does one read off an incomplete survey — offering either would hand
 // the reader a command that refuses when run.
 func askOf(p discovery.Plan, at Attendance, unknown bool) string {
-	if unknown || !p.Deserted() || !askable(at.Status) {
+	if unknown || at.Remote || !p.Deserted() || !askable(at.Status) {
 		return ""
 	}
 
-	return AskCommandFor(p.ID, at.Remote)
+	return AskCommand(p.ID)
 }
 
 // Attendance is what a survey read of the live pane on a plan's lane:
 // the agent and its status as herdr reported them, and whether the
 // pane runs on another host. The zero value is a lane no pane attends.
 // Together they decide, where a board row or card is built, whether
-// the lane can be asked and how — --ask for a lane on this host, the
-// plain message for one on another, which --ask refuses — so no caller
-// patches the remedy afterward.
+// the lane can be asked: frit reaches a lane only on this host, so a
+// remote one is offered no command that would refuse.
 type Attendance struct {
 	Agent  string
 	Status string
