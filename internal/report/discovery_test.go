@@ -341,21 +341,17 @@ func TestAskableNamesTheStatusesMessageSendsTo(t *testing.T) {
 	assert.False(t, askable(""))
 }
 
-// TestCardsAskARemoteLanePlainly: a card's ask is decided where the card
-// is built, from the lane's attendance — the plain message for a lane
-// on another host.
-func TestCardsAskARemoteLanePlainly(t *testing.T) {
+
+// TestAskOfOffersNothingForARemoteLane: a lane on another host is one
+// frit's message refuses, so askOf names no remedy for it — on cards as
+// on board rows.
+func TestAskOfOffersNothingForARemoteLane(t *testing.T) {
+	assert.Empty(t, askOf(deadHeldPlan,
+		Attendance{Status: herdr.StatusWorking, Remote: true}, false))
+
 	doc := NewReady("/fleet", "forge")
 	doc.SetPlans([]discovery.Plan{deadHeldPlan}, func(discovery.Plan) Attendance {
 		return Attendance{Status: herdr.StatusWorking, Remote: true}
 	}, false)
-
-	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
-}
-
-// TestAskOfPicksTheFormTheLaneCanTake: the remedy askOf names follows
-// the lane's host — --ask on this host, the plain message elsewhere.
-func TestAskOfPicksTheFormTheLaneCanTake(t *testing.T) {
-	assert.Equal(t, AskCommandFor(100, true), askOf(deadHeldPlan,
-		Attendance{Status: herdr.StatusWorking, Remote: true}, false))
+	assert.Empty(t, doc.Plans[0].Ask)
 }

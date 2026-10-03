@@ -129,16 +129,15 @@ func TestBoardSetAskMarksTheMatchingRowOnly(t *testing.T) {
 	assert.Equal(t, "in PR #9", doc.Plans[0].Answer)
 }
 
-// TestBoardAddPlanAsksARemoteLanePlainly: the ask's form is decided
-// where the row is built — --ask for a lane on this host, the plain
-// message for one on another host, since --ask refuses it.
-func TestBoardAddPlanAsksARemoteLanePlainly(t *testing.T) {
+
+// TestBoardAddPlanOffersNoAskForARemoteLane: frit reaches a lane only
+// on this host — message and nudge refuse one on another — so a row
+// whose live lane runs elsewhere offers no command that would refuse.
+func TestBoardAddPlanOffersNoAskForARemoteLane(t *testing.T) {
 	doc := NewBoard("/fleet", true)
 	doc.AddPlan(deadHeldPlan,
 		Attendance{Agent: "claude", Status: "working", Remote: true}, false)
-	doc.AddPlan(deadHeldPlan,
-		Attendance{Agent: "claude", Status: "working"}, false)
 
-	assert.Equal(t, AskCommandFor(100, true), doc.Plans[0].Ask)
-	assert.Equal(t, AskCommand(100), doc.Plans[1].Ask)
+	assert.Empty(t, doc.Plans[0].Ask)
+	assert.False(t, doc.Plans[0].Dead, "a live agent elsewhere still clears dead")
 }

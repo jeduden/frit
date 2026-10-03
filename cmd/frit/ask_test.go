@@ -165,43 +165,6 @@ func TestMessageAskGoSendsNothingWhenTheAskCannotBeRecorded(t *testing.T) {
 	assert.False(t, rec.verb("agent", "prompt"), "nothing is sent")
 }
 
-// TestAskRefusalNamesALaneOnAnotherHost: the ask record is a local
-// file, so an ask reaches only a lane on this host; a remote lane is
-// refused by name rather than left pending forever.
-func TestAskRefusalNamesALaneOnAnotherHost(t *testing.T) {
-	local := herdr.Lane{Pane: herdr.Pane{PaneID: "wC:p1"}, Branch: "plan/7"}
-	remote := herdr.Lane{
-		Pane: herdr.Pane{PaneID: "wC:p1", Host: "box"}, Branch: "plan/7",
-	}
-
-	assert.Empty(t, askRefusal(local))
-	assert.Contains(t, askRefusal(remote), "box")
-	assert.Contains(t, askRefusal(remote), "this host")
-}
-
-// TestMessageSendRefusesAnAskToALaneOnAnotherHost: messageSend applies
-// askRefusal before anything is recorded or sent.
-func TestMessageSendRefusesAnAskToALaneOnAnotherHost(t *testing.T) {
-	runner, rec := recordingHerdr()
-	rt := &runtime{git: gitwt.Exec, herdr: runner}
-	m := &messageCmd{Selector: "7", Text: "status?", Ask: true, Go: true}
-	doc := report.NewMessage("/fleet", "atlas", 7, "t", "status?", true)
-	lane := herdr.Lane{
-		Pane: herdr.Pane{
-			PaneID: "wC:p1", Host: "box", Agent: "claude",
-			Status: herdr.StatusWorking,
-		},
-		Root: t.TempDir(), Branch: "plan/7",
-	}
-
-	err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, lane, true)
-
-	require.NoError(t, err)
-	assert.Contains(t, doc.Refused, "box")
-	assert.False(t, doc.Sent)
-	assert.False(t, rec.verb("agent", "prompt"))
-}
-
 // TestReplyRecordsTheAnswerFromTheLane: run from the lane with no plan
 // argument, reply finds the plan from the checkout and records the
 // answer against the pending ask — no --go, no herdr call at all.
@@ -720,17 +683,6 @@ func TestReadAskSurfacesATornRecord(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestResumeRefusalAsksARemoteLanePlainly: start's deserted refusal
-// names the plain message for a lane another host runs, since --ask
-// would refuse it.
-func TestResumeRefusalAsksARemoteLanePlainly(t *testing.T) {
-	reason := resumeRefusal(discovery.Plan{ID: 7}, herdr.Lane{
-		Pane: herdr.Pane{PaneID: "wLive:p1", Host: "box"}, Branch: "plan/7",
-	})
-
-	assert.Contains(t, reason, "`"+report.AskCommandFor(7, true)+"`")
-}
-
 // TestLaneForPicksTheLaneMessageTargetsAcrossHoldBranches: a plan whose
 // two hold branches both carry a live lane is answered with the lane
 // liveLaneFor finds first — the one message, open and nudge act on —
@@ -839,13 +791,6 @@ func TestWhoSharesOneReadAcrossALanesPanes(t *testing.T) {
 		assert.Equal(t, "answered", lane.AskState, lane.Pane)
 		assert.Equal(t, "in PR #9", lane.Answer, lane.Pane)
 	}
-}
-
-// TestAskReachesOnlyALaneOnThisHost: the ask record and its reply are
-// files on this host, so only a lane here can take --ask.
-func TestAskReachesOnlyALaneOnThisHost(t *testing.T) {
-	assert.True(t, askReaches(herdr.Lane{}))
-	assert.False(t, askReaches(herdr.Lane{Pane: herdr.Pane{Host: "box"}}))
 }
 
 // TestClearAskWarnsWhenTheRecordStays: a lane that ends clears its ask,
@@ -1088,4 +1033,83 @@ func TestStartResumeKeepsTheLanesAsk(t *testing.T) {
 	require.Contains(t, out.String(), "resumed plan 7")
 	_, ok := askRecord(t, repo, 7)
 	assert.True(t, ok, "the resumed lane's ask stands")
+}
+
+// remoteLane is a working lane on host box whose pane id a local pane
+// could share — the shape a send through this host's herdr would land
+// in the wrong pane for.
+func remoteWorkingLane(t *testing.T) herdr.Lane {
+	t.Helper()
+
+	return herdr.Lane{
+		Pane: herdr.Pane{
+			PaneID: "wC:p1", Host: "box", Agent: "claude",
+			Status: herdr.StatusIdle,
+		},
+		Root: t.TempDir(), Branch: "plan/7",
+	}
+}
+
+// TestLaneReachesOnlyALaneOnThisHost: message and nudge send through
+// this host's herdr, so they reach only a lane here; remoteRefusal
+// names the host to run the verb on instead.
+func TestLaneReachesOnlyALaneOnThisHost(t *testing.T) {
+	assert.True(t, laneReaches(herdr.Lane{}))
+	assert.False(t, laneReaches(herdr.Lane{Pane: herdr.Pane{Host: "box"}}))
+
+	got := remoteRefusal(remoteWorkingLane(t))
+	assert.Contains(t, got, "this host")
+	assert.Contains(t, got, "box")
+}
+
+// TestMessageSendRefusesALaneOnAnotherHost: any message — an ask or a
+// plain one — to a lane another host runs is refused before anything
+// is recorded or sent, since this host's herdr would deliver it to
+// whatever local pane shares the id.
+func TestMessageSendRefusesALaneOnAnotherHost(t *testing.T) {
+	for _, askFlag := range []bool{true, false} {
+		runner, rec := recordingHerdr()
+		rt := &runtime{git: gitwt.Exec, herdr: runner}
+		m := &messageCmd{Selector: "7", Text: "status?", Ask: askFlag, Go: true}
+		doc := report.NewMessage("/fleet", "atlas", 7, "t", "status?", true)
+
+		err := messageSend(rt, m, doc, discovery.Plan{ID: 7}, remoteWorkingLane(t), true)
+
+		require.NoError(t, err)
+		assert.Contains(t, doc.Refused, "box", "ask=%v", askFlag)
+		assert.False(t, doc.Sent)
+		assert.False(t, rec.verb("agent", "prompt"))
+	}
+}
+
+// TestNudgeSendRefusesALaneOnAnotherHost: nudge prompts through this
+// host's herdr too, so an idle lane on another host is refused rather
+// than prompted into a local pane that shares its id.
+func TestNudgeSendRefusesALaneOnAnotherHost(t *testing.T) {
+	runner, rec := recordingHerdr()
+	rt := &runtime{git: gitwt.Exec, herdr: runner}
+	n := &nudgeCmd{Selector: "7", Go: true}
+	doc := report.NewNudge("/fleet", "atlas", 7, "t", "1", "sonnet",
+		"/plan-phase 7 1", true)
+
+	err := nudgeSend(rt, n, doc, discovery.Plan{ID: 7}, remoteWorkingLane(t), true,
+		"/plan-phase 7 1")
+
+	require.NoError(t, err)
+	assert.Contains(t, doc.Refused, "box")
+	assert.False(t, doc.Sent)
+	assert.False(t, rec.verb("agent", "prompt"))
+}
+
+// TestResumeRefusalNamesTheHostToAskFrom: start's deserted refusal for a
+// lane another host runs points the reader at that host, where the ask
+// can reach it, rather than at a message this host would refuse.
+func TestResumeRefusalNamesTheHostToAskFrom(t *testing.T) {
+	reason := resumeRefusal(discovery.Plan{ID: 7}, remoteWorkingLane(t))
+
+	assert.Contains(t, reason, "on box")
+	assert.Contains(t, reason, "`"+report.AskCommand(7)+"`")
+	assert.Contains(t, reason, "frit yield 7")
+	assert.NotContains(t, reason, "frit open 7",
+		"open focuses through this host's herdr too, so it is not offered")
 }

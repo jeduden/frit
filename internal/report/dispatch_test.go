@@ -493,10 +493,3 @@ func TestRetireRecordsEachBranchOnClaimAndStart(t *testing.T) {
 	assert.Equal(t, []RetiredBranch{b}, start.Retired)
 }
 
-// TestAskCommandForPicksTheFormTheLaneCanTake: a lane on this host is
-// asked with --ask, whose reply this host reads; a lane on another
-// host gets the plain message, since --ask refuses it.
-func TestAskCommandForPicksTheFormTheLaneCanTake(t *testing.T) {
-	assert.Equal(t, AskCommand(7), AskCommandFor(7, false))
-	assert.Equal(t, `frit message 7 "what is your status?"`, AskCommandFor(7, true))
-}
