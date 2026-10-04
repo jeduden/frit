@@ -6,7 +6,7 @@ require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/cucumber/godog v0.16.0
-	github.com/cucumber/messages/go/v34 v34.2.0
+	github.com/cucumber/messages/go/v34 v34.2.1
 	github.com/jeduden/mdsmith v0.55.1
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/stretchr/testify v1.12.1
