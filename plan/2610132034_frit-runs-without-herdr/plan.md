@@ -108,9 +108,10 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 
 ## Execution
 
-| Phase | Title                                          | Tier | Gate                                                                                                                                                                          |
-| ----- | ---------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | claim stands its own worktree up without herdr | opus | C15 rewritten runs the built frit under a git-only `$PATH`: worktree on `plan/<id>`, no session bound, token kept, release ends it; S60, S61 unchanged; `go test ./...` green |
+| Phase | Title                                             | Tier   | Gate                                                                                                                                                                          |
+| ----- | ------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | claim stands its own worktree up without herdr    | opus   | C15 rewritten runs the built frit under a git-only `$PATH`: worktree on `plan/<id>`, no session bound, token kept, release ends it; S60, S61 unchanged; `go test ./...` green |
+| 2     | start and pick hand the prompt back without herdr | sonnet | C16 rewritten and C18 run the built frit under a git-only `$PATH`: handed back, then resumed from the lane; `go test ./...` green                                             |
 
 ## Phases
 
@@ -133,10 +134,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                              |
-| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [claim stands its own worktree up without herdr](phase-1.md)                                                                                                                                                                       |
-|     | ↳      | On a host with no herdr installed, claim mints the lease and stands the lane up with git on the minted tip, its token kept and no session bound; release from that lane ends it. C15 now pins the success rather than the refusal. |
+| #   | Status | Phase                                                                                                                                                                                                                                                                    |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | ✅     | [claim stands its own worktree up without herdr](phase-1.md)                                                                                                                                                                                                             |
+|     | ↳      | On a host with no herdr installed, claim mints the lease and stands the lane up with git on the minted tip, its token kept and no session bound; release from that lane ends it. C15 now pins the success rather than the refusal.                                       |
+| 2   | ✅     | [start and pick hand the prompt back without herdr](phase-2.md)                                                                                                                                                                                                          |
+|     | ↳      | On a host with no herdr installed, start --go and pick --go claim, stand the lane up with git and hand the prompt back as handoff handed-back; a start from inside that lane resumes on its token and hands back again. C16 is rewritten to the hand-back and C18 added. |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -144,7 +147,7 @@ footer: |
 - [x] On a host with no herdr installed, `frit claim <id>` holds the
       plan in a worktree of its own on `plan/<id>`, and `frit release`
       from that worktree ends it.
-- [ ] `start --go` and `pick --go` on such a host claim and hand the
+- [x] `start --go` and `pick --go` on such a host claim and hand the
       composed prompt back, dispatching nothing.
 - [ ] `yield` removes a herdr-less lane's worktree. nudge and message
       refuse, naming herdr not installed.

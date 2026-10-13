@@ -295,12 +295,6 @@ func currentSession(rt *runtime) string {
 	return pane.Session
 }
 
-// missingHerdrRefusal is what a start or pick under --go answers on a
-// host with no herdr installed: the agent's pane is herdr's to open,
-// so the mint would only be unwound again.
-const missingHerdrRefusal = "herdr not found; nothing claimed, " +
-	"since the phase runs in a herdr pane"
-
 // refuseUnmintable is claim's last gate before the mint, and reports
 // whether it refused. Without the repository's coordinate there is
 // nowhere to mint the lease, so it refuses rather than guess. A host

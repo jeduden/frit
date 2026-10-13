@@ -2989,23 +2989,75 @@ func fakeEditorOnPath(t *testing.T, name, script string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// TestStartGoRefusesWithoutHerdrBeforePushing: start --go stands the
-// worktree, agent and pane up through herdr, so on a host with no herdr
-// installed it refuses before minting, exactly as claim does — no work
-// ref reaches origin.
-func TestStartGoRefusesWithoutHerdrBeforePushing(t *testing.T) {
+// TestStartGoHandsBackWithoutHerdr: on a host with no herdr
+// installed, start --go claims the plan and stands its lane up with
+// git, but has no pane to run the phase in, so it hands the prompt
+// back: started, nothing dispatched, no pane, no herdr problem.
+func TestStartGoHandsBackWithoutHerdr(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	withHerdr(t, herdrNotInstalled)
 	var doc report.StartDoc
 
-	emit(t, &doc, "start", "7", "--go", "--root", root)
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
 
-	assert.Contains(t, doc.Refused, "herdr not found; nothing claimed")
+	require.Empty(t, doc.Refused)
+	assert.True(t, doc.Started)
+	assert.Equal(t, report.HandoffHandedBack, doc.Handoff)
 	assert.False(t, doc.PromptDispatched)
-	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/7")
-	assert.Error(t, err, "origin carries no work ref for plan 7")
+	assert.Empty(t, doc.Pane)
+	assert.Equal(t, "/plan-phase 7 3", doc.Prompt)
+	assert.Empty(t, doc.Problems, "a missing herdr is this host's mode, not a fault")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	head, err := gitCapture(t, doc.Lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	assert.Equal(t, tip, head, "the lane stands on the minted tip")
+	assert.Equal(t, tip, claim.ReadToken(doc.Lane, 7, gitwt.Exec))
+}
+
+// TestStartGoHandedBackTellsTheReaderToRunIt: the table names the
+// lane and leaves the prompt as the recipe, never the running-in-a-
+// pane directive.
+func TestStartGoHandedBackTellsTheReaderToRunIt(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "started plan 7")
+	assert.Contains(t, got, "prompt:   /plan-phase 7 3")
+	assert.Contains(t, got, "no herdr pane; run the prompt in")
+	assert.NotContains(t, got, "do not run it here")
+	assert.NotContains(t, got, "run again with --go")
+}
+
+// TestStartGoResumesAHeadlessLaneFromInside: run again from inside the
+// lane it stood up, start --go resumes on the lane's own token and
+// hands back again — no pane to read, none needed.
+func TestStartGoResumesAHeadlessLaneFromInside(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var first report.StartDoc
+	emit(t, &first, "start", "7", "--phase", "3", "--go", "--root", root)
+	require.Equal(t, report.HandoffHandedBack, first.Handoff, first.Refused)
+	t.Chdir(first.Lane)
+	var again report.StartDoc
+
+	emit(t, &again, "start", "--phase", "3", "--go", "--root", root)
+
+	require.Empty(t, again.Refused)
+	assert.True(t, again.Resumed)
+	assert.Equal(t, report.HandoffHandedBack, again.Handoff)
+	assert.Equal(t, first.Lane, again.Lane)
 }
 
 // TestStartDryRunComposesWithoutHerdr: without --go nothing is minted,
@@ -3023,40 +3075,23 @@ func TestStartDryRunComposesWithoutHerdr(t *testing.T) {
 	assert.Empty(t, doc.Refused)
 }
 
-// TestStartMissingHerdrRefusalCarriesTheCause: the refusal names the
-// missing herdr in plan terms and carries the raw cause as a herdr
-// problem, once, for a consumer to branch on.
-func TestStartMissingHerdrRefusalCarriesTheCause(t *testing.T) {
-	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
-	missing := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
-
-	doc := startMissingHerdrRefusal(
-		&cli{}, fleet.Result{}, plan, "1", true, nil, missing)
-
-	require.NotNil(t, doc)
-	assert.Equal(t, missingHerdrRefusal, doc.Refused)
-	require.Len(t, doc.Problems, 1)
-	assert.Equal(t, "herdr", doc.Problems[0].Repo)
-}
-
-// TestStartPreflightReportsAMissingHerdrAsNotSkippable: under --go on
-// a host with no herdr, the gate refuses and tells pick --go not to
-// walk on, even without a reattach — the next candidate would meet the
-// same missing herdr. The live-lane read never found a pane, so its
-// own gate stays silent first.
-func TestStartPreflightReportsAMissingHerdrAsNotSkippable(t *testing.T) {
+// TestStartPreflightPassesAMissingHerdrAsHeadless: under --go on a
+// host with no herdr, the gate no longer refuses — it tells the
+// escalation the host is headless, and carries no herdr problem, since
+// a missing herdr is this host's mode rather than a fault.
+func TestStartPreflightPassesAMissingHerdrAsHeadless(t *testing.T) {
 	isolate(t)
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
 	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
 
-	doc, skip, probs, herdrErr := startPreflight(
+	doc, skip, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
 
-	require.NotNil(t, doc)
-	assert.Equal(t, missingHerdrRefusal, doc.Refused)
+	assert.Nil(t, doc)
 	assert.False(t, skip)
-	assert.Empty(t, probs)
-	assert.NoError(t, herdrErr)
+	assert.True(t, gate.headless)
+	assert.Empty(t, gate.probs)
+	assert.NoError(t, gate.herdrErr)
 }
 
 // TestStartPreflightAsksHerdrOnceForAFreshAcquire: the live-lane read
@@ -3072,10 +3107,11 @@ func TestStartPreflightAsksHerdrOnceForAFreshAcquire(t *testing.T) {
 		return []byte(`{"result":{"agents":[]}}`), nil
 	}}
 
-	doc, _, _, _ := startPreflight(
+	doc, _, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
 
 	assert.Nil(t, doc)
+	assert.False(t, gate.headless)
 	assert.Equal(t, 1, calls)
 }
 
@@ -3111,10 +3147,47 @@ func TestStartPreflightPassesWithoutGo(t *testing.T) {
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
 	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
 
-	doc, skip, _, herdrErr := startPreflight(
+	doc, skip, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", false, startResumption{}, false)
 
 	assert.Nil(t, doc)
 	assert.False(t, skip)
-	assert.ErrorIs(t, herdrErr, exec.ErrNotFound)
+	assert.False(t, gate.headless, "a dry run stands nothing up")
+	assert.ErrorIs(t, gate.herdrErr, exec.ErrNotFound)
+}
+
+// TestLivePaneOnReadsAMissingHerdrAsNoPane: with herdr not installed
+// no herdr pane can sit anywhere, so a leftover worktree is certainly
+// unattended — not an unknown that blocks its reconcile.
+func TestLivePaneOnReadsAMissingHerdrAsNoPane(t *testing.T) {
+	rt := &runtime{herdr: herdrNotInstalled, git: gitwt.Exec}
+
+	pane, ok, err := livePaneOn(rt, "/lanes/7")
+
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Empty(t, pane)
+}
+
+// TestFinishStartHandsBackOnAHeadlessHost: with no pane, the lane is
+// handed back and no session bind is attempted; with one, the pane is
+// recorded as running the phase.
+func TestFinishStartHandsBackOnAHeadlessHost(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		t.Fatal("a headless finish binds no session")
+		return nil, nil
+	}}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	sp := report.StartPlan{Branch: "plan/7", Lane: "/lanes/7"}
+	headless := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+
+	finishStart(rt, headless, plan, sp, startContext{}, "/lanes/7", "tip", "", "", true)
+
+	assert.Equal(t, report.HandoffHandedBack, headless.Handoff)
+
+	running := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+	finishStart(rt, running, plan, sp, startContext{}, "/lanes/7", "tip", "wZ:p1", "", false)
+
+	assert.Equal(t, report.HandoffRunning, running.Handoff)
+	assert.Equal(t, "wZ:p1", running.Pane)
 }

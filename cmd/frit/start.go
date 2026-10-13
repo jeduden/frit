@@ -126,7 +126,7 @@ func buildStart(
 			c, res, plan, phase, doGo, ambiguousRepo(plan.Repo)), false, nil
 	}
 
-	gateDoc, skip, liveProbs, liveHerdrErr := startPreflight(
+	gateDoc, skip, gate := startPreflight(
 		c, rt, res, plan, phase, doGo, rs, reattach)
 	if gateDoc != nil {
 		return gateDoc, skip, nil
@@ -144,14 +144,14 @@ func buildStart(
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
-	carryLiveLaneProblems(doc, liveProbs, liveHerdrErr)
+	carryLiveLaneProblems(doc, gate.probs, gate.herdrErr)
 	if rs.active() {
 		doc.MarkResumed()
 	}
 
 	if doGo {
 		if err := startExecute(
-			rt, doc, plan, sp, sc, edit, rs,
+			rt, doc, plan, sp, sc, edit, rs, gate.headless,
 		); err != nil {
 			if startRefusable(err) {
 				doc.Refuse(lostRaceRefusal(err))
@@ -247,30 +247,38 @@ func startRefusal(
 	return nil
 }
 
-// startPreflight runs buildStart's last two gates, once the repository
-// is known. The live-lane refusal comes first, skippable by pick --go
-// unless the caller reattached. The missing-herdr refusal follows and
-// is never skippable: every candidate pick --go could walk on to would
-// meet the same missing herdr. With neither refusing, it hands back the
-// live-lane read's own problems for the success doc to carry.
+// startGate is what startPreflight hands the success path once
+// nothing refused: the live-lane read's own problems and herdr error
+// for the doc to carry, and whether the host is headless — herdr not
+// installed — so the escalation stands the lane up with git and hands
+// the prompt back rather than dispatching it.
+type startGate struct {
+	probs    []hostProblem
+	herdrErr error
+	headless bool
+}
+
+// startPreflight runs buildStart's last gate, once the repository is
+// known: the live-lane refusal, skippable by pick --go unless the
+// caller reattached. With it silent, under --go, it reads whether herdr
+// is installed at all. A host without it is headless: not a refusal,
+// and not a problem to carry either, since the missing herdr is the
+// mode the escalation then runs in.
 func startPreflight(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
 	phase string, doGo bool, rs startResumption, reattach bool,
-) (*report.StartDoc, bool, []hostProblem, error) {
+) (*report.StartDoc, bool, startGate) {
 	liveDoc, liveProbs, liveHerdrErr := startLiveLaneRefusal(
 		c, rt, res, plan, phase, doGo, rs)
 	if liveDoc != nil {
-		return liveDoc, !reattach, nil, nil
+		return liveDoc, !reattach, startGate{}
 	}
-	if !doGo {
-		return nil, false, liveProbs, liveHerdrErr
-	}
-	if missing := herdrMissingAfter(rt, rs, liveHerdrErr); missing != nil {
-		return startMissingHerdrRefusal(
-			c, res, plan, phase, doGo, liveProbs, missing), false, nil, nil
+	gate := startGate{probs: liveProbs, herdrErr: liveHerdrErr}
+	if doGo && herdrMissingAfter(rt, rs, liveHerdrErr) != nil {
+		gate.herdrErr, gate.headless = nil, true
 	}
 
-	return nil, false, liveProbs, liveHerdrErr
+	return nil, false, gate
 }
 
 // herdrMissingAfter is herdr.Missing without a second round trip when
@@ -286,25 +294,6 @@ func herdrMissingAfter(
 	}
 
 	return herdr.NotFound(liveHerdrErr)
-}
-
-// startMissingHerdrRefusal is buildStart's last gate before --go
-// mints anything, claim's refuseUnmintable for the start doc: the
-// worktree, agent and pane are all herdr's, so on a host with no herdr
-// installed the escalation is certain to fail after its first push and
-// unwind with a second. The caller only builds it under --go, since a
-// dry run mints nothing, and only once missing names an absent herdr.
-// The live-lane read's own problems ride along; its herdr error is the
-// same missing binary, so missing stands in for it rather than
-// doubling it.
-func startMissingHerdrRefusal(
-	c *cli, res fleet.Result, plan discovery.Plan,
-	phase string, doGo bool, liveProbs []hostProblem, missing error,
-) *report.StartDoc {
-	doc := refusedStart(c, res, plan, phase, doGo, missingHerdrRefusal)
-	carryLiveLaneProblems(doc, liveProbs, missing)
-
-	return doc
 }
 
 // liveHoldRefusal names a held lane a live agent already attends, ahead
@@ -765,6 +754,7 @@ func composeStart(
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
 	sp report.StartPlan, sc startContext, edit bool, rs startResumption,
+	headless bool,
 ) error {
 	// Amend the prompt before minting anything: an editor that fails to
 	// launch, or a prompt left empty, must abort with no claim pushed and
@@ -811,7 +801,7 @@ func startExecute(
 		clearAsk(rt, sc.repoPath, plan.ID, doc.Warn)
 	}
 
-	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
+	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip, headless)
 	if err != nil {
 		if rs.active() {
 			// startAcquire's own renewal above already stands — this
@@ -852,10 +842,25 @@ func startExecute(
 
 		return err
 	}
-	bindSession(rt, doc, plan, sp, sc, lane, lease.Tip, session)
-	doc.MarkStarted(pane)
+	finishStart(rt, doc, plan, sp, sc, lane, lease.Tip, pane, session, headless)
 
 	return nil
+}
+
+// finishStart records how a stood-up lane was handed over: on a
+// headless host, back to the caller, since no pane exists to run the
+// prompt in; otherwise to the pane, once the started agent's session
+// is bound onto the lease.
+func finishStart(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
+	sc startContext, lane, tip, pane, session string, headless bool,
+) {
+	if headless {
+		doc.MarkHandedBack()
+		return
+	}
+	bindSession(rt, doc, plan, sp, sc, lane, tip, session)
+	doc.MarkStarted(pane)
 }
 
 // startAcquire runs the transition start's escalation calls for: the
@@ -1149,6 +1154,9 @@ func reconcileLeftoverWorktree(
 // worktree on this verdict, and reading a socket failure as "clear"
 // would risk exactly the live lane this check exists to protect.
 //
+// A herdr not installed at all is the one certain answer: no herdr
+// pane can sit anywhere on this host, so that reads as no pane.
+//
 // rt.herdr always reads the local socket directly, never the
 // per-host fan-out herdr.ListHosts wraps, so every pane herdr.List
 // returns here is already local — unlike herdr.LiveRoots, which takes
@@ -1156,6 +1164,9 @@ func reconcileLeftoverWorktree(
 // answers, this has no such pane to skip.
 func livePaneOn(rt *runtime, root string) (string, bool, error) {
 	panes, err := herdr.List(rt.herdr)
+	if herdr.NotFound(err) != nil {
+		return "", false, nil
+	}
 	if err != nil {
 		return "", false, err
 	}
@@ -1258,8 +1269,11 @@ func laneLabel(plan discovery.Plan) string {
 // claim's own stand-up already reports it on.
 func standUpLane(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
-	repoPath, text string, rs startResumption, tip string,
+	repoPath, text string, rs startResumption, tip string, headless bool,
 ) (string, string, error) {
+	if headless {
+		return "", "", standUpHeadless(rt, doc, plan, sp, repoPath, rs, tip)
+	}
 	pane, err := laneStandUpPane(rt, doc, plan, sp, repoPath, tip, rs)
 	if err != nil {
 		return "", "", err
@@ -1283,6 +1297,28 @@ func standUpLane(
 	}
 
 	return pane, session, nil
+}
+
+// standUpHeadless is standUpLane on a host with no herdr: no pane, no
+// agent, no prompt sent — only the checkout. A resume already stands
+// in its own checkout, so there is nothing to do; a fresh acquire or
+// takeover checks the lane out with git and persists its token, the
+// same stand-up claim runs (createLaneWorktree).
+func standUpHeadless(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
+	repoPath string, rs startResumption, tip string,
+) error {
+	if rs.active() {
+		return nil
+	}
+	if err := createLaneWorktree(rt, true, herdr.WorktreeSpec{
+		CWD: repoPath, Branch: sp.Branch, Base: sp.Base, Path: sp.Lane,
+	}); err != nil {
+		return fmt.Errorf("worktree add: %w", err)
+	}
+	persistLaneToken(rt.git, sp.Lane, plan.ID, tip, doc.Warn)
+
+	return nil
 }
 
 // openEditor is the seam for --edit: it hands the composed prompt to
@@ -1395,6 +1431,13 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		doc.Kind, modelLabel(doc.Tier))
 	if doc.Warning != "" {
 		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
+	if doc.Handoff == report.HandoffHandedBack {
+		_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
+		_, _ = fmt.Fprintf(out,
+			"plan %d is held with no herdr pane; run the prompt in %s\n",
+			doc.Plan.ID, doc.Lane)
+		return
 	}
 	if doc.Started {
 		_, _ = fmt.Fprintf(out, "  running:  %s\n", doc.Prompt)

@@ -24,13 +24,13 @@ candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
 
-`herdr not found; nothing claimed` means this host has no herdr to
-run the phase in; nothing reached origin. `go run ./cmd/frit claim <id>` still
-holds the plan there, in a worktree git stands up with no pane.
-
 `prompt_dispatched: true` means the phase is already running in
 `pane`. Report the pane and stop there. Never invoke `/plan-phase`
 yourself — a second run puts two runners on the same lane.
+
+`handoff: handed-back` means this host has no herdr: the plan is held
+and its lane stands at `lane`, but no pane runs it. Run `prompt` in
+`lane` yourself — the one case you invoke `/plan-phase`.
 
 ## Survey first
 

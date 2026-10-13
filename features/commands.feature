@@ -111,13 +111,21 @@ Feature: Command scenarios
     Then origin's tip for plan 7 is a release marker
 
   @C16
-  Scenario: pick --go on a host with no herdr claims no candidate
+  Scenario: pick --go on a host with no herdr hands the top candidate back
     Given plans 7 and 8 are ready with plan 8 ranked above plan 7
     And herdr is not installed on this host
-    When the built frit runs "pick --go"
-    Then it refuses, naming herdr not found and nothing claimed
+    When the built frit runs "pick --go --json"
+    Then plan 8 is handed back in a worktree of its own, on origin's claim marker
     And origin carries no work ref for plan 7
-    And origin carries no work ref for plan 8
+
+  @C18
+  Scenario: start --go on a host with no herdr hands back, and again from its lane
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go --json"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    When the built frit runs "start --go --json" from the lane
+    Then plan 7 is handed back again from the same lane, resumed
 
   @C17
   Scenario: release and yield agree on a decorated hold with no lease

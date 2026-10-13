@@ -695,6 +695,10 @@ const (
 	HandoffRunning = "running"
 	// HandoffNone is a refused escalation: nothing runs.
 	HandoffNone = "none"
+	// HandoffHandedBack is an escalation that ran on a host with no
+	// herdr: the lease is held and the lane stands, but no pane exists
+	// to dispatch into, so the prompt is the caller's to run in the lane.
+	HandoffHandedBack = "handed-back"
 )
 
 // startNextAction derives the verb a consumer runs instead of the
@@ -763,7 +767,8 @@ type StartDoc struct {
 	Pane string `json:"pane"`
 	// Handoff is the one axis a consumer keys on instead of re-deriving
 	// "the prompt is not mine" from started/refused. It is one of
-	// HandoffPreview, HandoffRunning or HandoffNone, and is written only
+	// HandoffPreview, HandoffRunning, HandoffHandedBack or HandoffNone,
+	// and is written only
 	// through setHandoff, which reprojects NextAction and
 	// PromptDispatched alongside it.
 	Handoff string `json:"handoff"`
@@ -868,6 +873,14 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
 	d.setHandoff(HandoffRunning)
+}
+
+// MarkHandedBack records an escalation that ran with no pane to run
+// in: the claim is held and the lane stands up, and the prompt is
+// handed back for the caller to run there.
+func (d *StartDoc) MarkHandedBack() {
+	d.Started = true
+	d.setHandoff(HandoffHandedBack)
 }
 
 // MarkResumed records that the escalation is standing the lane back up

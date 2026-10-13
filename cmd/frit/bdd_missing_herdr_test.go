@@ -16,16 +16,17 @@ import (
 
 // C15 and C16 run the built frit on a host with no herdr installed —
 // the headless shape a cloud agent container has. C15 claims and
-// releases there; C16's pick --go still refuses, needing a pane. They register as
+// releases there; C16's pick --go and C18's start --go hand the prompt
+// back with no pane to run it in. They register as
 // their own section file, per docs/development.md, and read and write
 // the command section's own state.
 func init() {
 	registrars = append(registrars, (*world).registerMissingHerdr)
 }
 
-// missingHerdrState is C15 and C16's own: the $PATH the built frit
-// runs under, which carries git and nothing named herdr, and the lane
-// C15's claim stood up.
+// missingHerdrState is C15, C16 and C18's own: the $PATH the built
+// frit runs under, which carries git and nothing named herdr, and the
+// lane the last claim or start stood up.
 type missingHerdrState struct {
 	path string
 	lane string
@@ -35,8 +36,6 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^herdr is not installed on this host$`, w.herdrIsNotInstalledOnThisHost)
 	sc.Step(`^herdr is installed on this host$`, w.herdrIsInstalledOnThisHost)
 	sc.Step(`^the built frit runs "([^"]+)"$`, w.theBuiltFritRuns)
-	sc.Step(`^it refuses, naming herdr not found and nothing claimed$`,
-		w.itRefusesNamingHerdrNotFoundAndNothingClaimed)
 	sc.Step(`^origin carries no work ref for plan (\d+)$`, w.originCarriesNoWorkRefForPlan)
 	sc.Step(`^plan (\d+) is claimed in a worktree of its own, on origin's claim marker$`,
 		w.planIsClaimedInAWorktreeOfItsOwn)
@@ -44,6 +43,10 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^the lane holds its token for plan (\d+)$`, w.theLaneHoldsItsTokenForPlan)
 	sc.Step(`^the built frit runs "([^"]+)" from the lane$`, w.theBuiltFritRunsFromTheLane)
 	sc.Step(`^origin's tip for plan (\d+) is a release marker$`, w.originsTipForPlanIsAReleaseMarker)
+	sc.Step(`^plan (\d+) is handed back in a worktree of its own, on origin's claim marker$`,
+		w.planIsHandedBackInAWorktreeOfItsOwn)
+	sc.Step(`^plan (\d+) is handed back again from the same lane, resumed$`,
+		w.planIsHandedBackAgainResumed)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -116,25 +119,8 @@ func (w *world) runBuiltFritIn(dir, args string) error {
 	return nil
 }
 
-// itRefusesNamingHerdrNotFoundAndNothingClaimed is the shared Then: a
-// refusal, in plan terms, that names the missing herdr and says no
-// claim was made — never the old "worktree not stood up" unwind.
-func (w *world) itRefusesNamingHerdrNotFoundAndNothingClaimed() error {
-	got := section[commandState](w).out.String()
-	if !strings.Contains(got, "refused: plan") ||
-		!strings.Contains(got, "herdr not found; nothing claimed") {
-		return fmt.Errorf("expected a missing-herdr refusal, got: %s", got)
-	}
-	if strings.Contains(got, "worktree not stood up") {
-		return fmt.Errorf("the claim was minted and unwound: %s", got)
-	}
-
-	return nil
-}
-
-// originCarriesNoWorkRefForPlan reads the bare remote directly: the
-// refusal happened before the mint, so no claim marker and no release
-// marker ever reached it.
+// originCarriesNoWorkRefForPlan reads the bare remote directly: no
+// claim marker and no release marker ever reached it for this plan.
 func (w *world) originCarriesNoWorkRefForPlan(id string) error {
 	cs := section[commandState](w)
 	origin, err := gitCapture(w.t, cs.repo, "remote", "get-url", "origin")
@@ -146,13 +132,10 @@ func (w *world) originCarriesNoWorkRefForPlan(id string) error {
 }
 
 // planIsClaimedInAWorktreeOfItsOwn reads claim's --json: claimed, with
-// a worktree named, and that worktree checked out on the claim branch
-// at the very tip origin holds — the claim marker, as herdr's own
-// stand-up would have left it.
+// a worktree named, standing on origin's claim marker.
 func (w *world) planIsClaimedInAWorktreeOfItsOwn(id string) error {
 	var doc struct {
 		Claimed  bool   `json:"claimed"`
-		Refused  string `json:"refused"`
 		Worktree string `json:"worktree"`
 	}
 	cs := section[commandState](w)
@@ -162,21 +145,87 @@ func (w *world) planIsClaimedInAWorktreeOfItsOwn(id string) error {
 	if !doc.Claimed || doc.Worktree == "" {
 		return fmt.Errorf("expected plan %s claimed with a worktree, got: %s", id, cs.out.String())
 	}
-	branch, err := gitCapture(w.t, doc.Worktree, "branch", "--show-current")
+
+	return w.laneStandsOnOriginsTip(id, doc.Worktree)
+}
+
+// startJSON is the slice of start's --json, and pick --go's, a
+// handed-back escalation is read by.
+type startJSON struct {
+	Plan             struct{ ID int64 } `json:"plan"`
+	Started          bool               `json:"started"`
+	Resumed          bool               `json:"resumed"`
+	Handoff          string             `json:"handoff"`
+	PromptDispatched bool               `json:"prompt_dispatched"`
+	Pane             string             `json:"pane"`
+	Lane             string             `json:"lane"`
+	Refused          string             `json:"refused"`
+}
+
+// readHandedBack decodes the last run's start document and checks it
+// handed plan id back: started, with no pane and nothing dispatched.
+func (w *world) readHandedBack(id string) (startJSON, error) {
+	var doc startJSON
+	cs := section[commandState](w)
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return doc, fmt.Errorf("start --json: %w: %s", err, cs.out.String())
+	}
+	if strconv.FormatInt(doc.Plan.ID, 10) != id || !doc.Started ||
+		doc.Handoff != "handed-back" || doc.PromptDispatched || doc.Pane != "" {
+		return doc, fmt.Errorf("expected plan %s handed back, got: %s", id, cs.out.String())
+	}
+
+	return doc, nil
+}
+
+// planIsHandedBackInAWorktreeOfItsOwn: the escalation ran with no pane
+// — the lane stood up by git on origin's claim marker, the prompt left
+// for the caller to run there.
+func (w *world) planIsHandedBackInAWorktreeOfItsOwn(id string) error {
+	doc, err := w.readHandedBack(id)
+	if err != nil {
+		return err
+	}
+
+	return w.laneStandsOnOriginsTip(id, doc.Lane)
+}
+
+// planIsHandedBackAgainResumed: run from inside the lane, start resumed
+// on the lane's own token and handed back again, from the same lane.
+func (w *world) planIsHandedBackAgainResumed(id string) error {
+	doc, err := w.readHandedBack(id)
+	if err != nil {
+		return err
+	}
+	if !doc.Resumed {
+		return fmt.Errorf("expected plan %s resumed on its token: %s", id, section[commandState](w).out.String())
+	}
+	if lane := section[missingHerdrState](w).lane; doc.Lane != lane {
+		return fmt.Errorf("resumed in %s, not the lane %s", doc.Lane, lane)
+	}
+
+	return nil
+}
+
+// laneStandsOnOriginsTip checks lane is checked out on plan id's claim
+// branch at the very tip origin holds — as herdr's own stand-up would
+// have left it — and records it as the lane later steps run from.
+func (w *world) laneStandsOnOriginsTip(id, lane string) error {
+	branch, err := gitCapture(w.t, lane, "branch", "--show-current")
 	if err != nil {
 		return err
 	}
 	if branch != "plan/"+id {
 		return fmt.Errorf("lane is on %q, not plan/%s", branch, id)
 	}
-	head, err := gitCapture(w.t, doc.Worktree, "rev-parse", "HEAD")
+	head, err := gitCapture(w.t, lane, "rev-parse", "HEAD")
 	if err != nil {
 		return err
 	}
 	if tip := originTip(w, id); tip != head {
 		return fmt.Errorf("lane stands on %s, origin's claim is %s", head, tip)
 	}
-	section[missingHerdrState](w).lane = doc.Worktree
+	section[missingHerdrState](w).lane = lane
 
 	return nil
 }
