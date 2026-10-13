@@ -1,7 +1,7 @@
 ---
 id: 2609302340
 title: A host without herdr claims nothing it would have to unwind
-status: "🔳"
+status: "✅"
 summary: >-
   On a host with no herdr installed, claim, start --go and pick --go
   minted a lease, failed to stand the lane up, and pushed a release:
@@ -60,6 +60,7 @@ how a lane is recognised. Phase 2 lays out the decisions it needs.
 1. Phase 1: refuse claim, `start --go` and `pick --go` locally when
    herdr is not installed, before anything is pushed.
 2. Phase 2: decide the herdr-less lane's shape, then build it.
+   Superseded: moved to plan 2610132034 as its Task 4.
 
 ## Execution
 
@@ -93,7 +94,7 @@ footer: |
 | --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ✅     | [Refuse before the mint when herdr is not present](phase-1.md)                                                                                                                                  |
 |     | ↳      | claim, start --go and pick --go refuse locally on a host with no herdr installed, naming it and pushing nothing; an unreachable but installed herdr keeps the old unwind. C15 and C16 cover it. |
-| 2   | 🔲     | [A lane with no worktree and no pane](phase-2.md)                                                                                                                                               |
+| 2   | ⛔     | [A lane with no worktree and no pane](phase-2.md)                                                                                                                                               |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -106,7 +107,7 @@ footer: |
       host, and a dry-run `start` still composes.
 - [x] A herdr that is installed but unreachable keeps the existing
       mint-and-unwind (S60, S61 unchanged).
-- [ ] A session with no herdr can hold a plan from its own checkout,
-      per the decisions phase 2 records.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] ~~A session with no herdr can hold a plan from its own
+      checkout~~ — moved to plan 2610132034, Task 4.
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

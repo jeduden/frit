@@ -1,9 +1,14 @@
 ---
 n: 2
 title: A lane with no worktree and no pane
-status: "🔲"
+status: "⛔"
 result: false
 ---
+Superseded: this phase moved to
+[plan 2610132034](../2610132034_frit-runs-without-herdr/plan.md) as
+its Task 4, with the decisions below unchanged. It is kept as
+written so that plan can cite it.
+
 Decide first; the owner signs off on each answer below before any
 code. Record the answers in this spec, then write RED from them.
 
