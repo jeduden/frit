@@ -59,3 +59,12 @@ open never tries to focus through the missing herdr. A unit test
 reproduced the takeover first. C22, a command scenario, pins the
 refusal against the built frit, because it is one host's decision
 made before any mint. No lease-protocol row was needed.
+
+**Second review follow-up.** The dry run on a headless host still
+promised a pane, and the hand-back table still printed an agent line
+as if one were running. The start document now carries a `headless`
+key, set in a preview as in a run. The dry run says `--go` hands the
+prompt back, and the agent line reads as yours to run. A missing
+herdr is not carried as a problem in a dry run either. This reverses
+the earlier choice to keep the dry run as it was, since the
+plan-start skill tells a reader to trust the dry run before `--go`.

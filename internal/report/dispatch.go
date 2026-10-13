@@ -762,6 +762,10 @@ type StartDoc struct {
 	// taken over — the self-resume path (F9, F11, S3, S21). It never
 	// appears alongside a refusal.
 	Resumed bool `json:"resumed"`
+	// Headless reports a host with no herdr installed, in a preview as in
+	// a run: no pane will run the prompt, so --go hands it back for the
+	// caller to run in the lane.
+	Headless bool `json:"headless"`
 	// Pane is the pane herdr opened and the agent runs in, set only once
 	// the escalation has run.
 	Pane string `json:"pane"`
@@ -874,6 +878,10 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Pane = pane
 	d.setHandoff(HandoffRunning)
 }
+
+// MarkHeadless records a host with no herdr installed, so a preview
+// says --go will hand the prompt back rather than open a pane.
+func (d *StartDoc) MarkHeadless() { d.Headless = true }
 
 // MarkHandedBack records an escalation that ran with no pane to run
 // in: the claim is held and the lane stands up, and the prompt is

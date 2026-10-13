@@ -509,3 +509,17 @@ func TestStartMarkHandedBackRunsNothingButHoldsTheLane(t *testing.T) {
 	assert.Empty(t, doc.Pane)
 	assert.Empty(t, doc.NextAction, "the prompt itself is the recipe")
 }
+
+// TestStartMarkHeadlessSaysNoPaneWillRunIt: a host with no herdr is
+// recorded on the doc itself, preview or run alike, so the dry run can
+// say what --go will do there rather than promise a pane.
+func TestStartMarkHeadlessSaysNoPaneWillRunIt(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, false)
+	assert.False(t, doc.Headless)
+
+	doc.MarkHeadless()
+
+	assert.True(t, doc.Headless)
+	assert.Equal(t, HandoffPreview, doc.Handoff, "a dry run is still a preview")
+}

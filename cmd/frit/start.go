@@ -144,7 +144,7 @@ func buildStart(
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
-	carryLiveLaneProblems(doc, gate.probs, gate.herdrErr)
+	gate.carry(doc)
 	if rs.active() {
 		doc.MarkResumed()
 	}
@@ -258,10 +258,20 @@ type startGate struct {
 	headless bool
 }
 
+// carry puts what the gate read onto the success doc: the live-lane
+// read's problems, and whether the host is headless.
+func (g startGate) carry(doc *report.StartDoc) {
+	carryLiveLaneProblems(doc, g.probs, g.herdrErr)
+	if g.headless {
+		doc.MarkHeadless()
+	}
+}
+
 // startPreflight runs buildStart's last gate, once the repository is
 // known: the live-lane refusal, skippable by pick --go unless the
-// caller reattached. With it silent, under --go, it reads whether herdr
-// is installed at all. A host without it is headless: not a refusal,
+// caller reattached. With it silent, it reads whether herdr is
+// installed at all — for a dry run too, so its preview says what --go
+// will do. A host without it is headless: not a refusal,
 // and not a problem to carry either, since the missing herdr is the
 // mode the escalation then runs in.
 func startPreflight(
@@ -274,7 +284,7 @@ func startPreflight(
 		return liveDoc, !reattach, startGate{}
 	}
 	gate := startGate{probs: liveProbs, herdrErr: liveHerdrErr}
-	if doGo && herdrMissingAfter(rt, rs, liveHerdrErr) != nil {
+	if herdrMissingAfter(rt, rs, liveHerdrErr) != nil {
 		gate.herdrErr, gate.headless = nil, true
 	}
 
@@ -1425,8 +1435,12 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	_, _ = fmt.Fprintf(out, "  claim:    %s  (base %s)\n", doc.Branch, doc.Base)
 	printRetired(out, doc.Retired)
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
-	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
-		doc.Kind, modelLabel(doc.Tier))
+	agent := ""
+	if doc.Headless {
+		agent = "yours to run — "
+	}
+	_, _ = fmt.Fprintf(out, "  agent:    %s%s --model %s\n",
+		agent, doc.Kind, modelLabel(doc.Tier))
 	if doc.Warning != "" {
 		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
 	}
@@ -1447,6 +1461,10 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		return
 	}
 	_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
-	_, _ = fmt.Fprintln(out, "  focus:    the new pane")
+	focus := "the new pane"
+	if doc.Headless {
+		focus = "none — no herdr here; --go hands the prompt back"
+	}
+	_, _ = fmt.Fprintf(out, "  focus:    %s\n", focus)
 	_, _ = fmt.Fprintln(out, "run again with --go to execute")
 }

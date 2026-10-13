@@ -25,6 +25,7 @@
   "go": false,
   "started": false,
   "resumed": false,
+  "headless": false,
   "pane": "",
   "handoff": "preview",
   "next_action": "",

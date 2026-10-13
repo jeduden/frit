@@ -3035,8 +3035,35 @@ func TestStartGoHandedBackTellsTheReaderToRunIt(t *testing.T) {
 	assert.Contains(t, got, "started plan 7")
 	assert.Contains(t, got, "prompt:   /plan-phase 7 3")
 	assert.Contains(t, got, "no herdr pane; run the prompt in")
+	assert.Contains(t, got, "agent:    yours to run — claude --model",
+		"no agent was started, so the line says whose it is to run")
 	assert.NotContains(t, got, "do not run it here")
 	assert.NotContains(t, got, "run again with --go")
+}
+
+// TestStartDryRunWithoutHerdrPreviewsTheHandBack: the dry run a reader
+// checks before --go says what --go will do on a host with no herdr —
+// hand the prompt back to run in the lane — never "the new pane", and
+// carries the missing herdr as this host's mode rather than a problem.
+func TestStartDryRunWithoutHerdrPreviewsTheHandBack(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "focus:    none — no herdr here; --go hands the prompt back")
+	assert.Contains(t, got, "agent:    yours to run — claude --model")
+	assert.NotContains(t, got, "the new pane")
+	assert.Contains(t, got, "run again with --go to execute")
+	var doc report.StartDoc
+	emit(t, &doc, "start", "7", "--phase", "3", "--root", root)
+	assert.True(t, doc.Headless)
+	assert.Empty(t, doc.Problems, "a missing herdr is this host's mode, not a fault")
 }
 
 // TestStartGoResumesAHeadlessLaneFromInside: run again from inside the
@@ -3141,8 +3168,9 @@ func TestHerdrMissingAfterReadsTheLiveReadsAnswer(t *testing.T) {
 	assert.NoError(t, herdrMissingAfter(rt, startResumption{}, nil))
 }
 
-// TestStartPreflightPassesWithoutGo: a dry run meets neither gate, and
-// the live-lane read's own herdr error rides back for the success doc.
+// TestStartPreflightPassesWithoutGo: a dry run meets no gate, and on a
+// host with no herdr it reads headless, as --go would, so its preview
+// can say so.
 func TestStartPreflightPassesWithoutGo(t *testing.T) {
 	isolate(t)
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
@@ -3153,8 +3181,8 @@ func TestStartPreflightPassesWithoutGo(t *testing.T) {
 
 	assert.Nil(t, doc)
 	assert.False(t, skip)
-	assert.False(t, gate.headless, "a dry run stands nothing up")
-	assert.ErrorIs(t, gate.herdrErr, exec.ErrNotFound)
+	assert.True(t, gate.headless, "a dry run previews the headless mode too")
+	assert.NoError(t, gate.herdrErr)
 }
 
 // TestLivePaneOnReadsAMissingHerdrAsNoPane: with herdr not installed
@@ -3252,4 +3280,16 @@ func withRemoteHerdr(t *testing.T, agents ...map[string]any) {
 		"; exit 0; fi\nexec \"$@\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o700))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestStartGateCarriesItsReadOntoTheDoc: the gate's problems and its
+// headless read both reach the success doc.
+func TestStartGateCarriesItsReadOntoTheDoc(t *testing.T) {
+	doc := report.NewStart("/root", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+
+	startGate{herdrErr: errors.New("dial"), headless: true}.carry(doc)
+
+	assert.True(t, doc.Headless)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
