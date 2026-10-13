@@ -89,6 +89,13 @@ caller:
   same hand-back a dry-run `start` already prints. A verb that only
   steers a pane refuses, naming herdr not installed.
 
+A session whose harness lets it publish only its own branch, such as
+a cloud agent's `claude/<name>`, keeps the rule that work rides the
+lease ref. It works in the lane and pushes `plan/<id>`, then copies
+that tip to its own branch for the PR. When the PR merges, the lease
+tip reaches the default branch, and landed evidence reads it as for
+any lane (C21).
+
 The lease is untouched by any of this: a claim on a herdr-less host
 is the same ref on origin as one anywhere else. Standing a worktree
 up changes only this host's own checkout and is never coordinated

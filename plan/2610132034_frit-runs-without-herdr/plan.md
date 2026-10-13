@@ -76,8 +76,30 @@ worktrees".
 
 **Absorbs plan 2609302340 phase 2.** That phase's herdr-less lane,
 held from a cloud session's own checkout, becomes Task 4 here. That
-phase is marked ⛔ in the same commit. Its five open decisions move
-with it unchanged, and are settled when Task 4 is written as a phase.
+phase is marked ⛔ in the same commit. Its five open decisions moved
+with it.
+
+**Task 4 decided: the lane stays a lane.** Task 4's five questions
+rest on one decision: where a harness session's work lives on origin
+relative to the lease. A lease that only ever carries markers, with
+the work on the harness branch, breaks the rule that work rides the
+lease ref:
+
+- the tip stops moving while the agent works, so other hosts see an
+  attended lease go stale;
+- a takeover no longer fences the old session's pushes;
+- landing falls back to the glyph and a window;
+- a park cannot see the work.
+
+The owner chose to keep the rule. The session claims as any headless
+host does, works in the git-stood lane on `plan/<id>`, and pushes
+there. It then pushes the same tip to its harness branch, which only
+carries the PR. Recognition, landing, renewal and teardown stay as
+they are, and no `--here` flag is needed. Two alternatives were
+weighed and set aside. frit could relay a harness-branch tip onto
+the lease, but harness pushes would sit outside the fence. A `work:`
+trailer pointing at the harness branch would make the observer,
+scavenge and park all learn a second ref.
 
 ## Tasks
 
@@ -93,11 +115,10 @@ with it unchanged, and are settled when Task 4 is written as a phase.
    herdr as proof that no pane sits on the leftover. nudge and
    message refuse, naming herdr not installed rather than
    unreachable, and hand back the text to deliver by hand.
-4. The lane held from the caller's own checkout (`claim --here`),
-   for a session whose branch the harness fixes. Settle plan
-   2609302340 phase 2's five decisions first: recognition by token,
-   landing by glyph, renewal by re-claim, a marker trailer no verb
-   tears down, and the flag surface.
+4. A session whose branch the harness fixes works its plan in the
+   headless lane and copies the lane's tip to its harness branch for
+   the PR. The skills teach the copy, and a command scenario proves
+   the plan lands when that branch merges.
 5. Decide whether a host with herdr installed may opt out, through
    frit's four-place settings chain, and build it if so.
 
@@ -108,11 +129,12 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 
 ## Execution
 
-| Phase | Title                                                            | Tier   | Gate                                                                                                                                                                          |
-| ----- | ---------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | claim stands its own worktree up without herdr                   | opus   | C15 rewritten runs the built frit under a git-only `$PATH`: worktree on `plan/<id>`, no session bound, token kept, release ends it; S60, S61 unchanged; `go test ./...` green |
-| 2     | start and pick hand the prompt back without herdr                | sonnet | C16 rewritten and C18 run the built frit under a git-only `$PATH`: handed back, then resumed from the lane; `go test ./...` green                                             |
-| 3     | yield tears a headless lane down, and the pane verbs say why not | sonnet | C19 and C20 run the built frit under a git-only `$PATH`: not-installed refusal; fenced lane parked and removed; `go test ./...` green                                         |
+| Phase | Title                                                            | Tier   | Gate                                                                       |
+| ----- | ---------------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
+| 1     | claim stands its own worktree up without herdr                   | opus   | C15 on the built frit, git-only `$PATH`: claim, then release from the lane |
+| 2     | start and pick hand the prompt back without herdr                | sonnet | C16 and C18, git-only `$PATH`: handed back, then resumed                   |
+| 3     | yield tears a headless lane down, and the pane verbs say why not | sonnet | C19 and C20, git-only `$PATH`: refusal wording; yield removes the lane     |
+| 4     | a harness session publishes its lane through its own branch      | sonnet | C21, git-only `$PATH`: merging the harness branch reads the plan unheld    |
 
 ## Phases
 
@@ -135,14 +157,16 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                                                                    |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | ✅     | [claim stands its own worktree up without herdr](phase-1.md)                                                                                                                                                                                                             |
-|     | ↳      | On a host with no herdr installed, claim mints the lease and stands the lane up with git on the minted tip, its token kept and no session bound; release from that lane ends it. C15 now pins the success rather than the refusal.                                       |
-| 2   | ✅     | [start and pick hand the prompt back without herdr](phase-2.md)                                                                                                                                                                                                          |
-|     | ↳      | On a host with no herdr installed, start --go and pick --go claim, stand the lane up with git and hand the prompt back as handoff handed-back; a start from inside that lane resumes on its token and hands back again. C16 is rewritten to the hand-back and C18 added. |
-| 3   | ✅     | [yield tears a headless lane down, and the pane verbs say why not](phase-3.md)                                                                                                                                                                                           |
-|     | ↳      | On a host with no herdr installed, yield removes a fenced lane's worktree with git from the primary checkout, never the checkout itself; nudge and message refuse naming herdr not installed. C19 and C20 cover it.                                                      |
+| #   | Status | Phase                                                                                                                                                                                                                                                                           |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [claim stands its own worktree up without herdr](phase-1.md)                                                                                                                                                                                                                    |
+|     | ↳      | On a host with no herdr installed, claim mints the lease and stands the lane up with git on the minted tip, its token kept and no session bound; release from that lane ends it. C15 now pins the success rather than the refusal.                                              |
+| 2   | ✅     | [start and pick hand the prompt back without herdr](phase-2.md)                                                                                                                                                                                                                 |
+|     | ↳      | On a host with no herdr installed, start --go and pick --go claim, stand the lane up with git and hand the prompt back as handoff handed-back; a start from inside that lane resumes on its token and hands back again. C16 is rewritten to the hand-back and C18 added.        |
+| 3   | ✅     | [yield tears a headless lane down, and the pane verbs say why not](phase-3.md)                                                                                                                                                                                                  |
+|     | ↳      | On a host with no herdr installed, yield removes a fenced lane's worktree with git from the primary checkout, never the checkout itself; nudge and message refuse naming herdr not installed. C19 and C20 cover it.                                                             |
+| 4   | ✅     | [a harness session publishes its lane through its own branch](phase-4.md)                                                                                                                                                                                                       |
+|     | ↳      | A session whose harness fixes its branch works its plan in the headless lane on plan/<id>, then copies that tip to its own branch for the PR; once that branch merges, the plan reads landed through existing evidence. No protocol change; C21 proves it, the skills teach it. |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -154,11 +178,12 @@ footer: |
       composed prompt back, dispatching nothing.
 - [x] `yield` removes a herdr-less lane's worktree. nudge and message
       refuse, naming herdr not installed.
-- [ ] A session with no herdr can hold a plan from its own checkout,
-      per the decisions Task 4's phase records.
-- [ ] An installed but unreachable herdr keeps today's behavior (S60,
+- [x] A session whose branch the harness fixes can hold and work a
+      plan in a headless lane, publish it through its own branch, and
+      see the plan read as landed once that branch merges.
+- [x] An installed but unreachable herdr keeps today's behavior (S60,
       S61 unchanged).
-- [ ] README, architecture.md and the shipped skills say what works
+- [x] README, architecture.md and the shipped skills say what works
       without herdr.
-- [ ] All tests pass: `go test ./...`
-- [ ] `go tool -modfile=tools/go.mod golangci-lint run` is clean
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

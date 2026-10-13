@@ -18,7 +18,8 @@ import (
 // the headless shape a cloud agent container has. C15 claims and
 // releases there; C16's pick --go and C18's start --go hand the prompt
 // back with no pane to run it in; C19's message refuses naming herdr
-// not installed; C20's yield removes a fenced lane with git. They register as
+// not installed; C20's yield removes a fenced lane with git; C21's
+// harness session publishes its lane through its own branch. They register as
 // their own section file, per docs/development.md, and read and write
 // the command section's own state.
 func init() {
@@ -53,6 +54,10 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^another machine takes plan (\d+) over$`, w.anotherMachineTakesPlanOver)
 	sc.Step(`^the lane's work is parked and its worktree removed with git$`,
 		w.theLanesWorkIsParkedAndItsWorktreeRemoved)
+	sc.Step(`^a commit made in the lane is pushed to plan (\d+) and copied to "([^"]+)"$`,
+		w.aCommitInTheLaneIsPushedAndCopied)
+	sc.Step(`^the board shows plan (\d+) (held|not held)$`, w.theBoardShowsPlan)
+	sc.Step(`^"([^"]+)" is merged into origin's main$`, w.branchIsMergedIntoOriginsMain)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -363,6 +368,72 @@ func (w *world) theLanesWorkIsParkedAndItsWorktreeRemoved() error {
 	}
 	if _, err := os.Stat(cs.repo); err != nil {
 		return fmt.Errorf("the primary checkout is gone: %w", err)
+	}
+
+	return nil
+}
+
+// aCommitInTheLaneIsPushedAndCopied is a harness session's own work
+// step: commit in the lane, push the lease ref — a renewal — then push
+// the same tip to the branch its harness publishes, with plain git.
+func (w *world) aCommitInTheLaneIsPushedAndCopied(id, harness string) error {
+	lane := section[missingHerdrState](w).lane
+	if err := os.WriteFile(filepath.Join(lane, "work.txt"), []byte("plan "+id+"\n"), 0o600); err != nil {
+		return err
+	}
+	branch := "plan/" + id
+	for _, args := range [][]string{
+		{"add", "work.txt"},
+		{"-c", "commit.gpgsign=false", "commit", "-q", "-m", "plan " + id + ": the work"},
+		{"push", "-q", "origin", branch},
+		{"push", "-q", "origin", branch + ":" + harness},
+	} {
+		if out, err := gitCapture(w.t, lane, args...); err != nil {
+			return fmt.Errorf("git %v: %w: %s", args, err, out)
+		}
+	}
+
+	return nil
+}
+
+// theBoardShowsPlan reads board --json for plan id's held flag.
+func (w *world) theBoardShowsPlan(id, want string) error {
+	var doc struct {
+		Plans []struct {
+			ID   int64 `json:"id"`
+			Held bool  `json:"held"`
+		} `json:"plans"`
+	}
+	cs := section[commandState](w)
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("board --json: %w: %s", err, cs.out.String())
+	}
+	for _, p := range doc.Plans {
+		if strconv.FormatInt(p.ID, 10) != id {
+			continue
+		}
+		if p.Held != (want == "held") {
+			return fmt.Errorf("plan %s held is %v, want %s", id, p.Held, want)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("board does not list plan %s: %s", id, cs.out.String())
+}
+
+// branchIsMergedIntoOriginsMain stands in for the forge merging the
+// session's PR: the primary checkout merges the harness branch into
+// main with a merge commit and pushes main.
+func (w *world) branchIsMergedIntoOriginsMain(harness string) error {
+	repo := section[commandState](w).repo
+	for _, args := range [][]string{
+		{"fetch", "-q", "origin", harness},
+		{"-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m", "merge " + harness, "FETCH_HEAD"},
+		{"push", "-q", "origin", "main"},
+	} {
+		if out, err := gitCapture(w.t, repo, args...); err != nil {
+			return fmt.Errorf("git %v: %w: %s", args, err, out)
+		}
 	}
 
 	return nil

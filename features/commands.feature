@@ -144,6 +144,19 @@ Feature: Command scenarios
     And the built frit runs "yield 7 --json" from the lane
     Then the lane's work is parked and its worktree removed with git
 
+  @C21
+  Scenario: a harness session publishes its lane through its own branch, and the plan lands when it merges
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go --json"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    When a commit made in the lane is pushed to plan 7 and copied to "claude/session"
+    And the built frit runs "board --json"
+    Then the board shows plan 7 held
+    When "claude/session" is merged into origin's main
+    And the built frit runs "board --json"
+    Then the board shows plan 7 not held
+
   @C17
   Scenario: release and yield agree on a decorated hold with no lease
     Given a plan held only by a decorated branch checked out in its own lane

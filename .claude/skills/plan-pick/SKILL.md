@@ -29,8 +29,8 @@ was claimed.
 yourself — a second run puts two runners on the same lane.
 
 `handoff: handed-back` means this host has no herdr: the plan is held
-and its lane stands at `lane`, but no pane runs it. Run `prompt` in
-`lane` yourself — the one case you invoke `/plan-phase`.
+and its lane stands at `lane`, but no pane runs it. `cd` into `lane`
+and run `prompt` yourself — the one case you invoke `/plan-phase`.
 
 ## Survey first
 
