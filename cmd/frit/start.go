@@ -1141,7 +1141,7 @@ func reconcileLeftoverWorktree(
 	); err != nil {
 		return fmt.Errorf("park: %w", err)
 	}
-	if _, err := rt.git(sc.repoPath, "worktree", "remove", leftover.Path); err != nil {
+	if err := gitwt.Remove(sc.repoPath, leftover.Path, rt.git); err != nil {
 		return fmt.Errorf("remove leftover worktree at %s: %w", leftover.Path, err)
 	}
 
@@ -1303,7 +1303,7 @@ func standUpLane(
 // agent, no prompt sent — only the checkout. A resume already stands
 // in its own checkout, so there is nothing to do; a fresh acquire or
 // takeover checks the lane out with git and persists its token, the
-// same stand-up claim runs (createLaneWorktree).
+// same stand-up claim runs on a headless host.
 func standUpHeadless(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
 	repoPath string, rs startResumption, tip string,
@@ -1311,9 +1311,7 @@ func standUpHeadless(
 	if rs.active() {
 		return nil
 	}
-	if err := createLaneWorktree(rt, true, herdr.WorktreeSpec{
-		CWD: repoPath, Branch: sp.Branch, Base: sp.Base, Path: sp.Lane,
-	}); err != nil {
+	if err := gitwt.Add(repoPath, sp.Lane, sp.Branch, rt.git); err != nil {
 		return fmt.Errorf("worktree add: %w", err)
 	}
 	persistLaneToken(rt.git, sp.Lane, plan.ID, tip, doc.Warn)

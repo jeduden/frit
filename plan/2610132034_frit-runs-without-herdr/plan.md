@@ -108,13 +108,13 @@ scavenge and park all learn a second ref.
 2. `start --go` and `pick --go` without herdr: claim, stand up with
    git, and report the composed prompt and the worktree as handed
    back, with `prompt_dispatched` false. A resume reattaches with no
-   `worktree open`. `open` prints the lane's path rather than
-   focusing a pane. C16 is rewritten to the claim.
+   `worktree open`. C16 is rewritten to the hand-back. `open` is
+   unchanged: it keeps its presence-unknown answer (phase 3).
 3. Teardown and the pane verbs: yield removes a herdr-less lane with
    `git worktree remove`. start's leftover cleanup treats a missing
    herdr as proof that no pane sits on the leftover. nudge and
    message refuse, naming herdr not installed rather than
-   unreachable, and hand back the text to deliver by hand.
+   unreachable. The refusal still prints the text to deliver.
 4. A session whose branch the harness fixes works its plan in the
    headless lane and copies the lane's tip to its harness branch for
    the PR. The skills teach the copy, and a command scenario proves
