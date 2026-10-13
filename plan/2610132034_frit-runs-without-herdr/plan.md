@@ -1,7 +1,7 @@
 ---
 id: 2610132034
 title: frit runs a lane on a host without herdr
-status: "🔲"
+status: "🔳"
 summary: >-
   Today every lane verb refuses on a host with no herdr: claim,
   start --go and pick --go stop before the mint, and open, nudge,
@@ -108,9 +108,9 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 
 ## Execution
 
-| Phase | Title                                          | Tier | Gate                                                                                                                                                                       |
-| ----- | ---------------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | claim stands its own worktree up without herdr | opus | C15 rewritten and a new S row run the built frit under a git-only `$PATH`: worktree on `plan/<id>`, token kept, release ends it; S60, S61 unchanged; `go test ./...` green |
+| Phase | Title                                          | Tier | Gate                                                                                                                                                                          |
+| ----- | ---------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | claim stands its own worktree up without herdr | opus | C15 rewritten runs the built frit under a git-only `$PATH`: worktree on `plan/<id>`, no session bound, token kept, release ends it; S60, S61 unchanged; `go test ./...` green |
 
 ## Phases
 
@@ -133,14 +133,15 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                        |
-| --- | ------ | ------------------------------------------------------------ |
-| 1   | 🔲     | [claim stands its own worktree up without herdr](phase-1.md) |
+| #   | Status | Phase                                                                                                                                                                                                                              |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [claim stands its own worktree up without herdr](phase-1.md)                                                                                                                                                                       |
+|     | ↳      | On a host with no herdr installed, claim mints the lease and stands the lane up with git on the minted tip, its token kept and no session bound; release from that lane ends it. C15 now pins the success rather than the refusal. |
 <?/catalog?>
 
 ## Acceptance Criteria
 
-- [ ] On a host with no herdr installed, `frit claim <id>` holds the
+- [x] On a host with no herdr installed, `frit claim <id>` holds the
       plan in a worktree of its own on `plan/<id>`, and `frit release`
       from that worktree ends it.
 - [ ] `start --go` and `pick --go` on such a host claim and hand the

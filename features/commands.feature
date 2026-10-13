@@ -100,12 +100,15 @@ Feature: Command scenarios
     And board --json reports plan 7's ask answered with "in PR #9"
 
   @C15
-  Scenario: claiming on a host with no herdr refuses before anything reaches origin
+  Scenario: claiming on a host with no herdr stands the lane up with git
     Given a plan nobody has ever held
     And herdr is not installed on this host
-    When the built frit runs "claim 7"
-    Then it refuses, naming herdr not found and nothing claimed
-    And origin carries no work ref for plan 7
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    And origin's claim marker for plan 7 binds no session
+    And the lane holds its token for plan 7
+    When the built frit runs "release --json" from the lane
+    Then origin's tip for plan 7 is a release marker
 
   @C16
   Scenario: pick --go on a host with no herdr claims no candidate

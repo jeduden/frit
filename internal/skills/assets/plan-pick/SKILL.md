@@ -23,8 +23,10 @@ in-progress plan when nothing fresh is startable, and takes the next
 candidate when a claim loses its race. The branch, lane and model are
 the plan's — report them, never ask. `nothing startable` means nothing
 was claimed.
-`herdr not found; nothing claimed` means this host cannot stand a
-lane up; nothing reached origin, so there is nothing to release.
+
+`herdr not found; nothing claimed` means this host has no herdr to
+run the phase in; nothing reached origin. `{{frit}} claim <id>` still
+holds the plan there, in a worktree git stands up with no pane.
 
 `prompt_dispatched: true` means the phase is already running in
 `pane`. Report the pane and stop there. Never invoke `/plan-phase`

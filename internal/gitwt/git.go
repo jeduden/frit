@@ -227,3 +227,12 @@ func CommonDir(dir string, run Runner) (string, error) {
 
 	return strings.TrimSpace(string(out)), nil
 }
+
+// Add checks branch out into a new worktree at path, on the branch's
+// own tip. It is the git stand-in for herdr's worktree create on a host
+// with no herdr installed: the same checkout, with no pane opened on it.
+func Add(dir, path, branch string, run Runner) error {
+	_, err := run(dir, "worktree", "add", "--quiet", path, branch)
+
+	return err
+}

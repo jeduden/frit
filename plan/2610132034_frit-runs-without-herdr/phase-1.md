@@ -1,7 +1,7 @@
 ---
 n: 1
 title: claim stands its own worktree up without herdr
-status: "🔲"
+status: "✅"
 result: false
 ---
 The proving slice. On a host where herdr is not installed, `frit
@@ -64,20 +64,17 @@ it for `pick --go`. Edit
 `internal/skills/assets/plan-pick/SKILL.md` and its `.claude/skills`
 copy together.
 
-**BDD coverage.** This changes the lease protocol: a hold minted
-with no bound session, on a host that can never supply one, is
-protected by the window alone. Check
-[lease-protocol.md](../../docs/research/lease-protocol.md) first.
-S61 covers herdr down at *observation*, not a hold minted with no
-session. If no row already says this, add the next free `@S<n>`: a
-takeover from another host is refused as held until the window
-matures, then wins. Follow [development.md](../../docs/development.md)'s
-matrix procedure. C15 is the command row. S60 and S61 must pass
-unchanged.
+**BDD coverage.** No new `@S<n>` row. A hold minted with no bound
+session is the shape S61 already pins: no veto either way, so the
+staleness window governs. What is new is command-level, so it is C15
+that carries it, including that the marker binds no session. A
+separate S row was tried and dropped: the lease-protocol matrix sits
+at its token budget, and the row would only have restated S61. S60
+and S61 must pass unchanged.
 
 **Gate.** The phase closes when all of these hold:
 
-- The rewritten C15 and the S row pass against the built binary.
+- The rewritten C15 passes against the built binary.
 - With the probe branch reverted, C15 fails on the old refusal.
 - `go test ./...` and golangci-lint are clean.
 - Run by hand under a git-only `$PATH`, the built frit claims and

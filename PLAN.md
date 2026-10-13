@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                       |
+| ---------- | ------ | ------------------------------------------------------------------------------------------- |
+| 2610132034 | sonnet | [frit runs a lane on a host without herdr](plan/2610132034_frit-runs-without-herdr/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -148,5 +150,5 @@ footer: |
 | 2609181909 | 🔲     | sonnet | [frit tells a blocked or finished agent from an unknown one](plan/2609181909_read-blocked-and-done-from-herdr/plan.md)                         |
 | 2609302340 | ✅     | opus   | [A host without herdr claims nothing it would have to unwind](plan/2609302340_a-host-without-herdr-claims-nothing/plan.md)                     |
 | 2610011805 | ✅     | opus   | [A decorated hold with no lease matures, and can be taken over](plan/2610011805_a-decorated-hold-matures-and-can-be-taken-over/plan.md)        |
-| 2610132034 | 🔲     | sonnet | [frit runs a lane on a host without herdr](plan/2610132034_frit-runs-without-herdr/plan.md)                                                    |
+| 2610132034 | 🔳     | sonnet | [frit runs a lane on a host without herdr](plan/2610132034_frit-runs-without-herdr/plan.md)                                                    |
 <?/catalog?>

@@ -117,10 +117,12 @@ a source build. Three other tools matter:
 
 - **git** must be on `PATH`. frit runs it as a subprocess for every
   read and for the claim, as [CLAUDE.md](CLAUDE.md) requires.
-- **herdr** must be running for any verb that touches a lane: `claim`,
-  `start`, `open`, `nudge`, `message` and `yield`. The survey verbs
-  work without it: `board` then shows `?` in the agent column, and
-  `who` prints `no live agents` and reports the socket as a problem.
+- **herdr** must be running for the verbs that drive a pane: `start`,
+  `open`, `nudge`, `message` and `yield`. On a host with no herdr
+  installed, `claim` stands the lane's worktree up with git instead,
+  and `release` ends it. The survey verbs work without it: `board`
+  then shows `?` in the agent column, and `who` prints `no live
+  agents` and reports the socket as a problem.
 - **mdsmith** lints plans and regenerates the plan index. Install it
   with `go install github.com/jeduden/mdsmith/cmd/mdsmith@latest`.
 

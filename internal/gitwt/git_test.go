@@ -168,3 +168,37 @@ func git(t *testing.T, dir string, args ...string) {
 	out, err := exec.Command("git", full...).CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, string(out))
 }
+
+func TestAddChecksTheBranchOutAtPath(t *testing.T) {
+	var got []string
+	run := fakeRunner("", nil, &got)
+
+	require.NoError(t, Add("/repo", "/lanes/7", "plan/7", run))
+	assert.Equal(t, []string{
+		"/repo", "worktree", "add", "--quiet", "/lanes/7", "plan/7",
+	}, got)
+}
+
+func TestAddPropagatesGitFailure(t *testing.T) {
+	var got []string
+	boom := errors.New("already exists")
+
+	err := Add("/repo", "/lanes/7", "plan/7", fakeRunner("", boom, &got))
+
+	assert.ErrorIs(t, err, boom)
+}
+
+// TestAddAgainstARealRepository: the lane comes up on the branch's own
+// tip, the same checkout herdr's worktree create leaves.
+func TestAddAgainstARealRepository(t *testing.T) {
+	repo := initRepo(t)
+	git(t, repo, "branch", "plan/7")
+	lane := filepath.Join(t.TempDir(), "lane")
+
+	require.NoError(t, Add(repo, lane, "plan/7", Exec))
+
+	wts, err := List(repo, Exec)
+	require.NoError(t, err)
+	require.Len(t, wts, 2)
+	assert.Equal(t, "plan/7", wts[1].Branch)
+}

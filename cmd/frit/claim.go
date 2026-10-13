@@ -29,8 +29,10 @@ type claimCmd struct {
 // or one another machine wins the push for. On a pickable plan it leases
 // the branch and reports the base it dated the lease against.
 //
-// The claim mints the ref and stops. The worktree and the pane are
-// herdr's, reached by `frit start`; this command owns only the lease.
+// The claim mints the ref and stands the lane's worktree up — through
+// herdr where it is installed, with git where it is not. The agent and
+// its pane are `frit start`'s; this command owns only the lease and
+// the checkout.
 func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 	res, err := gatherFleet(c, rt)
 	if err != nil {
@@ -96,16 +98,20 @@ func (cc *claimCmd) Run(c *cli, rt *runtime) error {
 		return renderClaim(c, rt, doc)
 	}
 
-	if refuseUnmintable(rt, doc, plan.Repo, ok) {
+	if refuseUnmintable(doc, plan.Repo, ok) {
 		return renderClaim(c, rt, doc)
 	}
 
+	// Asked before the mint, so a stalled herdr costs its timeout before
+	// anything reaches origin rather than between the mint and the
+	// stand-up.
+	headless := herdr.Missing(rt.herdr) != nil
 	minted, err := mintClaim(rt, doc, plan, coord)
 	if err != nil {
 		return err
 	}
 	if doc.Claimed {
-		standUpClaimWorktree(rt, doc, plan, branch, coord, minted.Tip)
+		standUpClaimWorktree(rt, doc, plan, branch, coord, minted.Tip, headless)
 	}
 
 	return renderClaim(c, rt, doc)
@@ -289,41 +295,43 @@ func currentSession(rt *runtime) string {
 	return pane.Session
 }
 
-// missingHerdrRefusal is what a claim, or a start or pick under --go,
-// answers on a host with no herdr installed: the lane's worktree is
-// herdr's to stand up, so the mint would only be unwound again.
+// missingHerdrRefusal is what a start or pick under --go answers on a
+// host with no herdr installed: the agent's pane is herdr's to open,
+// so the mint would only be unwound again.
 const missingHerdrRefusal = "herdr not found; nothing claimed, " +
-	"since the lane's worktree is herdr's to stand up"
+	"since the phase runs in a herdr pane"
 
 // refuseUnmintable is claim's last gate before the mint, and reports
 // whether it refused. Without the repository's coordinate there is
-// nowhere to mint the lease, so it refuses rather than guess. On a
-// host with no herdr installed, the stand-up after the mint is certain
-// to fail, and the unwind would leave origin a work ref holding only a
-// claim and a release marker; so it refuses locally, carrying the raw
-// cause as a herdr problem. A herdr that is installed but unreachable
-// passes: that failure is not certain, and the stand-up's own unwind
-// covers it (S60).
-func refuseUnmintable(
-	rt *runtime, doc *report.ClaimDoc, repo string, coordOK bool,
-) bool {
-	if !coordOK {
-		doc.Refuse(ambiguousRepo(repo))
-		return true
-	}
-	missing := herdr.Missing(rt.herdr)
-	if missing == nil {
+// nowhere to mint the lease, so it refuses rather than guess. A host
+// with no herdr installed passes: claim stands its lane up with git
+// there (createLaneWorktree).
+func refuseUnmintable(doc *report.ClaimDoc, repo string, coordOK bool) bool {
+	if coordOK {
 		return false
 	}
-	doc.Refuse(missingHerdrRefusal)
-	doc.AddProblem("herdr", missing)
+	doc.Refuse(ambiguousRepo(repo))
 
 	return true
 }
 
-// standUpClaimWorktree hands the freshly claimed lane's checkout to
-// herdr, so an agent works it in a worktree of its own rather than in
-// the shared clone. Once herdr reports the worktree stood up, the
+// createLaneWorktree checks a claimed lane's branch out into its own worktree.
+// herdr does it where installed, opening the lane's pane as it goes; a
+// headless host — herdr not installed — does it with git alone, the
+// same checkout with no pane on it.
+func createLaneWorktree(rt *runtime, headless bool, spec herdr.WorktreeSpec) error {
+	if headless {
+		return gitwt.Add(spec.CWD, spec.Path, spec.Branch, rt.git)
+	}
+	_, err := herdr.WorktreeCreate(rt.herdr, spec)
+
+	return err
+}
+
+// standUpClaimWorktree stands the freshly claimed lane's checkout up —
+// through herdr, or with git on a headless host (createLaneWorktree) — so an
+// agent works it in a worktree of its own rather than in the shared
+// clone. Once the worktree stands, the
 // minted tip is written as this lane's own token — mintClaim's own
 // persist ran too early to land anywhere, since path named nothing on
 // disk yet — so a claim-only lane resumes and releases exactly the way
@@ -338,9 +346,10 @@ func refuseUnmintable(
 func standUpClaimWorktree(
 	rt *runtime, doc *report.ClaimDoc,
 	plan discovery.Plan, branch string, coord fleet.Coord, tip string,
+	headless bool,
 ) {
 	path := defaultLanePath(coord.Path, plan.Path)
-	if _, err := herdr.WorktreeCreate(rt.herdr, herdr.WorktreeSpec{
+	if err := createLaneWorktree(rt, headless, herdr.WorktreeSpec{
 		CWD:    coord.Path,
 		Branch: branch,
 		Base:   coord.Base,
