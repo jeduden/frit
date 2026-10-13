@@ -47,3 +47,15 @@ and nudge, message and open still need a pane. A lane with no pane is
 now common, so yield's teardown should fall back to `git worktree
 remove`. The pane verbs should name herdr not installed rather than
 unreachable.
+
+**Review follow-up.** A code review found that a headless start never
+read the configured remote hosts. The presence read stopped at the
+missing local herdr. A lane live on another host therefore went
+unseen, and the start handed back a second lane beside it. Before
+this phase, the refusal made that gap moot. Now the hosts are still
+read past a missing local herdr, and only the live-lane lookup uses
+their panes. Every other reader keeps stopping at the error, and
+open never tries to focus through the missing herdr. A unit test
+reproduced the takeover first. C22, a command scenario, pins the
+refusal against the built frit, because it is one host's decision
+made before any mint. No lease-protocol row was needed.

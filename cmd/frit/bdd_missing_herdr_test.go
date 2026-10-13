@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/jeduden/frit/internal/claim"
@@ -19,7 +20,8 @@ import (
 // releases there; C16's pick --go and C18's start --go hand the prompt
 // back with no pane to run it in; C19's message refuses naming herdr
 // not installed; C20's yield removes a fenced lane with git; C21's
-// harness session publishes its lane through its own branch. They register as
+// harness session publishes its lane through its own branch; C22's
+// start still sees a lane live on another host. They register as
 // their own section file, per docs/development.md, and read and write
 // the command section's own state.
 func init() {
@@ -32,6 +34,7 @@ func init() {
 type missingHerdrState struct {
 	path string
 	lane string
+	held string
 }
 
 func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
@@ -58,6 +61,10 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 		w.aCommitInTheLaneIsPushedAndCopied)
 	sc.Step(`^the board shows plan (\d+) (held|not held)$`, w.theBoardShowsPlan)
 	sc.Step(`^"([^"]+)" is merged into origin's main$`, w.branchIsMergedIntoOriginsMain)
+	sc.Step(`^plan 7's matured hold has a live agent in its lane on host "([^"]+)"$`,
+		w.planSevensMaturedHoldIsLiveOnHost)
+	sc.Step(`^start refuses, naming plan/7's live lane, and origin's lease is untouched$`,
+		w.startRefusesNamingTheLiveLaneLeaseUntouched)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -176,14 +183,25 @@ type startJSON struct {
 // readHandedBack decodes the last run's start document and checks it
 // handed plan id back: started, with no pane and nothing dispatched.
 func (w *world) readHandedBack(id string) (startJSON, error) {
+	doc, err := w.decodeStart()
+	if err != nil {
+		return doc, err
+	}
+	cs := section[commandState](w)
+	if strconv.FormatInt(doc.Plan.ID, 10) != id || !doc.Started ||
+		doc.Handoff != "handed-back" || doc.PromptDispatched || doc.Pane != "" {
+		return doc, fmt.Errorf("expected plan %s handed back, got: %s", id, cs.out.String())
+	}
+
+	return doc, nil
+}
+
+// decodeStart decodes the last run's start document.
+func (w *world) decodeStart() (startJSON, error) {
 	var doc startJSON
 	cs := section[commandState](w)
 	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
 		return doc, fmt.Errorf("start --json: %w: %s", err, cs.out.String())
-	}
-	if strconv.FormatInt(doc.Plan.ID, 10) != id || !doc.Started ||
-		doc.Handoff != "handed-back" || doc.PromptDispatched || doc.Pane != "" {
-		return doc, fmt.Errorf("expected plan %s handed back, got: %s", id, cs.out.String())
 	}
 
 	return doc, nil
@@ -434,6 +452,56 @@ func (w *world) branchIsMergedIntoOriginsMain(harness string) error {
 		if out, err := gitCapture(w.t, repo, args...); err != nil {
 			return fmt.Errorf("git %v: %w: %s", args, err, out)
 		}
+	}
+
+	return nil
+}
+
+// planSevensMaturedHoldIsLiveOnHost leases plan 7 to another machine,
+// matures its takeover window, and puts a working agent in a checkout
+// of its branch that only host can see: a fake ssh, written into the
+// herdr-less $PATH, answers that host's herdr with the pane and runs
+// any other remote command — the git a remote cwd resolves with —
+// locally.
+func (w *world) planSevensMaturedHoldIsLiveOnHost(host string) error {
+	repo := section[commandState](w).repo
+	lease, err := claim.Acquire(repo, claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}, gitwt.Exec)
+	if err != nil {
+		return err
+	}
+	seedWindow(w.t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(w.t, repo, "plan/7")
+	body, err := json.Marshal(map[string]any{"result": map[string]any{"agents": []map[string]any{{
+		"agent": "claude", "agent_status": "working", "pane_id": "wBox:p1", "cwd": lane,
+	}}}})
+	if err != nil {
+		return err
+	}
+	st := section[missingHerdrState](w)
+	if st.path == "" {
+		return fmt.Errorf("the herdr-less $PATH comes first")
+	}
+	script := "#!/bin/sh\n[ \"$1\" = " + host + " ] || exit 255\nshift\n" +
+		"if [ \"$1\" = herdr ]; then printf '%s\\n' '" + string(body) + "'; exit 0; fi\nexec \"$@\"\n"
+	st.held = lease.Tip
+
+	return os.WriteFile(filepath.Join(st.path, "ssh"), []byte(script), 0o700)
+}
+
+// startRefusesNamingTheLiveLaneLeaseUntouched reads start's --json: a
+// refusal naming the live lane's branch, no hand-back, and origin's
+// lease exactly where the other machine left it.
+func (w *world) startRefusesNamingTheLiveLaneLeaseUntouched() error {
+	doc, err := w.decodeStart()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(doc.Refused, "plan/7") || doc.Handoff == "handed-back" {
+		return fmt.Errorf("expected a live-lane refusal, got: %s", section[commandState](w).out.String())
+	}
+	if tip := originTip(w, "7"); tip != section[missingHerdrState](w).held {
+		return fmt.Errorf("origin's lease moved to %s", tip)
 	}
 
 	return nil

@@ -157,6 +157,14 @@ Feature: Command scenarios
     And the built frit runs "board --json"
     Then the board shows plan 7 not held
 
+  @C22
+  Scenario: start --go on a host with no herdr still refuses a lane live on another host
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    And plan 7's matured hold has a live agent in its lane on host "box"
+    When the built frit runs "start 7 --go --json --hosts box"
+    Then start refuses, naming plan/7's live lane, and origin's lease is untouched
+
   @C17
   Scenario: release and yield agree on a decorated hold with no lease
     Given a plan held only by a decorated branch checked out in its own lane

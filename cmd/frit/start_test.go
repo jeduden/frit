@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -3207,4 +3208,48 @@ func TestStandUpHeadlessNamesAFailedWorktreeAdd(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "worktree add")
+}
+
+// TestStartGoWithoutHerdrRefusesALaneLiveOnARemoteHost: a host with no
+// herdr cannot see a local pane, but the configured hosts can still be
+// read. A live agent on another host's lane of the plan refuses the
+// headless start just as it would refuse one with herdr — never a
+// second lane stood up and handed back beside it.
+func TestStartGoWithoutHerdrRefusesALaneLiveOnARemoteHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lease, err := claim.Acquire(repo, claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": lane,
+	})
+	withHerdr(t, herdrNotInstalled)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--hosts", "box", "--root", root)
+
+	assert.Contains(t, doc.Refused, "plan/7", "the reason names the live lane")
+	assert.NotEqual(t, report.HandoffHandedBack, doc.Handoff)
+	assert.Equal(t, lease.Tip, claim.RemoteTip(repo, "origin", 7, gitwt.Exec),
+		"the live lane's lease is untouched")
+}
+
+// withRemoteHerdr puts a fake ssh first on $PATH: a remote herdr call
+// answers with agents, and any other remote command — the git a remote
+// pane's cwd is resolved with — runs locally.
+func withRemoteHerdr(t *testing.T, agents ...map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"result": map[string]any{"agents": agents}})
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agents.json"), body, 0o600))
+	script := "#!/bin/sh\nshift\nif [ \"$1\" = herdr ]; then cat " + filepath.Join(dir, "agents.json") +
+		"; exit 0; fi\nexec \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

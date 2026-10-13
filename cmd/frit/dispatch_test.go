@@ -1100,3 +1100,23 @@ func TestMessageSaysHerdrNotInstalled(t *testing.T) {
 
 	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
 }
+
+// TestOpenWithoutHerdrNeverFocusesARemoteLane: a lane found on another
+// host past a missing local herdr has no herdr here to focus it
+// through, so open reports presence unknown rather than failing.
+func TestOpenWithoutHerdrNeverFocusesARemoteLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": repo,
+	})
+	withHerdr(t, herdrNotInstalled)
+	var doc report.OpenDoc
+
+	stderr := emit(t, &doc, "open", "7", "--hosts", "box", "--root", root)
+
+	assert.NotContains(t, stderr, "focus")
+	assert.False(t, doc.Focused)
+}

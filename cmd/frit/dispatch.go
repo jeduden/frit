@@ -57,7 +57,10 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	if unknown {
 		doc.PresenceUnknown()
 	}
-	if found {
+	// A lane found with herdr not installed here is another host's,
+	// read past the missing local herdr — there is no herdr to focus it
+	// through, so open reports presence unknown as before.
+	if found && herdrErr == nil {
 		if err := herdr.Focus(rt.herdr, lane.Pane.PaneID); err != nil {
 			return fmt.Errorf("focus %s: %w", lane.Pane.PaneID, err)
 		}
@@ -126,11 +129,15 @@ func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
 // resolves to the repository that owns it. Without that check, an agent
 // on an identically named branch elsewhere would be dispatched onto by
 // mistake — the one error this whole join exists to prevent.
+//
+// On a host with no herdr installed the configured remotes are still
+// searched, and the not-found error comes back with whatever they
+// show, so a caller can tell the local absence from the remote lane.
 func liveLaneFor(
 	c *cli, p discovery.Plan, rt *runtime,
 ) (herdr.Lane, bool, []hostProblem, error) {
 	panes, probs, err := fleetPresence(c, rt)
-	if err != nil {
+	if err != nil && herdr.NotFound(err) == nil {
 		return herdr.Lane{}, false, nil, err
 	}
 
@@ -141,7 +148,7 @@ func liveLaneFor(
 	lane, found := firstLiveLane(whoLanes(panes, rt.git), holds, p.Repo,
 		func(l herdr.Lane) string { return laneRepo(l, rt.git) })
 
-	return lane, found, probs, nil
+	return lane, found, probs, err
 }
 
 // firstLiveLane picks, from lanes, the one on a branch in holds whose
