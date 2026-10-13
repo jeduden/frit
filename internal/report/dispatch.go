@@ -748,8 +748,9 @@ type StartDoc struct {
 	// pane rather than left for the caller to run.
 	Prompt string `json:"prompt"`
 	// PromptDispatched is true exactly when Handoff is HandoffRunning —
-	// the prompt was sent into the pane — and false for a preview or a
-	// refusal, where Prompt is still the caller's recipe. It is written
+	// the prompt was sent into the pane — and false for a preview, a
+	// refusal or a hand-back, where Prompt is still the caller's
+	// recipe. It is written
 	// only through setHandoff, beside NextAction, so the three cannot
 	// part.
 	PromptDispatched bool `json:"prompt_dispatched"`
@@ -767,7 +768,8 @@ type StartDoc struct {
 	// caller to run in the lane.
 	Headless bool `json:"headless"`
 	// Pane is the pane herdr opened and the agent runs in, set only once
-	// the escalation has run.
+	// the escalation has run — and never on a hand-back, where no herdr
+	// opened one.
 	Pane string `json:"pane"`
 	// Handoff is the one axis a consumer keys on instead of re-deriving
 	// "the prompt is not mine" from started/refused. It is one of

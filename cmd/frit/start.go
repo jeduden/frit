@@ -759,8 +759,10 @@ func composeStart(
 // startExecute runs the escalation the composition describes: mint the
 // claim, then hand the checkout, the agent and the pane to herdr in turn,
 // and prompt it. Each mutation frit does not own is delegated — the
-// worktree and the pane are herdr's — and no reply is ever read. A claim
-// lost to another machine is carried as a refusal, not a fault.
+// worktree and the pane are herdr's — and no reply is ever read. On a
+// headless host the checkout is stood up with git and the prompt is
+// handed back instead (standUpHeadless, finishStart). A claim lost to
+// another machine is carried as a refusal, not a fault.
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
 	sp report.StartPlan, sc startContext, edit bool, rs startResumption,
@@ -1268,7 +1270,8 @@ func laneLabel(plan discovery.Plan) string {
 // the started agent was given — on failure too, once a pane exists, so
 // the unwind can name what stood up. Every call here is herdr's — frit
 // spawns nothing it does not hand straight over — and `agent read` is
-// deliberately never among them.
+// deliberately never among them. A headless host takes the one git
+// stand-up instead (standUpHeadless), with no pane or session.
 //
 // rs is the resume that got here, if any: standUpLane drives the pane
 // it names rather than creating a worktree at a path the lane's own

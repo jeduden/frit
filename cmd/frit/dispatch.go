@@ -136,7 +136,7 @@ func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
 func liveLaneFor(
 	c *cli, p discovery.Plan, rt *runtime,
 ) (herdr.Lane, bool, []hostProblem, error) {
-	panes, probs, err := fleetPresence(c, rt)
+	panes, probs, err := fleetPresencePastMissing(c, rt)
 	if err != nil && herdr.NotFound(err) == nil {
 		return herdr.Lane{}, false, nil, err
 	}

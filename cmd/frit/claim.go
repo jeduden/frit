@@ -357,10 +357,11 @@ func standUpClaimWorktree(
 	doc.Stood(path)
 }
 
-// persistLaneToken writes tip as a lane's own token the moment herdr
-// reports its worktree stood up — claim's own stand-up and start's
-// fresh-worktree branch both reach this the same way, right after the
-// same herdr.WorktreeCreate call succeeds, so the pairing lives once
+// persistLaneToken writes tip as a lane's own token the moment the
+// lane's worktree stands — claim's own stand-up and start's
+// fresh-worktree branch both reach this the same way, right after
+// herdr's worktree create, or git's on a headless host, succeeds, so
+// the pairing lives once
 // here rather than twice. A write that fails is a warning on the
 // caller's document, never an error: the checkout stood up fine and
 // the lease is already on the remote, so only the resume shortcut is

@@ -960,27 +960,50 @@ type hostProblem struct {
 // fleetPresence reads live panes across the fleet. The local socket is
 // read first and its failure is returned as err — so a caller still
 // tells "presence unknown" from "nobody live", exactly as the
-// single-socket read did. With no hosts configured that is all it does.
-// With hosts, the remotes are read best-effort over ssh and reconciled
-// against the cache: a dead or slow one renders its last-known panes and
-// travels back as a hostProblem rather than failing the read, so one
-// unreachable machine never blocks the board.
-//
-// A herdr not installed here is the one local failure the remotes are
-// still read past: this host has no panes to show, but another host's
-// live lane is a fact a headless start must not miss. Their panes come
-// back alongside the not-found error, so a caller that stops on any
-// error behaves as before, and only one that reads past a missing
-// herdr (liveLaneFor) sees them.
+// single-socket read did — before any host is read, so a reader that
+// stops on that error never pays for a fan-out it would discard. With
+// no hosts configured that is all it does. With hosts, the remotes are
+// read best-effort (withHostPresence).
 func fleetPresence(
+	c *cli, rt *runtime,
+) (panes []herdr.Pane, probs []hostProblem, err error) {
+	local, err := herdr.List(rt.herdr)
+	if err != nil {
+		return nil, nil, err
+	}
+	panes, probs = withHostPresence(c, local)
+
+	return panes, probs, nil
+}
+
+// fleetPresencePastMissing is fleetPresence for the one reader that
+// must look past a herdr not installed here (liveLaneFor): this host
+// has no panes to show, but another host's live lane is a fact a
+// headless start must not miss. The remotes' panes come back beside
+// the not-found error; any other local failure still stops the read
+// before a host is asked.
+func fleetPresencePastMissing(
 	c *cli, rt *runtime,
 ) (panes []herdr.Pane, probs []hostProblem, err error) {
 	local, err := herdr.List(rt.herdr)
 	if err != nil && herdr.NotFound(err) == nil {
 		return nil, nil, err
 	}
+	panes, probs = withHostPresence(c, local)
+
+	return panes, probs, err
+}
+
+// withHostPresence adds the configured hosts' panes to the local ones.
+// The remotes are read best-effort over ssh and reconciled against the
+// cache: a dead or slow one renders its last-known panes and travels
+// back as a hostProblem rather than failing the read, so one
+// unreachable machine never blocks the board.
+func withHostPresence(
+	c *cli, local []herdr.Pane,
+) ([]herdr.Pane, []hostProblem) {
 	if len(c.Hosts) == 0 {
-		return local, nil, err
+		return local, nil
 	}
 
 	path, perr := presence.CachePath()
@@ -990,14 +1013,14 @@ func fleetPresence(
 		// the configured hosts went unread, and that travels as a problem
 		// rather than reading as a clean local-only fleet a consumer could
 		// start a duplicate lane against.
-		return local, unreadHosts(c.Hosts), err
+		return local, unreadHosts(c.Hosts)
 	}
 
 	opt := presence.Options{TTL: hostReadTTL, Timeout: hostReadTimeout}
 	remotePanes, statuses := presence.Read(
 		toHosts(c.Hosts), herdr.RunContext, path, opt, time.Now())
 
-	return append(local, remotePanes...), hostProblems(statuses), err
+	return append(local, remotePanes...), hostProblems(statuses)
 }
 
 // unreadHosts flags every configured host as unread, for the degraded
