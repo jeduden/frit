@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -587,5 +588,62 @@ func TestTearDownHeadlessLaneLeavesAnotherPlansLaneStanding(t *testing.T) {
 
 	assert.False(t, doc.TornDown)
 	assert.Contains(t, doc.Warning, "not plan 7's own lane")
+	assert.DirExists(t, lane)
+}
+
+// headlessLane claims plan 7 on a host with no herdr and returns the
+// fixture's root and the lane claim stood up with git.
+func headlessLane(t *testing.T) (string, string) {
+	t.Helper()
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var claimed report.ClaimDoc
+	emit(t, &claimed, "claim", "7", "--root", root)
+	require.True(t, claimed.Claimed, claimed.Refused)
+
+	return root, claimed.Worktree
+}
+
+// TestTearDownHeadlessLaneWarnsWhenGitRefusesTheRemove: a lane holding
+// untracked files is never forced away — git's refusal is a warning,
+// the lane left standing.
+func TestTearDownHeadlessLaneWarnsWhenGitRefusesTheRemove(t *testing.T) {
+	root, lane := headlessLane(t)
+	require.NoError(t, os.WriteFile(filepath.Join(lane, "scratch.txt"), []byte("wip"), 0o600))
+	doc := report.NewYield(root, "atlas", 7, "Shader unit", "plan/7")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	tearDownHeadlessLane(rt, doc, lane)
+
+	assert.False(t, doc.TornDown)
+	assert.Contains(t, doc.Warning, "worktree remove")
+	assert.DirExists(t, lane)
+}
+
+// TestTearDownHeadlessLaneWarnsWhenTheWorktreeListFails: without the
+// list there is no telling the lane from the primary checkout, so
+// nothing is removed. The lane check's own repository name already
+// read the list once, so it is the second read that fails here.
+func TestTearDownHeadlessLaneWarnsWhenTheWorktreeListFails(t *testing.T) {
+	root, lane := headlessLane(t)
+	doc := report.NewYield(root, "atlas", 7, "Shader unit", "plan/7")
+	lists := 0
+	rt := &runtime{herdr: herdrNotInstalled,
+		git: func(dir string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "worktree" && args[1] == "list" {
+				lists++
+				if lists > 1 {
+					return nil, errors.New("boom")
+				}
+			}
+			return gitwt.Exec(dir, args...)
+		}}
+
+	tearDownHeadlessLane(rt, doc, lane)
+
+	assert.False(t, doc.TornDown)
+	assert.Contains(t, doc.Warning, "worktree list")
 	assert.DirExists(t, lane)
 }

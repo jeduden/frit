@@ -3191,3 +3191,20 @@ func TestFinishStartHandsBackOnAHeadlessHost(t *testing.T) {
 	assert.Equal(t, report.HandoffRunning, running.Handoff)
 	assert.Equal(t, "wZ:p1", running.Pane)
 }
+
+// TestStandUpHeadlessNamesAFailedWorktreeAdd: a git worktree add that
+// fails is returned naming the step, for startExecute's unwind to
+// release the lease behind it.
+func TestStandUpHeadlessNamesAFailedWorktreeAdd(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, errors.New("already exists")
+	}}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	sp := report.StartPlan{Branch: "plan/7", Lane: "/lanes/7"}
+	doc := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+
+	err := standUpHeadless(rt, doc, plan, sp, "/repo", startResumption{}, "tip")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "worktree add")
+}
