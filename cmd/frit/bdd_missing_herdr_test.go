@@ -17,7 +17,8 @@ import (
 // C15 and C16 run the built frit on a host with no herdr installed —
 // the headless shape a cloud agent container has. C15 claims and
 // releases there; C16's pick --go and C18's start --go hand the prompt
-// back with no pane to run it in. They register as
+// back with no pane to run it in; C19's message refuses naming herdr
+// not installed; C20's yield removes a fenced lane with git. They register as
 // their own section file, per docs/development.md, and read and write
 // the command section's own state.
 func init() {
@@ -47,6 +48,11 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 		w.planIsHandedBackInAWorktreeOfItsOwn)
 	sc.Step(`^plan (\d+) is handed back again from the same lane, resumed$`,
 		w.planIsHandedBackAgainResumed)
+	sc.Step(`^it refuses, naming herdr not installed rather than unreachable$`,
+		w.itRefusesNamingHerdrNotInstalled)
+	sc.Step(`^another machine takes plan (\d+) over$`, w.anotherMachineTakesPlanOver)
+	sc.Step(`^the lane's work is parked and its worktree removed with git$`,
+		w.theLanesWorkIsParkedAndItsWorktreeRemoved)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -292,4 +298,72 @@ func originTip(w *world, id string) string {
 	}
 
 	return tip
+}
+
+// itRefusesNamingHerdrNotInstalled reads message's --json: refused on
+// the certain absence, not the "unreachable" a socket that may come
+// back earns, and with no herdr problem carried for this host's mode.
+func (w *world) itRefusesNamingHerdrNotInstalled() error {
+	var doc struct {
+		Refused  string `json:"refused"`
+		Problems []struct {
+			Repo string `json:"repo"`
+		} `json:"problems"`
+	}
+	cs := section[commandState](w)
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("--json: %w: %s", err, cs.out.String())
+	}
+	if !strings.Contains(doc.Refused, "herdr not installed") || strings.Contains(doc.Refused, "unreachable") {
+		return fmt.Errorf("expected a not-installed refusal, got: %s", cs.out.String())
+	}
+	for _, p := range doc.Problems {
+		if p.Repo == "herdr" {
+			return fmt.Errorf("a herdr problem was carried: %s", cs.out.String())
+		}
+	}
+
+	return nil
+}
+
+// anotherMachineTakesPlanOver fences the lane: a second clone of the
+// same origin seizes plan id's work ref at its current tip, leaving
+// the lane's own local ref behind it.
+func (w *world) anotherMachineTakesPlanOver(id string) error {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return err
+	}
+	other := cloneAgain(w.t, section[commandState](w).repo)
+	_, err = claim.Takeover(other, claim.LeaseOptions{
+		PlanID: n, Remote: "origin", Base: "origin/main",
+		Holder: "elsewhere", Lane: "/lanes/x",
+	}, originTip(w, id), gitwt.Exec)
+
+	return err
+}
+
+// theLanesWorkIsParkedAndItsWorktreeRemoved reads yield's --json: the
+// fenced lane's tip parked to a rescue ref and the lane torn down, its
+// directory gone from disk while the primary checkout stands.
+func (w *world) theLanesWorkIsParkedAndItsWorktreeRemoved() error {
+	var doc struct {
+		Rescue   string `json:"rescue"`
+		TornDown bool   `json:"torn_down"`
+	}
+	cs := section[commandState](w)
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("yield --json: %w: %s", err, cs.out.String())
+	}
+	if doc.Rescue == "" || !doc.TornDown {
+		return fmt.Errorf("expected the lane parked and torn down, got: %s", cs.out.String())
+	}
+	if _, err := os.Stat(section[missingHerdrState](w).lane); !os.IsNotExist(err) {
+		return fmt.Errorf("the lane's worktree still stands: %v", err)
+	}
+	if _, err := os.Stat(cs.repo); err != nil {
+		return fmt.Errorf("the primary checkout is gone: %w", err)
+	}
+
+	return nil
 }

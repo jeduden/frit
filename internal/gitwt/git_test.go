@@ -202,3 +202,17 @@ func TestAddAgainstARealRepository(t *testing.T) {
 	require.Len(t, wts, 2)
 	assert.Equal(t, "plan/7", wts[1].Branch)
 }
+
+func TestRemoveAsksGitToRemoveTheWorktree(t *testing.T) {
+	var got []string
+
+	require.NoError(t, Remove("/repo", "/lanes/7", fakeRunner("", nil, &got)))
+	assert.Equal(t, []string{"/repo", "worktree", "remove", "/lanes/7"}, got)
+}
+
+func TestRemovePropagatesGitFailure(t *testing.T) {
+	var got []string
+	boom := errors.New("contains modified or untracked files")
+
+	assert.ErrorIs(t, Remove("/repo", "/lanes/7", fakeRunner("", boom, &got)), boom)
+}

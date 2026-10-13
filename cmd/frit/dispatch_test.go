@@ -1067,3 +1067,36 @@ func TestMessageGoSurfacesAPromptFailure(t *testing.T) {
 	require.Equal(t, 1, code)
 	assert.Contains(t, errb.String(), "prompt")
 }
+
+// TestNudgeSaysHerdrNotInstalled: on a host with no herdr at all there
+// is certainly no pane to reach, so nudge refuses naming that — not
+// "unreachable", which promises a socket that may come back — and
+// carries no herdr problem for this host's own mode.
+func TestNudgeSaysHerdrNotInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go", "--root", root)
+
+	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+	for _, p := range doc.Problems {
+		assert.NotEqual(t, "herdr", p.Repo)
+	}
+}
+
+// TestMessageSaysHerdrNotInstalled: message's switch carries the same
+// not-installed case nudge's does.
+func TestMessageSaysHerdrNotInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "status?", "--go", "--root", root)
+
+	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+}

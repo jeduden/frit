@@ -127,6 +127,23 @@ Feature: Command scenarios
     When the built frit runs "start --go --json" from the lane
     Then plan 7 is handed back again from the same lane, resumed
 
+  @C19
+  Scenario: messaging a lane on a host with no herdr says herdr is not installed
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "message 7 status --go --json"
+    Then it refuses, naming herdr not installed rather than unreachable
+
+  @C20
+  Scenario: yield from a fenced lane on a host with no herdr removes its worktree
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    When another machine takes plan 7 over
+    And the built frit runs "yield 7 --json" from the lane
+    Then the lane's work is parked and its worktree removed with git
+
   @C17
   Scenario: release and yield agree on a decorated hold with no lease
     Given a plan held only by a decorated branch checked out in its own lane

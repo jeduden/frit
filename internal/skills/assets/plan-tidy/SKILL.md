@@ -28,8 +28,9 @@ verb that matches — never raw git.
   a no-op, not a refusal.
 - **A fenced lane** — the lease moved under it, a stranger's claim now
   covers this worktree → `{{frit}} yield`. It parks the local
-  divergence to a rescue ref, then tears the worktree down through
-  herdr, so nothing local is lost.
+  divergence to a rescue ref, then tears the worktree down — through
+  herdr, or with git where none is installed — so nothing local is
+  lost.
 - **Many orphans at once** → `{{frit}} reap` tears down everything
   `orphans` reports; dry-run unless `--go`, and it parks each branch's
   unlanded work to a rescue ref before deleting.

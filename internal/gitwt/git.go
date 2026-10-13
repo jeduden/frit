@@ -236,3 +236,13 @@ func Add(dir, path, branch string, run Runner) error {
 
 	return err
 }
+
+// Remove removes the linked worktree at path, run from dir — the
+// repository's primary checkout. It is the git stand-in for herdr's
+// worktree remove on a host with no herdr installed. It never forces:
+// a worktree holding modified or untracked files is git's to refuse.
+func Remove(dir, path string, run Runner) error {
+	_, err := run(dir, "worktree", "remove", path)
+
+	return err
+}
