@@ -508,7 +508,7 @@ func desertedRefusal(
 	if !inOwnLane(rt, plan, cwd) {
 		return "", nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if found {
 		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
@@ -544,7 +544,7 @@ func parkFirstRefusal(
 	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {
 		return "", nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if found {
 		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
@@ -615,7 +615,7 @@ func startLiveLaneRefusal(
 	if rs.active() {
 		return nil, nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if !found {
 		return nil, hostProbs, herdrErr
 	}
@@ -629,7 +629,9 @@ func startLiveLaneRefusal(
 // problems onto doc, whichever shape it ends up: a refusal when a live
 // agent was found, or the eventual success doc when it was not, so an
 // unreachable herdr or an unread host is never silently dropped either
-// way. doc is a problemAdder rather than *report.StartDoc so claim's
+// way. A herdr not installed is the one error left off: it is a
+// headless host's mode, not a fault, on a refusal as on the success
+// doc. doc is a problemAdder rather than *report.StartDoc so claim's
 // deserted/park-first refusals, which read the same live-pane fact
 // onto a ClaimDoc, share this rather than a copy.
 func carryLiveLaneProblems(
@@ -638,7 +640,7 @@ func carryLiveLaneProblems(
 	for _, p := range probs {
 		doc.AddProblem(p.name, p.err)
 	}
-	if herdrErr != nil {
+	if herdrErr != nil && herdr.NotFound(herdrErr) == nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
 }

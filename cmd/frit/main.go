@@ -976,8 +976,8 @@ func fleetPresence(
 	return panes, probs, nil
 }
 
-// fleetPresencePastMissing is fleetPresence for the one reader that
-// must look past a herdr not installed here (liveLaneFor): this host
+// fleetPresencePastMissing is fleetPresence for the readers that must
+// look past a herdr not installed here (start's live-lane gates): this host
 // has no panes to show, but another host's live lane is a fact a
 // headless start must not miss. The remotes' panes come back beside
 // the not-found error; any other local failure still stops the read

@@ -234,13 +234,15 @@ func TestLiveLaneForRejectsASameNamedBranchInAnotherRepo(t *testing.T) {
 	branch := planBranch(7, "Shared work")
 
 	_, found, _, err := liveLaneFor(&cli{},
-		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt)
+		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt,
+		fleetPresence)
 	require.NoError(t, err)
 	assert.False(t, found,
 		"a lane in another repo on the same branch is not this plan's")
 
 	laneB, foundB, _, err := liveLaneFor(&cli{},
-		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt)
+		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt,
+		fleetPresence)
 	require.NoError(t, err)
 	require.True(t, foundB, "the lane in the plan's own repo matches")
 	assert.Equal(t, "wB:p1", laneB.Pane.PaneID)
@@ -1101,9 +1103,10 @@ func TestMessageSaysHerdrNotInstalled(t *testing.T) {
 	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
 }
 
-// TestOpenWithoutHerdrNeverFocusesARemoteLane: a lane found on another
-// host past a missing local herdr has no herdr here to focus it
-// through, so open reports presence unknown rather than failing.
+// TestOpenWithoutHerdrNeverFocusesARemoteLane: open stops at a missing
+// local herdr before any host is read — there is no herdr here to
+// focus a lane through — so it reports presence unknown rather than
+// failing, even with a lane live on another host.
 func TestOpenWithoutHerdrNeverFocusesARemoteLane(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
@@ -1119,4 +1122,26 @@ func TestOpenWithoutHerdrNeverFocusesARemoteLane(t *testing.T) {
 
 	assert.NotContains(t, stderr, "focus")
 	assert.False(t, doc.Focused)
+}
+
+// TestNudgeWithoutHerdrReadsNoHost: nudge refuses on a missing herdr
+// whatever the hosts show, so it never pays for the ssh fan-out that
+// only start's live-lane gate reads past a missing herdr for.
+func TestNudgeWithoutHerdrReadsNoHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ssh-ran")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"),
+		[]byte("#!/bin/sh\ntouch "+marker+"\nexit 255\n"), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withHerdr(t, herdrNotInstalled)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go",
+		"--hosts", "box", "--root", root)
+
+	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+	assert.NoFileExists(t, marker, "no host was read")
 }

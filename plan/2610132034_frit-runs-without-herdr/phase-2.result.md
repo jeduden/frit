@@ -68,3 +68,14 @@ prompt back, and the agent line reads as yours to run. A missing
 herdr is not carried as a problem in a dry run either. This reverses
 the earlier choice to keep the dry run as it was, since the
 plan-start skill tells a reader to trust the dry run before `--go`.
+
+**Third review follow-up.** open, nudge and message read the configured
+hosts past a missing herdr and then threw that read away, since they
+refuse or report presence unknown there anyway. The live-lane lookup
+now takes its presence read as an argument. Only start's three gates
+read past the missing herdr. A refusal on a headless host no longer
+lists the missing herdr as a problem, matching the hand-back. The
+`plan-pick` example now shows `--json`, since the agent branches on
+`handoff`. BDD coverage: C22 now also checks that its refusal carries
+no herdr problem, and fails without the fix. The skipped host read is
+a cost, not a behavior, so a unit test pins it and no scenario does.

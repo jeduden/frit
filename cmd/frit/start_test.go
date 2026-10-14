@@ -3293,3 +3293,19 @@ func TestStartGateCarriesItsReadOntoTheDoc(t *testing.T) {
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "herdr", doc.Problems[0].Repo)
 }
+
+// TestCarryLiveLaneProblemsDropsAMissingHerdr: a herdr not installed is
+// a headless host's mode, not a fault, so a refusal built off the
+// live-lane read carries no herdr problem for it — the same as the
+// success doc the gate builds.
+func TestCarryLiveLaneProblemsDropsAMissingHerdr(t *testing.T) {
+	doc := report.NewStart(
+		"", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+	_, missing := herdrNotInstalled()
+
+	carryLiveLaneProblems(doc,
+		[]hostProblem{{name: "vault", err: errors.New("boom")}}, missing)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "vault", doc.Problems[0].Repo)
+}

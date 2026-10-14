@@ -46,7 +46,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewOpen(c.Root, plan.Repo, plan.ID, plan.Title)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	if herdrErr != nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
@@ -57,10 +57,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	if unknown {
 		doc.PresenceUnknown()
 	}
-	// A lane found with herdr not installed here is another host's,
-	// read past the missing local herdr — there is no herdr to focus it
-	// through, so open reports presence unknown as before.
-	if found && herdrErr == nil {
+	if found {
 		if err := herdr.Focus(rt.herdr, lane.Pane.PaneID); err != nil {
 			return fmt.Errorf("focus %s: %w", lane.Pane.PaneID, err)
 		}
@@ -130,13 +127,16 @@ func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
 // on an identically named branch elsewhere would be dispatched onto by
 // mistake — the one error this whole join exists to prevent.
 //
-// On a host with no herdr installed the configured remotes are still
+// read is the presence read to search: fleetPresence for a verb that
+// stops at a herdr not installed here (open, nudge, message), or
+// fleetPresencePastMissing for start's gates, which must still see a
+// lane live on another host — the configured remotes are then
 // searched, and the not-found error comes back with whatever they
 // show, so a caller can tell the local absence from the remote lane.
 func liveLaneFor(
-	c *cli, p discovery.Plan, rt *runtime,
+	c *cli, p discovery.Plan, rt *runtime, read presenceRead,
 ) (herdr.Lane, bool, []hostProblem, error) {
-	panes, probs, err := fleetPresencePastMissing(c, rt)
+	panes, probs, err := read(c, rt)
 	if err != nil && herdr.NotFound(err) == nil {
 		return herdr.Lane{}, false, nil, err
 	}
@@ -150,6 +150,10 @@ func liveLaneFor(
 
 	return lane, found, probs, err
 }
+
+// presenceRead is a fleet-wide pane read liveLaneFor searches:
+// fleetPresence, or fleetPresencePastMissing.
+type presenceRead func(c *cli, rt *runtime) ([]herdr.Pane, []hostProblem, error)
 
 // firstLiveLane picks, from lanes, the one on a branch in holds whose
 // repository (repoOf) is repo, first in laneFirst's order: a local lane
@@ -291,7 +295,7 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 		phase, plan.Model, prompt, n.Go)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
@@ -430,7 +434,7 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 	}
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}

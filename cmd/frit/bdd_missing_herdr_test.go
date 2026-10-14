@@ -65,6 +65,7 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 		w.planSevensMaturedHoldIsLiveOnHost)
 	sc.Step(`^start refuses, naming plan/7's live lane, and origin's lease is untouched$`,
 		w.startRefusesNamingTheLiveLaneLeaseUntouched)
+	sc.Step(`^the refusal carries no herdr problem$`, w.theRefusalCarriesNoHerdrProblem)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -178,6 +179,9 @@ type startJSON struct {
 	Pane             string             `json:"pane"`
 	Lane             string             `json:"lane"`
 	Refused          string             `json:"refused"`
+	Problems         []struct {
+		Repo string `json:"repo"`
+	} `json:"problems"`
 }
 
 // readHandedBack decodes the last run's start document and checks it
@@ -502,6 +506,23 @@ func (w *world) startRefusesNamingTheLiveLaneLeaseUntouched() error {
 	}
 	if tip := originTip(w, "7"); tip != section[missingHerdrState](w).held {
 		return fmt.Errorf("origin's lease moved to %s", tip)
+	}
+
+	return nil
+}
+
+// theRefusalCarriesNoHerdrProblem: a host with no herdr refuses for a
+// remote live lane without listing the missing herdr as a fault — the
+// same mode a hand-back carries no problem for.
+func (w *world) theRefusalCarriesNoHerdrProblem() error {
+	doc, err := w.decodeStart()
+	if err != nil {
+		return err
+	}
+	for _, p := range doc.Problems {
+		if p.Repo == "herdr" {
+			return fmt.Errorf("a herdr problem was carried: %s", section[commandState](w).out.String())
+		}
 	}
 
 	return nil
