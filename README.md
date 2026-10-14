@@ -123,9 +123,11 @@ a source build. Three other tools matter:
   stand the lane's worktree up with git instead, and `start` and
   `pick` hand the prompt back for you to run there. `release` ends
   such a lane, and `yield` removes its worktree with git. `nudge` and
-  `message` refuse with `herdr not installed`. The survey verbs work
-  either way: `board` shows `?` in the agent column, and `who` prints
-  `no live agents` and reports the socket as a problem.
+  `message` refuse with `herdr not installed`. A host that has herdr
+  can run the same way with `--no-herdr` (or `FRIT_HERDR=false`, or
+  `herdr: false` in its config). The survey verbs work either way:
+  `board` shows `?` in the agent column, and `who` prints `no live
+  agents` and reports the socket as a problem.
 - **mdsmith** lints plans and regenerates the plan index. Install it
   with `go install github.com/jeduden/mdsmith/cmd/mdsmith@latest`.
 

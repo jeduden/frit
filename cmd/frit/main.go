@@ -104,6 +104,13 @@ type cli struct {
 	// printed. Must be positive for the same reason GitTimeout is.
 	HerdrTimeout time.Duration `default:"60s" env:"FRIT_HERDR_TIMEOUT" help:"Fail a stalled herdr call after this."`
 
+	// Herdr lets a host with herdr installed opt out of it: --no-herdr
+	// runs every verb as on a host without herdr — git stands lanes up,
+	// prompts are handed back — and never runs the local binary. On by
+	// default, and resolvable from $FRIT_HERDR or a config file like
+	// --root, since it is the host's choice, not a repository's.
+	Herdr bool `negatable:"" default:"true" env:"FRIT_HERDR" help:"Use herdr where installed; --no-herdr opts out."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -3470,6 +3477,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	// a verb that reads presence, and the bound kills the herdr
 	// subprocess rather than leaving it to run on.
 	rt.herdr = herdr.WithTimeout(herdrRunner, c.HerdrTimeout)
+	if !c.Herdr {
+		rt.herdr = herdr.Off
+	}
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

@@ -1,7 +1,7 @@
 ---
 id: 2610132034
 title: frit runs a lane on a host without herdr
-status: "🔳"
+status: "✅"
 summary: >-
   Today every lane verb refuses on a host with no herdr: claim,
   start --go and pick --go stop before the mint, and open, nudge,
@@ -139,6 +139,7 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 | 3     | yield tears a headless lane down, and the pane verbs say why not       | sonnet | C19 and C20, git-only `$PATH`: refusal wording; yield removes the lane                   |
 | 4     | a harness session publishes its lane through its own branch            | sonnet | C21, git-only `$PATH`: merging the harness branch reads the plan unheld                  |
 | 5     | a headless start parks a leftover worktree and leaves it for the owner | sonnet | C23, git-only `$PATH`: parked, left standing, refusal names reap; `reap --go` removes it |
+| 6     | a host with herdr installed can opt out with --no-herdr                | sonnet | C24: a recording herdr on `$PATH` is never called; the lane is git's                     |
 
 ## Phases
 
@@ -173,6 +174,8 @@ footer: |
 |     | ↳      | A session whose harness fixes its branch works its plan in the headless lane on plan/<id>, then copies that tip to its own branch for the PR; once that branch merges, the plan reads landed through existing evidence. No protocol change; C21 proves it, the skills teach it. |
 | 5   | ✅     | [a headless start parks a leftover worktree and leaves it for the owner](phase-5.md)                                                                                                                                                                                            |
 |     | ↳      | On a host with no herdr, a fresh start that meets a leftover worktree on the plan's branch parks its unlanded work and leaves the worktree standing, refusing before any mint with the path, the rescue ref and the frit reap cleanup. C23 proves it end to end.                |
+| 6   | ✅     | [a host with herdr installed can opt out with --no-herdr](phase-6.md)                                                                                                                                                                                                           |
+|     | ↳      | --no-herdr, FRIT_HERDR=false or herdr: false in a config file runs a host with herdr installed exactly as one without it, never running the local binary; nudge and message name herdr turned off. C24 proves it.                                                               |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -191,5 +194,10 @@ footer: |
       S61 unchanged).
 - [x] README, architecture.md and the shipped skills say what works
       without herdr.
+- [x] On a headless host, a leftover worktree a fresh start meets is
+      parked and left standing, and the refusal names its path, the
+      rescue ref and the `frit reap` cleanup.
+- [x] A host with herdr installed can opt out with `--no-herdr`,
+      `FRIT_HERDR=false` or `herdr: false`, and then never runs herdr.
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -177,6 +177,14 @@ Feature: Command scenarios
     When the built frit runs "reap --go"
     Then the leftover worktree is gone
 
+  @C24
+  Scenario: a host with herdr installed opts out with --no-herdr
+    Given a plan nobody has ever held
+    And herdr is installed on this host, recording every call
+    When the built frit runs "start 7 --go --json --no-herdr"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    And herdr was never called
+
   @C17
   Scenario: release and yield agree on a decorated hold with no lease
     Given a plan held only by a decorated branch checked out in its own lane

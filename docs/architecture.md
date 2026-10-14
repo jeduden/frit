@@ -68,11 +68,13 @@ reads a transcript.
 
 ## Running without herdr
 
-herdr is optional. frit takes its herdr-less path only when the
-`herdr` executable is not on `$PATH`. That absence is certain, so
-every herdr call would fail. A herdr that is installed but does not
-answer is not certain to stay down. It keeps the herdr path, and the
-lease protocol's own unwind covers it (S60, S61).
+herdr is optional. frit takes its herdr-less path in two cases: the
+`herdr` executable is not on `$PATH`, or the host opted out with
+`--no-herdr` (or `FRIT_HERDR=false`, or `herdr: false` in a config
+file). Both are certain, and an opted-out host never runs the binary
+(C24). A herdr that is installed but does not answer is not certain to
+stay down. It keeps the herdr path, and the lease protocol's own
+unwind covers it (S60, S61).
 
 Without herdr, each thing herdr did falls to git or goes back to the
 caller:

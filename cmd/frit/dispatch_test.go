@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1083,7 +1084,7 @@ func TestNudgeSaysHerdrNotInstalled(t *testing.T) {
 
 	emit(t, &doc, "nudge", "7", "--phase", "2", "--go", "--root", root)
 
-	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
 	for _, p := range doc.Problems {
 		assert.NotEqual(t, "herdr", p.Repo)
 	}
@@ -1100,7 +1101,7 @@ func TestMessageSaysHerdrNotInstalled(t *testing.T) {
 
 	emit(t, &doc, "message", "7", "status?", "--go", "--root", root)
 
-	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
 }
 
 // TestOpenWithoutHerdrNeverFocusesARemoteLane: open stops at a missing
@@ -1142,6 +1143,30 @@ func TestNudgeWithoutHerdrReadsNoHost(t *testing.T) {
 	emit(t, &doc, "nudge", "7", "--phase", "2", "--go",
 		"--hosts", "box", "--root", root)
 
-	assert.Equal(t, herdrNotInstalledRefusal, doc.Refused)
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
 	assert.NoFileExists(t, marker, "no host was read")
+}
+
+// TestNudgeNamesHerdrTurnedOff: with herdr opted out, the refusal says
+// so, rather than claiming herdr is not installed.
+func TestNudgeNamesHerdrTurnedOff(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go", "--no-herdr", "--root", root)
+
+	assert.Equal(t, "herdr turned off (--no-herdr); no pane to reach", doc.Refused)
+}
+
+// TestHerdrAbsentRefusalNamesWhy: not installed and turned off are
+// each named as what they are.
+func TestHerdrAbsentRefusalNamesWhy(t *testing.T) {
+	assert.Equal(t, "herdr not installed; no pane to reach",
+		herdrAbsentRefusal(&exec.Error{Name: "herdr", Err: exec.ErrNotFound}))
+	assert.Equal(t, "herdr turned off (--no-herdr); no pane to reach",
+		herdrAbsentRefusal(herdr.ErrOff))
 }

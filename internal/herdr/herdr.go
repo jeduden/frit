@@ -141,11 +141,23 @@ func Missing(runner Runner) error {
 // returned, for a caller that has asked herdr once and need not ask
 // again: err itself when exec could not run the binary at all — not on
 // $PATH, or found only through a relative entry exec refuses to run —
-// and nil for any other answer, a failure or none.
+// or when the host turned herdr off (ErrOff), and nil for any other
+// answer, a failure or none.
 func NotFound(err error) error {
-	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) ||
+		errors.Is(err, ErrOff) {
 		return err
 	}
 
 	return nil
+}
+
+// ErrOff is every answer Off gives: herdr turned off on this host.
+var ErrOff = errors.New("herdr turned off (--no-herdr)")
+
+// Off is the runner a host that opted out of herdr uses: it runs
+// nothing and answers ErrOff, which NotFound reads as absence, so every
+// herdr-less path applies exactly as on a host with no herdr at all.
+func Off(...string) ([]byte, error) {
+	return nil, ErrOff
 }

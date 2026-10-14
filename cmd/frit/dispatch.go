@@ -83,12 +83,20 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	return nil
 }
 
-// herdrNotInstalledRefusal is what nudge and message answer on a host
-// with no herdr installed: no pane can exist there to send into, a
-// certain answer, unlike an unreachable socket that may come back. It
-// is this host's mode rather than a fault, so no herdr problem rides
-// along with it.
-const herdrNotInstalledRefusal = "herdr not installed; no pane to reach"
+// herdrAbsentRefusal is what nudge and message answer on a host with
+// no herdr to reach a pane through: no pane can exist there to send
+// into, a certain answer, unlike an unreachable socket that may come
+// back. It names why — not installed, or turned off with --no-herdr —
+// and, being this host's mode rather than a fault, carries no herdr
+// problem with it.
+func herdrAbsentRefusal(err error) string {
+	why := "herdr not installed"
+	if errors.Is(err, herdr.ErrOff) {
+		why = herdr.ErrOff.Error()
+	}
+
+	return why + "; no pane to reach"
+}
 
 // presenceUnknown decides whether open read live presence at all before
 // it names a next action. A herdr it could not reach, or a configured
@@ -301,7 +309,7 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 	}
 	switch {
 	case herdr.NotFound(herdrErr) != nil:
-		doc.Refuse(herdrNotInstalledRefusal)
+		doc.Refuse(herdrAbsentRefusal(herdrErr))
 	case herdrErr != nil:
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent
@@ -440,7 +448,7 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 	}
 	switch {
 	case herdr.NotFound(herdrErr) != nil:
-		doc.Refuse(herdrNotInstalledRefusal)
+		doc.Refuse(herdrAbsentRefusal(herdrErr))
 	case herdrErr != nil:
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent

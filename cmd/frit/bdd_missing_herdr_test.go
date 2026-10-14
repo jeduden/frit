@@ -39,6 +39,8 @@ type missingHerdrState struct {
 	// expectFail lets the next built-frit run exit non-zero, for a
 	// step that asserts on the failure it reports.
 	expectFail bool
+	// herdrLog is where C24's recording herdr appends each call.
+	herdrLog string
 }
 
 func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
@@ -78,6 +80,9 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^the leftover worktree still stands and origin's plan/7 is unchanged$`,
 		w.theLeftoverStillStandsAndOriginUnchanged)
 	sc.Step(`^the leftover worktree is gone$`, w.theLeftoverWorktreeIsGone)
+	sc.Step(`^herdr is installed on this host, recording every call$`,
+		w.herdrIsInstalledRecordingEveryCall)
+	sc.Step(`^herdr was never called$`, w.herdrWasNeverCalled)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -606,6 +611,34 @@ func (w *world) theLeftoverStillStandsAndOriginUnchanged() error {
 func (w *world) theLeftoverWorktreeIsGone() error {
 	if _, err := os.Stat(section[missingHerdrState](w).leftover); !os.IsNotExist(err) {
 		return fmt.Errorf("the leftover still stands: %v; %s", err, section[commandState](w).out.String())
+	}
+
+	return nil
+}
+
+// herdrIsInstalledRecordingEveryCall builds the git-only $PATH and puts
+// a herdr on it that answers with no agents and appends every call it
+// gets to a log, so a scenario can prove the binary was never run.
+func (w *world) herdrIsInstalledRecordingEveryCall() error {
+	if err := w.herdrIsNotInstalledOnThisHost(); err != nil {
+		return err
+	}
+	st := section[missingHerdrState](w)
+	st.herdrLog = filepath.Join(w.t.TempDir(), "herdr.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + st.herdrLog +
+		"\nprintf '%s\\n' '{\"result\":{\"agents\":[]}}'\n"
+
+	return os.WriteFile(filepath.Join(st.path, "herdr"), []byte(script), 0o700)
+}
+
+// herdrWasNeverCalled: the recording herdr's log is absent or empty.
+func (w *world) herdrWasNeverCalled() error {
+	body, err := os.ReadFile(section[missingHerdrState](w).herdrLog)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if len(body) > 0 {
+		return fmt.Errorf("herdr was called: %s", body)
 	}
 
 	return nil

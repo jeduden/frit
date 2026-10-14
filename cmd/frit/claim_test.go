@@ -1732,3 +1732,56 @@ func TestCreateLaneWorktreeUsesGitOnAHeadlessHost(t *testing.T) {
 	assert.Equal(t, []string{
 		"/repo", "worktree", "add", "--quiet", "/lanes/7", "plan/7"}, got)
 }
+
+// TestNoHerdrOptsOutWhereHerdrIsInstalled: with herdr installed and
+// answering, --no-herdr still never calls it — the claim stands its
+// lane up with git, as on a host with no herdr at all.
+func TestNoHerdrOptsOutWhereHerdrIsInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--no-herdr", "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.NotEmpty(t, doc.Worktree)
+	assert.Empty(t, rec.calls, "herdr is never asked once turned off")
+}
+
+// TestFritHerdrEnvOptsOut: the same opt-out read from $FRIT_HERDR, the
+// environment step of frit's settings chain.
+func TestFritHerdrEnvOptsOut(t *testing.T) {
+	isolate(t)
+	t.Setenv("FRIT_HERDR", "false")
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.Empty(t, rec.calls)
+}
+
+// TestHerdrOptOutComesFromAConfigFile: `herdr: false` in a config file
+// opts the host out, the config step of frit's settings chain.
+func TestHerdrOptOutComesFromAConfigFile(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cfg := filepath.Join(t.TempDir(), "frit.yml")
+	require.NoError(t, os.WriteFile(cfg, []byte("herdr: false\n"), 0o600))
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--config", cfg, "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.Empty(t, rec.calls)
+}
