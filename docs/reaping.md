@@ -17,8 +17,9 @@ no longer adds up:
 | rescued     | a leftover rescue ref, before a blocked park is hit     |
 
 `frit who` reports which lane has a live agent on it, read from
-herdr's own pane list. A claim is visible everywhere the remote is
-fetched; a running agent, only on its own machine.
+herdr's own pane list; a host without herdr reports none. A claim is
+visible everywhere the remote is fetched; a running agent, only on its
+own machine.
 
 ## Reaping
 

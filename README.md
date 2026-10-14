@@ -31,9 +31,13 @@ frit is that single view. It does three things:
 
 ## How frit works
 
-mdsmith parses the markdown. herdr runs the panes and worktrees that
-agents work in. frit joins both with what git holds; [how frit and
-mdsmith fit together](docs/mdsmith-and-frit.md) draws the line.
+mdsmith parses the markdown. herdr, where it is installed, runs the
+panes and worktrees that agents work in. frit joins both with what git
+holds; [how frit and mdsmith fit together](docs/mdsmith-and-frit.md)
+draws the line. Without herdr, frit stands each worktree up with git
+and hands the prompt back for you or your agent to run;
+[running without herdr](docs/architecture.md#running-without-herdr)
+says what changes.
 
 ```mermaid
 flowchart LR
@@ -43,7 +47,7 @@ flowchart LR
   end
   subgraph host["one machine"]
     frit["frit"]
-    herdr["herdr: panes, worktrees, agents"]
+    herdr["herdr, optional: panes, worktrees, agents"]
     mdsmith["mdsmith: markdown parser"]
   end
   plans -->|read| frit

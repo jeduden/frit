@@ -15,7 +15,21 @@ sample-gap: 30m         # a gap between looks wider than this restarts the windo
 # base: origin/main     # pin the ref a lease is dated against
 ```
 
-frit's own settings, such as `--root`, resolve most specific first.
-[CLAUDE.md](../CLAUDE.md#configuration) pins the exact order with a
-test. [ux-principles.md](ux-principles.md#two-kinds-of-setting)
-explains why the two kinds of setting resolve differently.
+frit's own settings belong to the host running it, not to a
+repository. Each is a global flag with an environment variable:
+
+| Flag              | Environment          | What it sets                                    |
+| ----------------- | -------------------- | ----------------------------------------------- |
+| `--root`          | `FRIT_ROOT`          | the directory walked for repositories           |
+| `--hosts a,b`     | `FRIT_HOSTS`         | other hosts whose live agents are read over ssh |
+| `--no-fetch`      | `FRIT_FETCH=false`   | skip refreshing remote-tracking refs            |
+| `--no-herdr`      | `FRIT_HERDR=false`   | never run herdr, even where it is installed     |
+| `--git-timeout`   | `FRIT_GIT_TIMEOUT`   | fail a stalled git call after this long         |
+| `--herdr-timeout` | `FRIT_HERDR_TIMEOUT` | fail a stalled herdr call after this long       |
+
+A config file sets one under its flag's name, such as `herdr: false`.
+They resolve most specific first: the flag, the environment, then
+`.frit.yml` or `$FRIT_CONFIG`, then `$XDG_CONFIG_HOME/frit/config.yml`.
+[CLAUDE.md](../CLAUDE.md#configuration) pins that order with a test.
+[ux-principles.md](ux-principles.md#two-kinds-of-setting) explains why
+the two kinds of setting resolve differently.
