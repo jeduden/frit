@@ -984,9 +984,9 @@ func fleetPresence(
 }
 
 // fleetPresencePastMissing is fleetPresence for the readers that must
-// look past a herdr not installed here (start's live-lane gates): this host
-// has no panes to show, but another host's live lane is a fact a
-// headless start must not miss. The remotes' panes come back beside
+// look past a herdr not installed here (start's live-lane gates, and
+// who): this host has no panes to show, but another host's live lane
+// is a fact a headless start must not miss, nor who leave out. The remotes' panes come back beside
 // the not-found error; any other local failure still stops the read
 // before a host is asked.
 func fleetPresencePastMissing(
@@ -1135,36 +1135,37 @@ type whoCmd struct{}
 // An unreachable socket is not fatal. This is the one command that
 // needs a live server, but the rest of the board is answered from git,
 // so a missing herdr travels in the document and the command still
-// exits clean rather than failing the whole read.
+// exits clean rather than failing the whole read. A herdr not
+// installed here is read past, so the configured hosts' lanes are
+// still listed beside it; any other local failure reads no host.
 func (w *whoCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewWho(c.Root)
 
-	panes, hostProbs, err := fleetPresence(c, rt)
+	panes, hostProbs, err := fleetPresencePastMissing(c, rt)
 	if err != nil {
 		doc.AddProblem("herdr", err)
-	} else {
-		for _, p := range hostProbs {
-			doc.AddProblem(p.name, p.err)
+	}
+	for _, p := range hostProbs {
+		doc.AddProblem(p.name, p.err)
+	}
+	// Two agent panes on one lane read the one record: it is read
+	// once per (host, root, plan), so it costs one git call and a
+	// torn record is one problem, not one per pane.
+	asks := map[string]askRead{}
+	for _, lane := range whoLanes(panes, rt.git) {
+		doc.AddLane(lane)
+		key := string(lane.Pane.Host) + "\x00" + lane.Root + "\x00" +
+			strconv.FormatInt(lane.PlanID, 10)
+		got, seen := asks[key]
+		if !seen {
+			got.state, got.answer, got.err = whoAsk(rt, lane)
+			asks[key] = got
+			if got.err != nil {
+				doc.AddProblem(lane.Repo, got.err)
+			}
 		}
-		// Two agent panes on one lane read the one record: it is read
-		// once per (host, root, plan), so it costs one git call and a
-		// torn record is one problem, not one per pane.
-		asks := map[string]askRead{}
-		for _, lane := range whoLanes(panes, rt.git) {
-			doc.AddLane(lane)
-			key := string(lane.Pane.Host) + "\x00" + lane.Root + "\x00" +
-				strconv.FormatInt(lane.PlanID, 10)
-			got, seen := asks[key]
-			if !seen {
-				got.state, got.answer, got.err = whoAsk(rt, lane)
-				asks[key] = got
-				if got.err != nil {
-					doc.AddProblem(lane.Repo, got.err)
-				}
-			}
-			if got.err == nil {
-				doc.SetLastAsk(got.state, got.answer)
-			}
+		if got.err == nil {
+			doc.SetLastAsk(got.state, got.answer)
 		}
 	}
 

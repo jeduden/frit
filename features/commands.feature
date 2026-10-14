@@ -166,6 +166,14 @@ Feature: Command scenarios
     Then start refuses, naming plan/7's live lane, and origin's lease is untouched
     And the refusal carries no herdr problem
 
+  @C25
+  Scenario: who on a host with no herdr still lists a lane live on another host
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    And plan 7's matured hold has a live agent in its lane on host "box"
+    When the built frit runs "who --json --hosts box"
+    Then who lists plan 7's lane from host "box" and names herdr not installed here
+
   @C23
   Scenario: start --go on a host with no herdr parks a leftover worktree and leaves it standing
     Given a plan nobody has ever held

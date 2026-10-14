@@ -83,6 +83,8 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^herdr is installed on this host, recording every call$`,
 		w.herdrIsInstalledRecordingEveryCall)
 	sc.Step(`^herdr was never called$`, w.herdrWasNeverCalled)
+	sc.Step(`^who lists plan 7's lane from host "([^"]+)" and names herdr not installed here$`,
+		w.whoListsTheRemoteLaneAndNamesHerdrMissing)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -629,6 +631,39 @@ func (w *world) herdrIsInstalledRecordingEveryCall() error {
 		"\nprintf '%s\\n' '{\"result\":{\"agents\":[]}}'\n"
 
 	return os.WriteFile(filepath.Join(st.path, "herdr"), []byte(script), 0o700)
+}
+
+// whoListsTheRemoteLaneAndNamesHerdrMissing reads who's --json: the
+// lane host's fake herdr reports, resolved to plan 7, and the missing
+// local herdr carried as a problem, so the list reads as partial.
+func (w *world) whoListsTheRemoteLaneAndNamesHerdrMissing(host string) error {
+	cs := section[commandState](w)
+	var doc struct {
+		Lanes []struct {
+			PlanID int64  `json:"plan_id"`
+			Pane   string `json:"pane"`
+		} `json:"lanes"`
+		Problems []struct {
+			Repo string `json:"repo"`
+		} `json:"problems"`
+	}
+	if err := json.Unmarshal(cs.out.Bytes(), &doc); err != nil {
+		return fmt.Errorf("who --json: %w: %s", err, cs.out.String())
+	}
+	listed := false
+	for _, l := range doc.Lanes {
+		listed = listed || l.PlanID == 7 && strings.HasPrefix(l.Pane, "wBox:")
+	}
+	if !listed {
+		return fmt.Errorf("plan 7's lane on %s is not listed: %s", host, cs.out.String())
+	}
+	for _, p := range doc.Problems {
+		if p.Repo == "herdr" {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("the missing local herdr is not carried: %s", cs.out.String())
 }
 
 // herdrWasNeverCalled: the recording herdr's log is absent or empty.

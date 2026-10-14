@@ -9,9 +9,9 @@ when frit needs something mdsmith keeps to itself.
 ## The one rule
 
 frit consumes rather than reimplements. Two tools already own a layer
-of this problem. mdsmith owns markdown. herdr owns panes, worktrees and
-prompts. frit is the join between them, and it owns exactly one
-mutation of its own: the claim.
+of this problem. mdsmith owns markdown. herdr, where installed and not
+turned off, owns panes, worktrees and prompts. frit is the join
+between them, and it owns exactly one mutation of its own: the claim.
 
 So the test for any new frit feature is short. If it reads or reasons
 over plans, it is frit's. If it parses, lints, or rewrites the markdown
@@ -55,8 +55,8 @@ the link graph between files. frit does not use them yet.
   `--force-with-lease` push, atomic across machines. It is the one
   thing frit writes. See [claiming](claiming.md).
 - **The handoff.** frit resolves a plan to a lane and a model tier and
-  hands the pane to herdr. It renders no prompt text and reads no
-  reply.
+  hands the pane to herdr, or, with no herdr, hands the prompt back to
+  the caller. It renders no prompt text and reads no reply.
 
 ## The seam
 
@@ -92,3 +92,6 @@ state, so the board knows which lane is being worked right now, and
 hands panes back to it for anything a person types into. frit indexes
 and displays; herdr runs the session. The claim is the seam between
 them that survives a machine going away, because it lives in git.
+herdr is optional: without it frit adds worktrees with git and hands
+each prompt back, as [running without
+herdr](architecture.md#running-without-herdr) describes.

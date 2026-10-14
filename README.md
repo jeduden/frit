@@ -31,9 +31,13 @@ frit is that single view. It does three things:
 
 ## How frit works
 
-mdsmith parses the markdown. herdr runs the panes and worktrees that
-agents work in. frit joins both with what git holds; [how frit and
-mdsmith fit together](docs/mdsmith-and-frit.md) draws the line.
+mdsmith parses the markdown. herdr, where it is installed and not
+turned off, runs the panes and worktrees that agents work in. frit
+joins both with what git holds; [how frit and mdsmith fit
+together](docs/mdsmith-and-frit.md) draws the line. Without herdr,
+frit stands each worktree up with git and hands the prompt back for
+you or your agent to run; [running without
+herdr](docs/architecture.md#running-without-herdr) says what changes.
 
 ```mermaid
 flowchart LR
@@ -43,7 +47,7 @@ flowchart LR
   end
   subgraph host["one machine"]
     frit["frit"]
-    herdr["herdr: panes, worktrees, agents"]
+    herdr["herdr, optional: panes, worktrees, agents"]
     mdsmith["mdsmith: markdown parser"]
   end
   plans -->|read| frit
@@ -126,8 +130,8 @@ a source build. Three other tools matter:
   `message` refuse with `herdr not installed`. A host that has herdr
   can run the same way with `--no-herdr` (or `FRIT_HERDR=false`, or
   `herdr: false` in its config). The survey verbs work either way:
-  `board` shows `?` in the agent column, and `who` prints `no live
-  agents` and reports the socket as a problem.
+  `board` shows `?` in the agent column, and `who` lists only the
+  lanes live on `--hosts` and reports the missing herdr as a problem.
 - **mdsmith** lints plans and regenerates the plan index. Install it
   with `go install github.com/jeduden/mdsmith/cmd/mdsmith@latest`.
 

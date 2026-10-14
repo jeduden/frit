@@ -82,7 +82,7 @@ caller:
 - **Presence** reads as unknown here. The board shows `?`, and a
   takeover is protected by the staleness window alone, as when herdr
   is down. Configured hosts are still read, so a lane live on another
-  host still refuses a start (C22).
+  host still refuses a start (C22) and is still listed by `who` (C25).
 - **The worktree** is plain git. frit stands a lane up with
   `git worktree add` and tears it down with `git worktree remove`,
   the same calls reap already makes. A leftover worktree a fresh

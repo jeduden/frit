@@ -29,7 +29,8 @@ different fate here:
 
 - *Presence* (`agent list`) already degrades. board shows `?`, who
   prints no live agents, and a takeover veto fails open to the
-  staleness window (S61). Nothing changes.
+  staleness window (S61). Nothing changes, except that phase 7 lets
+  who still read the configured hosts.
 - *The worktree* (`worktree create|open|remove`) is the hard
   dependency. claim and `start --go` hand it to herdr, and plan
   2609302340 phase 1 made them refuse when herdr is not installed
@@ -124,6 +125,9 @@ scavenge and park all learn a second ref.
 6. On a headless host, a leftover worktree a fresh start meets is
    parked and left standing for its owner, never removed. Owner's
    decision, from the third review.
+7. On a headless host, `who` still reads the configured hosts and
+   lists their live lanes. Found by the docs review; the owner chose
+   to close it.
 
 Each task ships its own skill edits and README lines in the same
 change as the verb. That is CLAUDE.md's Shipping Skills rule. The
@@ -140,6 +144,7 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 | 4     | a harness session publishes its lane through its own branch            | sonnet | C21, git-only `$PATH`: merging the harness branch reads the plan unheld                  |
 | 5     | a headless start parks a leftover worktree and leaves it for the owner | sonnet | C23, git-only `$PATH`: parked, left standing, refusal names reap; `reap --go` removes it |
 | 6     | a host with herdr installed can opt out with --no-herdr                | sonnet | C24: a recording herdr on `$PATH` is never called; the lane is git's                     |
+| 7     | who on a headless host still lists the configured hosts' lanes         | sonnet | C25, git-only `$PATH`: a lane live on another host is listed beside the herdr problem    |
 
 ## Phases
 
@@ -176,6 +181,8 @@ footer: |
 |     | ↳      | On a host with no herdr, a fresh start that meets a leftover worktree on the plan's branch parks its unlanded work and leaves the worktree standing, refusing before any mint with the path, the rescue ref and the frit reap cleanup. C23 proves it end to end.                |
 | 6   | ✅     | [a host with herdr installed can opt out with --no-herdr](phase-6.md)                                                                                                                                                                                                           |
 |     | ↳      | --no-herdr, FRIT_HERDR=false or herdr: false in a config file runs a host with herdr installed exactly as one without it, never running the local binary; nudge and message name herdr turned off. C24 proves it.                                                               |
+| 7   | ✅     | [who on a headless host still lists the configured hosts' lanes](phase-7.md)                                                                                                                                                                                                    |
+|     | ↳      | On a host with no herdr, or with herdr turned off, who still reads the configured hosts and lists their live lanes, carrying the missing herdr as a problem so the list reads as partial. C25 proves it.                                                                        |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -199,5 +206,7 @@ footer: |
       rescue ref and the `frit reap` cleanup.
 - [x] A host with herdr installed can opt out with `--no-herdr`,
       `FRIT_HERDR=false` or `herdr: false`, and then never runs herdr.
+- [x] On a headless host, `who --hosts` lists a lane live on another
+      host and carries the missing herdr as a problem.
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

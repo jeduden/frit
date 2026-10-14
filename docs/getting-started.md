@@ -23,4 +23,7 @@ frit board             # shows the hold and, once one runs, the agent
 ```
 
 `frit start <id> --go` claims and starts an agent in one step;
-`frit pick --go` does the same for the best plan nobody holds.
+`frit pick --go` does the same for the best plan nobody holds. Both
+start the agent in a herdr pane. Without herdr installed, or with
+`--no-herdr`, they claim and stand the worktree up with git, then
+print the prompt and the lane for you to run it in.
