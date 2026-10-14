@@ -119,8 +119,11 @@ scavenge and park all learn a second ref.
    headless lane and copies the lane's tip to its harness branch for
    the PR. The skills teach the copy, and a command scenario proves
    the plan lands when that branch merges.
-5. Decide whether a host with herdr installed may opt out, through
-   frit's four-place settings chain, and build it if so.
+5. A host with herdr installed may opt out of it, through frit's
+   four-place settings chain. Owner's decision: it must be allowed.
+6. On a headless host, a leftover worktree a fresh start meets is
+   parked and left standing for its owner, never removed. Owner's
+   decision, from the third review.
 
 Each task ships its own skill edits and README lines in the same
 change as the verb. That is CLAUDE.md's Shipping Skills rule. The
@@ -129,12 +132,13 @@ skills that touch herdr are `plan-pick`, `plan-start`, `plan-drive`,
 
 ## Execution
 
-| Phase | Title                                                            | Tier   | Gate                                                                       |
-| ----- | ---------------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
-| 1     | claim stands its own worktree up without herdr                   | opus   | C15 on the built frit, git-only `$PATH`: claim, then release from the lane |
-| 2     | start and pick hand the prompt back without herdr                | sonnet | C16 and C18, git-only `$PATH`: handed back, then resumed                   |
-| 3     | yield tears a headless lane down, and the pane verbs say why not | sonnet | C19 and C20, git-only `$PATH`: refusal wording; yield removes the lane     |
-| 4     | a harness session publishes its lane through its own branch      | sonnet | C21, git-only `$PATH`: merging the harness branch reads the plan unheld    |
+| Phase | Title                                                                  | Tier   | Gate                                                                                     |
+| ----- | ---------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| 1     | claim stands its own worktree up without herdr                         | opus   | C15 on the built frit, git-only `$PATH`: claim, then release from the lane               |
+| 2     | start and pick hand the prompt back without herdr                      | sonnet | C16 and C18, git-only `$PATH`: handed back, then resumed                                 |
+| 3     | yield tears a headless lane down, and the pane verbs say why not       | sonnet | C19 and C20, git-only `$PATH`: refusal wording; yield removes the lane                   |
+| 4     | a harness session publishes its lane through its own branch            | sonnet | C21, git-only `$PATH`: merging the harness branch reads the plan unheld                  |
+| 5     | a headless start parks a leftover worktree and leaves it for the owner | sonnet | C23, git-only `$PATH`: parked, left standing, refusal names reap; `reap --go` removes it |
 
 ## Phases
 
@@ -167,6 +171,8 @@ footer: |
 |     | ↳      | On a host with no herdr installed, yield removes a fenced lane's worktree with git from the primary checkout, never the checkout itself; nudge and message refuse naming herdr not installed. C19 and C20 cover it.                                                             |
 | 4   | ✅     | [a harness session publishes its lane through its own branch](phase-4.md)                                                                                                                                                                                                       |
 |     | ↳      | A session whose harness fixes its branch works its plan in the headless lane on plan/<id>, then copies that tip to its own branch for the PR; once that branch merges, the plan reads landed through existing evidence. No protocol change; C21 proves it, the skills teach it. |
+| 5   | ✅     | [a headless start parks a leftover worktree and leaves it for the owner](phase-5.md)                                                                                                                                                                                            |
+|     | ↳      | On a host with no herdr, a fresh start that meets a leftover worktree on the plan's branch parks its unlanded work and leaves the worktree standing, refusing before any mint with the path, the rescue ref and the frit reap cleanup. C23 proves it end to end.                |
 <?/catalog?>
 
 ## Acceptance Criteria

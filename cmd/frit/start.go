@@ -795,7 +795,7 @@ func startExecute(
 	lane := sp.Lane
 	if rs.active() {
 		lane = rs.Lane
-	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID); err != nil {
+	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID, headless); err != nil {
 		return err
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
@@ -1105,7 +1105,8 @@ func paneNotReady(err error) bool {
 // reconcileLeftoverWorktree finds a worktree already sitting on the
 // plan's own branch — a leftover Release left behind, since it
 // deletes nothing — and clears it ahead of a fresh acquire so herdr's
-// own worktree.create never collides with it. A live herdr pane still
+// own worktree.create never collides with it. On a headless host it
+// never clears it: it parks and refuses (leftoverKept). A live herdr pane still
 // on that worktree is left standing and refused rather than reaped
 // out from under whoever is there. A dead leftover is parked, the
 // same way reap.go's own reapStranded parks a stranded lane's branch
@@ -1118,6 +1119,7 @@ func paneNotReady(err error) bool {
 // may still collide with a leftover this read simply failed to see.
 func reconcileLeftoverWorktree(
 	rt *runtime, sc startContext, sp report.StartPlan, planID int64,
+	headless bool,
 ) error {
 	worktrees, err := gitwt.List(sc.repoPath, rt.git)
 	if err != nil {
@@ -1133,6 +1135,18 @@ func reconcileLeftoverWorktree(
 	if leftover == nil {
 		return nil
 	}
+	opts := claim.LeaseOptions{
+		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
+	}
+	if headless {
+		rescue, err := parkBranch(
+			rt, discover.Repo{Path: sc.repoPath}, opts, sp.Branch, true)
+		if err != nil {
+			return fmt.Errorf("park: %w", err)
+		}
+
+		return errors.New(leftoverKept(planID, leftover.Path, sp.Branch, rescue))
+	}
 
 	pane, ok, err := livePaneOn(rt, leftover.Path)
 	if err != nil {
@@ -1147,9 +1161,6 @@ func reconcileLeftoverWorktree(
 			planID, pane, leftover.Path)
 	}
 
-	opts := claim.LeaseOptions{
-		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
-	}
 	if _, err := parkBranch(
 		rt, discover.Repo{Path: sc.repoPath}, opts, sp.Branch, true,
 	); err != nil {
@@ -1162,14 +1173,31 @@ func reconcileLeftoverWorktree(
 	return nil
 }
 
+// leftoverKept is the refusal a headless start gives over a leftover
+// worktree: no herdr here can show whether someone works in it by
+// hand, so its unlanded work is parked and the worktree is left
+// standing for its owner to confirm and clear. It names the path, what
+// was parked, and the cleanup — reap reviews and removes a released
+// lane's leftover, parking first — so nothing is left implicit.
+func leftoverKept(planID int64, path, branch, rescue string) string {
+	parked := "it holds nothing unlanded to park"
+	if rescue != "" {
+		parked = "its unlanded work is parked to " + rescue
+	}
+
+	return fmt.Sprintf(
+		"plan %d: a leftover worktree at %s sits on %s, and no herdr here "+
+			"can confirm nobody works in it; %s, and the worktree is left "+
+			"standing. Once you have confirmed it is unused, review it with "+
+			"`frit reap` and remove it with `frit reap --go`, then start again",
+		planID, path, branch, parked)
+}
+
 // livePaneOn reports whether a herdr pane is currently sitting in the
 // worktree rooted at root. An unreadable herdr answers with an error
 // rather than "no pane": the caller is about to park and delete a
 // worktree on this verdict, and reading a socket failure as "clear"
 // would risk exactly the live lane this check exists to protect.
-//
-// A herdr not installed at all is the one certain answer: no herdr
-// pane can sit anywhere on this host, so that reads as no pane.
 //
 // rt.herdr always reads the local socket directly, never the
 // per-host fan-out herdr.ListHosts wraps, so every pane herdr.List
@@ -1178,9 +1206,6 @@ func reconcileLeftoverWorktree(
 // answers, this has no such pane to skip.
 func livePaneOn(rt *runtime, root string) (string, bool, error) {
 	panes, err := herdr.List(rt.herdr)
-	if herdr.NotFound(err) != nil {
-		return "", false, nil
-	}
 	if err != nil {
 		return "", false, err
 	}

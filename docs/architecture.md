@@ -83,7 +83,9 @@ caller:
   host still refuses a start (C22).
 - **The worktree** is plain git. frit stands a lane up with
   `git worktree add` and tears it down with `git worktree remove`,
-  the same calls reap already makes.
+  the same calls reap already makes. A leftover worktree a fresh
+  start meets is parked and left standing, never removed, since
+  nothing here proves nobody works in it (C23).
 - **The session** is never bound. The lease carries none, so no
   live-session veto protects the hold; only the window does.
 - **The pane** has no git stand-in. frit dispatches nothing. It hands

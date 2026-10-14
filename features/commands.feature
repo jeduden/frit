@@ -166,6 +166,17 @@ Feature: Command scenarios
     Then start refuses, naming plan/7's live lane, and origin's lease is untouched
     And the refusal carries no herdr problem
 
+  @C23
+  Scenario: start --go on a host with no herdr parks a leftover worktree and leaves it standing
+    Given a plan nobody has ever held
+    And a released lane's leftover worktree holds unlanded work on plan 7
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go" expecting it to fail
+    Then it names the leftover's path, its rescue ref and frit reap
+    And the leftover worktree still stands and origin's plan/7 is unchanged
+    When the built frit runs "reap --go"
+    Then the leftover worktree is gone
+
   @C17
   Scenario: release and yield agree on a decorated hold with no lease
     Given a plan held only by a decorated branch checked out in its own lane

@@ -2802,7 +2802,7 @@ func TestReconcileLeftoverWorktreeSurfacesAListError(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec}
 
 	err := reconcileLeftoverWorktree(
-		rt, sc, report.StartPlan{Branch: "plan/7"}, 7)
+		rt, sc, report.StartPlan{Branch: "plan/7"}, 7, false)
 
 	assert.ErrorContains(t, err, "list worktrees")
 }
@@ -2821,7 +2821,7 @@ func TestReconcileLeftoverWorktreeSurfacesAParkFailure(t *testing.T) {
 	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
 	sp := report.StartPlan{Branch: claim.Branch(7)}
 
-	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, false)
 
 	assert.ErrorContains(t, err, "park:")
 	_, statErr := os.Stat(leftover)
@@ -2847,7 +2847,7 @@ func TestReconcileLeftoverWorktreeSurfacesARemoveFailure(t *testing.T) {
 	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
 	sp := report.StartPlan{Branch: claim.Branch(7)}
 
-	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, false)
 
 	assert.ErrorContains(t, err, "remove leftover worktree")
 	_, statErr := os.Stat(leftover)
@@ -3185,19 +3185,6 @@ func TestStartPreflightPassesWithoutGo(t *testing.T) {
 	assert.NoError(t, gate.herdrErr)
 }
 
-// TestLivePaneOnReadsAMissingHerdrAsNoPane: with herdr not installed
-// no herdr pane can sit anywhere, so a leftover worktree is certainly
-// unattended — not an unknown that blocks its reconcile.
-func TestLivePaneOnReadsAMissingHerdrAsNoPane(t *testing.T) {
-	rt := &runtime{herdr: herdrNotInstalled, git: gitwt.Exec}
-
-	pane, ok, err := livePaneOn(rt, "/lanes/7")
-
-	require.NoError(t, err)
-	assert.False(t, ok)
-	assert.Empty(t, pane)
-}
-
 // TestFinishStartHandsBackOnAHeadlessHost: with no pane, the lane is
 // handed back and no session bind is attempted; with one, the pane is
 // recorded as running the phase.
@@ -3308,4 +3295,86 @@ func TestCarryLiveLaneProblemsDropsAMissingHerdr(t *testing.T) {
 
 	require.Len(t, doc.Problems, 1)
 	assert.Equal(t, "vault", doc.Problems[0].Repo)
+}
+
+// TestReconcileLeftoverWorktreeParksAndKeepsItOnAHeadlessHost: with no
+// herdr, nothing can show whether someone works in the leftover by
+// hand, so its unlanded work is parked and the worktree is left
+// standing — the refusal names the path, the rescue ref and the
+// cleanup the owner runs once they have confirmed it unused.
+func TestReconcileLeftoverWorktreeParksAndKeepsItOnAHeadlessHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		t.Fatal("herdr asked on a headless host")
+		return nil, nil
+	}}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, true)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), leftover)
+	assert.Contains(t, err.Error(), "refs/frit/rescue/7/")
+	assert.Contains(t, err.Error(), "left standing")
+	assert.Contains(t, err.Error(), "frit reap --go")
+	assert.DirExists(t, leftover, "the leftover is never removed on a headless host")
+	rescue, lsErr := gitCapture(t, repo, "ls-remote", "origin", "refs/frit/rescue/7/*")
+	require.NoError(t, lsErr)
+	assert.NotEmpty(t, rescue, "the unlanded work is parked")
+}
+
+// TestLeftoverKeptNamesAnEmptyPark: a leftover with nothing unlanded
+// parks nothing, and the refusal says so rather than naming a ref.
+func TestLeftoverKeptNamesAnEmptyPark(t *testing.T) {
+	msg := leftoverKept(7, "/lanes/7", "plan/7", "")
+
+	assert.Contains(t, msg, "nothing unlanded to park")
+	assert.NotContains(t, msg, "refs/frit/rescue")
+	assert.Contains(t, msg, "/lanes/7")
+}
+
+// TestStartGoParksAndKeepsALeftoverWithoutHerdr: the reconcile's
+// headless branch reached through start itself — refused before any
+// mint, the leftover standing, the branch where release left it.
+func TestStartGoParksAndKeepsALeftoverWithoutHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, releasedTip := leftoverWorktree(t, root, repo, 7)
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), leftover)
+	assert.Contains(t, errb.String(), "frit reap")
+	assert.DirExists(t, leftover)
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, releasedTip, tip, "nothing was claimed")
+}
+
+// TestReconcileLeftoverWorktreeSurfacesAHeadlessParkFailure: a park
+// that fails on a headless host is returned as the park fault, never
+// the kept-leftover refusal that would claim the work was parked.
+func TestReconcileLeftoverWorktreeSurfacesAHeadlessParkFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, true)
+
+	assert.ErrorContains(t, err, "park:")
+	assert.NotContains(t, err.Error(), "parked to")
+	assert.DirExists(t, leftover)
 }

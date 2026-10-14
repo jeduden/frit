@@ -32,9 +32,13 @@ func init() {
 // frit runs under, which carries git and nothing named herdr, and the
 // lane the last claim or start stood up.
 type missingHerdrState struct {
-	path string
-	lane string
-	held string
+	path     string
+	lane     string
+	held     string
+	leftover string
+	// expectFail lets the next built-frit run exit non-zero, for a
+	// step that asserts on the failure it reports.
+	expectFail bool
 }
 
 func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
@@ -66,6 +70,14 @@ func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
 	sc.Step(`^start refuses, naming plan/7's live lane, and origin's lease is untouched$`,
 		w.startRefusesNamingTheLiveLaneLeaseUntouched)
 	sc.Step(`^the refusal carries no herdr problem$`, w.theRefusalCarriesNoHerdrProblem)
+	sc.Step(`^a released lane's leftover worktree holds unlanded work on plan 7$`,
+		w.aReleasedLanesLeftoverHoldsUnlandedWork)
+	sc.Step(`^the built frit runs "([^"]+)" expecting it to fail$`, w.theBuiltFritRunsExpectingFailure)
+	sc.Step(`^it names the leftover's path, its rescue ref and frit reap$`,
+		w.itNamesTheLeftoversPathRescueAndReap)
+	sc.Step(`^the leftover worktree still stands and origin's plan/7 is unchanged$`,
+		w.theLeftoverStillStandsAndOriginUnchanged)
+	sc.Step(`^the leftover worktree is gone$`, w.theLeftoverWorktreeIsGone)
 }
 
 // herdrIsNotInstalledOnThisHost builds a $PATH holding git alone, so
@@ -100,7 +112,12 @@ func (w *world) herdrIsInstalledOnThisHost() error {
 // fixture's root, under the herdr-less $PATH, so what is proven is the
 // shipped command's behavior rather than an in-process stand-in.
 func (w *world) theBuiltFritRuns(args string) error {
-	return w.runBuiltFritIn(filepath.Dir(section[commandState](w).repo), args)
+	repo := section[commandState](w).repo
+	if repo == "" {
+		return fmt.Errorf("no fixture repository to run frit beside")
+	}
+
+	return w.runBuiltFritIn(filepath.Dir(repo), args)
 }
 
 // theBuiltFritRunsFromTheLane runs the built binary from inside the
@@ -131,7 +148,7 @@ func (w *world) runBuiltFritIn(dir, args string) error {
 		"PATH="+section[missingHerdrState](w).path)
 	cmd.Stdout = &cs.out
 	cmd.Stderr = &cs.errb
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Run(); err != nil && !section[missingHerdrState](w).expectFail {
 		return fmt.Errorf("frit %s: %w: %s", args, err, cs.errb.String())
 	}
 
@@ -469,6 +486,9 @@ func (w *world) branchIsMergedIntoOriginsMain(harness string) error {
 // locally.
 func (w *world) planSevensMaturedHoldIsLiveOnHost(host string) error {
 	repo := section[commandState](w).repo
+	if repo == "" {
+		return fmt.Errorf("no fixture repository; a plan nobody has ever held comes first")
+	}
 	lease, err := claim.Acquire(repo, claim.LeaseOptions{PlanID: 7, Remote: "origin",
 		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}, gitwt.Exec)
 	if err != nil {
@@ -523,6 +543,69 @@ func (w *world) theRefusalCarriesNoHerdrProblem() error {
 		if p.Repo == "herdr" {
 			return fmt.Errorf("a herdr problem was carried: %s", section[commandState](w).out.String())
 		}
+	}
+
+	return nil
+}
+
+// aReleasedLanesLeftoverHoldsUnlandedWork leaves what a released lane
+// leaves behind: a worktree on plan/7, its unlanded commit pushed, the
+// lease ended by a release marker, the checkout still on disk.
+func (w *world) aReleasedLanesLeftoverHoldsUnlandedWork() error {
+	cs := section[commandState](w)
+	if cs.repo == "" {
+		return fmt.Errorf("no fixture repository; a plan nobody has ever held comes first")
+	}
+	path, tip := leftoverWorktree(w.t, filepath.Dir(cs.repo), cs.repo, 7)
+	st := section[missingHerdrState](w)
+	st.leftover, st.held = path, tip
+
+	return nil
+}
+
+// theBuiltFritRunsExpectingFailure runs the built frit from the root,
+// letting it exit non-zero so the next step can read what it reported.
+func (w *world) theBuiltFritRunsExpectingFailure(args string) error {
+	st := section[missingHerdrState](w)
+	st.expectFail = true
+	defer func() { st.expectFail = false }()
+
+	return w.theBuiltFritRuns(args)
+}
+
+// itNamesTheLeftoversPathRescueAndReap: the refusal is explicit — the
+// worktree it kept, where the work was parked, and the cleanup.
+func (w *world) itNamesTheLeftoversPathRescueAndReap() error {
+	got := section[commandState](w).errb.String()
+	for _, want := range []string{section[missingHerdrState](w).leftover,
+		"refs/frit/rescue/7/", "left standing", "frit reap --go"} {
+		if !strings.Contains(got, want) {
+			return fmt.Errorf("the refusal does not name %q: %s", want, got)
+		}
+	}
+
+	return nil
+}
+
+// theLeftoverStillStandsAndOriginUnchanged: nothing was removed, and
+// nothing was minted — plan/7 is exactly where release left it.
+func (w *world) theLeftoverStillStandsAndOriginUnchanged() error {
+	st := section[missingHerdrState](w)
+	if _, err := os.Stat(st.leftover); err != nil {
+		return fmt.Errorf("the leftover was removed: %w", err)
+	}
+	if tip := originTip(w, "7"); tip != st.held {
+		return fmt.Errorf("origin's plan/7 moved to %s, want %s", tip, st.held)
+	}
+
+	return nil
+}
+
+// theLeftoverWorktreeIsGone: reap --go, the cleanup the refusal names,
+// removed the leftover once its owner ran it.
+func (w *world) theLeftoverWorktreeIsGone() error {
+	if _, err := os.Stat(section[missingHerdrState](w).leftover); !os.IsNotExist(err) {
+		return fmt.Errorf("the leftover still stands: %v; %s", err, section[commandState](w).out.String())
 	}
 
 	return nil
