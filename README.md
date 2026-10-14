@@ -130,8 +130,8 @@ a source build. Three other tools matter:
   `message` refuse with `herdr not installed`. A host that has herdr
   can run the same way with `--no-herdr` (or `FRIT_HERDR=false`, or
   `herdr: false` in its config). The survey verbs work either way:
-  `board` shows `?` in the agent column, and `who` prints `no live
-  agents` and reports the socket as a problem.
+  `board` shows `?` in the agent column, and `who` lists only the
+  lanes live on `--hosts` and reports the missing herdr as a problem.
 - **mdsmith** lints plans and regenerates the plan index. Install it
   with `go install github.com/jeduden/mdsmith/cmd/mdsmith@latest`.
 

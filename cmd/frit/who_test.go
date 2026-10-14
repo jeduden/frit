@@ -199,6 +199,44 @@ func TestWhoNamesAnUnreadHostAsAProblem(t *testing.T) {
 	assert.Equal(t, "host box", doc.Problems[0].Repo)
 }
 
+// TestWhoListsARemoteLanePastAMissingHerdr: a herdr not installed here
+// still lets the configured hosts be read, so a lane live on one is
+// listed, and the missing herdr travels as a problem so the list reads
+// as partial rather than as everyone live.
+func TestWhoListsARemoteLanePastAMissingHerdr(t *testing.T) {
+	isolate(t)
+	repo := repoOnPlan(t, t.TempDir(), "atlas", "plan/7")
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": repo,
+	})
+	withHerdr(t, herdrNotInstalled)
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", repo, "--hosts", "box")
+
+	require.Len(t, doc.Lanes, 1)
+	assert.Equal(t, int64(7), doc.Lanes[0].PlanID)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+}
+
+// TestWhoNamesAnUnreadHostPastAMissingHerdr: with no cache path the
+// hosts go unread, and that is carried beside the missing herdr.
+func TestWhoNamesAnUnreadHostPastAMissingHerdr(t *testing.T) {
+	isolate(t)
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.WhoDoc
+
+	emit(t, &doc, "who", "--root", t.TempDir(), "--hosts", "box")
+
+	require.Len(t, doc.Problems, 2)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	assert.Equal(t, "host box", doc.Problems[1].Repo)
+}
+
 // TestWhoLanesTieBreaksOnPaneIDWithinTheSamePlan: two staffed panes on
 // the same repository and plan sort by pane id, so the board reads
 // the same way twice.
