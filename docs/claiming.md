@@ -68,12 +68,12 @@ claim marker: the base commit the acquisition was dated against.
 
 ## Work rides the same ref
 
-`frit start` acquires the lease first. Only if that lands does it ask
-herdr, in order, to create the worktree, start the agent, bind the
-session to the lease, send the prompt, and focus the pane. Without
-herdr it adds the worktree with git and hands the prompt back. An
-agent's own commits land on top of the marker, each a renewal at the
-same epoch — the lease ref and the work ref are the same ref.
+`frit start` acquires the lease first; only if that lands does herdr
+create the worktree, start the agent, bind the session, send the
+prompt, and focus the pane. Without herdr it adds the worktree with
+git, hands the prompt back and binds no session, so only the takeover
+window guards the hold. An agent's commits land on the marker, each a
+renewal at the same epoch — the lease ref and the work ref are one.
 
 ## When a plan can be claimed
 

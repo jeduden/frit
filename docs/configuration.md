@@ -15,8 +15,8 @@ sample-gap: 30m         # a gap between looks wider than this restarts the windo
 # base: origin/main     # pin the ref a lease is dated against
 ```
 
-frit's own settings belong to the host running it, not to a
-repository. Each is a global flag with an environment variable:
+frit's own settings govern the run itself, not a repository it
+indexes. Each is a global flag with an environment variable:
 
 | Flag              | Environment          | What it sets                                    |
 | ----------------- | -------------------- | ----------------------------------------------- |
@@ -27,9 +27,11 @@ repository. Each is a global flag with an environment variable:
 | `--git-timeout`   | `FRIT_GIT_TIMEOUT`   | fail a stalled git call after this long         |
 | `--herdr-timeout` | `FRIT_HERDR_TIMEOUT` | fail a stalled herdr call after this long       |
 
-A config file sets one under its flag's name, such as `herdr: false`.
-They resolve most specific first: the flag, the environment, then
-`.frit.yml` or `$FRIT_CONFIG`, then `$XDG_CONFIG_HOME/frit/config.yml`.
+A config file sets one under its flag's name without the `--` or a
+`no-` prefix, such as `herdr: false` or `git-timeout: 30s`. They
+resolve most specific first: the flag, the environment, then
+`$FRIT_CONFIG`, then the `.frit.yml` in the working directory, then
+`$XDG_CONFIG_HOME/frit/config.yml`.
 [CLAUDE.md](../CLAUDE.md#configuration) pins that order with a test.
 [ux-principles.md](ux-principles.md#two-kinds-of-setting) explains why
 the two kinds of setting resolve differently.

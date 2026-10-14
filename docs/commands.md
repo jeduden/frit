@@ -68,10 +68,11 @@ stands up a new lane.
 
 A host without herdr, or one run with `--no-herdr`, has no pane to
 steer. `nudge` and `message` refuse with `herdr not installed` or
-`herdr turned off (--no-herdr)`. `start --go` and `pick --go` still
-claim and stand the lane up, with git, then hand the prompt back:
-the handoff reads `handed-back`, and you run the prompt in the lane it
-names. [Running without
+`herdr turned off (--no-herdr)`; `open` finds no pane and reports
+presence unknown. `claim` stands its worktree up with git.
+`start --go` and `pick --go` still claim and stand the lane up, with
+git, then hand the prompt back: the handoff reads `handed-back`, and
+you run the prompt in the lane it names. [Running without
 herdr](architecture.md#running-without-herdr) lists what else changes.
 
 ## Clean and set up

@@ -9,9 +9,9 @@ when frit needs something mdsmith keeps to itself.
 ## The one rule
 
 frit consumes rather than reimplements. Two tools already own a layer
-of this problem. mdsmith owns markdown. herdr, where installed, owns
-panes, worktrees and prompts. frit is the join between them, and it
-owns exactly one mutation of its own: the claim.
+of this problem. mdsmith owns markdown. herdr, where installed and not
+turned off, owns panes, worktrees and prompts. frit is the join
+between them, and it owns exactly one mutation of its own: the claim.
 
 So the test for any new frit feature is short. If it reads or reasons
 over plans, it is frit's. If it parses, lints, or rewrites the markdown
