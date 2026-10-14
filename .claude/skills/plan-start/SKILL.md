@@ -15,7 +15,7 @@ and ranking never overrides it.
 ## Method
 
 **`go run ./cmd/frit start <selector> --go --json`** claims the named plan,
-stands its lane up through herdr, and dispatches its next open phase.
+stands its lane up, and dispatches its next open phase through herdr.
 A plain `go run ./cmd/frit start <selector>` composes the escalation without
 running it — read the dry run before adding `--go`.
 
@@ -23,6 +23,9 @@ Branch on the JSON:
 
 - `prompt_dispatched: true` — the phase is already running in `pane`.
   Report it and stop; never invoke `/plan-phase` yourself.
+- `handoff: handed-back` — no herdr on this host: the plan is held and
+  its lane stands at `lane`, with no pane. `cd` into `lane` and run
+  `prompt` there yourself.
 - `refused` non-empty — the reason stays on this plan. Do not fall
   back to another ready plan or retry with a different selector.
 

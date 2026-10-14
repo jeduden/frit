@@ -309,8 +309,7 @@ func withCommits(worktrees []gitwt.Worktree) []gitwt.Worktree {
 // stood on, in that order: git refuses to delete a branch any
 // worktree still has checked out, so the checkout must go first.
 func tearDownWorktree(rt *runtime, repo discover.Repo, d reap.Decision) error {
-	if _, err := rt.git(repo.Path,
-		"worktree", "remove", d.Worktree.Path); err != nil {
+	if err := gitwt.Remove(repo.Path, d.Worktree.Path, rt.git); err != nil {
 		return err
 	}
 	if _, err := rt.git(repo.Path, "branch", "-D", d.Branch); err != nil {
@@ -498,8 +497,7 @@ func reapPruned(
 		for _, wt := range worktrees {
 			name := report.WorktreeOf(wt)
 			if doGo {
-				if _, err := rt.git(repo.Path,
-					"worktree", "remove", wt.Path); err != nil {
+				if err := gitwt.Remove(repo.Path, wt.Path, rt.git); err != nil {
 					refused = append(refused, report.RefusedWorktree{
 						Worktree: name, Kind: kind, Reason: err.Error(),
 					})

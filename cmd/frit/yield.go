@@ -190,7 +190,8 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 }
 
 // tearDownLane hands the calling pane's own worktree to herdr for
-// removal. Yield acts on the lane it is itself running in, so the
+// removal, or removes it with git on a host with no herdr installed
+// (tearDownHeadlessLane). Yield acts on the lane it is itself running in, so the
 // workspace to tear down is read off the current pane, not looked up
 // by plan — the same metadata read start's escalation never needs, and
 // never an agent read. A herdr frit could not reach, or with no pane
@@ -207,6 +208,11 @@ func localRef(rt *runtime, repoPath, branch string) (string, error) {
 // rather than a guess acted on.
 func tearDownLane(rt *runtime, doc *report.YieldDoc) {
 	pane, err := herdr.CurrentPane(rt.herdr)
+	if herdr.NotFound(err) != nil {
+		cwd, _ := os.Getwd()
+		tearDownHeadlessLane(rt, doc, cwd)
+		return
+	}
 	if err != nil {
 		doc.Warn(fmt.Sprintf("pane current: %v", err))
 		return
@@ -227,6 +233,43 @@ func tearDownLane(rt *runtime, doc *report.YieldDoc) {
 	// is placed before herdr removes this one.
 	askPath, askErr := ask.Path(pane.CWD, doc.Plan.ID, rt.git)
 	if err := herdr.WorktreeRemove(rt.herdr, pane.Workspace); err != nil {
+		doc.Warn(fmt.Sprintf("worktree remove: %v", err))
+		return
+	}
+	doc.Torn()
+	if askErr == nil {
+		askErr = ask.ClearFile(askPath)
+	}
+	warnAskStays(askErr, doc.Warn)
+}
+
+// tearDownHeadlessLane is tearDownLane on a host with no herdr: no
+// pane to read the lane off, so it is the calling directory, checked
+// against the plan the same way, and removed with git from the
+// repository's primary checkout. The primary checkout itself is never
+// a lane git may remove — it is the shared clone — so a yield run from
+// there leaves it standing. A removal git refuses, over modified or
+// untracked files, is a warning, the lane left standing.
+func tearDownHeadlessLane(rt *runtime, doc *report.YieldDoc, cwd string) {
+	repo, id, root, ok := fleet.CurrentLane(cwd, rt.git, holdsForRoot)
+	if !ok || repo != doc.Plan.Repo || id != doc.Plan.ID {
+		doc.Warn(fmt.Sprintf(
+			"the calling directory is not plan %d's own lane; its "+
+				"worktree was left standing", doc.Plan.ID))
+		return
+	}
+	worktrees, err := gitwt.List(root, rt.git)
+	if err != nil {
+		doc.Warn(fmt.Sprintf("worktree list: %v", err))
+		return
+	}
+	if len(worktrees) == 0 || worktrees[0].Path == root {
+		doc.Warn("the calling directory is the primary checkout; " +
+			"it was left standing")
+		return
+	}
+	askPath, askErr := ask.Path(root, doc.Plan.ID, rt.git)
+	if err := gitwt.Remove(worktrees[0].Path, root, rt.git); err != nil {
 		doc.Warn(fmt.Sprintf("worktree remove: %v", err))
 		return
 	}

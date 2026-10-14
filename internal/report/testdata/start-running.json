@@ -25,6 +25,7 @@
   "go": true,
   "started": true,
   "resumed": false,
+  "headless": false,
   "pane": "wC:p1",
   "handoff": "running",
   "next_action": "frit open 2608161810",

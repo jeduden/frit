@@ -46,7 +46,7 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	doc := report.NewOpen(c.Root, plan.Repo, plan.ID, plan.Title)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	if herdrErr != nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
@@ -81,6 +81,21 @@ func (o *openCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// herdrAbsentRefusal is what nudge and message answer on a host with
+// no herdr to reach a pane through: no pane can exist there to send
+// into, a certain answer, unlike an unreachable socket that may come
+// back. It names why — not installed, or turned off with --no-herdr —
+// and, being this host's mode rather than a fault, carries no herdr
+// problem with it.
+func herdrAbsentRefusal(err error) string {
+	why := "herdr not installed"
+	if errors.Is(err, herdr.ErrOff) {
+		why = herdr.ErrOff.Error()
+	}
+
+	return why + "; no pane to reach"
 }
 
 // presenceUnknown decides whether open read live presence at all before
@@ -119,11 +134,18 @@ func presenceUnknown(herdrErr error, hostProbs []hostProblem) bool {
 // resolves to the repository that owns it. Without that check, an agent
 // on an identically named branch elsewhere would be dispatched onto by
 // mistake — the one error this whole join exists to prevent.
+//
+// read is the presence read to search: fleetPresence for a verb that
+// stops at a herdr not installed here (open, nudge, message), or
+// fleetPresencePastMissing for start's gates, which must still see a
+// lane live on another host — the configured remotes are then
+// searched, and the not-found error comes back with whatever they
+// show, so a caller can tell the local absence from the remote lane.
 func liveLaneFor(
-	c *cli, p discovery.Plan, rt *runtime,
+	c *cli, p discovery.Plan, rt *runtime, read presenceRead,
 ) (herdr.Lane, bool, []hostProblem, error) {
-	panes, probs, err := fleetPresence(c, rt)
-	if err != nil {
+	panes, probs, err := read(c, rt)
+	if err != nil && herdr.NotFound(err) == nil {
 		return herdr.Lane{}, false, nil, err
 	}
 
@@ -134,8 +156,12 @@ func liveLaneFor(
 	lane, found := firstLiveLane(whoLanes(panes, rt.git), holds, p.Repo,
 		func(l herdr.Lane) string { return laneRepo(l, rt.git) })
 
-	return lane, found, probs, nil
+	return lane, found, probs, err
 }
+
+// presenceRead is a fleet-wide pane read liveLaneFor searches:
+// fleetPresence, or fleetPresencePastMissing.
+type presenceRead func(c *cli, rt *runtime) ([]herdr.Pane, []hostProblem, error)
 
 // firstLiveLane picks, from lanes, the one on a branch in holds whose
 // repository (repoOf) is repo, first in laneFirst's order: a local lane
@@ -277,11 +303,13 @@ func (n *nudgeCmd) Run(c *cli, rt *runtime) error {
 		phase, plan.Model, prompt, n.Go)
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
 	switch {
+	case herdr.NotFound(herdrErr) != nil:
+		doc.Refuse(herdrAbsentRefusal(herdrErr))
 	case herdrErr != nil:
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent
@@ -414,11 +442,13 @@ func (m *messageCmd) Run(c *cli, rt *runtime) error {
 	}
 	carryProblems(doc, res.Problems, c.All)
 
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresence)
 	for _, p := range hostProbs {
 		doc.AddProblem(p.name, p.err)
 	}
 	switch {
+	case herdr.NotFound(herdrErr) != nil:
+		doc.Refuse(herdrAbsentRefusal(herdrErr))
 	case herdrErr != nil:
 		// A socket frit could not reach is not "nobody is working it": it
 		// is presence unknown, so refuse on that rather than on an absent

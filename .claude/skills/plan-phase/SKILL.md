@@ -51,6 +51,10 @@ commit, so the ledger can never go stale.
 
 ## Notes
 
+- **A branch your harness fixes** — work in the lane all the same and
+  push `plan/<id>`, then copy the tip there: `git push origin
+  plan/<id>:<your-branch>`, and open the PR from it. Claim before
+  committing on that branch, or the copy will not fast-forward.
 - One phase per invocation. For the whole plan, loop and report
   between phases.
 - A phase already passing still gets its closing commit and its close

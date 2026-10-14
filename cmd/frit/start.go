@@ -126,7 +126,7 @@ func buildStart(
 			c, res, plan, phase, doGo, ambiguousRepo(plan.Repo)), false, nil
 	}
 
-	gateDoc, skip, liveProbs, liveHerdrErr := startPreflight(
+	gateDoc, skip, gate := startPreflight(
 		c, rt, res, plan, phase, doGo, rs, reattach)
 	if gateDoc != nil {
 		return gateDoc, skip, nil
@@ -144,14 +144,14 @@ func buildStart(
 	doc := report.NewStart(c.Root, plan.Repo, plan.ID, plan.Title, sp, doGo)
 	carryProblems(doc, res.Problems, c.All)
 	doc.SetGather(gatherStatus(res))
-	carryLiveLaneProblems(doc, liveProbs, liveHerdrErr)
+	gate.carry(doc)
 	if rs.active() {
 		doc.MarkResumed()
 	}
 
 	if doGo {
 		if err := startExecute(
-			rt, doc, plan, sp, sc, edit, rs,
+			rt, doc, plan, sp, sc, edit, rs, gate.headless,
 		); err != nil {
 			if startRefusable(err) {
 				doc.Refuse(lostRaceRefusal(err))
@@ -247,30 +247,48 @@ func startRefusal(
 	return nil
 }
 
-// startPreflight runs buildStart's last two gates, once the repository
-// is known. The live-lane refusal comes first, skippable by pick --go
-// unless the caller reattached. The missing-herdr refusal follows and
-// is never skippable: every candidate pick --go could walk on to would
-// meet the same missing herdr. With neither refusing, it hands back the
-// live-lane read's own problems for the success doc to carry.
+// startGate is what startPreflight hands the success path once
+// nothing refused: the live-lane read's own problems and herdr error
+// for the doc to carry, and whether the host is headless — herdr not
+// installed — so the escalation stands the lane up with git and hands
+// the prompt back rather than dispatching it.
+type startGate struct {
+	probs    []hostProblem
+	herdrErr error
+	headless bool
+}
+
+// carry puts what the gate read onto the success doc: the live-lane
+// read's problems, and whether the host is headless.
+func (g startGate) carry(doc *report.StartDoc) {
+	carryLiveLaneProblems(doc, g.probs, g.herdrErr)
+	if g.headless {
+		doc.MarkHeadless()
+	}
+}
+
+// startPreflight runs buildStart's last gate, once the repository is
+// known: the live-lane refusal, skippable by pick --go unless the
+// caller reattached. With it silent, it reads whether herdr is
+// installed at all — for a dry run too, so its preview says what --go
+// will do. A host without it is headless: not a refusal,
+// and not a problem to carry either, since the missing herdr is the
+// mode the escalation then runs in.
 func startPreflight(
 	c *cli, rt *runtime, res fleet.Result, plan discovery.Plan,
 	phase string, doGo bool, rs startResumption, reattach bool,
-) (*report.StartDoc, bool, []hostProblem, error) {
+) (*report.StartDoc, bool, startGate) {
 	liveDoc, liveProbs, liveHerdrErr := startLiveLaneRefusal(
 		c, rt, res, plan, phase, doGo, rs)
 	if liveDoc != nil {
-		return liveDoc, !reattach, nil, nil
+		return liveDoc, !reattach, startGate{}
 	}
-	if !doGo {
-		return nil, false, liveProbs, liveHerdrErr
-	}
-	if missing := herdrMissingAfter(rt, rs, liveHerdrErr); missing != nil {
-		return startMissingHerdrRefusal(
-			c, res, plan, phase, doGo, liveProbs, missing), false, nil, nil
+	gate := startGate{probs: liveProbs, herdrErr: liveHerdrErr}
+	if herdrMissingAfter(rt, rs, liveHerdrErr) != nil {
+		gate.herdrErr, gate.headless = nil, true
 	}
 
-	return nil, false, liveProbs, liveHerdrErr
+	return nil, false, gate
 }
 
 // herdrMissingAfter is herdr.Missing without a second round trip when
@@ -286,25 +304,6 @@ func herdrMissingAfter(
 	}
 
 	return herdr.NotFound(liveHerdrErr)
-}
-
-// startMissingHerdrRefusal is buildStart's last gate before --go
-// mints anything, claim's refuseUnmintable for the start doc: the
-// worktree, agent and pane are all herdr's, so on a host with no herdr
-// installed the escalation is certain to fail after its first push and
-// unwind with a second. The caller only builds it under --go, since a
-// dry run mints nothing, and only once missing names an absent herdr.
-// The live-lane read's own problems ride along; its herdr error is the
-// same missing binary, so missing stands in for it rather than
-// doubling it.
-func startMissingHerdrRefusal(
-	c *cli, res fleet.Result, plan discovery.Plan,
-	phase string, doGo bool, liveProbs []hostProblem, missing error,
-) *report.StartDoc {
-	doc := refusedStart(c, res, plan, phase, doGo, missingHerdrRefusal)
-	carryLiveLaneProblems(doc, liveProbs, missing)
-
-	return doc
 }
 
 // liveHoldRefusal names a held lane a live agent already attends, ahead
@@ -509,7 +508,7 @@ func desertedRefusal(
 	if !inOwnLane(rt, plan, cwd) {
 		return "", nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if found {
 		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
@@ -545,7 +544,7 @@ func parkFirstRefusal(
 	if !unparkedSuffix(rt, coord.Path, plan.ID, plan.HoldTip) {
 		return "", nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if found {
 		return resumeRefusal(plan, lane), hostProbs, herdrErr
 	}
@@ -616,7 +615,7 @@ func startLiveLaneRefusal(
 	if rs.active() {
 		return nil, nil, nil
 	}
-	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt)
+	lane, found, hostProbs, herdrErr := liveLaneFor(c, plan, rt, fleetPresencePastMissing)
 	if !found {
 		return nil, hostProbs, herdrErr
 	}
@@ -630,7 +629,9 @@ func startLiveLaneRefusal(
 // problems onto doc, whichever shape it ends up: a refusal when a live
 // agent was found, or the eventual success doc when it was not, so an
 // unreachable herdr or an unread host is never silently dropped either
-// way. doc is a problemAdder rather than *report.StartDoc so claim's
+// way. A herdr not installed is the one error left off: it is a
+// headless host's mode, not a fault, on a refusal as on the success
+// doc. doc is a problemAdder rather than *report.StartDoc so claim's
 // deserted/park-first refusals, which read the same live-pane fact
 // onto a ClaimDoc, share this rather than a copy.
 func carryLiveLaneProblems(
@@ -639,7 +640,7 @@ func carryLiveLaneProblems(
 	for _, p := range probs {
 		doc.AddProblem(p.name, p.err)
 	}
-	if herdrErr != nil {
+	if herdrErr != nil && herdr.NotFound(herdrErr) == nil {
 		doc.AddProblem("herdr", herdrErr)
 	}
 }
@@ -760,11 +761,14 @@ func composeStart(
 // startExecute runs the escalation the composition describes: mint the
 // claim, then hand the checkout, the agent and the pane to herdr in turn,
 // and prompt it. Each mutation frit does not own is delegated — the
-// worktree and the pane are herdr's — and no reply is ever read. A claim
-// lost to another machine is carried as a refusal, not a fault.
+// worktree and the pane are herdr's — and no reply is ever read. On a
+// headless host the checkout is stood up with git and the prompt is
+// handed back instead (standUpHeadless, finishStart). A claim lost to
+// another machine is carried as a refusal, not a fault.
 func startExecute(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan,
 	sp report.StartPlan, sc startContext, edit bool, rs startResumption,
+	headless bool,
 ) error {
 	// Amend the prompt before minting anything: an editor that fails to
 	// launch, or a prompt left empty, must abort with no claim pushed and
@@ -791,7 +795,7 @@ func startExecute(
 	lane := sp.Lane
 	if rs.active() {
 		lane = rs.Lane
-	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID); err != nil {
+	} else if err := reconcileLeftoverWorktree(rt, sc, sp, plan.ID, headless); err != nil {
 		return err
 	}
 	lease, err := startAcquire(rt, plan, sc, sp, lane, rs)
@@ -811,7 +815,7 @@ func startExecute(
 		clearAsk(rt, sc.repoPath, plan.ID, doc.Warn)
 	}
 
-	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip)
+	pane, session, err := standUpLane(rt, doc, plan, sp, sc.repoPath, text, rs, lease.Tip, headless)
 	if err != nil {
 		if rs.active() {
 			// startAcquire's own renewal above already stands — this
@@ -852,10 +856,25 @@ func startExecute(
 
 		return err
 	}
-	bindSession(rt, doc, plan, sp, sc, lane, lease.Tip, session)
-	doc.MarkStarted(pane)
+	finishStart(rt, doc, plan, sp, sc, lane, lease.Tip, pane, session, headless)
 
 	return nil
+}
+
+// finishStart records how a stood-up lane was handed over: on a
+// headless host, back to the caller, since no pane exists to run the
+// prompt in; otherwise to the pane, once the started agent's session
+// is bound onto the lease.
+func finishStart(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
+	sc startContext, lane, tip, pane, session string, headless bool,
+) {
+	if headless {
+		doc.MarkHandedBack()
+		return
+	}
+	bindSession(rt, doc, plan, sp, sc, lane, tip, session)
+	doc.MarkStarted(pane)
 }
 
 // startAcquire runs the transition start's escalation calls for: the
@@ -1086,7 +1105,8 @@ func paneNotReady(err error) bool {
 // reconcileLeftoverWorktree finds a worktree already sitting on the
 // plan's own branch — a leftover Release left behind, since it
 // deletes nothing — and clears it ahead of a fresh acquire so herdr's
-// own worktree.create never collides with it. A live herdr pane still
+// own worktree.create never collides with it. On a headless host it
+// never clears it: it parks and refuses (leftoverKept). A live herdr pane still
 // on that worktree is left standing and refused rather than reaped
 // out from under whoever is there. A dead leftover is parked, the
 // same way reap.go's own reapStranded parks a stranded lane's branch
@@ -1099,6 +1119,7 @@ func paneNotReady(err error) bool {
 // may still collide with a leftover this read simply failed to see.
 func reconcileLeftoverWorktree(
 	rt *runtime, sc startContext, sp report.StartPlan, planID int64,
+	headless bool,
 ) error {
 	worktrees, err := gitwt.List(sc.repoPath, rt.git)
 	if err != nil {
@@ -1114,6 +1135,18 @@ func reconcileLeftoverWorktree(
 	if leftover == nil {
 		return nil
 	}
+	opts := claim.LeaseOptions{
+		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
+	}
+	if headless {
+		rescue, err := parkBranch(
+			rt, discover.Repo{Path: sc.repoPath}, opts, sp.Branch, true)
+		if err != nil {
+			return fmt.Errorf("park: %w", err)
+		}
+
+		return errors.New(leftoverKept(planID, leftover.Path, sp.Branch, rescue))
+	}
 
 	pane, ok, err := livePaneOn(rt, leftover.Path)
 	if err != nil {
@@ -1128,19 +1161,36 @@ func reconcileLeftoverWorktree(
 			planID, pane, leftover.Path)
 	}
 
-	opts := claim.LeaseOptions{
-		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
-	}
 	if _, err := parkBranch(
 		rt, discover.Repo{Path: sc.repoPath}, opts, sp.Branch, true,
 	); err != nil {
 		return fmt.Errorf("park: %w", err)
 	}
-	if _, err := rt.git(sc.repoPath, "worktree", "remove", leftover.Path); err != nil {
+	if err := gitwt.Remove(sc.repoPath, leftover.Path, rt.git); err != nil {
 		return fmt.Errorf("remove leftover worktree at %s: %w", leftover.Path, err)
 	}
 
 	return nil
+}
+
+// leftoverKept is the refusal a headless start gives over a leftover
+// worktree: no herdr here can show whether someone works in it by
+// hand, so its unlanded work is parked and the worktree is left
+// standing for its owner to confirm and clear. It names the path, what
+// was parked, and the cleanup — reap reviews and removes a released
+// lane's leftover, parking first — so nothing is left implicit.
+func leftoverKept(planID int64, path, branch, rescue string) string {
+	parked := "it holds nothing unlanded to park"
+	if rescue != "" {
+		parked = "its unlanded work is parked to " + rescue
+	}
+
+	return fmt.Sprintf(
+		"plan %d: a leftover worktree at %s sits on %s, and no herdr here "+
+			"can confirm nobody works in it; %s, and the worktree is left "+
+			"standing. Once you have confirmed it is unused, review it with "+
+			"`frit reap` and remove it with `frit reap --go`, then start again",
+		planID, path, branch, parked)
 }
 
 // livePaneOn reports whether a herdr pane is currently sitting in the
@@ -1247,7 +1297,8 @@ func laneLabel(plan discovery.Plan) string {
 // the started agent was given — on failure too, once a pane exists, so
 // the unwind can name what stood up. Every call here is herdr's — frit
 // spawns nothing it does not hand straight over — and `agent read` is
-// deliberately never among them.
+// deliberately never among them. A headless host takes the one git
+// stand-up instead (standUpHeadless), with no pane or session.
 //
 // rs is the resume that got here, if any: standUpLane drives the pane
 // it names rather than creating a worktree at a path the lane's own
@@ -1258,8 +1309,11 @@ func laneLabel(plan discovery.Plan) string {
 // claim's own stand-up already reports it on.
 func standUpLane(
 	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
-	repoPath, text string, rs startResumption, tip string,
+	repoPath, text string, rs startResumption, tip string, headless bool,
 ) (string, string, error) {
+	if headless {
+		return "", "", standUpHeadless(rt, doc, plan, sp, repoPath, rs, tip)
+	}
 	pane, err := laneStandUpPane(rt, doc, plan, sp, repoPath, tip, rs)
 	if err != nil {
 		return "", "", err
@@ -1283,6 +1337,26 @@ func standUpLane(
 	}
 
 	return pane, session, nil
+}
+
+// standUpHeadless is standUpLane on a host with no herdr: no pane, no
+// agent, no prompt sent — only the checkout. A resume already stands
+// in its own checkout, so there is nothing to do; a fresh acquire or
+// takeover checks the lane out with git and persists its token, the
+// same stand-up claim runs on a headless host.
+func standUpHeadless(
+	rt *runtime, doc *report.StartDoc, plan discovery.Plan, sp report.StartPlan,
+	repoPath string, rs startResumption, tip string,
+) error {
+	if rs.active() {
+		return nil
+	}
+	if err := gitwt.Add(repoPath, sp.Lane, sp.Branch, rt.git); err != nil {
+		return fmt.Errorf("worktree add: %w", err)
+	}
+	persistLaneToken(rt.git, sp.Lane, plan.ID, tip, doc.Warn)
+
+	return nil
 }
 
 // openEditor is the seam for --edit: it hands the composed prompt to
@@ -1391,10 +1465,21 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 	_, _ = fmt.Fprintf(out, "  claim:    %s  (base %s)\n", doc.Branch, doc.Base)
 	printRetired(out, doc.Retired)
 	_, _ = fmt.Fprintf(out, "  worktree: %s\n", doc.Lane)
-	_, _ = fmt.Fprintf(out, "  agent:    %s --model %s\n",
-		doc.Kind, modelLabel(doc.Tier))
+	agent := ""
+	if doc.Headless {
+		agent = "yours to run — "
+	}
+	_, _ = fmt.Fprintf(out, "  agent:    %s%s --model %s\n",
+		agent, doc.Kind, modelLabel(doc.Tier))
 	if doc.Warning != "" {
 		_, _ = fmt.Fprintf(out, "  warning: %s\n", doc.Warning)
+	}
+	if doc.Handoff == report.HandoffHandedBack {
+		_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
+		_, _ = fmt.Fprintf(out,
+			"plan %d is held with no herdr pane; run the prompt in %s\n",
+			doc.Plan.ID, doc.Lane)
+		return
 	}
 	if doc.Started {
 		_, _ = fmt.Fprintf(out, "  running:  %s\n", doc.Prompt)
@@ -1406,6 +1491,10 @@ func printStart(out io.Writer, doc *report.StartDoc) {
 		return
 	}
 	_, _ = fmt.Fprintf(out, "  prompt:   %s\n", doc.Prompt)
-	_, _ = fmt.Fprintln(out, "  focus:    the new pane")
+	focus := "the new pane"
+	if doc.Headless {
+		focus = "none — no herdr here; --go hands the prompt back"
+	}
+	_, _ = fmt.Fprintf(out, "  focus:    %s\n", focus)
 	_, _ = fmt.Fprintln(out, "run again with --go to execute")
 }

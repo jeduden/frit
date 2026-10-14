@@ -259,7 +259,7 @@ func TestLiveByBranchKeepsTheLaneMessageTargets(t *testing.T) {
 
 	live, _, err := liveByBranch(&cli{}, rt)
 	require.NoError(t, err)
-	want, found, _, err := liveLaneFor(&cli{}, plan, rt)
+	want, found, _, err := liveLaneFor(&cli{}, plan, rt, fleetPresence)
 	require.NoError(t, err)
 	require.True(t, found)
 

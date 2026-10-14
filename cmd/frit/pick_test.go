@@ -10,6 +10,7 @@ import (
 
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/herdr"
+	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -448,24 +449,29 @@ func TestStartRefusesADesertedTopLaneWithAnUnparkedSuffix(t *testing.T) {
 	assert.Equal(t, localTip, tip, "the dead lane's own commit still heads the branch")
 }
 
-// TestPickGoRefusesWithoutHerdrBeforePushing: every candidate would
-// meet the same missing herdr, so pick --go stops on the first rather
-// than walking the list — and claims none of them.
-func TestPickGoRefusesWithoutHerdrBeforePushing(t *testing.T) {
+// TestPickGoHandsBackTheTopCandidateWithoutHerdr: on a host with no
+// herdr installed, pick --go claims the top candidate, stands its lane
+// up with git, and hands the prompt back — the next candidate is left
+// alone.
+func TestPickGoHandsBackTheTopCandidateWithoutHerdr(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	commitPlan(t, repo, 8, "🔲", "Vertex unit", nil, "")
 	git(t, repo, "push", "-q", "origin", "main")
 	withHerdr(t, herdrNotInstalled)
-	var out, errb bytes.Buffer
+	var doc report.StartDoc
 
-	code := run([]string{"pick", "--go", "--root", root}, &out, &errb)
+	emit(t, &doc, "pick", "--go", "--root", root)
 
-	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "herdr not found; nothing claimed")
-	for _, id := range []string{"7", "8"} {
-		_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/"+id)
-		assert.Error(t, err, "origin carries no work ref for plan "+id)
+	require.Empty(t, doc.Refused)
+	assert.Equal(t, report.HandoffHandedBack, doc.Handoff)
+	claimed, other := "refs/heads/plan/7", "refs/heads/plan/8"
+	if doc.Plan.ID == 8 {
+		claimed, other = other, claimed
 	}
+	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", claimed)
+	assert.NoError(t, err, "the top candidate is claimed")
+	_, err = gitCapture(t, repo, "ls-remote", "--exit-code", "origin", other)
+	assert.Error(t, err, "the next candidate is left alone")
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -115,4 +116,95 @@ func TestHostProblemsFlagsStaleAndUnreachable(t *testing.T) {
 	assert.False(t, probs[1].noPresence,
 		"a stale host still served cached presence, just old")
 	assert.Contains(t, probs[1].err.Error(), "5m")
+}
+
+// TestFleetPresenceStopsAtAMissingHerdr: a reader that stops on any
+// local failure — board, who, the surveys — never pays for the remote
+// fan-out a missing herdr would only have it discard.
+func TestFleetPresenceStopsAtAMissingHerdr(t *testing.T) {
+	isolate(t)
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": "/w",
+	})
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	panes, probs, err := fleetPresence(&cli{Hosts: []string{"box"}}, rt)
+
+	assert.Error(t, herdr.NotFound(err))
+	assert.Empty(t, panes, "the hosts went unread")
+	assert.Empty(t, probs)
+}
+
+// TestFleetPresencePastMissingReturnsAMissingHerdrWithNoHosts: with
+// herdr not installed and no hosts to read past it, there are no panes
+// and the not-found error comes back for the caller to tell apart.
+func TestFleetPresencePastMissingReturnsAMissingHerdrWithNoHosts(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	panes, probs, err := fleetPresencePastMissing(&cli{}, rt)
+
+	assert.Error(t, herdr.NotFound(err))
+	assert.Empty(t, panes)
+	assert.Empty(t, probs)
+}
+
+// TestFleetPresencePastMissingReadsHostsPastAMissingHerdr: a herdr not
+// installed here still lets the configured hosts be read, their panes
+// returned beside the not-found error.
+func TestFleetPresencePastMissingReadsHostsPastAMissingHerdr(t *testing.T) {
+	isolate(t)
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": "/w",
+	})
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	panes, _, err := fleetPresencePastMissing(&cli{Hosts: []string{"box"}}, rt)
+
+	assert.Error(t, herdr.NotFound(err))
+	require.Len(t, panes, 1)
+	assert.Equal(t, herdr.Host("box"), panes[0].Host)
+}
+
+// TestFleetPresencePastMissingMarksHostsUnreadPastAMissingHerdr: with
+// no cache path the hosts go unread, flagged as such, and the
+// not-found error still comes back.
+func TestFleetPresencePastMissingMarksHostsUnreadPastAMissingHerdr(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+
+	_, probs, err := fleetPresencePastMissing(&cli{Hosts: []string{"box"}}, rt)
+
+	assert.Error(t, herdr.NotFound(err))
+	require.Len(t, probs, 1)
+	assert.True(t, probs[0].noPresence)
+}
+
+// TestFleetPresencePastMissingStopsAtAnUnreachableHerdr: only a herdr
+// not installed is read past; a socket that failed any other way is
+// returned before any host is read.
+func TestFleetPresencePastMissingStopsAtAnUnreachableHerdr(t *testing.T) {
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		return nil, errors.New("dial refused")
+	}}
+
+	panes, probs, err := fleetPresencePastMissing(&cli{Hosts: []string{"box"}}, rt)
+
+	require.Error(t, err)
+	assert.NoError(t, herdr.NotFound(err))
+	assert.Empty(t, panes)
+	assert.Empty(t, probs)
+}
+
+// TestWithHostPresenceIsTheLocalPanesWhenNoHosts: with no hosts
+// configured the local panes come back untouched and nothing is read.
+func TestWithHostPresenceIsTheLocalPanesWhenNoHosts(t *testing.T) {
+	local := []herdr.Pane{{PaneID: "w1:p1"}}
+
+	panes, probs := withHostPresence(&cli{}, local)
+
+	assert.Equal(t, local, panes)
+	assert.Empty(t, probs)
 }

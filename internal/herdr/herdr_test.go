@@ -188,3 +188,13 @@ func TestMissingSeesThroughTheRealRunner(t *testing.T) {
 
 	assert.ErrorIs(t, err, exec.ErrNotFound)
 }
+
+// TestOffAnswersEveryCallAsTurnedOff: the runner a host that opted out
+// of herdr uses never runs anything, and its answer reads as absence.
+func TestOffAnswersEveryCallAsTurnedOff(t *testing.T) {
+	_, err := Off("agent", "list")
+
+	assert.ErrorIs(t, err, ErrOff)
+	assert.ErrorIs(t, NotFound(err), ErrOff)
+	assert.ErrorIs(t, Missing(Off), ErrOff)
+}

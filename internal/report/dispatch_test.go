@@ -492,3 +492,34 @@ func TestRetireRecordsEachBranchOnClaimAndStart(t *testing.T) {
 	start.Retire(b)
 	assert.Equal(t, []RetiredBranch{b}, start.Retired)
 }
+
+// TestStartMarkHandedBackRunsNothingButHoldsTheLane: on a host with no
+// herdr the escalation runs — the lease is held and the lane stands —
+// but no pane exists to dispatch into, so the prompt stays the
+// caller's recipe and no next action replaces it.
+func TestStartMarkHandedBackRunsNothingButHoldsTheLane(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3", Lane: "/lanes/7"}, true)
+
+	doc.MarkHandedBack()
+
+	assert.True(t, doc.Started, "the claim and the lane ran")
+	assert.Equal(t, HandoffHandedBack, doc.Handoff)
+	assert.False(t, doc.PromptDispatched, "nothing was sent into a pane")
+	assert.Empty(t, doc.Pane)
+	assert.Empty(t, doc.NextAction, "the prompt itself is the recipe")
+}
+
+// TestStartMarkHeadlessSaysNoPaneWillRunIt: a host with no herdr is
+// recorded on the doc itself, preview or run alike, so the dry run can
+// say what --go will do there rather than promise a pane.
+func TestStartMarkHeadlessSaysNoPaneWillRunIt(t *testing.T) {
+	doc := NewStart("/fleet", "atlas", 7, "Shader unit",
+		StartPlan{Phase: "3", Prompt: "/plan-phase 7 3"}, false)
+	assert.False(t, doc.Headless)
+
+	doc.MarkHeadless()
+
+	assert.True(t, doc.Headless)
+	assert.Equal(t, HandoffPreview, doc.Handoff, "a dry run is still a preview")
+}

@@ -695,6 +695,10 @@ const (
 	HandoffRunning = "running"
 	// HandoffNone is a refused escalation: nothing runs.
 	HandoffNone = "none"
+	// HandoffHandedBack is an escalation that ran on a host with no
+	// herdr: the lease is held and the lane stands, but no pane exists
+	// to dispatch into, so the prompt is the caller's to run in the lane.
+	HandoffHandedBack = "handed-back"
 )
 
 // startNextAction derives the verb a consumer runs instead of the
@@ -744,8 +748,9 @@ type StartDoc struct {
 	// pane rather than left for the caller to run.
 	Prompt string `json:"prompt"`
 	// PromptDispatched is true exactly when Handoff is HandoffRunning —
-	// the prompt was sent into the pane — and false for a preview or a
-	// refusal, where Prompt is still the caller's recipe. It is written
+	// the prompt was sent into the pane — and false for a preview, a
+	// refusal or a hand-back, where Prompt is still the caller's
+	// recipe. It is written
 	// only through setHandoff, beside NextAction, so the three cannot
 	// part.
 	PromptDispatched bool `json:"prompt_dispatched"`
@@ -758,12 +763,18 @@ type StartDoc struct {
 	// taken over — the self-resume path (F9, F11, S3, S21). It never
 	// appears alongside a refusal.
 	Resumed bool `json:"resumed"`
+	// Headless reports a host with no herdr installed, in a preview as in
+	// a run: no pane will run the prompt, so --go hands it back for the
+	// caller to run in the lane.
+	Headless bool `json:"headless"`
 	// Pane is the pane herdr opened and the agent runs in, set only once
-	// the escalation has run.
+	// the escalation has run — and never on a hand-back, where no herdr
+	// opened one.
 	Pane string `json:"pane"`
 	// Handoff is the one axis a consumer keys on instead of re-deriving
 	// "the prompt is not mine" from started/refused. It is one of
-	// HandoffPreview, HandoffRunning or HandoffNone, and is written only
+	// HandoffPreview, HandoffRunning, HandoffHandedBack or HandoffNone,
+	// and is written only
 	// through setHandoff, which reprojects NextAction and
 	// PromptDispatched alongside it.
 	Handoff string `json:"handoff"`
@@ -868,6 +879,18 @@ func (d *StartDoc) MarkStarted(pane string) {
 	d.Started = true
 	d.Pane = pane
 	d.setHandoff(HandoffRunning)
+}
+
+// MarkHeadless records a host with no herdr installed, so a preview
+// says --go will hand the prompt back rather than open a pane.
+func (d *StartDoc) MarkHeadless() { d.Headless = true }
+
+// MarkHandedBack records an escalation that ran with no pane to run
+// in: the claim is held and the lane stands up, and the prompt is
+// handed back for the caller to run there.
+func (d *StartDoc) MarkHandedBack() {
+	d.Started = true
+	d.setHandoff(HandoffHandedBack)
 }
 
 // MarkResumed records that the escalation is standing the lane back up

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -234,13 +235,15 @@ func TestLiveLaneForRejectsASameNamedBranchInAnotherRepo(t *testing.T) {
 	branch := planBranch(7, "Shared work")
 
 	_, found, _, err := liveLaneFor(&cli{},
-		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt)
+		discovery.Plan{Repo: "atlas", ID: 7, Holds: []string{branch}}, rt,
+		fleetPresence)
 	require.NoError(t, err)
 	assert.False(t, found,
 		"a lane in another repo on the same branch is not this plan's")
 
 	laneB, foundB, _, err := liveLaneFor(&cli{},
-		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt)
+		discovery.Plan{Repo: "borg", ID: 7, Holds: []string{branch}}, rt,
+		fleetPresence)
 	require.NoError(t, err)
 	require.True(t, foundB, "the lane in the plan's own repo matches")
 	assert.Equal(t, "wB:p1", laneB.Pane.PaneID)
@@ -1066,4 +1069,104 @@ func TestMessageGoSurfacesAPromptFailure(t *testing.T) {
 
 	require.Equal(t, 1, code)
 	assert.Contains(t, errb.String(), "prompt")
+}
+
+// TestNudgeSaysHerdrNotInstalled: on a host with no herdr at all there
+// is certainly no pane to reach, so nudge refuses naming that — not
+// "unreachable", which promises a socket that may come back — and
+// carries no herdr problem for this host's own mode.
+func TestNudgeSaysHerdrNotInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go", "--root", root)
+
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
+	for _, p := range doc.Problems {
+		assert.NotEqual(t, "herdr", p.Repo)
+	}
+}
+
+// TestMessageSaysHerdrNotInstalled: message's switch carries the same
+// not-installed case nudge's does.
+func TestMessageSaysHerdrNotInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withHerdr(t, herdrNotInstalled)
+	var doc report.MessageDoc
+
+	emit(t, &doc, "message", "7", "status?", "--go", "--root", root)
+
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
+}
+
+// TestOpenWithoutHerdrNeverFocusesARemoteLane: open stops at a missing
+// local herdr before any host is read — there is no herdr here to
+// focus a lane through — so it reports presence unknown rather than
+// failing, even with a lane live on another host.
+func TestOpenWithoutHerdrNeverFocusesARemoteLane(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := heldPlan(t, root, "atlas", 7, "Dispatch me")
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": repo,
+	})
+	withHerdr(t, herdrNotInstalled)
+	var doc report.OpenDoc
+
+	stderr := emit(t, &doc, "open", "7", "--hosts", "box", "--root", root)
+
+	assert.NotContains(t, stderr, "focus")
+	assert.False(t, doc.Focused)
+}
+
+// TestNudgeWithoutHerdrReadsNoHost: nudge refuses on a missing herdr
+// whatever the hosts show, so it never pays for the ssh fan-out that
+// only start's live-lane gate reads past a missing herdr for.
+func TestNudgeWithoutHerdrReadsNoHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ssh-ran")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"),
+		[]byte("#!/bin/sh\ntouch "+marker+"\nexit 255\n"), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withHerdr(t, herdrNotInstalled)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go",
+		"--hosts", "box", "--root", root)
+
+	assert.Equal(t, "herdr not installed; no pane to reach", doc.Refused)
+	assert.NoFileExists(t, marker, "no host was read")
+}
+
+// TestNudgeNamesHerdrTurnedOff: with herdr opted out, the refusal says
+// so, rather than claiming herdr is not installed.
+func TestNudgeNamesHerdrTurnedOff(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	heldPlan(t, root, "atlas", 7, "Dispatch me")
+	runner, _ := startHerdr()
+	withHerdr(t, runner)
+	var doc report.NudgeDoc
+
+	emit(t, &doc, "nudge", "7", "--phase", "2", "--go", "--no-herdr", "--root", root)
+
+	assert.Equal(t, "herdr turned off (--no-herdr); no pane to reach", doc.Refused)
+}
+
+// TestHerdrAbsentRefusalNamesWhy: not installed and turned off are
+// each named as what they are.
+func TestHerdrAbsentRefusalNamesWhy(t *testing.T) {
+	assert.Equal(t, "herdr not installed; no pane to reach",
+		herdrAbsentRefusal(&exec.Error{Name: "herdr", Err: exec.ErrNotFound}))
+	assert.Equal(t, "herdr turned off (--no-herdr); no pane to reach",
+		herdrAbsentRefusal(herdr.ErrOff))
 }

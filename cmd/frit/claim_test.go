@@ -15,6 +15,7 @@ import (
 	"github.com/jeduden/frit/internal/discovery"
 	"github.com/jeduden/frit/internal/fleet"
 	"github.com/jeduden/frit/internal/gitwt"
+	"github.com/jeduden/frit/internal/herdr"
 	"github.com/jeduden/frit/internal/observe"
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -1607,46 +1608,56 @@ func herdrNotInstalled(...string) ([]byte, error) {
 	return nil, &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
 }
 
-// TestClaimRefusesWithoutHerdrBeforePushing: on a host with no herdr
-// installed, standing the lane's worktree up is certain to fail, so
-// claim refuses locally before minting — no claim marker, no release
-// marker, no work ref on origin at all.
-func TestClaimRefusesWithoutHerdrBeforePushing(t *testing.T) {
+// TestClaimStandsItsOwnWorktreeUpWithoutHerdr: on a host with no
+// herdr installed, claim mints the lease and stands the lane up with
+// git itself — a worktree on the claim branch at the minted tip,
+// holding the lane's token — rather than refusing.
+func TestClaimStandsItsOwnWorktreeUpWithoutHerdr(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	withHerdr(t, herdrNotInstalled)
-	var out, errb bytes.Buffer
+	var doc report.ClaimDoc
 
-	code := run([]string{"claim", "7", "--root", root}, &out, &errb)
+	emit(t, &doc, "claim", "7", "--root", root)
 
-	require.Equal(t, 0, code, errb.String())
-	assert.Contains(t, out.String(), "refused: plan 7 herdr not found; nothing claimed")
-	assert.NotContains(t, out.String(), "worktree not stood up")
-	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/7")
-	assert.Error(t, err, "origin carries no work ref for plan 7")
-	_, err = gitCapture(t, repo, "rev-parse", "--verify", "--quiet", "refs/heads/plan/7")
-	assert.Error(t, err, "nor does the local clone")
+	require.True(t, doc.Claimed, doc.Refused)
+	require.NotEmpty(t, doc.Worktree)
+	tip, err := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/plan/7")
+	require.NoError(t, err)
+	require.NotEmpty(t, tip, "origin carries the claim")
+	laneTip, err := gitCapture(t, doc.Worktree, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	assert.Contains(t, tip, laneTip, "the lane stands on the minted tip")
+	branch, err := gitCapture(t, doc.Worktree, "branch", "--show-current")
+	require.NoError(t, err)
+	assert.Equal(t, "plan/7", branch)
+	assert.Equal(t, laneTip, claim.ReadToken(doc.Worktree, 7, gitwt.Exec),
+		"the lane holds its token, so it resumes and releases unaided")
 }
 
-// TestClaimCarriesTheMissingHerdrAsAProblem: the refusal names the
-// cause in plan terms, and the raw error rides along under --json as a
-// herdr problem, so a consumer can branch on it without parsing prose.
-func TestClaimCarriesTheMissingHerdrAsAProblem(t *testing.T) {
+// TestClaimWithoutHerdrUnwindsAFailedGitStandUp: a git worktree add
+// that fails — a file already where the lane would go — releases the
+// lease just minted, the same unwind a herdr stand-up failure takes.
+func TestClaimWithoutHerdrUnwindsAFailedGitStandUp(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	planFiles, err := filepath.Glob(filepath.Join(repo, "plan", "7*"))
+	require.NoError(t, err)
+	require.Len(t, planFiles, 1)
+	lane := defaultLanePath(repo, planFiles[0])
+	require.NoError(t, os.WriteFile(lane, []byte("in the way"), 0o600))
 	withHerdr(t, herdrNotInstalled)
 	var doc report.ClaimDoc
 
 	emit(t, &doc, "claim", "7", "--root", root)
 
 	assert.False(t, doc.Claimed)
-	assert.Contains(t, doc.Refused, "herdr not found")
-	require.NotEmpty(t, doc.Problems)
-	last := doc.Problems[len(doc.Problems)-1]
-	assert.Equal(t, "herdr", last.Repo)
-	assert.Contains(t, last.Message, "executable file not found")
+	assert.Contains(t, doc.Refused, "worktree not stood up")
+	body, err := gitCapture(t, repo, "log", "-1", "--format=%B", "origin/plan/7")
+	require.NoError(t, err)
+	assert.Contains(t, body, "plan 7: release", "the unwind left a release marker")
 }
 
 // TestClaimStillRefusesAHeldPlanWithoutHerdr: the herdr check is the
@@ -1674,32 +1685,103 @@ func TestClaimStillRefusesAHeldPlanWithoutHerdr(t *testing.T) {
 func TestRefuseUnmintableNamesAnAmbiguousRepository(t *testing.T) {
 	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
 
-	assert.True(t, refuseUnmintable(&runtime{}, doc, "atlas", false))
+	assert.True(t, refuseUnmintable(doc, "atlas", false))
 	assert.Equal(t, ambiguousRepo("atlas"), doc.Refused)
 }
 
-// TestRefuseUnmintablePassesAnUnreachableHerdr: a socket that
-// refuses a dial is not a missing binary, so the gate lets the claim
-// through to its mint and the stand-up's own unwind (S60).
-func TestRefuseUnmintablePassesAnUnreachableHerdr(t *testing.T) {
-	rt := &runtime{herdr: func(...string) ([]byte, error) {
-		return nil, errors.New("dial unix .herdr.sock: no such file")
-	}}
+// TestRefuseUnmintablePassesAKnownRepository: with a coordinate to
+// mint in, the gate lets the claim through, herdr or no herdr.
+func TestRefuseUnmintablePassesAKnownRepository(t *testing.T) {
 	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
 
-	assert.False(t, refuseUnmintable(rt, doc, "atlas", true))
+	assert.False(t, refuseUnmintable(doc, "atlas", true))
 	assert.Empty(t, doc.Refused)
-	assert.Empty(t, doc.Problems)
 }
 
-// TestRefuseUnmintableRefusesAnAbsentHerdr: the not-found cause is
-// refused with the plan-terms reason and carried as a herdr problem.
-func TestRefuseUnmintableRefusesAnAbsentHerdr(t *testing.T) {
-	rt := &runtime{herdr: herdrNotInstalled}
-	doc := report.NewClaim("/root", "atlas", 7, "Shader unit", "plan/7")
+// TestCreateLaneWorktreeAsksHerdrWhereInstalled: with herdr on the host, the
+// worktree is herdr's to create, and git is never asked.
+func TestCreateLaneWorktreeAsksHerdrWhereInstalled(t *testing.T) {
+	runner, rec := startHerdr()
+	rt := &runtime{herdr: runner, git: func(string, ...string) ([]byte, error) {
+		t.Fatal("git asked to stand up a lane herdr is installed for")
+		return nil, nil
+	}}
 
-	assert.True(t, refuseUnmintable(rt, doc, "atlas", true))
-	assert.Equal(t, missingHerdrRefusal, doc.Refused)
-	require.Len(t, doc.Problems, 1)
-	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+	require.NoError(t, createLaneWorktree(rt, false, herdr.WorktreeSpec{
+		CWD: "/repo", Branch: "plan/7", Path: "/lanes/7"}))
+	assert.True(t, rec.verb("worktree", "create"))
+}
+
+// TestCreateLaneWorktreeUsesGitOnAHeadlessHost: with herdr not installed, the
+// same branch is checked out at the same path by git alone.
+func TestCreateLaneWorktreeUsesGitOnAHeadlessHost(t *testing.T) {
+	var got []string
+	rt := &runtime{
+		herdr: func(...string) ([]byte, error) {
+			t.Fatal("herdr asked on a headless host")
+			return nil, nil
+		},
+		git: func(dir string, args ...string) ([]byte, error) {
+			got = append([]string{dir}, args...)
+			return nil, nil
+		},
+	}
+
+	require.NoError(t, createLaneWorktree(rt, true, herdr.WorktreeSpec{
+		CWD: "/repo", Branch: "plan/7", Path: "/lanes/7"}))
+	assert.Equal(t, []string{
+		"/repo", "worktree", "add", "--quiet", "/lanes/7", "plan/7"}, got)
+}
+
+// TestNoHerdrOptsOutWhereHerdrIsInstalled: with herdr installed and
+// answering, --no-herdr still never calls it — the claim stands its
+// lane up with git, as on a host with no herdr at all.
+func TestNoHerdrOptsOutWhereHerdrIsInstalled(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--no-herdr", "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.NotEmpty(t, doc.Worktree)
+	assert.Empty(t, rec.calls, "herdr is never asked once turned off")
+}
+
+// TestFritHerdrEnvOptsOut: the same opt-out read from $FRIT_HERDR, the
+// environment step of frit's settings chain.
+func TestFritHerdrEnvOptsOut(t *testing.T) {
+	isolate(t)
+	t.Setenv("FRIT_HERDR", "false")
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.Empty(t, rec.calls)
+}
+
+// TestHerdrOptOutComesFromAConfigFile: `herdr: false` in a config file
+// opts the host out, the config step of frit's settings chain.
+func TestHerdrOptOutComesFromAConfigFile(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	cfg := filepath.Join(t.TempDir(), "frit.yml")
+	require.NoError(t, os.WriteFile(cfg, []byte("herdr: false\n"), 0o600))
+	runner, rec := startHerdr()
+	withHerdr(t, runner)
+	var doc report.ClaimDoc
+
+	emit(t, &doc, "claim", "7", "--config", cfg, "--root", root)
+
+	require.True(t, doc.Claimed, doc.Refused)
+	assert.Empty(t, rec.calls)
 }

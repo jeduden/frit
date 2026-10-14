@@ -104,6 +104,13 @@ type cli struct {
 	// printed. Must be positive for the same reason GitTimeout is.
 	HerdrTimeout time.Duration `default:"60s" env:"FRIT_HERDR_TIMEOUT" help:"Fail a stalled herdr call after this."`
 
+	// Herdr lets a host with herdr installed opt out of it: --no-herdr
+	// runs every verb as on a host without herdr — git stands lanes up,
+	// prompts are handed back — and never runs the local binary. On by
+	// default, and resolvable from $FRIT_HERDR or a config file like
+	// --root, since it is the host's choice, not a repository's.
+	Herdr bool `negatable:"" default:"true" env:"FRIT_HERDR" help:"Use herdr where installed; --no-herdr opts out."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -960,11 +967,10 @@ type hostProblem struct {
 // fleetPresence reads live panes across the fleet. The local socket is
 // read first and its failure is returned as err — so a caller still
 // tells "presence unknown" from "nobody live", exactly as the
-// single-socket read did. With no hosts configured that is all it does.
-// With hosts, the remotes are read best-effort over ssh and reconciled
-// against the cache: a dead or slow one renders its last-known panes and
-// travels back as a hostProblem rather than failing the read, so one
-// unreachable machine never blocks the board.
+// single-socket read did — before any host is read, so a reader that
+// stops on that error never pays for a fan-out it would discard. With
+// no hosts configured that is all it does. With hosts, the remotes are
+// read best-effort (withHostPresence).
 func fleetPresence(
 	c *cli, rt *runtime,
 ) (panes []herdr.Pane, probs []hostProblem, err error) {
@@ -972,8 +978,39 @@ func fleetPresence(
 	if err != nil {
 		return nil, nil, err
 	}
+	panes, probs = withHostPresence(c, local)
+
+	return panes, probs, nil
+}
+
+// fleetPresencePastMissing is fleetPresence for the readers that must
+// look past a herdr not installed here (start's live-lane gates): this host
+// has no panes to show, but another host's live lane is a fact a
+// headless start must not miss. The remotes' panes come back beside
+// the not-found error; any other local failure still stops the read
+// before a host is asked.
+func fleetPresencePastMissing(
+	c *cli, rt *runtime,
+) (panes []herdr.Pane, probs []hostProblem, err error) {
+	local, err := herdr.List(rt.herdr)
+	if err != nil && herdr.NotFound(err) == nil {
+		return nil, nil, err
+	}
+	panes, probs = withHostPresence(c, local)
+
+	return panes, probs, err
+}
+
+// withHostPresence adds the configured hosts' panes to the local ones.
+// The remotes are read best-effort over ssh and reconciled against the
+// cache: a dead or slow one renders its last-known panes and travels
+// back as a hostProblem rather than failing the read, so one
+// unreachable machine never blocks the board.
+func withHostPresence(
+	c *cli, local []herdr.Pane,
+) ([]herdr.Pane, []hostProblem) {
 	if len(c.Hosts) == 0 {
-		return local, nil, nil
+		return local, nil
 	}
 
 	path, perr := presence.CachePath()
@@ -983,14 +1020,14 @@ func fleetPresence(
 		// the configured hosts went unread, and that travels as a problem
 		// rather than reading as a clean local-only fleet a consumer could
 		// start a duplicate lane against.
-		return local, unreadHosts(c.Hosts), nil
+		return local, unreadHosts(c.Hosts)
 	}
 
 	opt := presence.Options{TTL: hostReadTTL, Timeout: hostReadTimeout}
 	remotePanes, statuses := presence.Read(
 		toHosts(c.Hosts), herdr.RunContext, path, opt, time.Now())
 
-	return append(local, remotePanes...), hostProblems(statuses), nil
+	return append(local, remotePanes...), hostProblems(statuses)
 }
 
 // unreadHosts flags every configured host as unread, for the degraded
@@ -3440,6 +3477,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	// a verb that reads presence, and the bound kills the herdr
 	// subprocess rather than leaving it to run on.
 	rt.herdr = herdr.WithTimeout(herdrRunner, c.HerdrTimeout)
+	if !c.Herdr {
+		rt.herdr = herdr.Off
+	}
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

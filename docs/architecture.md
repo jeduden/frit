@@ -20,9 +20,10 @@ for how a hold is minted and read.
   projection and the `deps` link graph; both live in `internal/`.
   If frit needs link-following later, that is the moment to ask for
   them to be promoted, not to hand-roll a second parser.
-- **herdr** owns panes, worktrees and prompts. frit reads its socket
-  API for live agent state and hands panes back to it for anything
-  interactive.
+- **herdr**, where it is installed, owns panes, worktrees and
+  prompts. frit reads its socket API for live agent state and hands
+  panes back to it for anything interactive. herdr is optional: see
+  [Running without herdr](#running-without-herdr).
 - **The claim is frit's own.** A hold is a ref name, and frit mints
   it: an empty marker commit pushed with `--force-with-lease`, so a
   hold is atomic across machines and a lost race is caught rather than
@@ -30,9 +31,9 @@ for how a hold is minted and read.
   out of the ref list too — which names count is declared per
   repository in its `.frit.yml`, never inferred from a plan id, and
   refs merged into the default branch are excluded so landed work does
-  not read as an active claim. frit still delegates the worktree and
-  the pane the claim stands up to herdr; the lease is the one thing it
-  writes.
+  not read as an active claim. Where herdr is installed, frit hands it
+  the worktree and the pane the claim stands up; the lease is the one
+  thing frit writes to origin.
 
 ## Steering is local; coordination is git origin
 
@@ -64,6 +65,47 @@ and owns exactly one mutation — the claim, because a hold has to be
 atomic and a ref push is the only atom git offers. It never edits a
 plan, never spawns an agent it does not hand straight back, and never
 reads a transcript.
+
+## Running without herdr
+
+herdr is optional. frit takes its herdr-less path in two cases: the
+`herdr` executable is not on `$PATH`, or the host opted out with
+`--no-herdr` (or `FRIT_HERDR=false`, or `herdr: false` in a config
+file). Both are certain, and an opted-out host never runs the binary
+(C24). A herdr that is installed but does not answer is not certain to
+stay down. It keeps the herdr path, and the lease protocol's own
+unwind covers it (S60, S61).
+
+Without herdr, each thing herdr did falls to git or goes back to the
+caller:
+
+- **Presence** reads as unknown here. The board shows `?`, and a
+  takeover is protected by the staleness window alone, as when herdr
+  is down. Configured hosts are still read, so a lane live on another
+  host still refuses a start (C22).
+- **The worktree** is plain git. frit stands a lane up with
+  `git worktree add` and tears it down with `git worktree remove`,
+  the same calls reap already makes. A leftover worktree a fresh
+  start meets is parked and left standing, never removed, since
+  nothing here proves nobody works in it (C23).
+- **The session** is never bound. The lease carries none, so no
+  live-session veto protects the hold; only the window does.
+- **The pane** has no git stand-in. frit dispatches nothing. It hands
+  the composed prompt and the lane's path back to the caller, the
+  same hand-back a dry-run `start` already prints. A verb that only
+  steers a pane refuses, naming herdr not installed.
+
+A session whose harness lets it publish only its own branch, such as
+a cloud agent's `claude/<name>`, keeps the rule that work rides the
+lease ref. It works in the lane and pushes `plan/<id>`, then copies
+that tip to its own branch for the PR. When the PR merges, the lease
+tip reaches the default branch, and landed evidence reads it as for
+any lane (C21).
+
+The lease is untouched by any of this: a claim on a herdr-less host
+is the same ref on origin as one anywhere else. Standing a worktree
+up changes only this host's own checkout and is never coordinated
+through origin, so the one-mutation rule holds.
 
 ## The discovery core
 

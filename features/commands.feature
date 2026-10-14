@@ -100,21 +100,90 @@ Feature: Command scenarios
     And board --json reports plan 7's ask answered with "in PR #9"
 
   @C15
-  Scenario: claiming on a host with no herdr refuses before anything reaches origin
+  Scenario: claiming on a host with no herdr stands the lane up with git
     Given a plan nobody has ever held
     And herdr is not installed on this host
-    When the built frit runs "claim 7"
-    Then it refuses, naming herdr not found and nothing claimed
-    And origin carries no work ref for plan 7
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    And origin's claim marker for plan 7 binds no session
+    And the lane holds its token for plan 7
+    When the built frit runs "release --json" from the lane
+    Then origin's tip for plan 7 is a release marker
 
   @C16
-  Scenario: pick --go on a host with no herdr claims no candidate
+  Scenario: pick --go on a host with no herdr hands the top candidate back
     Given plans 7 and 8 are ready with plan 8 ranked above plan 7
     And herdr is not installed on this host
-    When the built frit runs "pick --go"
-    Then it refuses, naming herdr not found and nothing claimed
+    When the built frit runs "pick --go --json"
+    Then plan 8 is handed back in a worktree of its own, on origin's claim marker
     And origin carries no work ref for plan 7
-    And origin carries no work ref for plan 8
+
+  @C18
+  Scenario: start --go on a host with no herdr hands back, and again from its lane
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go --json"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    When the built frit runs "start --go --json" from the lane
+    Then plan 7 is handed back again from the same lane, resumed
+
+  @C19
+  Scenario: messaging a lane on a host with no herdr says herdr is not installed
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "message 7 status --go --json"
+    Then it refuses, naming herdr not installed rather than unreachable
+
+  @C20
+  Scenario: yield from a fenced lane on a host with no herdr removes its worktree
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    When another machine takes plan 7 over
+    And the built frit runs "yield 7 --json" from the lane
+    Then the lane's work is parked and its worktree removed with git
+
+  @C21
+  Scenario: a harness session publishes its lane through its own branch, and the plan lands when it merges
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go --json"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    When a commit made in the lane is pushed to plan 7 and copied to "claude/session"
+    And the built frit runs "board --json"
+    Then the board shows plan 7 held
+    When "claude/session" is merged into origin's main
+    And the built frit runs "board --json"
+    Then the board shows plan 7 not held
+
+  @C22
+  Scenario: start --go on a host with no herdr still refuses a lane live on another host
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    And plan 7's matured hold has a live agent in its lane on host "box"
+    When the built frit runs "start 7 --go --json --hosts box"
+    Then start refuses, naming plan/7's live lane, and origin's lease is untouched
+    And the refusal carries no herdr problem
+
+  @C23
+  Scenario: start --go on a host with no herdr parks a leftover worktree and leaves it standing
+    Given a plan nobody has ever held
+    And a released lane's leftover worktree holds unlanded work on plan 7
+    And herdr is not installed on this host
+    When the built frit runs "start 7 --go" expecting it to fail
+    Then it names the leftover's path, its rescue ref and frit reap
+    And the leftover worktree still stands and origin's plan/7 is unchanged
+    When the built frit runs "reap --go"
+    Then the leftover worktree is gone
+
+  @C24
+  Scenario: a host with herdr installed opts out with --no-herdr
+    Given a plan nobody has ever held
+    And herdr is installed on this host, recording every call
+    When the built frit runs "start 7 --go --json --no-herdr"
+    Then plan 7 is handed back in a worktree of its own, on origin's claim marker
+    And herdr was never called
 
   @C17
   Scenario: release and yield agree on a decorated hold with no lease

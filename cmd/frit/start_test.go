@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -2801,7 +2802,7 @@ func TestReconcileLeftoverWorktreeSurfacesAListError(t *testing.T) {
 	rt := &runtime{git: gitwt.Exec}
 
 	err := reconcileLeftoverWorktree(
-		rt, sc, report.StartPlan{Branch: "plan/7"}, 7)
+		rt, sc, report.StartPlan{Branch: "plan/7"}, 7, false)
 
 	assert.ErrorContains(t, err, "list worktrees")
 }
@@ -2820,7 +2821,7 @@ func TestReconcileLeftoverWorktreeSurfacesAParkFailure(t *testing.T) {
 	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
 	sp := report.StartPlan{Branch: claim.Branch(7)}
 
-	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, false)
 
 	assert.ErrorContains(t, err, "park:")
 	_, statErr := os.Stat(leftover)
@@ -2846,7 +2847,7 @@ func TestReconcileLeftoverWorktreeSurfacesARemoveFailure(t *testing.T) {
 	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
 	sp := report.StartPlan{Branch: claim.Branch(7)}
 
-	err := reconcileLeftoverWorktree(rt, sc, sp, 7)
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, false)
 
 	assert.ErrorContains(t, err, "remove leftover worktree")
 	_, statErr := os.Stat(leftover)
@@ -2989,23 +2990,102 @@ func fakeEditorOnPath(t *testing.T, name, script string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// TestStartGoRefusesWithoutHerdrBeforePushing: start --go stands the
-// worktree, agent and pane up through herdr, so on a host with no herdr
-// installed it refuses before minting, exactly as claim does — no work
-// ref reaches origin.
-func TestStartGoRefusesWithoutHerdrBeforePushing(t *testing.T) {
+// TestStartGoHandsBackWithoutHerdr: on a host with no herdr
+// installed, start --go claims the plan and stands its lane up with
+// git, but has no pane to run the phase in, so it hands the prompt
+// back: started, nothing dispatched, no pane, no herdr problem.
+func TestStartGoHandsBackWithoutHerdr(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
 	withHerdr(t, herdrNotInstalled)
 	var doc report.StartDoc
 
-	emit(t, &doc, "start", "7", "--go", "--root", root)
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--root", root)
 
-	assert.Contains(t, doc.Refused, "herdr not found; nothing claimed")
+	require.Empty(t, doc.Refused)
+	assert.True(t, doc.Started)
+	assert.Equal(t, report.HandoffHandedBack, doc.Handoff)
 	assert.False(t, doc.PromptDispatched)
-	_, err := gitCapture(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/plan/7")
-	assert.Error(t, err, "origin carries no work ref for plan 7")
+	assert.Empty(t, doc.Pane)
+	assert.Equal(t, "/plan-phase 7 3", doc.Prompt)
+	assert.Empty(t, doc.Problems, "a missing herdr is this host's mode, not a fault")
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	head, err := gitCapture(t, doc.Lane, "rev-parse", "HEAD")
+	require.NoError(t, err)
+	assert.Equal(t, tip, head, "the lane stands on the minted tip")
+	assert.Equal(t, tip, claim.ReadToken(doc.Lane, 7, gitwt.Exec))
+}
+
+// TestStartGoHandedBackTellsTheReaderToRunIt: the table names the
+// lane and leaves the prompt as the recipe, never the running-in-a-
+// pane directive.
+func TestStartGoHandedBackTellsTheReaderToRunIt(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "started plan 7")
+	assert.Contains(t, got, "prompt:   /plan-phase 7 3")
+	assert.Contains(t, got, "no herdr pane; run the prompt in")
+	assert.Contains(t, got, "agent:    yours to run — claude --model",
+		"no agent was started, so the line says whose it is to run")
+	assert.NotContains(t, got, "do not run it here")
+	assert.NotContains(t, got, "run again with --go")
+}
+
+// TestStartDryRunWithoutHerdrPreviewsTheHandBack: the dry run a reader
+// checks before --go says what --go will do on a host with no herdr —
+// hand the prompt back to run in the lane — never "the new pane", and
+// carries the missing herdr as this host's mode rather than a problem.
+func TestStartDryRunWithoutHerdrPreviewsTheHandBack(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--phase", "3", "--root", root}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	got := out.String()
+	assert.Contains(t, got, "focus:    none — no herdr here; --go hands the prompt back")
+	assert.Contains(t, got, "agent:    yours to run — claude --model")
+	assert.NotContains(t, got, "the new pane")
+	assert.Contains(t, got, "run again with --go to execute")
+	var doc report.StartDoc
+	emit(t, &doc, "start", "7", "--phase", "3", "--root", root)
+	assert.True(t, doc.Headless)
+	assert.Empty(t, doc.Problems, "a missing herdr is this host's mode, not a fault")
+}
+
+// TestStartGoResumesAHeadlessLaneFromInside: run again from inside the
+// lane it stood up, start --go resumes on the lane's own token and
+// hands back again — no pane to read, none needed.
+func TestStartGoResumesAHeadlessLaneFromInside(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	claimableRepo(t, root, "atlas", 7, "Shader unit")
+	withHerdr(t, herdrNotInstalled)
+	var first report.StartDoc
+	emit(t, &first, "start", "7", "--phase", "3", "--go", "--root", root)
+	require.Equal(t, report.HandoffHandedBack, first.Handoff, first.Refused)
+	t.Chdir(first.Lane)
+	var again report.StartDoc
+
+	emit(t, &again, "start", "--phase", "3", "--go", "--root", root)
+
+	require.Empty(t, again.Refused)
+	assert.True(t, again.Resumed)
+	assert.Equal(t, report.HandoffHandedBack, again.Handoff)
+	assert.Equal(t, first.Lane, again.Lane)
 }
 
 // TestStartDryRunComposesWithoutHerdr: without --go nothing is minted,
@@ -3023,40 +3103,23 @@ func TestStartDryRunComposesWithoutHerdr(t *testing.T) {
 	assert.Empty(t, doc.Refused)
 }
 
-// TestStartMissingHerdrRefusalCarriesTheCause: the refusal names the
-// missing herdr in plan terms and carries the raw cause as a herdr
-// problem, once, for a consumer to branch on.
-func TestStartMissingHerdrRefusalCarriesTheCause(t *testing.T) {
-	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
-	missing := &exec.Error{Name: "herdr", Err: exec.ErrNotFound}
-
-	doc := startMissingHerdrRefusal(
-		&cli{}, fleet.Result{}, plan, "1", true, nil, missing)
-
-	require.NotNil(t, doc)
-	assert.Equal(t, missingHerdrRefusal, doc.Refused)
-	require.Len(t, doc.Problems, 1)
-	assert.Equal(t, "herdr", doc.Problems[0].Repo)
-}
-
-// TestStartPreflightReportsAMissingHerdrAsNotSkippable: under --go on
-// a host with no herdr, the gate refuses and tells pick --go not to
-// walk on, even without a reattach — the next candidate would meet the
-// same missing herdr. The live-lane read never found a pane, so its
-// own gate stays silent first.
-func TestStartPreflightReportsAMissingHerdrAsNotSkippable(t *testing.T) {
+// TestStartPreflightPassesAMissingHerdrAsHeadless: under --go on a
+// host with no herdr, the gate no longer refuses — it tells the
+// escalation the host is headless, and carries no herdr problem, since
+// a missing herdr is this host's mode rather than a fault.
+func TestStartPreflightPassesAMissingHerdrAsHeadless(t *testing.T) {
 	isolate(t)
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
 	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
 
-	doc, skip, probs, herdrErr := startPreflight(
+	doc, skip, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
 
-	require.NotNil(t, doc)
-	assert.Equal(t, missingHerdrRefusal, doc.Refused)
+	assert.Nil(t, doc)
 	assert.False(t, skip)
-	assert.Empty(t, probs)
-	assert.NoError(t, herdrErr)
+	assert.True(t, gate.headless)
+	assert.Empty(t, gate.probs)
+	assert.NoError(t, gate.herdrErr)
 }
 
 // TestStartPreflightAsksHerdrOnceForAFreshAcquire: the live-lane read
@@ -3072,10 +3135,11 @@ func TestStartPreflightAsksHerdrOnceForAFreshAcquire(t *testing.T) {
 		return []byte(`{"result":{"agents":[]}}`), nil
 	}}
 
-	doc, _, _, _ := startPreflight(
+	doc, _, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", true, startResumption{}, false)
 
 	assert.Nil(t, doc)
+	assert.False(t, gate.headless)
 	assert.Equal(t, 1, calls)
 }
 
@@ -3104,17 +3168,213 @@ func TestHerdrMissingAfterReadsTheLiveReadsAnswer(t *testing.T) {
 	assert.NoError(t, herdrMissingAfter(rt, startResumption{}, nil))
 }
 
-// TestStartPreflightPassesWithoutGo: a dry run meets neither gate, and
-// the live-lane read's own herdr error rides back for the success doc.
+// TestStartPreflightPassesWithoutGo: a dry run meets no gate, and on a
+// host with no herdr it reads headless, as --go would, so its preview
+// can say so.
 func TestStartPreflightPassesWithoutGo(t *testing.T) {
 	isolate(t)
 	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
 	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
 
-	doc, skip, _, herdrErr := startPreflight(
+	doc, skip, gate := startPreflight(
 		&cli{}, rt, fleet.Result{}, plan, "1", false, startResumption{}, false)
 
 	assert.Nil(t, doc)
 	assert.False(t, skip)
-	assert.ErrorIs(t, herdrErr, exec.ErrNotFound)
+	assert.True(t, gate.headless, "a dry run previews the headless mode too")
+	assert.NoError(t, gate.herdrErr)
+}
+
+// TestFinishStartHandsBackOnAHeadlessHost: with no pane, the lane is
+// handed back and no session bind is attempted; with one, the pane is
+// recorded as running the phase.
+func TestFinishStartHandsBackOnAHeadlessHost(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		t.Fatal("a headless finish binds no session")
+		return nil, nil
+	}}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	sp := report.StartPlan{Branch: "plan/7", Lane: "/lanes/7"}
+	headless := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+
+	finishStart(rt, headless, plan, sp, startContext{}, "/lanes/7", "tip", "", "", true)
+
+	assert.Equal(t, report.HandoffHandedBack, headless.Handoff)
+
+	running := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+	finishStart(rt, running, plan, sp, startContext{}, "/lanes/7", "tip", "wZ:p1", "", false)
+
+	assert.Equal(t, report.HandoffRunning, running.Handoff)
+	assert.Equal(t, "wZ:p1", running.Pane)
+}
+
+// TestStandUpHeadlessNamesAFailedWorktreeAdd: a git worktree add that
+// fails is returned naming the step, for startExecute's unwind to
+// release the lease behind it.
+func TestStandUpHeadlessNamesAFailedWorktreeAdd(t *testing.T) {
+	rt := &runtime{git: func(string, ...string) ([]byte, error) {
+		return nil, errors.New("already exists")
+	}}
+	plan := discovery.Plan{Repo: "atlas", ID: 7, Title: "Shader unit"}
+	sp := report.StartPlan{Branch: "plan/7", Lane: "/lanes/7"}
+	doc := report.NewStart("/root", "atlas", 7, "Shader unit", sp, true)
+
+	err := standUpHeadless(rt, doc, plan, sp, "/repo", startResumption{}, "tip")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "worktree add")
+}
+
+// TestStartGoWithoutHerdrRefusesALaneLiveOnARemoteHost: a host with no
+// herdr cannot see a local pane, but the configured hosts can still be
+// read. A live agent on another host's lane of the plan refuses the
+// headless start just as it would refuse one with herdr — never a
+// second lane stood up and handed back beside it.
+func TestStartGoWithoutHerdrRefusesALaneLiveOnARemoteHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	lease, err := claim.Acquire(repo, claim.LeaseOptions{PlanID: 7, Remote: "origin",
+		Base: "origin/main", Holder: "elsewhere", Lane: "/lanes/x"}, gitwt.Exec)
+	require.NoError(t, err)
+	seedWindow(t, "atlas", 7, lease.Tip, 3*time.Hour)
+	lane := liveLeaseLane(t, repo, "plan/7")
+	withRemoteHerdr(t, map[string]any{
+		"agent": "claude", "agent_status": "working",
+		"pane_id": "wBox:p1", "cwd": lane,
+	})
+	withHerdr(t, herdrNotInstalled)
+	var doc report.StartDoc
+
+	emit(t, &doc, "start", "7", "--phase", "3", "--go", "--hosts", "box", "--root", root)
+
+	assert.Contains(t, doc.Refused, "plan/7", "the reason names the live lane")
+	assert.NotEqual(t, report.HandoffHandedBack, doc.Handoff)
+	assert.Equal(t, lease.Tip, claim.RemoteTip(repo, "origin", 7, gitwt.Exec),
+		"the live lane's lease is untouched")
+}
+
+// withRemoteHerdr puts a fake ssh first on $PATH: a remote herdr call
+// answers with agents, and any other remote command — the git a remote
+// pane's cwd is resolved with — runs locally.
+func withRemoteHerdr(t *testing.T, agents ...map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"result": map[string]any{"agents": agents}})
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "agents.json"), body, 0o600))
+	script := "#!/bin/sh\nshift\nif [ \"$1\" = herdr ]; then cat " + filepath.Join(dir, "agents.json") +
+		"; exit 0; fi\nexec \"$@\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestStartGateCarriesItsReadOntoTheDoc: the gate's problems and its
+// headless read both reach the success doc.
+func TestStartGateCarriesItsReadOntoTheDoc(t *testing.T) {
+	doc := report.NewStart("/root", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+
+	startGate{herdrErr: errors.New("dial"), headless: true}.carry(doc)
+
+	assert.True(t, doc.Headless)
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "herdr", doc.Problems[0].Repo)
+}
+
+// TestCarryLiveLaneProblemsDropsAMissingHerdr: a herdr not installed is
+// a headless host's mode, not a fault, so a refusal built off the
+// live-lane read carries no herdr problem for it — the same as the
+// success doc the gate builds.
+func TestCarryLiveLaneProblemsDropsAMissingHerdr(t *testing.T) {
+	doc := report.NewStart(
+		"", "atlas", 7, "Shader unit", report.StartPlan{}, false)
+	_, missing := herdrNotInstalled()
+
+	carryLiveLaneProblems(doc,
+		[]hostProblem{{name: "vault", err: errors.New("boom")}}, missing)
+
+	require.Len(t, doc.Problems, 1)
+	assert.Equal(t, "vault", doc.Problems[0].Repo)
+}
+
+// TestReconcileLeftoverWorktreeParksAndKeepsItOnAHeadlessHost: with no
+// herdr, nothing can show whether someone works in the leftover by
+// hand, so its unlanded work is parked and the worktree is left
+// standing — the refusal names the path, the rescue ref and the
+// cleanup the owner runs once they have confirmed it unused.
+func TestReconcileLeftoverWorktreeParksAndKeepsItOnAHeadlessHost(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	rt := &runtime{git: gitwt.Exec, herdr: func(...string) ([]byte, error) {
+		t.Fatal("herdr asked on a headless host")
+		return nil, nil
+	}}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, true)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), leftover)
+	assert.Contains(t, err.Error(), "refs/frit/rescue/7/")
+	assert.Contains(t, err.Error(), "left standing")
+	assert.Contains(t, err.Error(), "frit reap --go")
+	assert.DirExists(t, leftover, "the leftover is never removed on a headless host")
+	rescue, lsErr := gitCapture(t, repo, "ls-remote", "origin", "refs/frit/rescue/7/*")
+	require.NoError(t, lsErr)
+	assert.NotEmpty(t, rescue, "the unlanded work is parked")
+}
+
+// TestLeftoverKeptNamesAnEmptyPark: a leftover with nothing unlanded
+// parks nothing, and the refusal says so rather than naming a ref.
+func TestLeftoverKeptNamesAnEmptyPark(t *testing.T) {
+	msg := leftoverKept(7, "/lanes/7", "plan/7", "")
+
+	assert.Contains(t, msg, "nothing unlanded to park")
+	assert.NotContains(t, msg, "refs/frit/rescue")
+	assert.Contains(t, msg, "/lanes/7")
+}
+
+// TestStartGoParksAndKeepsALeftoverWithoutHerdr: the reconcile's
+// headless branch reached through start itself — refused before any
+// mint, the leftover standing, the branch where release left it.
+func TestStartGoParksAndKeepsALeftoverWithoutHerdr(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, releasedTip := leftoverWorktree(t, root, repo, 7)
+	withHerdr(t, herdrNotInstalled)
+	var out, errb bytes.Buffer
+
+	code := run([]string{"start", "7", "--go", "--root", root}, &out, &errb)
+
+	require.Equal(t, 1, code)
+	assert.Contains(t, errb.String(), leftover)
+	assert.Contains(t, errb.String(), "frit reap")
+	assert.DirExists(t, leftover)
+	tip, err := gitCapture(t, repo, "rev-parse", "refs/heads/plan/7")
+	require.NoError(t, err)
+	assert.Equal(t, releasedTip, tip, "nothing was claimed")
+}
+
+// TestReconcileLeftoverWorktreeSurfacesAHeadlessParkFailure: a park
+// that fails on a headless host is returned as the park fault, never
+// the kept-leftover refusal that would claim the work was parked.
+func TestReconcileLeftoverWorktreeSurfacesAHeadlessParkFailure(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := claimableRepo(t, root, "atlas", 7, "Shader unit")
+	leftover, _ := leftoverWorktree(t, root, repo, 7)
+	git(t, repo, "remote", "set-url", "origin", "/nonexistent")
+	rt := &runtime{git: gitwt.Exec, herdr: herdrNotInstalled}
+	sc := startContext{repoPath: repo, remote: "origin", base: "origin/main"}
+	sp := report.StartPlan{Branch: claim.Branch(7)}
+
+	err := reconcileLeftoverWorktree(rt, sc, sp, 7, true)
+
+	assert.ErrorContains(t, err, "park:")
+	assert.NotContains(t, err.Error(), "parked to")
+	assert.DirExists(t, leftover)
 }
