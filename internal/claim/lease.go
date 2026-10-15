@@ -1219,26 +1219,34 @@ func mintMarker(
 		return "", err
 	}
 
-	args := append([]string{"commit-tree", tree, "-p", parent},
-		signArgs(repoDir, run)...)
+	sign, err := signArgs(repoDir, run)
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"commit-tree", tree, "-p", parent}, sign...)
+	args = append(args, "-m", leaseMessage(kind, opts, epoch, nonce, base))
 
-	return trimmed(run(repoDir, append(args,
-		"-m", leaseMessage(kind, opts, epoch, nonce, base))...))
+	return trimmed(run(repoDir, args...))
 }
 
 // signArgs is the -S a marker mint passes when the repository asks for
 // signed commits. commit-tree, unlike commit, never reads
 // commit.gpgsign itself, so without this a repository whose branch
 // rules require signatures would refuse the plan/<id> push. An unset
-// key reads as an error, which means no signing.
-func signArgs(repoDir string, run gitwt.Runner) []string {
-	on, err := trimmed(run(repoDir,
-		"config", "--type=bool", "--get", "commit.gpgsign"))
-	if err != nil || on != "true" {
-		return nil
+// key defaults to off; any other read fault — a value git cannot take
+// as a boolean, a stalled git — is an error, as it is to git commit,
+// never a silently unsigned marker.
+func signArgs(repoDir string, run gitwt.Runner) ([]string, error) {
+	on, err := trimmed(run(repoDir, "config", "--type=bool",
+		"--default=false", "--get", "commit.gpgsign"))
+	if err != nil {
+		return nil, fmt.Errorf("read commit.gpgsign: %w", err)
+	}
+	if on != "true" {
+		return nil, nil
 	}
 
-	return []string{"-S"}
+	return []string{"-S"}, nil
 }
 
 // pushThenConfirm runs one arbitrated push and, when it fails, asks

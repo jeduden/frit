@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -14,13 +15,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// pinSigningOff sets commit.gpgsign=false at command-line precedence
-// through git's GIT_CONFIG_COUNT environment, above any config file.
+// pinSigningOff appends commit.gpgsign=false to git's GIT_CONFIG_COUNT
+// environment, at command-line precedence above any config file, after
+// the entries the environment already carries — a sandbox's url
+// rewrites or safe.directory stay in force.
 func pinSigningOff() {
+	prior, _ := strconv.Atoi(os.Getenv("GIT_CONFIG_COUNT"))
+	n := strconv.Itoa(prior)
 	for k, v := range map[string]string{
-		"GIT_CONFIG_COUNT":   "1",
-		"GIT_CONFIG_KEY_0":   "commit.gpgsign",
-		"GIT_CONFIG_VALUE_0": "false",
+		"GIT_CONFIG_COUNT":      strconv.Itoa(prior + 1),
+		"GIT_CONFIG_KEY_" + n:   "commit.gpgsign",
+		"GIT_CONFIG_VALUE_" + n: "false",
 	} {
 		if err := os.Setenv(k, v); err != nil {
 			panic(err)

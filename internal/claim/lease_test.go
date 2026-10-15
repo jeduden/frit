@@ -1584,7 +1584,7 @@ func TestMintMarkerSurfacesANonceFault(t *testing.T) {
 // header without a real key or agent.
 func fakeSigner(t *testing.T, work string) {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_COUNT", "0") // lift TestMain's signing pin
+	liftSigningPin(t)
 	prog := filepath.Join(t.TempDir(), "fake-sign")
 	script := "#!/bin/sh\nfor last; do :; done\n" +
 		"printf -- '-----BEGIN SSH SIGNATURE-----\\nZmFrZQ==\\n" +
@@ -1613,9 +1613,12 @@ func TestMintMarkerSignsWhenTheRepoAsksForIt(t *testing.T) {
 }
 
 // TestMintMarkerStaysUnsignedWhenSigningIsOff: a repository that does
-// not ask for signed commits gets a plain marker, and no signer runs.
+// not ask for signed commits gets a plain marker, even with a signer
+// configured and the suite's pin lifted.
 func TestMintMarkerStaysUnsignedWhenSigningIsOff(t *testing.T) {
 	work := originAndClone(t)
+	fakeSigner(t, work)
+	gitCmd(t, work, "config", "commit.gpgsign", "false")
 
 	marker, err := mintMarker(work, markerClaim, "main",
 		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
@@ -1631,7 +1634,9 @@ func TestMintMarkerStaysUnsignedWhenSigningIsOff(t *testing.T) {
 func TestMintMarkerSurfacesASigningFault(t *testing.T) {
 	work := originAndClone(t)
 	fakeSigner(t, work)
-	gitCmd(t, work, "config", "gpg.ssh.program", "/bin/false")
+	fail := filepath.Join(t.TempDir(), "fail-sign")
+	require.NoError(t, os.WriteFile(fail, []byte("#!/bin/sh\nexit 1\n"), 0o700))
+	gitCmd(t, work, "config", "gpg.ssh.program", fail)
 
 	_, err := mintMarker(work, markerClaim, "main",
 		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
@@ -1639,21 +1644,66 @@ func TestMintMarkerSurfacesASigningFault(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestMintMarkerSurfacesASigningSettingFault: a mint that cannot read
+// commit.gpgsign returns the fault and mints nothing, rather than
+// guessing the repository wants no signature.
+func TestMintMarkerSurfacesASigningSettingFault(t *testing.T) {
+	work := originAndClone(t)
+	minted := false
+	failing := func(dir string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "config":
+			return nil, errors.New("config read failed")
+		case "commit-tree":
+			minted = true
+		}
+
+		return gitwt.Exec(dir, args...)
+	}
+
+	_, err := mintMarker(work, markerClaim, "main",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", failing)
+
+	require.Error(t, err)
+	assert.False(t, minted, "no marker is minted on a guess")
+}
+
 // TestSignArgsReadsCommitGpgsign: the -S flag follows the repository's
-// own commit.gpgsign, read as a git boolean, and an unset key means no
-// flag.
+// own commit.gpgsign, read as a git boolean, and an unset key — with
+// the developer's global and system config kept out — means no flag.
 func TestSignArgsReadsCommitGpgsign(t *testing.T) {
 	work := originAndClone(t)
-	t.Setenv("GIT_CONFIG_COUNT", "0") // lift TestMain's signing pin
-	assert.Empty(t, signArgs(work, gitwt.Exec))
+	liftSigningPin(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	gitCmd(t, work, "config", "--unset", "commit.gpgsign")
+
+	sign, err := signArgs(work, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Empty(t, sign, "an unset key means no flag")
 
 	gitCmd(t, work, "config", "commit.gpgsign", "yes")
-	assert.Equal(t, []string{"-S"}, signArgs(work, gitwt.Exec))
+	sign, err = signArgs(work, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"-S"}, sign)
 
-	unset := func(string, ...string) ([]byte, error) {
-		return nil, errors.New("exit status 1")
-	}
-	assert.Empty(t, signArgs(work, unset))
+	gitCmd(t, work, "config", "commit.gpgsign", "off")
+	sign, err = signArgs(work, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Empty(t, sign)
+}
+
+// TestSignArgsSurfacesAnUnreadableSetting: a commit.gpgsign git cannot
+// read as a boolean is an error, the way git commit dies on it, never
+// a silently unsigned marker.
+func TestSignArgsSurfacesAnUnreadableSetting(t *testing.T) {
+	work := originAndClone(t)
+	liftSigningPin(t)
+	gitCmd(t, work, "config", "commit.gpgsign", "maybe")
+
+	_, err := signArgs(work, gitwt.Exec)
+
+	require.Error(t, err)
 }
 
 // TestMarkerHostReadsALeaseMarker: the current-worktree guard reads
