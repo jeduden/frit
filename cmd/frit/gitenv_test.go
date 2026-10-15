@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
-	"strconv"
 	"testing"
+
+	"github.com/jeduden/frit/internal/gittest"
 )
 
 // TestMain pins commit.gpgsign off for every git the suite runs, the
@@ -11,24 +13,9 @@ import (
 // developer's global signing would otherwise sign — or prompt for — each
 // fixture marker.
 func TestMain(m *testing.M) {
-	pinSigningOff()
-	os.Exit(m.Run())
-}
-
-// pinSigningOff appends commit.gpgsign=false to git's GIT_CONFIG_COUNT
-// environment, at command-line precedence above any config file, after
-// the entries the environment already carries — a sandbox's url
-// rewrites or safe.directory stay in force.
-func pinSigningOff() {
-	prior, _ := strconv.Atoi(os.Getenv("GIT_CONFIG_COUNT"))
-	n := strconv.Itoa(prior)
-	for k, v := range map[string]string{
-		"GIT_CONFIG_COUNT":      strconv.Itoa(prior + 1),
-		"GIT_CONFIG_KEY_" + n:   "commit.gpgsign",
-		"GIT_CONFIG_VALUE_" + n: "false",
-	} {
-		if err := os.Setenv(k, v); err != nil {
-			panic(err)
-		}
+	if _, err := gittest.PinSigningOff(); err != nil {
+		fmt.Fprintln(os.Stderr, "pin commit.gpgsign off:", err)
+		os.Exit(1)
 	}
+	os.Exit(m.Run())
 }
