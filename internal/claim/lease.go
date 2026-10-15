@@ -930,7 +930,7 @@ func hasUnlanded(
 func hasWork(
 	repoDir string, planID int64, base, tip string, run gitwt.Runner,
 ) (bool, error) {
-	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	out, err := gitLog(repoDir, run, "--format=%s", tip, "^"+base)
 	if err != nil {
 		return false, fmt.Errorf(
 			"read the chain for plan %d: %w", planID, err)
@@ -990,7 +990,7 @@ func markerSubject(subject string, planID int64) bool {
 // without parsing bodies; an unreadable object reads as not released,
 // which fails safe — the ref then still counts as a hold.
 func Released(repoDir, tip string, planID int64, run gitwt.Runner) bool {
-	subject, err := trimmed(run(repoDir, "log", "-1", "--format=%s", tip))
+	subject, err := trimmed(gitLog(repoDir, run, "-1", "--format=%s", tip))
 
 	return err == nil &&
 		subject == fmt.Sprintf("plan %d: %s", planID, markerRelease)
@@ -1033,7 +1033,7 @@ func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
 	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
 	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
-	body, err := trimmed(run(repoDir, "log", "-1",
+	body, err := trimmed(gitLog(repoDir, run, "-1",
 		"--grep="+claimPattern, "--grep="+takeoverPattern,
 		"--grep="+releasePattern, "--format=%s", tip))
 	if err != nil || body == "" {
@@ -1497,7 +1497,7 @@ func ReadMarker(
 func TakeoverCount(
 	repoDir string, planID int64, base, tip string, run gitwt.Runner,
 ) int {
-	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	out, err := gitLog(repoDir, run, "--format=%s", tip, "^"+base)
 	if err != nil {
 		return 0
 	}
@@ -1599,7 +1599,7 @@ func latestMarker(
 	beatPattern := fmt.Sprintf("^plan %d: %s$", planID, markerBeat)
 	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
 	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
-	out, err := run(repoDir, "log",
+	out, err := gitLog(repoDir, run,
 		"--grep="+claimPattern, "--grep="+beatPattern,
 		"--grep="+releasePattern, "--grep="+takeoverPattern,
 		"--format=%H", tip)
@@ -1621,7 +1621,7 @@ func latestMarker(
 func commitMarker(
 	repoDir string, planID int64, sha string, run gitwt.Runner,
 ) (Marker, bool) {
-	body, err := trimmed(run(repoDir, "log", "-1", "--format=%B", sha))
+	body, err := trimmed(gitLog(repoDir, run, "-1", "--format=%B", sha))
 	if err != nil {
 		return Marker{}, false
 	}

@@ -108,7 +108,7 @@ func holderMarker(
 	// No trailing space after "claim": the legacy subject carries a lane
 	// slug behind it, the lease subject ends there, and both must match.
 	pattern := fmt.Sprintf("^plan %d: claim", planID)
-	body, err := trimmed(run(repoDir, "log", "-1",
+	body, err := trimmed(gitLog(repoDir, run, "-1",
 		"--grep="+pattern, "--format=%B", tip))
 	if err != nil || body == "" {
 		return "", false
@@ -193,6 +193,14 @@ func isAncestor(dir, sha, base string, run gitwt.Runner) bool {
 	_, err := run(dir, "merge-base", "--is-ancestor", sha, base)
 
 	return err == nil
+}
+
+// gitLog runs git log with args and the signature display pinned off.
+// A repository whose commit.gpgsign is on signs its markers, and a
+// log.showSignature beside it would print each signed commit's
+// verification ahead of the --format output every marker reader parses.
+func gitLog(repoDir string, run gitwt.Runner, args ...string) ([]byte, error) {
+	return run(repoDir, append([]string{"log", "--no-show-signature"}, args...)...)
 }
 
 // trimmed drops the trailing newline git prints after a hash, passing an
