@@ -1579,6 +1579,83 @@ func TestMintMarkerSurfacesANonceFault(t *testing.T) {
 	require.Error(t, err)
 }
 
+// fakeSigner configures work to sign its commits with a stand-in ssh
+// signer that writes a fixed signature, so a test sees the gpgsig
+// header without a real key or agent.
+func fakeSigner(t *testing.T, work string) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_COUNT", "0") // lift TestMain's signing pin
+	prog := filepath.Join(t.TempDir(), "fake-sign")
+	script := "#!/bin/sh\nfor last; do :; done\n" +
+		"printf -- '-----BEGIN SSH SIGNATURE-----\\nZmFrZQ==\\n" +
+		"-----END SSH SIGNATURE-----\\n' > \"$last.sig\"\n"
+	require.NoError(t, os.WriteFile(prog, []byte(script), 0o700))
+	gitCmd(t, work, "config", "gpg.format", "ssh")
+	gitCmd(t, work, "config", "gpg.ssh.program", prog)
+	gitCmd(t, work, "config", "user.signingkey", "key::ssh-ed25519 AAAAfake")
+	gitCmd(t, work, "config", "commit.gpgsign", "true")
+}
+
+// TestMintMarkerSignsWhenTheRepoAsksForIt: commit-tree, unlike commit,
+// never reads commit.gpgsign, so a repository that requires signed
+// commits would get unsigned markers on plan/<id> unless the mint
+// asks for the signature itself.
+func TestMintMarkerSignsWhenTheRepoAsksForIt(t *testing.T) {
+	work := originAndClone(t)
+	fakeSigner(t, work)
+
+	marker, err := mintMarker(work, markerClaim, "main",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.Contains(t, gitCmd(t, work, "cat-file", "commit", marker),
+		"gpgsig -----BEGIN SSH SIGNATURE-----")
+}
+
+// TestMintMarkerStaysUnsignedWhenSigningIsOff: a repository that does
+// not ask for signed commits gets a plain marker, and no signer runs.
+func TestMintMarkerStaysUnsignedWhenSigningIsOff(t *testing.T) {
+	work := originAndClone(t)
+
+	marker, err := mintMarker(work, markerClaim, "main",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
+
+	require.NoError(t, err)
+	assert.NotContains(t, gitCmd(t, work, "cat-file", "commit", marker),
+		"gpgsig")
+}
+
+// TestMintMarkerSurfacesASigningFault: a repository that asks for
+// signed commits but whose signer fails gets an error, never a
+// silently unsigned marker.
+func TestMintMarkerSurfacesASigningFault(t *testing.T) {
+	work := originAndClone(t)
+	fakeSigner(t, work)
+	gitCmd(t, work, "config", "gpg.ssh.program", "/bin/false")
+
+	_, err := mintMarker(work, markerClaim, "main",
+		LeaseOptions{PlanID: 7, Holder: "box-a"}, 1, "", gitwt.Exec)
+
+	require.Error(t, err)
+}
+
+// TestSignArgsReadsCommitGpgsign: the -S flag follows the repository's
+// own commit.gpgsign, read as a git boolean, and an unset key means no
+// flag.
+func TestSignArgsReadsCommitGpgsign(t *testing.T) {
+	work := originAndClone(t)
+	t.Setenv("GIT_CONFIG_COUNT", "0") // lift TestMain's signing pin
+	assert.Empty(t, signArgs(work, gitwt.Exec))
+
+	gitCmd(t, work, "config", "commit.gpgsign", "yes")
+	assert.Equal(t, []string{"-S"}, signArgs(work, gitwt.Exec))
+
+	unset := func(string, ...string) ([]byte, error) {
+		return nil, errors.New("exit status 1")
+	}
+	assert.Empty(t, signArgs(work, unset))
+}
+
 // TestMarkerHostReadsALeaseMarker: the current-worktree guard reads
 // the holder off a lease marker too — the id-only subject with the
 // holder trailer — so standing in a checkout another machine leases

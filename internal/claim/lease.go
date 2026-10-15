@@ -1219,8 +1219,26 @@ func mintMarker(
 		return "", err
 	}
 
-	return trimmed(run(repoDir, "commit-tree", tree, "-p", parent,
-		"-m", leaseMessage(kind, opts, epoch, nonce, base)))
+	args := append([]string{"commit-tree", tree, "-p", parent},
+		signArgs(repoDir, run)...)
+
+	return trimmed(run(repoDir, append(args,
+		"-m", leaseMessage(kind, opts, epoch, nonce, base))...))
+}
+
+// signArgs is the -S a marker mint passes when the repository asks for
+// signed commits. commit-tree, unlike commit, never reads
+// commit.gpgsign itself, so without this a repository whose branch
+// rules require signatures would refuse the plan/<id> push. An unset
+// key reads as an error, which means no signing.
+func signArgs(repoDir string, run gitwt.Runner) []string {
+	on, err := trimmed(run(repoDir,
+		"config", "--type=bool", "--get", "commit.gpgsign"))
+	if err != nil || on != "true" {
+		return nil
+	}
+
+	return []string{"-S"}
 }
 
 // pushThenConfirm runs one arbitrated push and, when it fails, asks

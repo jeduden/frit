@@ -27,7 +27,9 @@ for how a hold is minted and read.
 - **The claim is frit's own.** A hold is a ref name, and frit mints
   it: an empty marker commit pushed with `--force-with-lease`, so a
   hold is atomic across machines and a lost race is caught rather than
-  papered over ([internal/claim](../internal/claim)). frit reads holds
+  papered over ([internal/claim](../internal/claim)). The marker is
+  signed when the repository's `commit.gpgsign` asks for it, so a
+  branch rule that requires signed commits accepts the hold. frit reads holds
   out of the ref list too — which names count is declared per
   repository in its `.frit.yml`, never inferred from a plan id, and
   refs merged into the default branch are excluded so landed work does
