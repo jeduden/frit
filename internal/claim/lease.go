@@ -930,7 +930,7 @@ func hasUnlanded(
 func hasWork(
 	repoDir string, planID int64, base, tip string, run gitwt.Runner,
 ) (bool, error) {
-	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	out, err := gitLog(repoDir, run, "--format=%s", tip, "^"+base)
 	if err != nil {
 		return false, fmt.Errorf(
 			"read the chain for plan %d: %w", planID, err)
@@ -990,7 +990,7 @@ func markerSubject(subject string, planID int64) bool {
 // without parsing bodies; an unreadable object reads as not released,
 // which fails safe — the ref then still counts as a hold.
 func Released(repoDir, tip string, planID int64, run gitwt.Runner) bool {
-	subject, err := trimmed(run(repoDir, "log", "-1", "--format=%s", tip))
+	subject, err := trimmed(gitLog(repoDir, run, "-1", "--format=%s", tip))
 
 	return err == nil &&
 		subject == fmt.Sprintf("plan %d: %s", planID, markerRelease)
@@ -1033,7 +1033,7 @@ func Held(repoDir, tip string, planID int64, run gitwt.Runner) bool {
 	claimPattern := fmt.Sprintf("^plan %d: claim", planID)
 	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
 	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
-	body, err := trimmed(run(repoDir, "log", "-1",
+	body, err := trimmed(gitLog(repoDir, run, "-1",
 		"--grep="+claimPattern, "--grep="+takeoverPattern,
 		"--grep="+releasePattern, "--format=%s", tip))
 	if err != nil || body == "" {
@@ -1219,8 +1219,34 @@ func mintMarker(
 		return "", err
 	}
 
-	return trimmed(run(repoDir, "commit-tree", tree, "-p", parent,
-		"-m", leaseMessage(kind, opts, epoch, nonce, base)))
+	sign, err := signArgs(repoDir, run)
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"commit-tree", tree, "-p", parent}, sign...)
+	args = append(args, "-m", leaseMessage(kind, opts, epoch, nonce, base))
+
+	return trimmed(run(repoDir, args...))
+}
+
+// signArgs is the -S a marker mint passes when the repository asks for
+// signed commits. commit-tree, unlike commit, never reads
+// commit.gpgsign itself, so without this a repository whose branch
+// rules require signatures would refuse the plan/<id> push. An unset
+// key defaults to off; any other read fault — a value git cannot take
+// as a boolean, a stalled git — is an error, as it is to git commit,
+// never a silently unsigned marker.
+func signArgs(repoDir string, run gitwt.Runner) ([]string, error) {
+	on, err := trimmed(run(repoDir, "config", "--type=bool",
+		"--default=false", "--get", "commit.gpgsign"))
+	if err != nil {
+		return nil, fmt.Errorf("read commit.gpgsign: %w", err)
+	}
+	if on != "true" {
+		return nil, nil
+	}
+
+	return []string{"-S"}, nil
 }
 
 // pushThenConfirm runs one arbitrated push and, when it fails, asks
@@ -1471,7 +1497,7 @@ func ReadMarker(
 func TakeoverCount(
 	repoDir string, planID int64, base, tip string, run gitwt.Runner,
 ) int {
-	out, err := run(repoDir, "log", "--format=%s", tip, "^"+base)
+	out, err := gitLog(repoDir, run, "--format=%s", tip, "^"+base)
 	if err != nil {
 		return 0
 	}
@@ -1573,7 +1599,7 @@ func latestMarker(
 	beatPattern := fmt.Sprintf("^plan %d: %s$", planID, markerBeat)
 	releasePattern := fmt.Sprintf("^plan %d: %s$", planID, markerRelease)
 	takeoverPattern := fmt.Sprintf("^plan %d: %s$", planID, markerTakeover)
-	out, err := run(repoDir, "log",
+	out, err := gitLog(repoDir, run,
 		"--grep="+claimPattern, "--grep="+beatPattern,
 		"--grep="+releasePattern, "--grep="+takeoverPattern,
 		"--format=%H", tip)
@@ -1595,7 +1621,7 @@ func latestMarker(
 func commitMarker(
 	repoDir string, planID int64, sha string, run gitwt.Runner,
 ) (Marker, bool) {
-	body, err := trimmed(run(repoDir, "log", "-1", "--format=%B", sha))
+	body, err := trimmed(gitLog(repoDir, run, "-1", "--format=%B", sha))
 	if err != nil {
 		return Marker{}, false
 	}
