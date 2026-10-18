@@ -31,8 +31,8 @@ github.com/hashicorp/golang-lru v0.5.4 h1:YDjusn29QI/Das2iO9M0BHnIbxPeyuCHsjMW+l
 github.com/hashicorp/golang-lru v0.5.4/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
-github.com/jeduden/mdsmith v0.55.1 h1:5/gvwXrKI+zWnahoBeT4bqxeRNsb2FEeyBQb+EsASw4=
-github.com/jeduden/mdsmith v0.55.1/go.mod h1:hHnkNOsho2skS7n1LPHhgg8HUGZglNM/4Tt1m7PfQ2Y=
+github.com/jeduden/mdsmith v0.57.0 h1:xTS5x2W/6ngnqABwJLSUR0BMJNXkJq8oK5aQwuAYMMU=
+github.com/jeduden/mdsmith v0.57.0/go.mod h1:bTIDiRzh5GR/asgHDFfENjWP3t0DD4Y0gQBBl7HNzIs=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
