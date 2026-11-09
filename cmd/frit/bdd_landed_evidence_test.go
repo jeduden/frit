@@ -778,7 +778,7 @@ func (w *world) theCheckoutsCommitIsParkedToTheRescueRef() error {
 		return fmt.Errorf("no checkout tip recorded for this scenario")
 	}
 	rescue, err := gitCapture(w.t, le.repo, "ls-remote", "origin",
-		fmt.Sprintf("refs/frit/rescue/%d/*", w.planID))
+		fmt.Sprintf("refs/heads/frit/rescue/%d/*", w.planID))
 	if err != nil {
 		return fmt.Errorf("%s: %w", rescue, err)
 	}
@@ -1195,7 +1195,7 @@ func TestTheCheckoutsCommitIsParkedToTheRescueRefWantsTheExactTip(t *testing.T) 
 	foreign, err := gitCapture(t, repo, "rev-parse", "main")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreign+":refs/frit/rescue/82/box-a-notthetip")
+		foreign+":refs/heads/frit/rescue/82/box-a-notthetip")
 	require.NoError(t, err)
 
 	w := newWorld(t)

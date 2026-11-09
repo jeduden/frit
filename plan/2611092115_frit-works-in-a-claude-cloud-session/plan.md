@@ -1,15 +1,15 @@
 ---
 id: 2611092115
 title: frit works in a Claude project's cloud session
-status: "🔳"
+status: "✅"
 summary: >-
   Run inside a Claude project thread's cloud session, frit took the
   herdr-less path and pushed plan/<id> fine, but two things broke.
   Every cloud container is called vm, so every session held under one
   name. And the session's git proxy refuses pushes to refs/frit/* and
   branch deletes, so a park, a yield and a reap fail with git's bare
-  403. A cloud session now holds as its own session id; the proxy's
-  refusals are phase 2.
+  403. A cloud session now holds as its own session id, and a park
+  writes a branch under frit/rescue/ that the proxy admits.
 model: sonnet
 depends-on: [2610132034]
 ---
@@ -66,9 +66,11 @@ the hostname: it keys plans, not leases.
 
 1. Phase 1: a cloud session holds as its session id, and `--holder`
    names any host's holder through the settings chain.
-2. Phase 2: the proxy's refusals. Waiting on the owner's choice:
-   refuse teardown clearly in a cloud session and leave it to a host
-   that can push, or move rescue refs under `refs/heads/`.
+2. Phase 2: a park writes a branch under `frit/rescue/`, which the
+   proxy admits. Owner's choice, over refusing teardown in a cloud
+   session. Old `refs/frit/rescue/` refs are still read, and the
+   index skips rescue branches. A delete stays refused there, so
+   `reap --go` belongs on a host that can delete.
 
 ## Execution
 
@@ -98,11 +100,12 @@ footer: |
 
 ?>
 
-| #   | Status | Phase                                                                                                                                                                                                                     |
-| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ✅     | [a cloud session holds as its own session id](phase-1.md)                                                                                                                                                                 |
-|     | ↳      | A cloud session now holds as its session id, and --holder names any host's holder through the settings chain. A second session run from the first one's lane refuses it as foreign instead of resuming it. C26 covers it. |
-| 2   | 🔲     | [teardown answers the cloud proxy's refusals](phase-2.md)                                                                                                                                                                 |
+| #   | Status | Phase                                                                                                                                                                                                                            |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [a cloud session holds as its own session id](phase-1.md)                                                                                                                                                                        |
+|     | ↳      | A cloud session now holds as its session id, and --holder names any host's holder through the settings chain. A second session run from the first one's lane refuses it as foreign instead of resuming it. C26 covers it.        |
+| 2   | ✅     | [a park lands where the cloud proxy admits it](phase-2.md)                                                                                                                                                                       |
+|     | ↳      | A park now writes a branch under frit/rescue/, which a cloud session's proxy admits, and old refs/frit/rescue/ refs still list. The index skips rescue branches. C27 parks through a remote that refuses what the proxy refuses. |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -113,7 +116,9 @@ footer: |
       the holder on any host
 - [x] A verb run from a lane another session holds refuses it as held
       by that session, rather than resuming it
-- [ ] In a cloud session, a park or a delete the proxy refuses is
-      answered as decided in phase 2, never with git's bare 403
+- [x] Through a remote that refuses refs outside `refs/heads/` and
+      every delete, `yield` parks a fenced lane and tears it down
+- [x] Rescues parked under `refs/frit/rescue/` before this still list
+- [x] The index never reads a plan off a rescue branch
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

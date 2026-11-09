@@ -1377,7 +1377,7 @@ func TestOrphansListsBothTipsAsRescuedRefusesWithOnlyOneParked(t *testing.T) {
 	w.lease = lease
 	w.clones["box-a"] = repo
 	out, err := gitCapture(t, repo, "push", "-q", "origin",
-		lease.Tip+":refs/frit/rescue/78/box-a-"+lease.Tip)
+		lease.Tip+":refs/heads/frit/rescue/78/box-a-"+lease.Tip)
 	require.NoError(t, err, out)
 
 	err = w.orphansListsBothTipsAsRescued("box-a")
@@ -1403,7 +1403,7 @@ func TestOrphansListsBothTipsAsRescuedFindsTwoRescueRefsThroughTheVerb(t *testin
 	tip2, err := gitCapture(t, repo, "commit-tree", lease.Tip+"^{tree}", "-p", lease.Tip, "-m", "second")
 	require.NoError(t, err)
 	for _, tip := range []string{lease.Tip, tip2} {
-		out, err := gitCapture(t, repo, "push", "-q", "origin", tip+":refs/frit/rescue/78/box-a-"+tip)
+		out, err := gitCapture(t, repo, "push", "-q", "origin", tip+":refs/heads/frit/rescue/78/box-a-"+tip)
 		require.NoError(t, err, out)
 	}
 

@@ -183,13 +183,13 @@ and offers `yield`:
 fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
-`frit yield <plan>` is that way out. It pushes the fenced lane's local
-divergence to a rescue ref, `refs/frit/rescue/<id>/<holder>-<tip>`, create-only
-since a fenced lane holds no lease to CAS on. Then it removes the lane's
-worktree, through herdr or with git where none is installed. It refuses from
-the lane still holding the live lease: yield is not `frit release`. `frit next`
-and `frit show` list a plan's rescue refs, and `frit orphans` sweeps leftover
-ones first (`S78` in [storage.feature](../features/storage.feature)).
+`frit yield <plan>` is that way out. It pushes the fenced lane's divergence to
+a rescue branch, `frit/rescue/<id>/<holder>-<tip>`, create-only as no lease is
+held; a branch, since a cloud proxy admits only those (C27). It then removes
+the lane's worktree. It refuses in the lane holding the live lease: yield is not
+`frit release`. `next` and `show` list a plan's rescue refs, old
+`refs/frit/rescue/` ones too, and `frit orphans` sweeps leftover ones (`S78` in
+[storage.feature](../features/storage.feature)).
 
 ## When a claim is refused
 

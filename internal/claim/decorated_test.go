@@ -82,7 +82,7 @@ func TestTakeoverDecoratedParksUnlandedWorkFirst(t *testing.T) {
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
 	require.NoError(t, err)
 
-	rescue := "refs/frit/rescue/7/box-b-" + tip
+	rescue := "refs/heads/frit/rescue/7/box-b-" + tip
 	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", Rescue: rescue,
 		DeletedOnOrigin: true}}, lease.Retired)
 	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", rescue), tip,
@@ -115,7 +115,7 @@ func TestTakeoverDecoratedRefusesAMovedBranch(t *testing.T) {
 		"refs/heads/plan/7-shader-unit"), moved, "nothing was deleted")
 	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/plan/7"),
 		"nothing was minted")
-	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/frit/rescue/*"),
+	assert.Empty(t, gitCmd(t, work, "ls-remote", "origin", "refs/heads/frit/rescue/*"),
 		"nothing was parked")
 }
 
@@ -154,7 +154,7 @@ func TestTakeoverDecoratedParksAndDropsALocalOnlyBranch(t *testing.T) {
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)
 	require.NoError(t, err)
 
-	rescue := "refs/frit/rescue/7/box-b-" + tip
+	rescue := "refs/heads/frit/rescue/7/box-b-" + tip
 	assert.Equal(t, []Retired{{Branch: "plan/7-shader-unit", Rescue: rescue}},
 		lease.Retired, "nothing was on origin to delete")
 	assert.Contains(t, gitCmd(t, work, "ls-remote", "origin", rescue), tip)
@@ -215,7 +215,7 @@ func TestTakeoverDecoratedRefusesWhenTheParkConflicts(t *testing.T) {
 	tip := decoratedHold(t, work, "plan/7-shader-unit", true, true)
 	other := gitCmd(t, work, "rev-parse", "origin/main")
 	gitCmd(t, work, "push", "-q", "origin",
-		other+":refs/frit/rescue/7/box-b-"+tip)
+		other+":refs/heads/frit/rescue/7/box-b-"+tip)
 
 	_, err := TakeoverDecorated(work, leaseOptions("box-b", "/lanes/b"),
 		map[string]string{"plan/7-shader-unit": tip}, gitwt.Exec)

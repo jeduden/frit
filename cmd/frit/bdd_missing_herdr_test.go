@@ -589,7 +589,7 @@ func (w *world) theBuiltFritRunsExpectingFailure(args string) error {
 func (w *world) itNamesTheLeftoversPathRescueAndReap() error {
 	got := section[commandState](w).errb.String()
 	for _, want := range []string{section[missingHerdrState](w).leftover,
-		"refs/frit/rescue/7/", "left standing", "frit reap --go"} {
+		"refs/heads/frit/rescue/7/", "left standing", "frit reap --go"} {
 		if !strings.Contains(got, want) {
 			return fmt.Errorf("the refusal does not name %q: %s", want, got)
 		}

@@ -113,6 +113,11 @@ out. A cloud session therefore holds as its session id,
 `$CLAUDE_CODE_REMOTE_SESSION_ID`, unless `--holder` names it
 otherwise (C26).
 
+The same proxy refuses any push outside `refs/heads/`, and every
+delete. A rescue ref is therefore a branch, `frit/rescue/<id>/...`, so
+a cloud session can park (C27). A scavenge's delete is still refused
+there, so `reap --go` belongs on a host that can delete.
+
 The lease is untouched by any of this: a claim on a herdr-less host
 is the same ref on origin as one anywhere else. Standing a worktree
 up changes only this host's own checkout and is never coordinated

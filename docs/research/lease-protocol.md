@@ -272,8 +272,10 @@ lacks — a squash-merged chain is not the example: its commits are
 never ancestors, but nothing on them is lost, so it parks nothing.
 The tip joined the name 2026-08-23 by plan 2608212011: two parks from
 one lane at different tips then land under different refs instead of
-colliding, so a park can never contend with an earlier one from the
-same machine. Retries are idempotent CAS.
+colliding. Retries are idempotent CAS.
+
+*Overturned in part, 2026-11-09 (plan 2611092115):* parks now write
+`refs/heads/frit/rescue/...`, which a cloud proxy admits.
 
 The tip joins the machine-id's own segment rather than nesting beneath
 it as a further path component (`.../<machine-id>/<tip>`): git's ref
