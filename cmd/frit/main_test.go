@@ -2156,3 +2156,45 @@ func TestScaffoldMdsmithSurfacesAConfigItCannotLoad(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+// TestHolderIDPrefersTheSetting: an explicit holder — --holder,
+// $FRIT_HOLDER or a config file — wins over a cloud session and the
+// hostname both.
+func TestHolderIDPrefersTheSetting(t *testing.T) {
+	getenv := func(string) string { return "cse_session" }
+	host := func() string { return "vm" }
+
+	assert.Equal(t, "laptop", holderID("laptop", getenv, host))
+}
+
+// TestHolderIDNamesTheCloudSession: with no setting, a Claude Code
+// cloud session holds as its own session id, since every such
+// container shares one hostname.
+func TestHolderIDNamesTheCloudSession(t *testing.T) {
+	getenv := func(name string) string {
+		if name == "CLAUDE_CODE_REMOTE_SESSION_ID" {
+			return "cse_session"
+		}
+		return ""
+	}
+	host := func() string { return "vm" }
+
+	assert.Equal(t, "cse_session", holderID("", getenv, host))
+}
+
+// TestHolderIDFallsBackToTheHostname: outside a cloud session, with no
+// setting, the holder is the hostname, as it always was.
+func TestHolderIDFallsBackToTheHostname(t *testing.T) {
+	getenv := func(string) string { return "" }
+	host := func() string { return "box" }
+
+	assert.Equal(t, "box", holderID("", getenv, host))
+}
+
+// TestHolderNameFallsBackToTheHostname: a runtime built without a
+// resolved holder — every test that builds one by hand — mints under
+// the hostname.
+func TestHolderNameFallsBackToTheHostname(t *testing.T) {
+	assert.Equal(t, hostname(), (&runtime{}).holderName())
+	assert.Equal(t, "cse_session", (&runtime{holder: "cse_session"}).holderName())
+}

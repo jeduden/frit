@@ -22,7 +22,9 @@ empty: |
 
 ?>
 
-Nothing in progress.
+| ID         | Model  | Title                                                                                                          |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| 2611092115 | sonnet | [frit works in a Claude project's cloud session](plan/2611092115_frit-works-in-a-claude-cloud-session/plan.md) |
 <?/catalog?>
 
 ## All plans
@@ -149,4 +151,5 @@ footer: |
 | 2609302340 | ✅     | opus   | [A host without herdr claims nothing it would have to unwind](plan/2609302340_a-host-without-herdr-claims-nothing/plan.md)                     |
 | 2610011805 | ✅     | opus   | [A decorated hold with no lease matures, and can be taken over](plan/2610011805_a-decorated-hold-matures-and-can-be-taken-over/plan.md)        |
 | 2610132034 | ✅     | sonnet | [frit runs a lane on a host without herdr](plan/2610132034_frit-runs-without-herdr/plan.md)                                                    |
+| 2611092115 | 🔳     | sonnet | [frit works in a Claude project's cloud session](plan/2611092115_frit-works-in-a-claude-cloud-session/plan.md)                                 |
 <?/catalog?>

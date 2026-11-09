@@ -105,6 +105,14 @@ that tip to its own branch for the PR. When the PR merges, the lease
 tip reaches the default branch, and landed evidence reads it as for
 any lane (C21).
 
+Such sessions share one hostname: every Claude Code cloud container
+is called `vm`. A lease names its holder by hostname, so two sessions
+would read as one host, and a checkout of one session's lane would
+pass the preflight that keeps another host's lane from being handed
+out. A cloud session therefore holds as its session id,
+`$CLAUDE_CODE_REMOTE_SESSION_ID`, unless `--holder` names it
+otherwise (C26).
+
 The lease is untouched by any of this: a claim on a herdr-less host
 is the same ref on origin as one anywhere else. Standing a worktree
 up changes only this host's own checkout and is never coordinated

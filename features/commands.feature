@@ -199,3 +199,15 @@ Feature: Command scenarios
     When it is released from its own lane
     And it is yielded from outside its lane
     Then both refuse it as held by the decorated branch, in the same words
+
+  @C26
+  Scenario: a lane another Claude cloud session holds is foreign, though both hosts are named alike
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    And this host runs as Claude cloud session "cse_first"
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    And origin's claim marker for plan 7 names holder "cse_first"
+    When this host runs as Claude cloud session "cse_second"
+    And the built frit runs "claim --json" from the lane, expecting it to fail
+    Then it refuses the lane as held by "cse_first"

@@ -111,6 +111,15 @@ type cli struct {
 	// --root, since it is the host's choice, not a repository's.
 	Herdr bool `negatable:"" default:"true" env:"FRIT_HERDR" help:"Use herdr where installed; --no-herdr opts out."`
 
+	// Holder is the name this run's lease markers carry, and the one a
+	// marker is matched against to tell this host's own hold from
+	// another's. Empty, the default, names a Claude Code cloud session
+	// by its session id — every such container is called "vm", so the
+	// hostname cannot tell two sessions apart — and any other host by
+	// its hostname. Resolvable from $FRIT_HOLDER or a config file like
+	// --root, since it is the host's identity, not a repository's.
+	Holder string `env:"FRIT_HOLDER" help:"Name this host's leases carry (default: cloud session id, else hostname)."`
+
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
 	// front matter and so are not plans. It is global because more than
@@ -1420,6 +1429,9 @@ type runtime struct {
 	gitPipe gitwt.PipeRunner
 	herdr   herdr.Runner
 	width   int
+	// holder is the resolved --holder: what every lease marker this run
+	// mints names as its holder (see holderID).
+	holder string
 }
 
 // herdrRunner is how commands reach a herdr server. It is a package
@@ -1566,6 +1578,37 @@ func hostname() string {
 	}
 
 	return host
+}
+
+// holderName is the name this run's lease markers carry: the resolved
+// --holder, or the hostname on a runtime built without one.
+func (rt *runtime) holderName() string {
+	if rt.holder != "" {
+		return rt.holder
+	}
+
+	return hostname()
+}
+
+// cloudSessionEnv names the Claude Code cloud session a container runs.
+// Every such container shares the hostname "vm", so it is the session,
+// not the hostname, that tells one cloud holder from another.
+const cloudSessionEnv = "CLAUDE_CODE_REMOTE_SESSION_ID"
+
+// holderID resolves the name a lease marker carries: the explicit
+// setting first, then a Claude Code cloud session's id, then the
+// hostname.
+func holderID(
+	explicit string, getenv func(string) string, host func() string,
+) string {
+	if explicit != "" {
+		return explicit
+	}
+	if session := getenv(cloudSessionEnv); session != "" {
+		return session
+	}
+
+	return host()
 }
 
 // gatherFleet reads every repository's plans and holds into the view
@@ -1852,7 +1895,7 @@ func resolveSelector(
 	// acts on the lane guards; a read-only report has nothing to refuse.
 	if guardForeign {
 		if host, foreign := fleet.ForeignHold(
-			cwd, hostname(), rt.git, holdsForRoot); foreign {
+			cwd, rt.holderName(), rt.git, holdsForRoot); foreign {
 			return discovery.Plan{}, fmt.Errorf(
 				"the current worktree stands on a claim held by %s; "+
 					"pass a plan explicitly to work another", host)
@@ -3481,6 +3524,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if !c.Herdr {
 		rt.herdr = herdr.Off
 	}
+	rt.holder = holderID(c.Holder, os.Getenv, hostname)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)

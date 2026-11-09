@@ -41,6 +41,9 @@ type missingHerdrState struct {
 	expectFail bool
 	// herdrLog is where C24's recording herdr appends each call.
 	herdrLog string
+	// env is added to the built frit's environment, after the $PATH:
+	// C26's cloud session id.
+	env []string
 }
 
 func (w *world) registerMissingHerdr(sc *godog.ScenarioContext) {
@@ -153,6 +156,7 @@ func (w *world) runBuiltFritIn(dir, args string) error {
 	cmd.Dir = dir
 	cmd.Env = append(envWithout("FRIT_ROOT", "FRIT_CONFIG", "PATH"),
 		"PATH="+section[missingHerdrState](w).path)
+	cmd.Env = append(cmd.Env, section[missingHerdrState](w).env...)
 	cmd.Stdout = &cs.out
 	cmd.Stderr = &cs.errb
 	if err := cmd.Run(); err != nil && !section[missingHerdrState](w).expectFail {

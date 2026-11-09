@@ -86,7 +86,7 @@ func performYield(
 		PlanID: plan.ID,
 		Remote: coord.Remote,
 		Base:   coord.Base,
-		Holder: hostname(),
+		Holder: rt.holderName(),
 		Lane:   defaultLanePath(coord.Path, plan.Path),
 	}, local, rt.git)
 	if err != nil {
