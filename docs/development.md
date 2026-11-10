@@ -195,9 +195,29 @@ download. Instead the version is validated and the suite run first,
 five platform binaries are built with `-X main.version=$VERSION`
 stamped in, and the release job creates the tag only once they exist.
 
+The repository has GitHub's immutable releases turned on. Once a
+release is published its tag cannot move or be reused, even by
+deleting the release, and its assets cannot be added, replaced or
+removed. So the release job builds the release up as a draft — notes,
+binaries and `checksums.txt` — checks the draft carries exactly the
+files that were built, and publishes as its last step; publishing is
+what creates the tag, on the commit the run built. A run that fails
+before that leaves a draft, and re-running it reuses the draft rather
+than starting over. A run that fails after it cannot be fixed in
+place: dispatch the next version instead. Preflight refuses a version
+whose tag already exists, before anything is built.
+
 Each binary carries a build-provenance attestation, so a download can
 be checked against the repository rather than trusted:
 
 ```sh
 gh attestation verify frit-linux-amd64 -R jeduden/frit
+```
+
+An immutable release also carries GitHub's own release attestation,
+which ties the tag and every asset to the release as published:
+
+```sh
+gh release verify v0.18.0 -R jeduden/frit
+gh release verify-asset v0.18.0 frit-linux-amd64 -R jeduden/frit
 ```

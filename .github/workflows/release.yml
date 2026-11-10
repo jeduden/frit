@@ -20,8 +20,11 @@ permissions:
 env:
   VERSION: ${{ inputs.version }}
 
-# One release at a time, and never cancelled: stopping a run between
-# the tag and the upload would leave a tag with no release on it.
+# One release at a time, and never cancelled. The repository has
+# immutable releases on: once a release is published its tag can never
+# move or be reused and its assets can never change, so the release is
+# built up as a draft and published only as the very last step. A run
+# stopped before that leaves a draft, which the next run picks up.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -39,6 +42,20 @@ jobs:
           if ! printf '%s' "$VERSION" |
             grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "::error::version must look like v0.1.0, got: $VERSION"
+            exit 1
+          fi
+      - name: Refuse a version that is already taken
+        # With immutable releases a published tag is final: even
+        # deleting its release does not free the name. Say so here,
+        # before anything is built, rather than at the publish step.
+        # A draft holds no tag yet, so a draft left by a failed run
+        # passes and is reused by the release job.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" \
+            --silent 2>/dev/null; then
+            echo "::error::tag $VERSION already exists; immutable releases cannot reuse it, pick the next version"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -149,18 +166,74 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: frit-*
-      - name: Publish the release
-        # gh is already on the runner, so a third-party action holding
-        # contents: write buys nothing here. One fewer thing to trust
-        # in the only job that can write to this repository.
-        #
-        # The tag is created by this command, on the ref the run was
-        # dispatched from, and only now that the binaries exist.
+      # Draft, upload, check, publish. A published release is
+      # immutable, so everything it carries has to be on the draft
+      # first, and the publish is the one step that cannot be redone.
+      # gh is already on the runner, so a third-party action holding
+      # contents: write buys nothing here. One fewer thing to trust in
+      # the only job that can write to this repository.
+      - name: Create the draft release
+        # A draft holds no tag. --target pins the tag it will create to
+        # the commit this run built and tested; without it GitHub would
+        # tag the default branch's head instead. A draft left by an
+        # earlier failed run for the same version is reused, so
+        # re-running the job is safe.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$VERSION" \
+          draft="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.draft and .tag_name == env.VERSION) | .id')"
+          if [ -n "$draft" ]; then
+            echo "reusing draft release $draft for $VERSION"
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$draft" \
+              -f target_commitish="$GITHUB_SHA" --silent
+          else
+            gh release create "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --target "$GITHUB_SHA" \
+              --title "$VERSION" \
+              --generate-notes
+          fi
+      - name: Upload the assets to the draft
+        # --clobber replaces a partial upload from an earlier attempt.
+        # That is only possible while the release is still a draft.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "$VERSION" \
-            --generate-notes \
+            --clobber \
             frit-* checksums.txt
+      - name: Check the draft carries exactly the assets built
+        # Last chance to catch a missing or stray file: after the
+        # publish the asset list is frozen.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          want="$(ls frit-* checksums.txt | sort)"
+          got="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | sort)"
+          if [ "$want" != "$got" ]; then
+            echo "::error::draft assets differ from the build"
+            diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") || true
+            exit 1
+          fi
+      - name: Publish the release
+        # The tag is created by this step, on the commit the run built,
+        # and the release becomes immutable with it.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+      - name: Check the tag landed on the commit that was built
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          got="$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq .sha)"
+          test "$got" = "$GITHUB_SHA" || {
+            echo "::error::tag $VERSION points at $got, expected $GITHUB_SHA"
+            exit 1
+          }
