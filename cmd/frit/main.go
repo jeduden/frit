@@ -21,6 +21,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -1609,6 +1610,30 @@ func holderID(
 	}
 
 	return host()
+}
+
+// validHolder refuses a holder a lease cannot carry. The name joins a
+// rescue branch as one segment, frit/rescue/<id>/<holder>-<tip>, and
+// is a marker's whole holder line, read back trimmed: whitespace would
+// make a holder never match its own lease, a line break would forge a
+// trailer, and a slash or anything git refuses in a ref name would fail
+// every park's push.
+func validHolder(name string) error {
+	switch {
+	case name == "-":
+		return fmt.Errorf("%q stands for no holder in a marker", name)
+	case strings.ContainsAny(name, " \t\r\n/~^:?*[\\"),
+		strings.ContainsFunc(name, unicode.IsControl):
+		return fmt.Errorf(
+			"%q carries whitespace, a slash or a character a ref name refuses",
+			name)
+	case strings.Contains(name, ".."), strings.Contains(name, "@{"),
+		strings.HasPrefix(name, "."), strings.HasSuffix(name, "."),
+		strings.HasSuffix(name, ".lock"):
+		return fmt.Errorf("%q is not a valid ref name segment", name)
+	}
+
+	return nil
 }
 
 // gatherFleet reads every repository's plans and holds into the view
@@ -3451,6 +3476,30 @@ func exitCodeFromPanic(r any) (code int, matched bool) {
 	return int(c), ok
 }
 
+// checkSettings refuses a global setting that would fail every run in a
+// way that hides its cause. A non-positive bound would make every git
+// call — including a trivial local one — lose the race against
+// time.After instantly, so the run would fail every call and look like
+// every repository is unreachable rather than pointing at the
+// misconfigured flag. A holder no lease can carry would fail every
+// park's push instead (validHolder).
+func checkSettings(c *cli) error {
+	if c.GitTimeout <= 0 {
+		return fmt.Errorf("--git-timeout must be positive, got %s", c.GitTimeout)
+	}
+	if c.HerdrTimeout <= 0 {
+		return fmt.Errorf(
+			"--herdr-timeout must be positive, got %s", c.HerdrTimeout)
+	}
+	if c.Holder != "" {
+		if err := validHolder(c.Holder); err != nil {
+			return fmt.Errorf("--holder: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // run is the testable entry point. It returns the process exit code:
 // 0 on success, 1 on a runtime failure, 2 on a usage error.
 func run(args []string, stdout, stderr io.Writer) (code int) {
@@ -3492,19 +3541,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		rt.width = c.Width
 	}
 
-	// A non-positive bound would make every git call — including a
-	// trivial local one — lose the race against time.After instantly,
-	// so the run would fail every call and look like every repository
-	// is unreachable rather than pointing at the misconfigured flag.
-	// Reject it up front instead.
-	if c.GitTimeout <= 0 {
-		_, _ = fmt.Fprintf(stderr,
-			"frit: --git-timeout must be positive, got %s\n", c.GitTimeout)
-		return 2
-	}
-	if c.HerdrTimeout <= 0 {
-		_, _ = fmt.Fprintf(stderr,
-			"frit: --herdr-timeout must be positive, got %s\n", c.HerdrTimeout)
+	if err := checkSettings(&c); err != nil {
+		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
 		return 2
 	}
 

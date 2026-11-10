@@ -2198,3 +2198,59 @@ func TestHolderNameFallsBackToTheHostname(t *testing.T) {
 	assert.Equal(t, hostname(), (&runtime{}).holderName())
 	assert.Equal(t, "cse_session", (&runtime{holder: "cse_session"}).holderName())
 }
+
+// TestValidHolderAcceptsHostAndSessionNames: a hostname or a cloud
+// session id is one ref component and one marker line, so it passes.
+func TestValidHolderAcceptsHostAndSessionNames(t *testing.T) {
+	for _, name := range []string{"box-a", "cse_018PvLGarv", "laptop.local"} {
+		assert.NoError(t, validHolder(name), name)
+	}
+}
+
+// TestValidHolderRefusesWhatARefOrMarkerCannotCarry: the holder joins a
+// rescue branch's name as one segment and a marker's holder line as its
+// whole value, so whitespace — trimmed off when the marker is read back,
+// so a holder never matches its own lease — a line break, a slash, or
+// anything git refuses in a ref name is refused up front.
+func TestValidHolderRefusesWhatARefOrMarkerCannotCarry(t *testing.T) {
+	for _, name := range []string{
+		" box", "box ", "a b", "a\nnonce: x", "team/box", "a..b",
+		"a~b", "a^b", "a:b", "a?b", "a*b", "a[b", `a\b`, "a@{b",
+		".box", "box.", "box.lock", "-",
+	} {
+		assert.Error(t, validHolder(name), "%q", name)
+	}
+}
+
+// TestHolderMustBeOneRefComponent: frit rejects an unusable --holder up
+// front, naming the flag, rather than failing every park's push later.
+func TestHolderMustBeOneRefComponent(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "atlas")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"repos", "--root", root, "--holder", "team/box"},
+		&out, &errb)
+
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errb.String(), "--holder")
+}
+
+// TestCheckSettingsNamesTheBadFlag: each setting that would fail every
+// run is refused under its own flag's name; sound settings pass.
+func TestCheckSettingsNamesTheBadFlag(t *testing.T) {
+	sound := cli{GitTimeout: time.Second, HerdrTimeout: time.Second}
+	assert.NoError(t, checkSettings(&sound))
+
+	for flag, c := range map[string]cli{
+		"--git-timeout":   {HerdrTimeout: time.Second},
+		"--herdr-timeout": {GitTimeout: time.Second},
+		"--holder": {
+			GitTimeout: time.Second, HerdrTimeout: time.Second, Holder: "a b",
+		},
+	} {
+		err := checkSettings(&c)
+		require.Error(t, err, flag)
+		assert.Contains(t, err.Error(), flag)
+	}
+}

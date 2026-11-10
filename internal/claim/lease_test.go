@@ -1472,7 +1472,7 @@ func TestRescuePlanIDReadsTheIDSegmentOrRefusesAMalformedRef(t *testing.T) {
 	assert.Equal(t, int64(9), id)
 
 	_, ok = rescuePlanID("refs/heads/plan/7")
-	assert.False(t, ok, "no refs/frit/rescue/ prefix")
+	assert.False(t, ok, "no rescue prefix")
 
 	_, ok = rescuePlanID("refs/frit/rescue/7")
 	assert.False(t, ok, "no rest segment after the id")

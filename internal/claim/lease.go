@@ -737,9 +737,9 @@ func RescueRef(planID int64, holder, tip string) string {
 
 // RescueRefs lists the rescue refs a plan's scavenges and yields have
 // parked work to, one per machine that ever parked, so stranded
-// commits are found again. The remote is read directly — a rescue ref
-// is pushed straight to origin and never fetched into a local branch —
-// and an unreadable remote answers an empty list rather than a fault,
+// commits are found again. The remote is read directly — a rescue
+// branch is pushed straight to origin, and a fetched copy of it may be
+// stale or pruned — and an unreadable remote answers an empty list rather than a fault,
 // the same tolerance every discovery read gives a repository it cannot
 // reach.
 func RescueRefs(
@@ -777,7 +777,7 @@ func lsRemoteRefNames(out []byte) []string {
 
 // AllRescueRefs lists every rescue ref a repository carries, one
 // ls-remote for the whole repository rather than one per plan —
-// bucketed by the id segment of refs/frit/rescue/<id>/<rest>, what
+// bucketed by the id segment of <prefix><id>/<rest>, either prefix, what
 // a sweep across every plan needs instead of RescueRefs' one-plan-at-
 // a-time reads.
 //
@@ -817,6 +817,7 @@ func AllRescueRefs(
 }
 
 // rescuePlanID reads the id segment out of a rescue ref name,
+// refs/heads/frit/rescue/<id>/<rest>, or the legacy
 // refs/frit/rescue/<id>/<rest> — <rest> is a bare holder under the
 // legacy shape or holder-tip under the content-addressed one; either
 // way the id is the first segment, so this reads both. ok is false for
