@@ -184,9 +184,18 @@ jobs:
         # tag the default branch's head instead. A draft left by an
         # earlier failed run for the same version is reused, so
         # re-running the job is safe.
+        #
+        # A version with a suffix (v1.0.0-rc.1) is a pre-release: it is
+        # never marked Latest, so it is not what a plain download of
+        # the newest release picks up. Publishing freezes the flag, so
+        # it is set here, on the draft.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          case "$VERSION" in
+            *-*) pre=true ;;
+            *) pre=false ;;
+          esac
           draft="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
             --jq '.[] | select(.draft and .tag_name == env.VERSION) | .id' |
             sed -n 1p)"
@@ -201,13 +210,15 @@ jobs:
               -f tag_name="$VERSION" -f target_commitish="$GITHUB_SHA" \
               --jq .body)"
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$draft" \
-              -f target_commitish="$GITHUB_SHA" -f body="$notes" --silent
+              -f target_commitish="$GITHUB_SHA" -f body="$notes" \
+              -F prerelease="$pre" --silent
           else
             gh release create "$VERSION" \
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --target "$GITHUB_SHA" \
               --title "$VERSION" \
+              --prerelease="$pre" \
               --generate-notes
           fi
       - name: Upload the assets to the draft

@@ -207,7 +207,8 @@ than starting over. A run that fails after it cannot be fixed in
 place: dispatch the next version instead. Preflight refuses a version
 whose tag already exists, before anything is built, and the publish
 step checks again, since a tag pushed during the build would otherwise
-be adopted wherever it points.
+be adopted wherever it points. A version with a suffix, such as
+`v1.0.0-rc.1`, is published as a pre-release and never marked Latest.
 
 Each binary carries a build-provenance attestation, so a download can
 be checked against the repository rather than trusted:
