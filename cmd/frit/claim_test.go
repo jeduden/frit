@@ -1019,7 +1019,7 @@ func TestClaimScavengesALandedRef(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, gone, "the landed ref is scavenged from origin")
 	rescue, err := gitCapture(t, repo,
-		"ls-remote", "origin", "refs/heads/frit/rescue/*")
+		"ls-remote", "origin", "refs/heads/frit-rescue/*")
 	require.NoError(t, err)
 	assert.Empty(t, rescue, "everything landed; there is nothing to park")
 }

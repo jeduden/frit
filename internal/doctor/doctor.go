@@ -43,8 +43,8 @@ type Finding struct {
 	Path string
 	// Check names which of doctor's checks produced this finding —
 	// "goal", "execution-row", "tier", "schema", "id-sync",
-	// "phase-n-sync" or "handoff" — matching the vocabulary the doctor
-	// --help text documents.
+	// "phase-n-sync", "handoff", "holder" or "auto-delete" — matching
+	// the vocabulary the doctor --help text documents.
 	Check string
 	// Message is what is wrong, in prose. For "goal" and "schema" this
 	// is mdsmith's own diagnostic message, carried through rather than

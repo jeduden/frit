@@ -71,6 +71,14 @@ the hostname: it keys plans, not leases.
    session. Old `refs/frit/rescue/` refs are still read, and the
    index skips rescue branches. A delete stays refused there, so
    `reap --go` belongs on a host that can delete.
+3. Phase 3: the review's design decisions, each the owner's. Rescue
+   branches become `frit-rescue/`, so a branch named `frit` cannot
+   block every park. frit's own fetch skips them. A committed
+   `.frit.yml` cannot set the holder. A cloud session opens its PR
+   from `plan/<id>`, so GitHub's auto-delete removes the lease on
+   merge, and `frit doctor` warns, through `gh`, where that setting
+   is off. A lease minted as `vm` before upgrading is left to the
+   takeover window.
 
 ## Execution
 
@@ -106,6 +114,8 @@ footer: |
 |     | ↳      | A cloud session now holds as its session id, and --holder names any host's holder through the settings chain. A second session run from the first one's lane refuses it as foreign instead of resuming it. C26 covers it.        |
 | 2   | ✅     | [a park lands where the cloud proxy admits it](phase-2.md)                                                                                                                                                                       |
 |     | ↳      | A park now writes a branch under frit/rescue/, which a cloud session's proxy admits, and old refs/frit/rescue/ refs still list. The index skips rescue branches. C27 parks through a remote that refuses what the proxy refuses. |
+| 3   | ✅     | [the review's design decisions](phase-3.md)                                                                                                                                                                                      |
+|     | ↳      | Rescue branches are now frit-rescue/, and frit's fetch skips them. A committed .frit.yml cannot set the holder. doctor warns through gh when GitHub keeps merged branches. The skills open a cloud PR from plan/<id>.            |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -120,5 +130,12 @@ footer: |
       every delete, `yield` parks a fenced lane and tears it down
 - [x] Rescues parked under `refs/frit/rescue/` before this still list
 - [x] The index never reads a plan off a rescue branch
+- [x] A branch named `frit` on origin no longer blocks a park
+- [x] frit's fetch never downloads a rescue branch
+- [x] A committed `.frit.yml` cannot set the holder, and `frit doctor`
+      reports one that tries
+- [x] `frit doctor` warns when a GitHub origin keeps merged branches,
+      and notes when it could not check
+- [x] The skills open a cloud session's PR from `plan/<id>`
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

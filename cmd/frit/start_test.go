@@ -260,7 +260,7 @@ func TestStartGoReapsADeadLeftoverWorktreeBeforeRecreating(t *testing.T) {
 	assert.ErrorIs(t, statErr, os.ErrNotExist,
 		"the leftover checkout is removed from disk")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/heads/frit/rescue/7/*")
+		"refs/heads/frit-rescue/7/*")
 	require.NoError(t, err)
 	assert.NotEmpty(t, rescue, "the unlanded work is parked, not dropped")
 	assert.True(t, rec.verb("worktree", "create"),
@@ -1643,7 +1643,7 @@ func TestStartWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
 	foreignTip, err := gitCapture(t, repo, "rev-parse", "origin/main")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreignTip+":refs/heads/frit/rescue/7/"+hostname()+"-"+tip)
+		foreignTip+":refs/heads/frit-rescue/7/"+hostname()+"-"+tip)
 	require.NoError(t, err)
 	var out, errb bytes.Buffer
 
@@ -3318,11 +3318,11 @@ func TestReconcileLeftoverWorktreeParksAndKeepsItOnAHeadlessHost(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), leftover)
-	assert.Contains(t, err.Error(), "refs/heads/frit/rescue/7/")
+	assert.Contains(t, err.Error(), "refs/heads/frit-rescue/7/")
 	assert.Contains(t, err.Error(), "left standing")
 	assert.Contains(t, err.Error(), "frit reap --go")
 	assert.DirExists(t, leftover, "the leftover is never removed on a headless host")
-	rescue, lsErr := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/frit/rescue/7/*")
+	rescue, lsErr := gitCapture(t, repo, "ls-remote", "origin", "refs/heads/frit-rescue/7/*")
 	require.NoError(t, lsErr)
 	assert.NotEmpty(t, rescue, "the unlanded work is parked")
 }

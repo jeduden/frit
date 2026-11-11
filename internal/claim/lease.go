@@ -817,7 +817,7 @@ func AllRescueRefs(
 }
 
 // rescuePlanID reads the id segment out of a rescue ref name,
-// refs/heads/frit/rescue/<id>/<rest>, or the legacy
+// refs/heads/frit-rescue/<id>/<rest>, or the legacy
 // refs/frit/rescue/<id>/<rest> — <rest> is a bare holder under the
 // legacy shape or holder-tip under the content-addressed one; either
 // way the id is the first segment, so this reads both. ok is false for

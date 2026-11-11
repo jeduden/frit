@@ -275,7 +275,7 @@ one lane at different tips then land under different refs instead of
 colliding. Retries are idempotent CAS.
 
 *Overturned in part, 2026-11-09 (plan 2611092115):* parks now write
-`refs/heads/frit/rescue/...`, which a cloud proxy admits.
+`refs/heads/frit-rescue/...`, which a cloud proxy admits.
 
 The tip joins the machine-id's own segment rather than nesting beneath
 it as a further path component (`.../<machine-id>/<tip>`): git's ref

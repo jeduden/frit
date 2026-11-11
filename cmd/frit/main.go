@@ -10,10 +10,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -841,6 +843,14 @@ func (d *doctorCmd) Help() string {
                   "## Handoff" in a single-file plan's plan.md, none in
                   a directory plan's own phase-N.result.md
 
+It also checks each repository's own settings:
+
+  holder          a committed .frit.yml names a holder, which frit
+                  ignores there: the holder names a host
+  auto-delete     a GitHub origin keeps a merged PR's branch, so a
+                  landed plan/<id> stays on origin; asked through gh,
+                  and noted as not checked where gh is missing or fails
+
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
 repository's own plan/proto.md, rather than reimplementing a checker.
@@ -885,6 +895,8 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		doc.AddFindings(repo.Name,
+			repoSettingFindings(rt, repo.Path, cfg.Remote, c.GitTimeout))
 		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
 		if err != nil {
 			if errors.Is(err, doctorpkg.ErrNoSchema) {
@@ -911,6 +923,46 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// ghRunner is how doctor reaches GitHub: the gh binary, bounded by
+// the run's git timeout. A package variable so a test can stand in a
+// fake GitHub without a network or a token.
+var ghRunner = func(timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return exec.CommandContext(ctx, "gh", args...).Output()
+}
+
+// repoSettingFindings checks the repository's own settings rather than
+// its plans: a holder committed to .frit.yml, which frit ignores, and,
+// for a GitHub origin, whether merged branches are deleted. A remote
+// that is not configured or not on GitHub is not checked. Its caller
+// has already loaded .frit.yml, so a file it could not read was
+// reported as a problem before this runs.
+func repoSettingFindings(
+	rt *runtime, repoPath, remote string, timeout time.Duration,
+) []doctorpkg.Finding {
+	findings := []doctorpkg.Finding{}
+	if f, found, err := doctorpkg.CheckHolderInRepoConfig(repoPath); err == nil && found {
+		findings = append(findings, f)
+	}
+
+	url, err := rt.git(repoPath, "remote", "get-url", remote)
+	if err != nil {
+		return findings
+	}
+	owner, name, ok := doctorpkg.GitHubRepo(strings.TrimSpace(string(url)))
+	if !ok {
+		return findings
+	}
+	gh := func(args ...string) ([]byte, error) { return ghRunner(timeout, args...) }
+	if f, found := doctorpkg.CheckAutoDelete(owner, name, gh); found {
+		findings = append(findings, f)
+	}
+
+	return findings
 }
 
 // overrideLaneFindings swaps the lane plan's findings for a fresh scan
@@ -1613,7 +1665,7 @@ func holderID(
 }
 
 // validHolder refuses a holder a lease cannot carry. The name joins a
-// rescue branch as one segment, frit/rescue/<id>/<holder>-<tip>, and
+// rescue branch as one segment, frit-rescue/<id>/<holder>-<tip>, and
 // is a marker's whole holder line, read back trimmed: whitespace would
 // make a holder never match its own lease, a line break would forge a
 // trailer, and a slash or anything git refuses in a ref name would fail
@@ -3579,7 +3631,7 @@ func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
 		return nil, err
 	}
 
-	return kong.New(c,
+	options := []kong.Option{
 		kong.Name("frit"),
 		kong.Description(description),
 		kong.Writers(stdout, stderr),
@@ -3587,15 +3639,66 @@ func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
 		// Turn kong's process exit into a panic run recovers, so the
 		// exit code survives without killing a test binary.
 		kong.Exit(func(code int) { panic(exitCode(code)) }),
-		kong.Configuration(kongyaml.Loader,
-			config.Paths(os.Getenv, workdir)...),
+	}
+	options = append(options, configFiles(workdir)...)
+
+	return kong.New(c, append(options,
 		// kong's own `env:` tag is applied beneath its config
 		// resolver, so a config file would silently outrank the
 		// environment. This resolver restores the order operators
 		// expect — environment over file — and is registered after
 		// Configuration because a later resolver wins.
 		kong.Resolvers(envResolver(os.Getenv)),
-	)
+	)...)
+}
+
+// configFiles loads each configuration file in precedence order. The
+// .frit.yml beside the work is committed and shared by every clone, so
+// it may not name the holder, which names a host: its holder key is
+// dropped. The last option leaves the plain loader in place for an
+// explicit --config file.
+func configFiles(workdir string) []kong.Option {
+	repoFile := filepath.Join(workdir, config.FileName)
+	options := []kong.Option{}
+	for _, path := range config.Paths(os.Getenv, workdir) {
+		loader := kong.ConfigurationLoader(kongyaml.Loader)
+		if path == repoFile {
+			loader = withoutKey(kongyaml.Loader, "holder")
+		}
+		options = append(options, kong.Configuration(loader, path))
+	}
+
+	return append(options, kong.Configuration(kongyaml.Loader))
+}
+
+// withoutKey wraps a configuration loader so the files it reads never
+// resolve the named flag.
+func withoutKey(load kong.ConfigurationLoader, name string) kong.ConfigurationLoader {
+	return func(r io.Reader) (kong.Resolver, error) {
+		inner, err := load(r)
+		if err != nil {
+			return nil, err
+		}
+
+		return droppedKey{Resolver: inner, name: name}, nil
+	}
+}
+
+// droppedKey is a resolver that answers nothing for one flag.
+type droppedKey struct {
+	kong.Resolver
+	name string
+}
+
+// Resolve answers nil for the dropped flag and defers for every other.
+func (d droppedKey) Resolve(
+	ctx *kong.Context, parent *kong.Path, flag *kong.Flag,
+) (any, error) {
+	if flag.Name == d.name {
+		return nil, nil
+	}
+
+	return d.Resolver.Resolve(ctx, parent, flag)
 }
 
 // envResolver reads a flag's `env:` names directly, so the

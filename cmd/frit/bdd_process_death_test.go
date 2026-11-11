@@ -1192,7 +1192,7 @@ func TestNothingParkedRefusesAReportedRescue(t *testing.T) {
 	w := newWorld(t)
 	w.holder = "box-a"
 	w.clones["box-a"] = t.TempDir()
-	section[deathState](w).scavenged = claim.Scavenged{Rescue: "refs/heads/frit/rescue/7/box-a-deadbeef"}
+	section[deathState](w).scavenged = claim.Scavenged{Rescue: "refs/heads/frit-rescue/7/box-a-deadbeef"}
 
 	err := w.nothingIsParkedBecauseTheWorkLanded()
 

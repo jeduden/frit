@@ -177,11 +177,11 @@ func TestBranchRejectsWhatIsNotALane(t *testing.T) {
 }
 
 // TestParseRefsSkipsFritsRescueBranches: a rescue ref frit parks under
-// refs/heads/frit/rescue/, and its fetched copy on any remote, is
+// refs/heads/frit-rescue/, and its fetched copy on any remote, is
 // frit's own parking, not a lane — the index never reads plans off it.
 func TestParseRefsSkipsFritsRescueBranches(t *testing.T) {
-	in := "88559bff refs/heads/frit/rescue/7/box-a-88559bff\n" +
-		"4afe275e refs/remotes/origin/frit/rescue/7/box-b-4afe275e\n" +
+	in := "88559bff refs/heads/frit-rescue/7/box-a-88559bff\n" +
+		"4afe275e refs/remotes/origin/frit-rescue/7/box-b-4afe275e\n" +
 		"d301e4ce refs/heads/plan/7\n" +
 		"aa11bb22 refs/heads/frit/other\n"
 
@@ -194,11 +194,11 @@ func TestParseRefsSkipsFritsRescueBranches(t *testing.T) {
 	assert.Equal(t, []string{"refs/heads/plan/7", "refs/heads/frit/other"}, names)
 }
 
-// TestRefIsRescue: only a branch under frit/rescue/ — local or on a
+// TestRefIsRescue: only a branch under frit-rescue/ — local or on a
 // remote — is a rescue; a tag of that name is not a branch at all.
 func TestRefIsRescue(t *testing.T) {
-	assert.True(t, Ref{Name: "refs/heads/frit/rescue/7/a"}.IsRescue())
-	assert.True(t, Ref{Name: "refs/remotes/origin/frit/rescue/7/a"}.IsRescue())
-	assert.False(t, Ref{Name: "refs/tags/frit/rescue/7/a"}.IsRescue())
+	assert.True(t, Ref{Name: "refs/heads/frit-rescue/7/a"}.IsRescue())
+	assert.True(t, Ref{Name: "refs/remotes/origin/frit-rescue/7/a"}.IsRescue())
+	assert.False(t, Ref{Name: "refs/tags/frit-rescue/7/a"}.IsRescue())
 	assert.False(t, Ref{Name: "refs/heads/plan/7"}.IsRescue())
 }

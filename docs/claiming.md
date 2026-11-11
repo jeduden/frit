@@ -184,7 +184,7 @@ fenced: the work ref for plan 7 was moved by workshop-2; run yield
 ```
 
 `frit yield <plan>` is that way out. It pushes the fenced lane's divergence to
-a rescue branch, `frit/rescue/<id>/<holder>-<tip>`, create-only as no lease is
+a rescue branch, `frit-rescue/<id>/<holder>-<tip>`, create-only as no lease is
 held; a branch, since a cloud proxy admits only those (C27). It then removes
 the lane's worktree. It refuses in the lane holding the live lease: yield is not
 `frit release`. `next` and `show` list a plan's rescue refs, old

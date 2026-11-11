@@ -222,4 +222,4 @@ Feature: Command scenarios
     When another machine takes plan 7 over
     And the built frit runs "yield 7 --json" from the lane
     Then the lane's work is parked and its worktree removed with git
-    And origin carries plan 7's rescue as a branch under frit/rescue/
+    And origin carries plan 7's rescue as a branch under frit-rescue/

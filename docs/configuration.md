@@ -32,7 +32,9 @@ indexes. Each is a global flag with an environment variable:
 it defaults to the session's id, `$CLAUDE_CODE_REMOTE_SESSION_ID`,
 since every such container is called `vm` (C26). A holder joins a
 rescue branch's name, so frit refuses one with whitespace, a slash or
-any character git refuses in a ref name.
+any character git refuses in a ref name. It names a host, so a
+committed `.frit.yml` cannot set it: frit ignores the key there, and
+`frit doctor` reports it.
 
 A config file sets one under its flag's name without the `--` or a
 `no-` prefix, such as `herdr: false` or `git-timeout: 30s`. They

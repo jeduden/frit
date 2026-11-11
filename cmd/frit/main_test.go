@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
@@ -2253,4 +2255,78 @@ func TestCheckSettingsNamesTheBadFlag(t *testing.T) {
 		require.Error(t, err, flag)
 		assert.Contains(t, err.Error(), flag)
 	}
+}
+
+// parsedHolder parses a bare `repos` run through the real parser and
+// answers the holder setting it resolved.
+func parsedHolder(t *testing.T) string {
+	t.Helper()
+	var c cli
+	var out, errb bytes.Buffer
+	parser, err := newParser(&c, &out, &errb)
+	require.NoError(t, err)
+	_, err = parser.Parse([]string{"repos"})
+	require.NoError(t, err, errb.String())
+
+	return c.Holder
+}
+
+// TestHolderIsIgnoredInARepoLocalConfigFile: holder names a host, so
+// a committed .frit.yml — shared by every clone through git — cannot
+// set it; one commit would make every host hold as one name.
+func TestHolderIsIgnoredInARepoLocalConfigFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+
+	assert.Empty(t, parsedHolder(t))
+}
+
+// TestHolderComesFromTheUserConfigFile: the user config is the host's
+// own, so it still sets the holder, past a repo file naming another.
+func TestHolderComesFromTheUserConfigFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "frit")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"),
+		[]byte("holder: from-user\n"), 0o600))
+
+	assert.Equal(t, "from-user", parsedHolder(t))
+}
+
+// TestHolderComesFromAnExplicitConfigFile: $FRIT_CONFIG is the host's
+// explicit choice, so it sets the holder too.
+func TestHolderComesFromAnExplicitConfigFile(t *testing.T) {
+	isolate(t)
+	path := filepath.Join(t.TempDir(), "explicit.yml")
+	require.NoError(t, os.WriteFile(path, []byte("holder: from-explicit\n"), 0o600))
+	t.Setenv("FRIT_CONFIG", path)
+
+	assert.Equal(t, "from-explicit", parsedHolder(t))
+}
+
+// TestRootStillComesFromARepoLocalConfigFileBesideAHolder: dropping
+// holder from the repo file drops that key alone.
+func TestRootStillComesFromARepoLocalConfigFileBesideAHolder(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "from-config")
+	require.NoError(t, os.WriteFile(".frit.yml",
+		[]byte("root: "+root+"\nholder: from-repo\n"), 0o600))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-config")
+}
+
+// TestWithoutKeyPassesALoadFailureThrough: a file the wrapped loader
+// cannot read fails the same way it would unwrapped.
+func TestWithoutKeyPassesALoadFailureThrough(t *testing.T) {
+	boom := errors.New("bad yaml")
+	load := withoutKey(func(io.Reader) (kong.Resolver, error) { return nil, boom }, "holder")
+
+	_, err := load(strings.NewReader(""))
+
+	assert.ErrorIs(t, err, boom)
 }

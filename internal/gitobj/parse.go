@@ -76,7 +76,7 @@ func (r Ref) Branch() (string, bool) {
 // RescueBranchPrefix is where frit parks a plan's unlanded work: a
 // branch, so a git host that admits only refs/heads/ pushes, such as a
 // Claude cloud session's proxy, can still park.
-const RescueBranchPrefix = "frit/rescue/"
+const RescueBranchPrefix = "frit-rescue/"
 
 // IsRescue reports whether the ref is one of frit's rescue branches,
 // local or a remote's copy: frit's own parking, never a lane.

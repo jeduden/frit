@@ -28,7 +28,7 @@ func (w *world) registerCloudSession(sc *godog.ScenarioContext) {
 	sc.Step(`^it refuses the lane as held by "([^"]+)"$`, w.itRefusesTheLaneAsHeldBy)
 	sc.Step(`^origin refuses refs outside refs/heads and every delete, as a Claude cloud session's proxy does$`,
 		w.originRefusesWhatTheCloudProxyRefuses)
-	sc.Step(`^origin carries plan (\d+)'s rescue as a branch under frit/rescue/$`,
+	sc.Step(`^origin carries plan (\d+)'s rescue as a branch under frit-rescue/$`,
 		w.originCarriesTheRescueAsABranch)
 }
 
@@ -117,11 +117,11 @@ func (w *world) originRefusesWhatTheCloudProxyRefuses() error {
 }
 
 // originCarriesTheRescueAsABranch reads the bare remote: the park
-// landed under refs/heads/frit/rescue/<id>/, and nothing under the
+// landed under refs/heads/frit-rescue/<id>/, and nothing under the
 // refs/frit/ namespace the proxy refuses.
 func (w *world) originCarriesTheRescueAsABranch(id string) error {
 	branches, err := gitCapture(w.t, originPath(w), "for-each-ref",
-		"--format=%(refname)", "refs/heads/frit/rescue/"+id+"/")
+		"--format=%(refname)", "refs/heads/frit-rescue/"+id+"/")
 	if err != nil {
 		return err
 	}
