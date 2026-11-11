@@ -79,6 +79,10 @@ the hostname: it keys plans, not leases.
    merge, and `frit doctor` warns, through `gh`, where that setting
    is off. A lease minted as `vm` before upgrading is left to the
    takeover window.
+4. Phase 4: a second review's finding. The check that refuses a
+   foreign lane reads the marker governing the lease now, so a holder
+   renamed since its claim, or one that took the lane over, keeps
+   its own lane.
 
 ## Execution
 
@@ -87,6 +91,7 @@ the hostname: it keys plans, not leases.
 | 1     | a cloud session holds as its own session id  | sonnet | C26 on the built frit: the marker names the session, and a second session's verb from that lane refuses it as foreign |
 | 2     | a park lands where the cloud proxy admits it | sonnet | C27 on the built frit: red with the old rescue prefix, green with the new                                             |
 | 3     | the review's design decisions                | sonnet | `go test ./...`, the coverage gate, golangci-lint and `mdsmith check .` pass                                          |
+| 4     | a renamed holder keeps its own lane          | sonnet | C28 on the built frit: red before the change, green after                                                             |
 
 ## Phases
 
@@ -117,6 +122,8 @@ footer: |
 |     | ↳      | A park now writes a branch under frit/rescue/, which a cloud session's proxy admits, and old refs/frit/rescue/ refs still list. The index skips rescue branches. C27 parks through a remote that refuses what the proxy refuses. |
 | 3   | ✅     | [the review's design decisions](phase-3.md)                                                                                                                                                                                      |
 |     | ↳      | Rescue branches are now frit-rescue/, and frit's fetch skips them. A committed .frit.yml cannot set the holder. doctor warns through gh when GitHub keeps merged branches. The skills open a cloud PR from plan/<id>.            |
+| 4   | ✅     | [a renamed holder keeps its own lane](phase-4.md)                                                                                                                                                                                |
+|     | ↳      | A lane now belongs to the holder its newest marker names. A holder renamed since its claim, or one that took the lane over, is no longer refused from its own lane. C28 covers it.                                               |
 <?/catalog?>
 
 ## Acceptance Criteria
@@ -138,5 +145,7 @@ footer: |
 - [x] `frit doctor` warns when a GitHub origin keeps merged branches,
       and notes when it could not check
 - [x] The skills open a cloud session's PR from `plan/<id>`
+- [x] A holder renamed since its claim, or one that took a lane over,
+      runs verbs from that lane as its own
 - [x] All tests pass: `go test ./...`
 - [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

@@ -1787,6 +1787,40 @@ func TestMarkerHostReadsALeaseMarker(t *testing.T) {
 	assert.Equal(t, "box-a", MarkerHost(work, "plan/7", 7, gitwt.Exec))
 }
 
+// TestMarkerHostReadsTheMarkerGoverningTheLeaseNow: the guard names
+// whoever holds the lease at the branch's tip, not whoever first
+// claimed it. A takeover, or a renewal under a new holder name, moves
+// the answer; reading the oldest claim would lock the taker out of the
+// lane it now holds.
+func TestMarkerHostReadsTheMarkerGoverningTheLeaseNow(t *testing.T) {
+	work := originAndClone(t)
+	lease, err := Acquire(work, leaseOptions("vm", "/lanes/a"), gitwt.Exec)
+	require.NoError(t, err)
+
+	taken, err := Takeover(work, leaseOptions("cse_b", "/lanes/b"), lease.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, "cse_b", MarkerHost(work, taken.Tip, 7, gitwt.Exec),
+		"a takeover's holder governs")
+
+	renewed, err := Renew(work, leaseOptions("cse_c", "/lanes/b"), taken.Tip, gitwt.Exec)
+	require.NoError(t, err)
+	assert.Equal(t, "cse_c", MarkerHost(work, renewed.Tip, 7, gitwt.Exec),
+		"a beat under a new holder name governs")
+}
+
+// TestMarkerHostReadsALegacyClaim: a claim minted before the lease
+// protocol carries a host: line no lease marker parses, and the guard
+// still reads it, past work committed on top.
+func TestMarkerHostReadsALegacyClaim(t *testing.T) {
+	work := originAndClone(t)
+	gitCmd(t, work, "checkout", "-q", "-b", "plan/7-slug")
+	gitCmd(t, work, "commit", "-q", "--allow-empty",
+		"-m", "plan 7: claim slug\n\nhost:     mm-box\n")
+	gitCmd(t, work, "commit", "-q", "--allow-empty", "-m", "work on top")
+
+	assert.Equal(t, "mm-box", MarkerHost(work, "plan/7-slug", 7, gitwt.Exec))
+}
+
 // TestTakeoverSeizesAStaleTip: the takeover marker is a child of
 // exactly the observed tip at epoch E+1, so the taker inherits every
 // pushed commit and the old lease can never be confused with the new.

@@ -223,3 +223,15 @@ Feature: Command scenarios
     And the built frit runs "yield 7 --json" from the lane
     Then the lane's work is parked and its worktree removed with git
     And origin carries plan 7's rescue as a branch under frit-rescue/
+
+  @C28
+  Scenario: a lane whose holder was renamed is its own again once it renews
+    Given a plan nobody has ever held
+    And herdr is not installed on this host
+    And this host holds as "vm"
+    When the built frit runs "claim 7 --json"
+    Then plan 7 is claimed in a worktree of its own, on origin's claim marker
+    When this host runs as Claude cloud session "cse_renamed"
+    And the built frit runs "claim 7 --json" from the lane
+    And the built frit runs "release --json" from the lane
+    Then origin's tip for plan 7 is a release marker

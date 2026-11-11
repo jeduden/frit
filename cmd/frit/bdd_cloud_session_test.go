@@ -21,6 +21,7 @@ func init() {
 func (w *world) registerCloudSession(sc *godog.ScenarioContext) {
 	sc.Step(`^this host runs as Claude cloud session "([^"]+)"$`,
 		w.thisHostRunsAsCloudSession)
+	sc.Step(`^this host holds as "([^"]+)"$`, w.thisHostHoldsAs)
 	sc.Step(`^origin's claim marker for plan (\d+) names holder "([^"]+)"$`,
 		w.originsClaimMarkerNamesHolder)
 	sc.Step(`^the built frit runs "([^"]+)" from the lane, expecting it to fail$`,
@@ -36,6 +37,14 @@ func (w *world) registerCloudSession(sc *godog.ScenarioContext) {
 // container carries in its environment, replacing any set before.
 func (w *world) thisHostRunsAsCloudSession(id string) error {
 	section[missingHerdrState](w).env = []string{cloudSessionEnv + "=" + id}
+
+	return nil
+}
+
+// thisHostHoldsAs names the holder outright, as a host that set
+// $FRIT_HOLDER — or one that held under its hostname — would.
+func (w *world) thisHostHoldsAs(holder string) error {
+	section[missingHerdrState](w).env = []string{"FRIT_HOLDER=" + holder}
 
 	return nil
 }

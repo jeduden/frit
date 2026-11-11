@@ -74,8 +74,8 @@ func remoteHolderErr(
 	return fields[0], nil
 }
 
-// MarkerHost reads the host recorded in the claim marker for a plan on a
-// branch, or "" when no frit marker is reachable — a non-frit branch, or
+// MarkerHost reads the host holding a plan's lease as a branch records
+// it, or "" when no frit marker is reachable — a non-frit branch, or
 // objects not yet in the local store.
 //
 // It reuses the marker the lease wrote, so a preflight can tell a foreign
@@ -86,6 +86,15 @@ func remoteHolderErr(
 func MarkerHost(
 	repoDir, branch string, planID int64, run gitwt.Runner,
 ) string {
+	// The lease marker governing the branch now names its holder: a
+	// takeover, or a renewal under a new holder name, sits above the
+	// first claim, and reading the claim would refuse the lane to the
+	// machine that now holds it.
+	if m, ok := latestMarker(repoDir, planID, branch, run); ok && m.Holder != "" {
+		return m.Holder
+	}
+
+	// A legacy claim carries a host: line no lease marker parses.
 	body, ok := holderMarker(repoDir, planID, branch, run)
 	if !ok {
 		return ""
