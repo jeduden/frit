@@ -153,7 +153,8 @@ func TestFetchRemoteLeavesRescueBranchesOnOrigin(t *testing.T) {
 // gitIn runs git in dir for a fixture, failing the test on error.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := gitwt.Exec(dir, append([]string{"-c", "commit.gpgsign=false"}, args...)...)
+	out, err := gitwt.Exec(dir, append([]string{"-c", "commit.gpgsign=false",
+		"-c", "user.name=frit", "-c", "user.email=frit@example.com"}, args...)...)
 	require.NoError(t, err, "git %v: %s", args, out)
 
 	return string(out)
