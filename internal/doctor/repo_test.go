@@ -66,6 +66,12 @@ func TestGitHubRepoReadsEveryURLShape(t *testing.T) {
 		"https://github.com/jeduden/frit.git",
 		"git@github.com:jeduden/frit.git",
 		"ssh://git@github.com/jeduden/frit.git",
+		"https://x-access-token:secret@github.com/jeduden/frit.git",
+		"ssh://git@github.com:22/jeduden/frit.git",
+		"ssh://git@ssh.github.com:443/jeduden/frit.git",
+		"https://github.com/jeduden/frit/",
+		"https://GitHub.com/jeduden/frit.git",
+		"org-1@github.com:jeduden/frit.git",
 	} {
 		owner, name, ok := GitHubRepo(url)
 		require.True(t, ok, url)
@@ -77,6 +83,9 @@ func TestGitHubRepoReadsEveryURLShape(t *testing.T) {
 		"/tmp/origin.git",
 		"https://github.com/jeduden",
 		"https://github.com/jeduden/frit/extra",
+		"https://github.com.example.org/jeduden/frit.git",
+		"git@gitlab.com:jeduden/frit.git",
+		"https://github.com/%zz/frit.git",
 	} {
 		_, _, ok := GitHubRepo(url)
 		assert.False(t, ok, url)
@@ -121,4 +130,61 @@ func TestCheckAutoDeleteNotesWhenItCannotCheck(t *testing.T) {
 	f, found = CheckAutoDelete("o", "r", failing)
 	require.True(t, found)
 	assert.Contains(t, f.Message, "HTTP 401")
+}
+
+// TestCheckAutoDeleteNamesWhyGhFailed: a gh that exits non-zero says
+// why on its stderr, which exec carries beside a bare "exit status 1";
+// the note quotes gh's own first line rather than the exit code.
+func TestCheckAutoDeleteNamesWhyGhFailed(t *testing.T) {
+	refused := func(...string) ([]byte, error) {
+		return nil, &exec.ExitError{
+			Stderr: []byte("gh: Not Found (HTTP 404)\nsecond line\n"),
+		}
+	}
+
+	f, found := CheckAutoDelete("o", "r", refused)
+
+	require.True(t, found)
+	assert.Equal(t, "not checked: gh: Not Found (HTTP 404)", f.Message)
+}
+
+// TestCheckAutoDeleteNotesASettingGitHubDidNotShow: GitHub leaves the
+// field out for a token without push access, which gh prints as null.
+// That is a setting frit could not read, never one that is off.
+func TestCheckAutoDeleteNotesASettingGitHubDidNotShow(t *testing.T) {
+	for _, answer := range []string{"null\n", "", "maybe\n"} {
+		gh := func(...string) ([]byte, error) { return []byte(answer), nil }
+
+		f, found := CheckAutoDelete("o", "r", gh)
+
+		require.True(t, found, "%q", answer)
+		assert.Contains(t, f.Message, "not checked", "%q", answer)
+		assert.NotContains(t, f.Message, "is off", "%q", answer)
+	}
+}
+
+// TestGhFailureQuotesGhsOwnReason: gh's first stderr line is the
+// reason, its "gh: " prefix dropped; a failure that said nothing, or
+// one that never ran gh at all, keeps the error's own wording.
+func TestGhFailureQuotesGhsOwnReason(t *testing.T) {
+	said := &exec.ExitError{Stderr: []byte("gh: HTTP 403\nhint\n")}
+	assert.Equal(t, "HTTP 403", ghFailure(said))
+
+	silent := exec.Command("sh", "-c", "exit 3").Run()
+	require.Error(t, silent)
+	assert.Equal(t, "exit status 3", ghFailure(silent))
+
+	assert.Equal(t, "timed out", ghFailure(errors.New("timed out")))
+}
+
+// TestIsGitHubHostMatchesTheWholeName: github.com under either name
+// GitHub serves git from, in any case, and nothing that merely
+// contains it.
+func TestIsGitHubHostMatchesTheWholeName(t *testing.T) {
+	for _, host := range []string{"github.com", "GitHub.com", "ssh.github.com"} {
+		assert.True(t, isGitHubHost(host), host)
+	}
+	for _, host := range []string{"", "gitlab.com", "github.com.example.org", "mygithub.com"} {
+		assert.False(t, isGitHubHost(host), host)
+	}
 }

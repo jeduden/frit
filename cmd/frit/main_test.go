@@ -2219,6 +2219,10 @@ func TestValidHolderRefusesWhatARefOrMarkerCannotCarry(t *testing.T) {
 		" box", "box ", "a b", "a\nnonce: x", "team/box", "a..b",
 		"a~b", "a^b", "a:b", "a?b", "a*b", "a[b", `a\b`, "a@{b",
 		".box", "box.", "box.lock", "-",
+		// Whitespace outside ASCII is trimmed off a marker's holder line
+		// just the same, and git admits it in a ref name, so only this
+		// check stands between it and a holder that never matches.
+		"box\u00a0", "\u2003box", "a\u3000b",
 	} {
 		assert.Error(t, validHolder(name), "%q", name)
 	}
@@ -2303,6 +2307,32 @@ func TestHolderComesFromAnExplicitConfigFile(t *testing.T) {
 	t.Setenv("FRIT_CONFIG", path)
 
 	assert.Equal(t, "from-explicit", parsedHolder(t))
+}
+
+// TestHolderIsIgnoredWhenTheExplicitConfigIsTheRepoFile: $FRIT_CONFIG
+// naming the committed .frit.yml itself, by a relative path, is still
+// that shared file, so its holder stays ignored however it is spelled.
+func TestHolderIsIgnoredWhenTheExplicitConfigIsTheRepoFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+
+	for _, spelling := range []string{".frit.yml", "./.frit.yml"} {
+		t.Setenv("FRIT_CONFIG", spelling)
+
+		assert.Empty(t, parsedHolder(t), spelling)
+	}
+}
+
+// TestIsRepoConfigKnowsTheFileUnderAnySpelling: the .frit.yml in the
+// working directory is the repo file whether named absolutely or
+// relatively; any other file, there or elsewhere, is not.
+func TestIsRepoConfigKnowsTheFileUnderAnySpelling(t *testing.T) {
+	for _, path := range []string{"/work/.frit.yml", ".frit.yml", "./.frit.yml", "sub/../.frit.yml"} {
+		assert.True(t, isRepoConfig("/work", path), path)
+	}
+	for _, path := range []string{"/work/explicit.yml", "/home/u/.frit.yml", "sub/.frit.yml", "explicit.yml"} {
+		assert.False(t, isRepoConfig("/work", path), path)
+	}
 }
 
 // TestRootStillComesFromARepoLocalConfigFileBesideAHolder: dropping

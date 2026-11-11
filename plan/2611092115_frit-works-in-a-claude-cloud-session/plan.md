@@ -9,7 +9,7 @@ summary: >-
   name. And the session's git proxy refuses pushes to refs/frit/* and
   branch deletes, so a park, a yield and a reap fail with git's bare
   403. A cloud session now holds as its own session id, and a park
-  writes a branch under frit/rescue/ that the proxy admits.
+  writes a branch under frit-rescue/ that the proxy admits.
 model: sonnet
 depends-on: [2610132034]
 ---
@@ -82,10 +82,11 @@ the hostname: it keys plans, not leases.
 
 ## Execution
 
-| Phase | Title                                       | Tier   | Gate                                                                                                                  |
-| ----- | ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
-| 1     | a cloud session holds as its own session id | sonnet | C26 on the built frit: the marker names the session, and a second session's verb from that lane refuses it as foreign |
-| 2     | teardown answers the cloud proxy's refusals | sonnet | decided with the owner; a scenario whose remote refuses `refs/frit/*` and deletes                                     |
+| Phase | Title                                        | Tier   | Gate                                                                                                                  |
+| ----- | -------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
+| 1     | a cloud session holds as its own session id  | sonnet | C26 on the built frit: the marker names the session, and a second session's verb from that lane refuses it as foreign |
+| 2     | a park lands where the cloud proxy admits it | sonnet | C27 on the built frit: red with the old rescue prefix, green with the new                                             |
+| 3     | the review's design decisions                | sonnet | `go test ./...`, the coverage gate, golangci-lint and `mdsmith check .` pass                                          |
 
 ## Phases
 

@@ -3,16 +3,18 @@ package doctor
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/jeduden/frit/internal/repocfg"
 	"gopkg.in/yaml.v3"
 )
 
 // repoConfigFile is the committed per-repository settings file.
-const repoConfigFile = ".frit.yml"
+const repoConfigFile = repocfg.FileName
 
 // CheckHolderInRepoConfig reports a committed .frit.yml that names a
 // holder. The holder names a host, and this file is shared by every
@@ -43,19 +45,29 @@ func CheckHolderInRepoConfig(root string) (Finding, bool, error) {
 }
 
 // GitHubRepo reads owner and repository off a github.com remote URL in
-// any of the shapes git accepts: https, scp-like ssh, or ssh://. ok is
-// false for any other host or shape.
-func GitHubRepo(url string) (owner, name string, ok bool) {
-	path := ""
-	for _, prefix := range []string{
-		"https://github.com/", "git@github.com:", "ssh://git@github.com/",
-	} {
-		if rest, found := strings.CutPrefix(url, prefix); found {
-			path = rest
-			break
+// any of the shapes git accepts: a URL with a scheme — https or ssh://,
+// with or without credentials or a port — or scp-like ssh. The host is
+// matched whole and without regard to case, ssh.github.com included,
+// since that is GitHub's own ssh-over-443 name. ok is false for any
+// other host or shape.
+func GitHubRepo(remote string) (owner, name string, ok bool) {
+	host, path := "", ""
+	if strings.Contains(remote, "://") {
+		u, err := url.Parse(remote)
+		if err != nil {
+			return "", "", false
 		}
+		host, path = u.Hostname(), u.Path
+	} else if before, after, found := strings.Cut(remote, ":"); found {
+		// scp-like: [user@]host:path, the user being whatever precedes
+		// the last @.
+		host, path = before[strings.LastIndex(before, "@")+1:], after
 	}
-	parts := strings.Split(strings.TrimSuffix(path, ".git"), "/")
+	if !isGitHubHost(host) {
+		return "", "", false
+	}
+	parts := strings.Split(
+		strings.TrimSuffix(strings.Trim(path, "/"), ".git"), "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}
@@ -63,29 +75,58 @@ func GitHubRepo(url string) (owner, name string, ok bool) {
 	return parts[0], parts[1], true
 }
 
+// isGitHubHost reports whether host is github.com itself, by either of
+// the names GitHub serves git under.
+func isGitHubHost(host string) bool {
+	return strings.EqualFold(host, "github.com") ||
+		strings.EqualFold(host, "ssh.github.com")
+}
+
 // CheckAutoDelete asks GitHub, through gh, whether the repository
 // deletes a pull request's branch when it merges. A lane's PR is opened
 // from plan/<id>, so with the setting off every landed lease branch
 // stays on origin until a host that can delete reaps it. A gh that is
-// missing or fails is a note that the check was skipped, never a pass.
+// missing or fails is a note that the check was skipped, never a pass —
+// and so is any answer but true or false: GitHub leaves the field out
+// for a token without push access, which gh prints as null, and a
+// setting frit could not read is not one it may call off.
 func CheckAutoDelete(
 	owner, name string, gh func(args ...string) ([]byte, error),
 ) (Finding, bool) {
 	finding := Finding{Path: owner + "/" + name, Check: "auto-delete"}
 	out, err := gh("api", "repos/"+owner+"/"+name, "--jq", ".delete_branch_on_merge")
+	answer := strings.TrimSpace(string(out))
 	switch {
 	case errors.Is(err, exec.ErrNotFound):
 		finding.Message = "not checked: gh is not installed"
-		return finding, true
 	case err != nil:
-		finding.Message = "not checked: gh: " + err.Error()
-		return finding, true
-	case strings.TrimSpace(string(out)) == "true":
+		finding.Message = "not checked: gh: " + ghFailure(err)
+	case answer == "true":
 		return Finding{}, false
+	case answer != "false":
+		finding.Message = "not checked: GitHub did not show the setting; " +
+			"gh's token may lack push access to the repository"
+	default:
+		finding.Message = "\"Automatically delete head branches\" is off, so a " +
+			"merged plan/<id> branch stays on origin; turn it on in the " +
+			"repository's Settings > General"
 	}
-	finding.Message = "\"Automatically delete head branches\" is off, so a " +
-		"merged plan/<id> branch stays on origin; turn it on in the " +
-		"repository's Settings > General"
 
 	return finding, true
+}
+
+// ghFailure words why a gh call failed. A gh that exits non-zero says
+// why on its stderr, which exec keeps beside an error reading only
+// "exit status 1"; its first line is the reason, with gh's own "gh: "
+// prefix dropped since the note already carries one.
+func ghFailure(err error) string {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		line, _, _ := strings.Cut(strings.TrimSpace(string(exit.Stderr)), "\n")
+		if line = strings.TrimPrefix(line, "gh: "); line != "" {
+			return line
+		}
+	}
+
+	return err.Error()
 }

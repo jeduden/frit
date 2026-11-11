@@ -35,11 +35,15 @@ import (
 // empty result the caller skips.
 var ErrNoSchema = errors.New("no plan/proto.md: nothing to check")
 
-// Finding is one semantic gap doctor found in one plan file.
+// Finding is one gap doctor found: a semantic gap in one plan file, or
+// a repository setting that works against frit (see repo.go).
 type Finding struct {
-	// ID is the plan's front-matter id.
+	// ID is the plan's front-matter id; 0 on a setting finding, which
+	// belongs to no plan.
 	ID int64
-	// Path is the plan file's path, relative to root.
+	// Path is the plan file's path, relative to root. A setting finding
+	// names what it read instead: .frit.yml, or the GitHub repository
+	// as owner/name.
 	Path string
 	// Check names which of doctor's checks produced this finding —
 	// "goal", "execution-row", "tier", "schema", "id-sync",

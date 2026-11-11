@@ -865,7 +865,7 @@ working copy, the way next, show and phase do — so a gap fixed in the
 lane clears before the branch merges. Every other plan reads the
 fleet's default-branch copy.
 
-A repository with no plan/proto.md has nothing to check.`
+A repository with no plan/proto.md has only its settings checked.`
 }
 
 // Run scans every repository's plan directory for the semantic gaps
@@ -1674,7 +1674,7 @@ func validHolder(name string) error {
 	switch {
 	case name == "-":
 		return fmt.Errorf("%q stands for no holder in a marker", name)
-	case strings.ContainsAny(name, " \t\r\n/~^:?*[\\"),
+	case strings.ContainsAny(name, "/~^:?*[\\"), strings.ContainsFunc(name, unicode.IsSpace),
 		strings.ContainsFunc(name, unicode.IsControl):
 		return fmt.Errorf(
 			"%q carries whitespace, a slash or a character a ref name refuses",
@@ -3658,17 +3658,28 @@ func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
 // dropped. The last option leaves the plain loader in place for an
 // explicit --config file.
 func configFiles(workdir string) []kong.Option {
-	repoFile := filepath.Join(workdir, config.FileName)
 	options := []kong.Option{}
 	for _, path := range config.Paths(os.Getenv, workdir) {
 		loader := kong.ConfigurationLoader(kongyaml.Loader)
-		if path == repoFile {
+		if isRepoConfig(workdir, path) {
 			loader = withoutKey(kongyaml.Loader, "holder")
 		}
 		options = append(options, kong.Configuration(loader, path))
 	}
 
 	return append(options, kong.Configuration(kongyaml.Loader))
+}
+
+// isRepoConfig reports whether path is the .frit.yml beside the work,
+// however it is spelled: the loader reads a relative path against the
+// working directory, so a relative $FRIT_CONFIG can name that same
+// shared file.
+func isRepoConfig(workdir, path string) bool {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workdir, path)
+	}
+
+	return filepath.Clean(path) == filepath.Join(workdir, config.FileName)
 }
 
 // withoutKey wraps a configuration loader so the files it reads never
