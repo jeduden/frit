@@ -208,7 +208,10 @@ checksum file and a provenance attestation. A release is made from
 the Actions "Run workflow" button on
 [release.yml](.github/workflows/release.yml) with a version such as
 `v0.11.0`; the workflow checks the version, runs the suite, builds the
-binaries, and creates the tag only once they exist.
+binaries, and publishes the release — creating its tag — only once
+every asset is on it. Releases are immutable: a published version's
+tag and files never change, so a botched release is followed by the
+next version, never patched.
 [Development](docs/development.md#ci-and-release) has the details.
 
 ## Documentation map
