@@ -205,7 +205,9 @@ what creates the tag, on the commit the run built. A run that fails
 before that leaves a draft, and re-running it reuses the draft rather
 than starting over. A run that fails after it cannot be fixed in
 place: dispatch the next version instead. Preflight refuses a version
-whose tag already exists, before anything is built.
+whose tag already exists, before anything is built, and the publish
+step checks again, since a tag pushed during the build would otherwise
+be adopted wherever it points.
 
 Each binary carries a build-provenance attestation, so a download can
 be checked against the repository rather than trusted:

@@ -52,12 +52,18 @@ jobs:
         # passes and is reused by the release job.
         env:
           GH_TOKEN: ${{ github.token }}
+        # Only a 404 means the name is free; any other failure (rate
+        # limit, outage, auth) must stop the run, not wave it through.
         run: |
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" \
-            --silent 2>/dev/null; then
+          if out="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" \
+            --silent 2>&1)"; then
             echo "::error::tag $VERSION already exists; immutable releases cannot reuse it, pick the next version"
             exit 1
           fi
+          case "$out" in
+            *"(HTTP 404)"*) ;;
+            *) echo "::error::cannot tell whether tag $VERSION exists: $out"; exit 1 ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -182,11 +188,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           draft="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq '.[] | select(.draft and .tag_name == env.VERSION) | .id')"
+            --jq '.[] | select(.draft and .tag_name == env.VERSION) | .id' |
+            sed -n 1p)"
           if [ -n "$draft" ]; then
+            # The draft may have been made for another commit, so its
+            # notes are regenerated along with its target. sed reads
+            # all of its input, where head would close the pipe early
+            # and let pipefail fail the step on gh's SIGPIPE.
             echo "reusing draft release $draft for $VERSION"
+            notes="$(gh api -X POST \
+              "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$VERSION" -f target_commitish="$GITHUB_SHA" \
+              --jq .body)"
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$draft" \
-              -f target_commitish="$GITHUB_SHA" --silent
+              -f target_commitish="$GITHUB_SHA" -f body="$notes" --silent
           else
             gh release create "$VERSION" \
               --repo "$GITHUB_REPOSITORY" \
@@ -206,8 +221,11 @@ jobs:
             --clobber \
             frit-* checksums.txt
       - name: Check the draft carries exactly the assets built
-        # Last chance to catch a missing or stray file: after the
-        # publish the asset list is frozen.
+        # Last chance to catch a missing, stray or stale file: after
+        # the publish the assets are frozen. Names are compared first,
+        # then the draft's own copies are downloaded and checked
+        # against this run's checksums, so a file left by an earlier
+        # attempt cannot pass on its name alone.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -219,12 +237,31 @@ jobs:
             diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") || true
             exit 1
           fi
+          mkdir "$RUNNER_TEMP/draft"
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/draft"
+          cmp checksums.txt "$RUNNER_TEMP/draft/checksums.txt"
+          (cd "$RUNNER_TEMP/draft" && sha256sum --check --strict \
+            "$GITHUB_WORKSPACE/checksums.txt")
       - name: Publish the release
         # The tag is created by this step, on the commit the run built,
-        # and the release becomes immutable with it.
+        # and the release becomes immutable with it. Preflight saw the
+        # tag free, but the build ran since: a tag pushed meanwhile
+        # would be adopted as is, wherever it points, and frozen there.
+        # So the name is checked again right before the one step that
+        # cannot be redone.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if out="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" \
+            --silent 2>&1)"; then
+            echo "::error::tag $VERSION appeared after preflight; publishing would freeze the release on it"
+            exit 1
+          fi
+          case "$out" in
+            *"(HTTP 404)"*) ;;
+            *) echo "::error::cannot tell whether tag $VERSION exists: $out"; exit 1 ;;
+          esac
           gh release edit "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --draft=false
@@ -232,7 +269,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          got="$(gh api "repos/$GITHUB_REPOSITORY/commits/$VERSION" --jq .sha)"
+          # tags/ keeps a branch of the same name from answering.
+          got="$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$VERSION" --jq .sha)"
           test "$got" = "$GITHUB_SHA" || {
             echo "::error::tag $VERSION points at $got, expected $GITHUB_SHA"
             exit 1
