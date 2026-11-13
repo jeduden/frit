@@ -16,7 +16,8 @@ const refFormat = "--format=%(objectname) %(refname)"
 // The scope is deliberately everything. A plan can sit on a branch
 // that was never checked out, never merged, and only ever seen on a
 // peer's remote, and those are precisely the lanes a fleet board
-// exists to surface.
+// exists to surface. The one exception is frit's own rescue branches,
+// which ParseRefs drops: a park is not a lane.
 func Refs(dir string, run gitwt.Runner) ([]Ref, error) {
 	out, err := run(dir, "for-each-ref", refFormat)
 	if err != nil {

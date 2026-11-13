@@ -1,0 +1,151 @@
+---
+id: 2611092115
+title: frit works in a Claude project's cloud session
+status: "✅"
+summary: >-
+  Run inside a Claude project thread's cloud session, frit took the
+  herdr-less path and pushed plan/<id> fine, but two things broke.
+  Every cloud container is called vm, so every session held under one
+  name. And the session's git proxy refuses pushes to refs/frit/* and
+  branch deletes, so a park, a yield and a reap fail with git's bare
+  403. A cloud session now holds as its own session id, and a park
+  writes a branch under frit-rescue/ that the proxy admits.
+model: sonnet
+depends-on: [2610132034]
+---
+# frit works in a Claude project's cloud session
+
+## Goal
+
+A Claude project thread, running in its own cloud session, can claim,
+work, publish and release a plan with frit. Parallel threads never
+read as one host.
+
+## Context
+
+**What was tried.** frit was built and run in a Claude project
+thread's cloud session against this repository's origin. herdr is not
+installed there, so the herdr-less path of plan 2610132034 is taken.
+The board, `who`, `doctor` and a dry-run `reap` all ran clean.
+
+**What the git proxy allows.** Plan 2610132034 phase 4 left open
+whether a cloud session's git proxy lets it push `plan/<id>` at all.
+It does. A probe branch `plan/9999999999-proxy-probe` was created
+there. Two pushes were refused with HTTP 403:
+
+- deleting that branch;
+- creating a ref under `refs/frit/rescue/`.
+
+Force-pushes were not tried. Every lease transition but one is
+append-only — claim, beat, release and takeover each mint a child of
+the tip — so it never needs one. The exception is a scavenge's delete.
+
+**What breaks.** Two things:
+
+- *One hostname for every session.* `os.Hostname` answers `vm` in
+  every Claude Code cloud container. A marker names its holder by
+  hostname, so parallel threads, the shape a coordinator spawns, all
+  hold as `vm`. A race lost to another thread reads "already held on
+  this host (vm)". A checkout standing on another session's lane
+  passes the preflight that refuses a foreign hold, and the verb then
+  resumes that lease as its own.
+- *Refused refs.* A park pushes to `refs/frit/rescue/...`, and a
+  scavenge deletes the work ref. Both are refused, so `yield`,
+  `reap --go` and a start that parks a leftover fail with git's bare
+  403 error.
+
+**The session's identity.** The container carries its session id in
+`$CLAUDE_CODE_REMOTE_SESSION_ID`, unique per session. frit already
+resolves its own settings through the four-place chain, so the holder
+becomes one more: `--holder`, `$FRIT_HOLDER`, or `holder:` in a config
+file. With none set, a cloud session holds as its session id, and any
+other host by its hostname, as before. The index's host column stays
+the hostname: it keys plans, not leases.
+
+## Tasks
+
+1. Phase 1: a cloud session holds as its session id, and `--holder`
+   names any host's holder through the settings chain.
+2. Phase 2: a park writes a branch under `frit/rescue/`, which the
+   proxy admits. Owner's choice, over refusing teardown in a cloud
+   session. Old `refs/frit/rescue/` refs are still read, and the
+   index skips rescue branches. A delete stays refused there, so
+   `reap --go` belongs on a host that can delete.
+3. Phase 3: the review's design decisions, each the owner's. Rescue
+   branches become `frit-rescue/`, so a branch named `frit` cannot
+   block every park. frit's own fetch skips them. A committed
+   `.frit.yml` cannot set the holder. A cloud session opens its PR
+   from `plan/<id>`, so GitHub's auto-delete removes the lease on
+   merge, and `frit doctor` warns, through `gh`, where that setting
+   is off. A lease minted as `vm` before upgrading is left to the
+   takeover window.
+4. Phase 4: a second review's finding. The check that refuses a
+   foreign lane reads the marker governing the lease now, so a holder
+   renamed since its claim, or one that took the lane over, keeps
+   its own lane.
+
+## Execution
+
+| Phase | Title                                        | Tier   | Gate                                                                                                                  |
+| ----- | -------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
+| 1     | a cloud session holds as its own session id  | sonnet | C26 on the built frit: the marker names the session, and a second session's verb from that lane refuses it as foreign |
+| 2     | a park lands where the cloud proxy admits it | sonnet | C27 on the built frit: red with the old rescue prefix, green with the new                                             |
+| 3     | the review's design decisions                | sonnet | `go test ./...`, the coverage gate, golangci-lint and `mdsmith check .` pass                                          |
+| 4     | a renamed holder keeps its own lane          | sonnet | C28 on the built frit: red before the change, green after                                                             |
+
+## Phases
+
+<?catalog
+glob:
+  - "phase-*.md"
+  - "phase-*.result.md"
+sort: numeric:n
+header: |
+
+  | # | Status | Phase |
+  |---|--------|-------|
+row-expr: |
+  [if result {
+    "|  | ↳ | \(summary) |"
+  }, if !result {
+    "| \(n) | \(status) | [\(title)](phase-\(n).md) |"
+  }][0]
+footer: |
+
+?>
+
+| #   | Status | Phase                                                                                                                                                                                                                            |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ✅     | [a cloud session holds as its own session id](phase-1.md)                                                                                                                                                                        |
+|     | ↳      | A cloud session now holds as its session id, and --holder names any host's holder through the settings chain. A second session run from the first one's lane refuses it as foreign instead of resuming it. C26 covers it.        |
+| 2   | ✅     | [a park lands where the cloud proxy admits it](phase-2.md)                                                                                                                                                                       |
+|     | ↳      | A park now writes a branch under frit/rescue/, which a cloud session's proxy admits, and old refs/frit/rescue/ refs still list. The index skips rescue branches. C27 parks through a remote that refuses what the proxy refuses. |
+| 3   | ✅     | [the review's design decisions](phase-3.md)                                                                                                                                                                                      |
+|     | ↳      | Rescue branches are now frit-rescue/, and frit's fetch skips them. A committed .frit.yml cannot set the holder. doctor warns through gh when GitHub keeps merged branches. The skills open a cloud PR from plan/<id>.            |
+| 4   | ✅     | [a renamed holder keeps its own lane](phase-4.md)                                                                                                                                                                                |
+|     | ↳      | A lane now belongs to the holder its newest marker names. A holder renamed since its claim, or one that took the lane over, is no longer refused from its own lane. C28 covers it.                                               |
+<?/catalog?>
+
+## Acceptance Criteria
+
+- [x] In a cloud session with no setting, a claim's marker names the
+      session id, not `vm`
+- [x] `--holder`, `$FRIT_HOLDER` or `holder:` in a config file names
+      the holder on any host
+- [x] A verb run from a lane another session holds refuses it as held
+      by that session, rather than resuming it
+- [x] Through a remote that refuses refs outside `refs/heads/` and
+      every delete, `yield` parks a fenced lane and tears it down
+- [x] Rescues parked under `refs/frit/rescue/` before this still list
+- [x] The index never reads a plan off a rescue branch
+- [x] A branch named `frit` on origin no longer blocks a park
+- [x] frit's fetch never downloads a rescue branch
+- [x] A committed `.frit.yml` cannot set the holder, and `frit doctor`
+      reports one that tries
+- [x] `frit doctor` warns when a GitHub origin keeps merged branches,
+      and notes when it could not check
+- [x] The skills open a cloud session's PR from `plan/<id>`
+- [x] A holder renamed since its claim, or one that took a lane over,
+      runs verbs from that lane as its own
+- [x] All tests pass: `go test ./...`
+- [x] `go tool -modfile=tools/go.mod golangci-lint run` is clean

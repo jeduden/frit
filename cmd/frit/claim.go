@@ -137,7 +137,7 @@ func resumeOwnLease(
 		PlanID:  plan.ID,
 		Remote:  coord.Remote,
 		Base:    coord.Base,
-		Holder:  hostname(),
+		Holder:  rt.holderName(),
 		Lane:    lane,
 		Session: currentSession(rt),
 	}
@@ -175,7 +175,7 @@ func resumeToken(
 		PlanID:  plan.ID,
 		Remote:  coord.Remote,
 		Base:    coord.Base,
-		Holder:  hostname(),
+		Holder:  rt.holderName(),
 		Lane:    lane,
 		Session: currentSession(rt),
 	}
@@ -408,7 +408,7 @@ func mintClaim(
 		PlanID: plan.ID,
 		Remote: coord.Remote,
 		Base:   coord.Base,
-		Holder: hostname(),
+		Holder: rt.holderName(),
 		Lane:   defaultLanePath(coord.Path, plan.Path),
 	}
 	minted, err := mintOrTakeOver(rt, plan, coord, opts)
@@ -504,7 +504,7 @@ func scavengeRef(
 		PlanID: plan.ID,
 		Remote: coord.Remote,
 		Base:   coord.Base,
-		Holder: hostname(),
+		Holder: rt.holderName(),
 		Lane:   defaultLanePath(coord.Path, plan.Path),
 	}, tip, rt.git)
 	if err != nil {
@@ -539,7 +539,7 @@ func mintOrTakeOver(
 		if lane, ok := decoratedLaneLive(rt, plan); ok {
 			return claim.Lease{}, &claim.VetoError{
 				PlanID: plan.ID,
-				Marker: claim.Marker{Holder: hostname(), Lane: lane},
+				Marker: claim.Marker{Holder: rt.holderName(), Lane: lane},
 			}
 		}
 		lease, err := claim.TakeoverDecorated(

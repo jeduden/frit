@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jeduden/frit/internal/gitobj"
 	"github.com/jeduden/frit/internal/gitwt"
 )
 
@@ -736,16 +737,17 @@ func RescueRef(planID int64, holder, tip string) string {
 
 // RescueRefs lists the rescue refs a plan's scavenges and yields have
 // parked work to, one per machine that ever parked, so stranded
-// commits are found again. The remote is read directly — a rescue ref
-// is pushed straight to origin and never fetched into a local branch —
-// and an unreadable remote answers an empty list rather than a fault,
+// commits are found again. The remote is read directly — a rescue
+// branch is pushed straight to origin, and a fetched copy of it may be
+// stale or pruned — and an unreadable remote answers an empty list rather than a fault,
 // the same tolerance every discovery read gives a repository it cannot
 // reach.
 func RescueRefs(
 	repoDir, remote string, planID int64, run gitwt.Runner,
 ) []string {
-	pattern := fmt.Sprintf("refs/frit/rescue/%d/*", planID)
-	out, err := run(repoDir, "ls-remote", remote, pattern)
+	out, err := run(repoDir, "ls-remote", remote,
+		fmt.Sprintf("%s%d/*", rescuePrefix, planID),
+		fmt.Sprintf("%s%d/*", legacyRescuePrefix, planID))
 	if err != nil {
 		return []string{}
 	}
@@ -775,7 +777,7 @@ func lsRemoteRefNames(out []byte) []string {
 
 // AllRescueRefs lists every rescue ref a repository carries, one
 // ls-remote for the whole repository rather than one per plan —
-// bucketed by the id segment of refs/frit/rescue/<id>/<rest>, what
+// bucketed by the id segment of <prefix><id>/<rest>, either prefix, what
 // a sweep across every plan needs instead of RescueRefs' one-plan-at-
 // a-time reads.
 //
@@ -793,7 +795,8 @@ func AllRescueRefs(
 		return map[int64][]string{}, nil
 	}
 
-	out, err := run(repoDir, "ls-remote", remote, "refs/frit/rescue/*")
+	out, err := run(repoDir, "ls-remote", remote,
+		rescuePrefix+"*", legacyRescuePrefix+"*")
 	if err != nil {
 		return nil, fmt.Errorf("read rescue refs from %s: %w", remote, err)
 	}
@@ -814,6 +817,7 @@ func AllRescueRefs(
 }
 
 // rescuePlanID reads the id segment out of a rescue ref name,
+// refs/heads/frit-rescue/<id>/<rest>, or the legacy
 // refs/frit/rescue/<id>/<rest> — <rest> is a bare holder under the
 // legacy shape or holder-tip under the content-addressed one; either
 // way the id is the first segment, so this reads both. ok is false for
@@ -821,7 +825,10 @@ func AllRescueRefs(
 // pattern could not have produced, guarded against rather than
 // trusted.
 func rescuePlanID(ref string) (int64, bool) {
-	rest, ok := strings.CutPrefix(ref, "refs/frit/rescue/")
+	rest, ok := strings.CutPrefix(ref, rescuePrefix)
+	if !ok {
+		rest, ok = strings.CutPrefix(ref, legacyRescuePrefix)
+	}
 	if !ok {
 		return 0, false
 	}
@@ -854,8 +861,18 @@ func rescuePlanID(ref string) (int64, bool) {
 // child of, that legacy ref, so the two shapes coexist the way
 // RescueRefs and the orphans sweep already assume they do.
 func rescueRef(planID int64, holder, tip string) string {
-	return fmt.Sprintf("refs/frit/rescue/%d/%s-%s", planID, holder, tip)
+	return fmt.Sprintf("%s%d/%s-%s", rescuePrefix, planID, holder, tip)
 }
+
+// rescuePrefix is where a park writes: a branch namespace, since a git
+// host that admits only refs/heads/ pushes — a Claude cloud session's
+// proxy refuses anything else — must still be able to park.
+// legacyRescuePrefix is where every park wrote before; it is still read,
+// so work parked there is never lost from view.
+const (
+	rescuePrefix       = "refs/heads/" + gitobj.RescueBranchPrefix
+	legacyRescuePrefix = "refs/frit/rescue/"
+)
 
 // park pushes the tip to the rescue ref, create-only. The ref name is
 // content-addressed by that same tip, so a rescue that already exists

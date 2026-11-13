@@ -108,7 +108,7 @@ func releaseHeld(
 
 	opts := claim.LeaseOptions{
 		PlanID: plan.ID, Remote: coord.Remote, Base: coord.Base,
-		Holder: hostname(), Lane: lane,
+		Holder: rt.holderName(), Lane: lane,
 	}
 	if _, err := claim.Release(coord.Path, opts, tip, rt.git); err != nil {
 		var diverged *claim.LeaseDivergesError

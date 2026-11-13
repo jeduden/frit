@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"testing"
+	"time"
 
 	"github.com/jeduden/frit/internal/report"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +147,7 @@ func TestDoctorHelpListsTheChecksAndTheirProvenance(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"goal", "schema", "execution-row", "tier", "id-sync", "phase-n-sync",
-		"plan/proto.md", "github.com/jeduden/mdsmith/pkg/mdsmith",
+		"holder", "auto-delete", "plan/proto.md", "github.com/jeduden/mdsmith/pkg/mdsmith",
 	} {
 		assert.Contains(t, got, want)
 	}
@@ -355,4 +357,101 @@ func TestPrintDoctorReportsNoGapsFound(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "no semantic gaps found")
+}
+
+// withGh swaps the gh doctor asks GitHub through for the test's fake.
+func withGh(t *testing.T, fake func(args ...string) ([]byte, error)) {
+	t.Helper()
+	prev := ghRunner
+	ghRunner = func(_ time.Duration, args ...string) ([]byte, error) { return fake(args...) }
+	t.Cleanup(func() { ghRunner = prev })
+}
+
+// TestDoctorFlagsAHolderInTheRepoConfig: a committed holder is ignored,
+// and doctor says so, even in a repository with no plan schema.
+func TestDoctorFlagsAHolderInTheRepoConfig(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holder: box\n"), 0o600))
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.Len(t, doc.Findings, 1)
+	assert.Equal(t, "holder", doc.Findings[0].Check)
+	assert.Equal(t, "atlas", doc.Findings[0].Repo)
+}
+
+// TestDoctorWarnsWhenGitHubKeepsMergedBranches: a GitHub origin whose
+// auto-delete setting is off is a finding; one with it on is not.
+func TestDoctorWarnsWhenGitHubKeepsMergedBranches(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	git(t, repo, "remote", "add", "origin", "https://github.com/acme/atlas.git")
+	answer := "false"
+	var asked []string
+	withGh(t, func(args ...string) ([]byte, error) {
+		asked = args
+		return []byte(answer + "\n"), nil
+	})
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root, "--no-fetch")
+
+	require.Len(t, doc.Findings, 1)
+	assert.Equal(t, "auto-delete", doc.Findings[0].Check)
+	assert.Equal(t, "acme/atlas", doc.Findings[0].Path)
+	assert.Contains(t, asked, "repos/acme/atlas")
+
+	answer = "true"
+	var on report.DoctorDoc
+	emit(t, &on, "doctor", "--root", root, "--no-fetch")
+	assert.Empty(t, on.Findings)
+}
+
+// TestDoctorAsksNothingOfANonGitHubOrigin: an origin on another host,
+// or none at all, is not checked and is not a finding.
+func TestDoctorAsksNothingOfANonGitHubOrigin(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	initRepo(t, root, "atlas")
+	other := initRepo(t, root, "beta")
+	git(t, other, "remote", "add", "origin", "https://gitlab.com/acme/beta.git")
+	withGh(t, func(args ...string) ([]byte, error) {
+		t.Fatalf("gh asked %v", args)
+		return nil, nil
+	})
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	assert.Empty(t, doc.Findings)
+}
+
+// TestDoctorCarriesAnUnreadableRepoConfigAsAProblem: a .frit.yml that
+// is not YAML is a problem doctor reports, not a silent pass.
+func TestDoctorCarriesAnUnreadableRepoConfigAsAProblem(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	repo := initRepo(t, root, "atlas")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".frit.yml"),
+		[]byte("holder: [\n"), 0o600))
+	var doc report.DoctorDoc
+
+	emit(t, &doc, "doctor", "--root", root)
+
+	require.NotEmpty(t, doc.Problems)
+}
+
+// TestGhRunnerRunsTheRealBinary: the default runner execs gh by name,
+// so a $PATH without it answers exec's own not-found error.
+func TestGhRunnerRunsTheRealBinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := ghRunner(time.Second, "--version")
+
+	assert.ErrorIs(t, err, exec.ErrNotFound)
 }

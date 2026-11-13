@@ -896,7 +896,7 @@ func startAcquire(
 		PlanID: plan.ID,
 		Remote: sc.remote,
 		Base:   sp.Base,
-		Holder: hostname(),
+		Holder: rt.holderName(),
 		Lane:   lane,
 	}
 	if rs.active() {
@@ -946,7 +946,7 @@ func bindSession(
 		PlanID:  plan.ID,
 		Remote:  sc.remote,
 		Base:    sp.Base,
-		Holder:  hostname(),
+		Holder:  rt.holderName(),
 		Lane:    lane,
 		Session: session,
 	}, tip, rt.git); err != nil {
@@ -1035,7 +1035,7 @@ func releaseLease(
 		PlanID: plan.ID,
 		Remote: coord.Remote,
 		Base:   base,
-		Holder: hostname(),
+		Holder: rt.holderName(),
 		Lane:   lane,
 	}, tip, rt.git); err != nil {
 		return fmt.Errorf(
@@ -1136,7 +1136,7 @@ func reconcileLeftoverWorktree(
 		return nil
 	}
 	opts := claim.LeaseOptions{
-		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: hostname(),
+		PlanID: planID, Remote: sc.remote, Base: sc.base, Holder: rt.holderName(),
 	}
 	if headless {
 		rescue, err := parkBranch(

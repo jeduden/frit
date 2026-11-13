@@ -26,6 +26,15 @@ indexes. Each is a global flag with an environment variable:
 | `--no-herdr`      | `FRIT_HERDR=false`   | never run herdr, even where it is installed     |
 | `--git-timeout`   | `FRIT_GIT_TIMEOUT`   | fail a stalled git call after this long         |
 | `--herdr-timeout` | `FRIT_HERDR_TIMEOUT` | fail a stalled herdr call after this long       |
+| `--holder`        | `FRIT_HOLDER`        | the name this host's leases carry               |
+
+`--holder` defaults to the hostname. In a Claude Code cloud session
+it defaults to the session's id, `$CLAUDE_CODE_REMOTE_SESSION_ID`,
+since every such container is called `vm` (C26). A holder joins a
+rescue branch's name, so frit refuses one with whitespace, a slash or
+any character git refuses in a ref name. It names a host, so a
+committed `.frit.yml` cannot set it: frit ignores the key there, and
+`frit doctor` reports it.
 
 A config file sets one under its flag's name without the `--` or a
 `no-` prefix, such as `herdr: false` or `git-timeout: 30s`. They

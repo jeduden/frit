@@ -279,9 +279,30 @@ func fetchRemote(dir, remote string, run gitwt.Runner) (bool, error) {
 		return false, nil
 	}
 
-	_, err = run(dir, "fetch", "--prune", "--quiet", remote)
+	args := []string{"fetch", "--prune", "--quiet", remote}
+	if specs := fetchRefspecs(dir, remote, run); len(specs) > 0 {
+		args = append(append(args, specs...),
+			"^refs/heads/"+gitobj.RescueBranchPrefix+"*")
+	}
+	_, err = run(dir, args...)
 
 	return err == nil, err
+}
+
+// fetchRefspecs reads the refspecs remote is configured to fetch, so
+// the fetch can name them on its command line beside the negative one
+// that leaves frit's rescue branches on the remote: a refspec given on
+// the command line replaces the configured ones, so they are carried
+// over rather than lost. A remote with none, or a config that cannot be
+// read, answers nil, and the fetch then runs with git's own defaults,
+// rescue branches included.
+func fetchRefspecs(dir, remote string, run gitwt.Runner) []string {
+	out, err := run(dir, "config", "--get-all", "remote."+remote+".fetch")
+	if err != nil {
+		return nil
+	}
+
+	return strings.Fields(string(out))
 }
 
 // hasRemoteName reports whether out — `git remote`'s one-name-per-line

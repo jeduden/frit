@@ -73,10 +73,25 @@ func (r Ref) Branch() (string, bool) {
 	return "", false
 }
 
+// RescueBranchPrefix is where frit parks a plan's unlanded work: a
+// branch, so a git host that admits only refs/heads/ pushes, such as a
+// Claude cloud session's proxy, can still park.
+const RescueBranchPrefix = "frit-rescue/"
+
+// IsRescue reports whether the ref is one of frit's rescue branches,
+// local or a remote's copy: frit's own parking, never a lane.
+func (r Ref) IsRescue() bool {
+	branch, ok := r.Branch()
+
+	return ok && strings.HasPrefix(branch, RescueBranchPrefix)
+}
+
 // ParseRefs reads `git for-each-ref --format=%(objectname) %(refname)`.
 //
 // Malformed lines are skipped rather than failing the walk: one
-// unreadable ref must not blind the index to the other 312.
+// unreadable ref must not blind the index to the other 312. frit's own
+// rescue branches are skipped too: a park is not a lane, and reading
+// plans off it would show a stale copy of every parked plan.
 func ParseRefs(data []byte) []Ref {
 	lines := strings.Split(string(data), "\n")
 	out := make([]Ref, 0, len(lines))
@@ -86,7 +101,9 @@ func ParseRefs(data []byte) []Ref {
 		if !ok || oid == "" || name == "" {
 			continue
 		}
-		out = append(out, Ref{Name: name, OID: oid})
+		if ref := (Ref{Name: name, OID: oid}); !ref.IsRescue() {
+			out = append(out, ref)
+		}
 	}
 
 	return out

@@ -3,11 +3,12 @@ package report
 import "github.com/jeduden/frit/internal/doctor"
 
 // DoctorDoc is what `frit doctor` found: the plans across the fleet
-// carrying a semantic gap. A repository walked but clean, or one with
-// no plan/proto.md to check against, contributes no findings —
-// doctor's table already omits a clean repository, the same
-// convention orphans and stale use, so the document does too rather
-// than padding it with empty entries.
+// carrying a semantic gap, and the repositories whose own settings
+// work against frit. A repository walked but clean contributes no
+// findings, and one with no plan/proto.md to check against only its
+// setting findings — doctor's table already omits a clean repository,
+// the same convention orphans and stale use, so the document does too
+// rather than padding it with empty entries.
 type DoctorDoc struct {
 	header
 	Root     string          `json:"root"`
@@ -15,7 +16,9 @@ type DoctorDoc struct {
 	Problems []Problem       `json:"problems"`
 }
 
-// DoctorFinding is one semantic gap doctor found in one plan.
+// DoctorFinding is one semantic gap doctor found in one plan, or one
+// repository setting it flagged: that kind carries id 0, and names
+// the file or the GitHub repository it read as its path.
 type DoctorFinding struct {
 	Repo string `json:"repo"`
 	ID   int64  `json:"id"`

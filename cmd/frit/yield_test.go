@@ -90,10 +90,10 @@ func TestYieldParksAFencedLaneAndTearsItDown(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "parked")
-	assert.Contains(t, out.String(), "refs/frit/rescue/7/"+hostname()+"-"+local,
+	assert.Contains(t, out.String(), "refs/heads/frit-rescue/7/"+hostname()+"-"+local,
 		"the rescue ref names the plan, the holder and the parked tip")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/7/*")
+		"refs/heads/frit-rescue/7/*")
 	require.NoError(t, err)
 	assert.NotEmpty(t, rescue, "the fenced lane's divergence was parked")
 	assert.True(t, rec.verb("worktree", "remove"),
@@ -170,7 +170,7 @@ func TestYieldWarnsRatherThanFailsOnAParkConflict(t *testing.T) {
 	foreignTip, err := gitCapture(t, repo, "rev-parse", "HEAD")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreignTip+":refs/frit/rescue/7/"+hostname()+"-"+local)
+		foreignTip+":refs/heads/frit-rescue/7/"+hostname()+"-"+local)
 	require.NoError(t, err)
 
 	git(t, repo, "checkout", "-q", "plan/7")
@@ -264,7 +264,7 @@ func TestYieldRefusesAForeignHoldWithNothingToPark(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, tip, lease.Tip, "the remote lease tip is unchanged")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/7/*")
+		"refs/heads/frit-rescue/7/*")
 	require.NoError(t, err)
 	assert.Empty(t, rescue, "nothing was parked")
 }
@@ -399,7 +399,7 @@ func TestYieldRefusesTheCurrentHolder(t *testing.T) {
 	require.Equal(t, 0, code, errb.String())
 	assert.Contains(t, out.String(), "refused")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/*")
+		"refs/heads/frit-rescue/*")
 	require.NoError(t, err)
 	assert.Empty(t, rescue, "the live holder's lease is not parked")
 	assert.False(t, rec.verb("worktree", "remove"),

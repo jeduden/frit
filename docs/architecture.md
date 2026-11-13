@@ -100,10 +100,26 @@ caller:
 
 A session whose harness lets it publish only its own branch, such as
 a cloud agent's `claude/<name>`, keeps the rule that work rides the
-lease ref. It works in the lane and pushes `plan/<id>`, then copies
-that tip to its own branch for the PR. When the PR merges, the lease
-tip reaches the default branch, and landed evidence reads it as for
-any lane (C21).
+lease ref. It works in the lane, pushes `plan/<id>`, and opens the PR
+from `plan/<id>` itself. When the PR merges, the lease tip reaches the
+default branch, and GitHub's branch auto-delete removes the lease, which
+reads as released (S55). The session never deletes, which its proxy
+would refuse. `frit doctor` warns where auto-delete is off. Copying the
+tip to the session's own branch and opening the PR from there also
+lands the plan (C21), but leaves `plan/<id>` behind.
+
+Such sessions share one hostname: every Claude Code cloud container
+is called `vm`. A lease names its holder by hostname, so two sessions
+would read as one host, and a checkout of one session's lane would
+pass the preflight that keeps another host's lane from being handed
+out. A cloud session therefore holds as its session id,
+`$CLAUDE_CODE_REMOTE_SESSION_ID`, unless `--holder` names it
+otherwise (C26).
+
+The same proxy refuses any push outside `refs/heads/`, and every
+delete. A rescue ref is therefore a branch, `frit-rescue/<id>/...`, so
+a cloud session can park (C27). A scavenge's delete is still refused
+there, so `reap --go` belongs on a host that can delete.
 
 The lease is untouched by any of this: a claim on a herdr-less host
 is the same ref on origin as one anywhere else. Standing a worktree

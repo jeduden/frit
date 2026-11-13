@@ -279,7 +279,7 @@ func TestReapSquashMergedBranchIsReapedEvenNotAnAncestor(t *testing.T) {
 		"a squash-merged plan's checkout is reaped on its own status")
 	assert.False(t, branchExists(t, repo, branch))
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/2608142306/*")
+		"refs/heads/frit-rescue/2608142306/*")
 	require.NoError(t, err)
 	assert.Contains(t, rescue, tip,
 		"the tip the squash never carried is parked before the delete")
@@ -305,11 +305,11 @@ func TestReapDryRunPreviewsTheRescueRef(t *testing.T) {
 	assert.Empty(t, stderr)
 	require.Len(t, doc.Repos, 1)
 	require.Len(t, doc.Repos[0].Reaped, 1)
-	assert.Equal(t, "refs/frit/rescue/2608142306/"+hostname()+"-"+tip,
+	assert.Equal(t, "refs/heads/frit-rescue/2608142306/"+hostname()+"-"+tip,
 		doc.Repos[0].Reaped[0].Rescue,
 		"the dry run names where the work would be parked")
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/*")
+		"refs/heads/frit-rescue/*")
 	require.NoError(t, err)
 	assert.Empty(t, rescue, "a dry run parks nothing")
 }
@@ -334,7 +334,7 @@ func TestReapRefusesTheTeardownWhenTheParkIsRefused(t *testing.T) {
 	foreign, err := gitCapture(t, repo, "rev-parse", "main")
 	require.NoError(t, err)
 	_, err = gitCapture(t, repo, "push", "-q", "origin",
-		foreign+":refs/frit/rescue/2608142306/"+hostname()+"-"+tip)
+		foreign+":refs/heads/frit-rescue/2608142306/"+hostname()+"-"+tip)
 	require.NoError(t, err)
 	var out, errb bytes.Buffer
 
@@ -671,7 +671,7 @@ func TestReapParksUnlandedWorkBeforeDroppingTheHold(t *testing.T) {
 
 	require.Equal(t, 0, code, errb.String())
 	rescue, err := gitCapture(t, repo, "ls-remote", "origin",
-		"refs/frit/rescue/7/*")
+		"refs/heads/frit-rescue/7/*")
 	require.NoError(t, err)
 	assert.NotEmpty(t, rescue, "the unlanded work is parked, not dropped")
 	_, err = holdRef(t, repo, 7)

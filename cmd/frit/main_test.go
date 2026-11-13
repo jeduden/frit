@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/jeduden/frit/internal/claim"
 	"github.com/jeduden/frit/internal/discover"
 	"github.com/jeduden/frit/internal/discovery"
@@ -2155,4 +2157,206 @@ func TestScaffoldMdsmithSurfacesAConfigItCannotLoad(t *testing.T) {
 	_, err := scaffoldMdsmith(repo, false)
 
 	assert.Error(t, err)
+}
+
+// TestHolderIDPrefersTheSetting: an explicit holder — --holder,
+// $FRIT_HOLDER or a config file — wins over a cloud session and the
+// hostname both.
+func TestHolderIDPrefersTheSetting(t *testing.T) {
+	getenv := func(string) string { return "cse_session" }
+	host := func() string { return "vm" }
+
+	assert.Equal(t, "laptop", holderID("laptop", getenv, host))
+}
+
+// TestHolderIDNamesTheCloudSession: with no setting, a Claude Code
+// cloud session holds as its own session id, since every such
+// container shares one hostname.
+func TestHolderIDNamesTheCloudSession(t *testing.T) {
+	getenv := func(name string) string {
+		if name == "CLAUDE_CODE_REMOTE_SESSION_ID" {
+			return "cse_session"
+		}
+		return ""
+	}
+	host := func() string { return "vm" }
+
+	assert.Equal(t, "cse_session", holderID("", getenv, host))
+}
+
+// TestHolderIDFallsBackToTheHostname: outside a cloud session, with no
+// setting, the holder is the hostname, as it always was.
+func TestHolderIDFallsBackToTheHostname(t *testing.T) {
+	getenv := func(string) string { return "" }
+	host := func() string { return "box" }
+
+	assert.Equal(t, "box", holderID("", getenv, host))
+}
+
+// TestHolderNameFallsBackToTheHostname: a runtime built without a
+// resolved holder — every test that builds one by hand — mints under
+// the hostname.
+func TestHolderNameFallsBackToTheHostname(t *testing.T) {
+	assert.Equal(t, hostname(), (&runtime{}).holderName())
+	assert.Equal(t, "cse_session", (&runtime{holder: "cse_session"}).holderName())
+}
+
+// TestValidHolderAcceptsHostAndSessionNames: a hostname or a cloud
+// session id is one ref component and one marker line, so it passes.
+func TestValidHolderAcceptsHostAndSessionNames(t *testing.T) {
+	for _, name := range []string{"box-a", "cse_018PvLGarv", "laptop.local"} {
+		assert.NoError(t, validHolder(name), name)
+	}
+}
+
+// TestValidHolderRefusesWhatARefOrMarkerCannotCarry: the holder joins a
+// rescue branch's name as one segment and a marker's holder line as its
+// whole value, so whitespace — trimmed off when the marker is read back,
+// so a holder never matches its own lease — a line break, a slash, or
+// anything git refuses in a ref name is refused up front.
+func TestValidHolderRefusesWhatARefOrMarkerCannotCarry(t *testing.T) {
+	for _, name := range []string{
+		" box", "box ", "a b", "a\nnonce: x", "team/box", "a..b",
+		"a~b", "a^b", "a:b", "a?b", "a*b", "a[b", `a\b`, "a@{b",
+		".box", "box.", "box.lock", "-",
+		// Whitespace outside ASCII is trimmed off a marker's holder line
+		// just the same, and git admits it in a ref name, so only this
+		// check stands between it and a holder that never matches.
+		"box\u00a0", "\u2003box", "a\u3000b",
+	} {
+		assert.Error(t, validHolder(name), "%q", name)
+	}
+}
+
+// TestHolderMustBeOneRefComponent: frit rejects an unusable --holder up
+// front, naming the flag, rather than failing every park's push later.
+func TestHolderMustBeOneRefComponent(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "atlas")
+
+	var out, errb bytes.Buffer
+	code := run([]string{"repos", "--root", root, "--holder", "team/box"},
+		&out, &errb)
+
+	assert.Equal(t, 2, code)
+	assert.Contains(t, errb.String(), "--holder")
+}
+
+// TestCheckSettingsNamesTheBadFlag: each setting that would fail every
+// run is refused under its own flag's name; sound settings pass.
+func TestCheckSettingsNamesTheBadFlag(t *testing.T) {
+	sound := cli{GitTimeout: time.Second, HerdrTimeout: time.Second}
+	assert.NoError(t, checkSettings(&sound))
+
+	for flag, c := range map[string]cli{
+		"--git-timeout":   {HerdrTimeout: time.Second},
+		"--herdr-timeout": {GitTimeout: time.Second},
+		"--holder": {
+			GitTimeout: time.Second, HerdrTimeout: time.Second, Holder: "a b",
+		},
+	} {
+		err := checkSettings(&c)
+		require.Error(t, err, flag)
+		assert.Contains(t, err.Error(), flag)
+	}
+}
+
+// parsedHolder parses a bare `repos` run through the real parser and
+// answers the holder setting it resolved.
+func parsedHolder(t *testing.T) string {
+	t.Helper()
+	var c cli
+	var out, errb bytes.Buffer
+	parser, err := newParser(&c, &out, &errb)
+	require.NoError(t, err)
+	_, err = parser.Parse([]string{"repos"})
+	require.NoError(t, err, errb.String())
+
+	return c.Holder
+}
+
+// TestHolderIsIgnoredInARepoLocalConfigFile: holder names a host, so
+// a committed .frit.yml — shared by every clone through git — cannot
+// set it; one commit would make every host hold as one name.
+func TestHolderIsIgnoredInARepoLocalConfigFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+
+	assert.Empty(t, parsedHolder(t))
+}
+
+// TestHolderComesFromTheUserConfigFile: the user config is the host's
+// own, so it still sets the holder, past a repo file naming another.
+func TestHolderComesFromTheUserConfigFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "frit")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"),
+		[]byte("holder: from-user\n"), 0o600))
+
+	assert.Equal(t, "from-user", parsedHolder(t))
+}
+
+// TestHolderComesFromAnExplicitConfigFile: $FRIT_CONFIG is the host's
+// explicit choice, so it sets the holder too.
+func TestHolderComesFromAnExplicitConfigFile(t *testing.T) {
+	isolate(t)
+	path := filepath.Join(t.TempDir(), "explicit.yml")
+	require.NoError(t, os.WriteFile(path, []byte("holder: from-explicit\n"), 0o600))
+	t.Setenv("FRIT_CONFIG", path)
+
+	assert.Equal(t, "from-explicit", parsedHolder(t))
+}
+
+// TestHolderIsIgnoredWhenTheExplicitConfigIsTheRepoFile: $FRIT_CONFIG
+// naming the committed .frit.yml itself, by a relative path, is still
+// that shared file, so its holder stays ignored however it is spelled.
+func TestHolderIsIgnoredWhenTheExplicitConfigIsTheRepoFile(t *testing.T) {
+	isolate(t)
+	require.NoError(t, os.WriteFile(".frit.yml", []byte("holder: from-repo\n"), 0o600))
+
+	for _, spelling := range []string{".frit.yml", "./.frit.yml"} {
+		t.Setenv("FRIT_CONFIG", spelling)
+
+		assert.Empty(t, parsedHolder(t), spelling)
+	}
+}
+
+// TestIsRepoConfigKnowsTheFileUnderAnySpelling: the .frit.yml in the
+// working directory is the repo file whether named absolutely or
+// relatively; any other file, there or elsewhere, is not.
+func TestIsRepoConfigKnowsTheFileUnderAnySpelling(t *testing.T) {
+	for _, path := range []string{"/work/.frit.yml", ".frit.yml", "./.frit.yml", "sub/../.frit.yml"} {
+		assert.True(t, isRepoConfig("/work", path), path)
+	}
+	for _, path := range []string{"/work/explicit.yml", "/home/u/.frit.yml", "sub/.frit.yml", "explicit.yml"} {
+		assert.False(t, isRepoConfig("/work", path), path)
+	}
+}
+
+// TestRootStillComesFromARepoLocalConfigFileBesideAHolder: dropping
+// holder from the repo file drops that key alone.
+func TestRootStillComesFromARepoLocalConfigFileBesideAHolder(t *testing.T) {
+	isolate(t)
+	root := rootWith(t, "from-config")
+	require.NoError(t, os.WriteFile(".frit.yml",
+		[]byte("root: "+root+"\nholder: from-repo\n"), 0o600))
+	var out, errb bytes.Buffer
+
+	code := run([]string{"repos"}, &out, &errb)
+
+	require.Equal(t, 0, code, errb.String())
+	assert.Contains(t, out.String(), "from-config")
+}
+
+// TestWithoutKeyPassesALoadFailureThrough: a file the wrapped loader
+// cannot read fails the same way it would unwrapped.
+func TestWithoutKeyPassesALoadFailureThrough(t *testing.T) {
+	boom := errors.New("bad yaml")
+	load := withoutKey(func(io.Reader) (kong.Resolver, error) { return nil, boom }, "holder")
+
+	_, err := load(strings.NewReader(""))
+
+	assert.ErrorIs(t, err, boom)
 }

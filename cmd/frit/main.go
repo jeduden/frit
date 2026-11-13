@@ -10,10 +10,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -21,6 +23,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -110,6 +113,15 @@ type cli struct {
 	// default, and resolvable from $FRIT_HERDR or a config file like
 	// --root, since it is the host's choice, not a repository's.
 	Herdr bool `negatable:"" default:"true" env:"FRIT_HERDR" help:"Use herdr where installed; --no-herdr opts out."`
+
+	// Holder is the name this run's lease markers carry, and the one a
+	// marker is matched against to tell this host's own hold from
+	// another's. Empty, the default, names a Claude Code cloud session
+	// by its session id — every such container is called "vm", so the
+	// hostname cannot tell two sessions apart — and any other host by
+	// its hostname. Resolvable from $FRIT_HOLDER or a config file like
+	// --root, since it is the host's identity, not a repository's.
+	Holder string `env:"FRIT_HOLDER" help:"Name this host's leases carry (default: cloud session id, else hostname)."`
 
 	// All un-hides what the default view holds back: satisfied
 	// dependencies in show, and files in a plan directory that carry no
@@ -831,6 +843,14 @@ func (d *doctorCmd) Help() string {
                   "## Handoff" in a single-file plan's plan.md, none in
                   a directory plan's own phase-N.result.md
 
+It also checks each repository's own settings:
+
+  holder          a committed .frit.yml names a holder, which frit
+                  ignores there: the holder names a host
+  auto-delete     a GitHub origin keeps a merged PR's branch, so a
+                  landed plan/<id> stays on origin; asked through gh,
+                  and noted as not checked where gh is missing or fails
+
 goal and schema are mdsmith's own findings: doctor runs mdsmith as an
 imported library (github.com/jeduden/mdsmith/pkg/mdsmith) against each
 repository's own plan/proto.md, rather than reimplementing a checker.
@@ -845,7 +865,7 @@ working copy, the way next, show and phase do — so a gap fixed in the
 lane clears before the branch merges. Every other plan reads the
 fleet's default-branch copy.
 
-A repository with no plan/proto.md has nothing to check.`
+A repository with no plan/proto.md has only its settings checked.`
 }
 
 // Run scans every repository's plan directory for the semantic gaps
@@ -875,6 +895,8 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 			doc.AddProblem(repo.Name, err)
 			continue
 		}
+		doc.AddFindings(repo.Name,
+			repoSettingFindings(rt, repo.Path, cfg.Remote, c.GitTimeout))
 		findings, err := doctorpkg.Scan(repo.Path, cfg.PlanDir)
 		if err != nil {
 			if errors.Is(err, doctorpkg.ErrNoSchema) {
@@ -901,6 +923,46 @@ func (d *doctorCmd) Run(c *cli, rt *runtime) error {
 	printProblems(rt.stderr, doc.Problems)
 
 	return nil
+}
+
+// ghRunner is how doctor reaches GitHub: the gh binary, bounded by
+// the run's git timeout. A package variable so a test can stand in a
+// fake GitHub without a network or a token.
+var ghRunner = func(timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return exec.CommandContext(ctx, "gh", args...).Output()
+}
+
+// repoSettingFindings checks the repository's own settings rather than
+// its plans: a holder committed to .frit.yml, which frit ignores, and,
+// for a GitHub origin, whether merged branches are deleted. A remote
+// that is not configured or not on GitHub is not checked. Its caller
+// has already loaded .frit.yml, so a file it could not read was
+// reported as a problem before this runs.
+func repoSettingFindings(
+	rt *runtime, repoPath, remote string, timeout time.Duration,
+) []doctorpkg.Finding {
+	findings := []doctorpkg.Finding{}
+	if f, found, err := doctorpkg.CheckHolderInRepoConfig(repoPath); err == nil && found {
+		findings = append(findings, f)
+	}
+
+	url, err := rt.git(repoPath, "remote", "get-url", remote)
+	if err != nil {
+		return findings
+	}
+	owner, name, ok := doctorpkg.GitHubRepo(strings.TrimSpace(string(url)))
+	if !ok {
+		return findings
+	}
+	gh := func(args ...string) ([]byte, error) { return ghRunner(timeout, args...) }
+	if f, found := doctorpkg.CheckAutoDelete(owner, name, gh); found {
+		findings = append(findings, f)
+	}
+
+	return findings
 }
 
 // overrideLaneFindings swaps the lane plan's findings for a fresh scan
@@ -1420,6 +1482,9 @@ type runtime struct {
 	gitPipe gitwt.PipeRunner
 	herdr   herdr.Runner
 	width   int
+	// holder is the resolved --holder: what every lease marker this run
+	// mints names as its holder (see holderID).
+	holder string
 }
 
 // herdrRunner is how commands reach a herdr server. It is a package
@@ -1566,6 +1631,61 @@ func hostname() string {
 	}
 
 	return host
+}
+
+// holderName is the name this run's lease markers carry: the resolved
+// --holder, or the hostname on a runtime built without one.
+func (rt *runtime) holderName() string {
+	if rt.holder != "" {
+		return rt.holder
+	}
+
+	return hostname()
+}
+
+// cloudSessionEnv names the Claude Code cloud session a container runs.
+// Every such container shares the hostname "vm", so it is the session,
+// not the hostname, that tells one cloud holder from another.
+const cloudSessionEnv = "CLAUDE_CODE_REMOTE_SESSION_ID"
+
+// holderID resolves the name a lease marker carries: the explicit
+// setting first, then a Claude Code cloud session's id, then the
+// hostname.
+func holderID(
+	explicit string, getenv func(string) string, host func() string,
+) string {
+	if explicit != "" {
+		return explicit
+	}
+	if session := getenv(cloudSessionEnv); session != "" {
+		return session
+	}
+
+	return host()
+}
+
+// validHolder refuses a holder a lease cannot carry. The name joins a
+// rescue branch as one segment, frit-rescue/<id>/<holder>-<tip>, and
+// is a marker's whole holder line, read back trimmed: whitespace would
+// make a holder never match its own lease, a line break would forge a
+// trailer, and a slash or anything git refuses in a ref name would fail
+// every park's push.
+func validHolder(name string) error {
+	switch {
+	case name == "-":
+		return fmt.Errorf("%q stands for no holder in a marker", name)
+	case strings.ContainsAny(name, "/~^:?*[\\"), strings.ContainsFunc(name, unicode.IsSpace),
+		strings.ContainsFunc(name, unicode.IsControl):
+		return fmt.Errorf(
+			"%q carries whitespace, a slash or a character a ref name refuses",
+			name)
+	case strings.Contains(name, ".."), strings.Contains(name, "@{"),
+		strings.HasPrefix(name, "."), strings.HasSuffix(name, "."),
+		strings.HasSuffix(name, ".lock"):
+		return fmt.Errorf("%q is not a valid ref name segment", name)
+	}
+
+	return nil
 }
 
 // gatherFleet reads every repository's plans and holds into the view
@@ -1852,7 +1972,7 @@ func resolveSelector(
 	// acts on the lane guards; a read-only report has nothing to refuse.
 	if guardForeign {
 		if host, foreign := fleet.ForeignHold(
-			cwd, hostname(), rt.git, holdsForRoot); foreign {
+			cwd, rt.holderName(), rt.git, holdsForRoot); foreign {
 			return discovery.Plan{}, fmt.Errorf(
 				"the current worktree stands on a claim held by %s; "+
 					"pass a plan explicitly to work another", host)
@@ -3408,6 +3528,30 @@ func exitCodeFromPanic(r any) (code int, matched bool) {
 	return int(c), ok
 }
 
+// checkSettings refuses a global setting that would fail every run in a
+// way that hides its cause. A non-positive bound would make every git
+// call — including a trivial local one — lose the race against
+// time.After instantly, so the run would fail every call and look like
+// every repository is unreachable rather than pointing at the
+// misconfigured flag. A holder no lease can carry would fail every
+// park's push instead (validHolder).
+func checkSettings(c *cli) error {
+	if c.GitTimeout <= 0 {
+		return fmt.Errorf("--git-timeout must be positive, got %s", c.GitTimeout)
+	}
+	if c.HerdrTimeout <= 0 {
+		return fmt.Errorf(
+			"--herdr-timeout must be positive, got %s", c.HerdrTimeout)
+	}
+	if c.Holder != "" {
+		if err := validHolder(c.Holder); err != nil {
+			return fmt.Errorf("--holder: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // run is the testable entry point. It returns the process exit code:
 // 0 on success, 1 on a runtime failure, 2 on a usage error.
 func run(args []string, stdout, stderr io.Writer) (code int) {
@@ -3449,19 +3593,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		rt.width = c.Width
 	}
 
-	// A non-positive bound would make every git call — including a
-	// trivial local one — lose the race against time.After instantly,
-	// so the run would fail every call and look like every repository
-	// is unreachable rather than pointing at the misconfigured flag.
-	// Reject it up front instead.
-	if c.GitTimeout <= 0 {
-		_, _ = fmt.Fprintf(stderr,
-			"frit: --git-timeout must be positive, got %s\n", c.GitTimeout)
-		return 2
-	}
-	if c.HerdrTimeout <= 0 {
-		_, _ = fmt.Fprintf(stderr,
-			"frit: --herdr-timeout must be positive, got %s\n", c.HerdrTimeout)
+	if err := checkSettings(&c); err != nil {
+		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
 		return 2
 	}
 
@@ -3481,6 +3614,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if !c.Herdr {
 		rt.herdr = herdr.Off
 	}
+	rt.holder = holderID(c.Holder, os.Getenv, hostname)
 
 	if err := ctx.Run(&c, rt); err != nil {
 		_, _ = fmt.Fprintf(stderr, "frit: %v\n", err)
@@ -3497,7 +3631,7 @@ func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
 		return nil, err
 	}
 
-	return kong.New(c,
+	options := []kong.Option{
 		kong.Name("frit"),
 		kong.Description(description),
 		kong.Writers(stdout, stderr),
@@ -3505,15 +3639,77 @@ func newParser(c *cli, stdout, stderr io.Writer) (*kong.Kong, error) {
 		// Turn kong's process exit into a panic run recovers, so the
 		// exit code survives without killing a test binary.
 		kong.Exit(func(code int) { panic(exitCode(code)) }),
-		kong.Configuration(kongyaml.Loader,
-			config.Paths(os.Getenv, workdir)...),
+	}
+	options = append(options, configFiles(workdir)...)
+
+	return kong.New(c, append(options,
 		// kong's own `env:` tag is applied beneath its config
 		// resolver, so a config file would silently outrank the
 		// environment. This resolver restores the order operators
 		// expect — environment over file — and is registered after
 		// Configuration because a later resolver wins.
 		kong.Resolvers(envResolver(os.Getenv)),
-	)
+	)...)
+}
+
+// configFiles loads each configuration file in precedence order. The
+// .frit.yml beside the work is committed and shared by every clone, so
+// it may not name the holder, which names a host: its holder key is
+// dropped. The last option leaves the plain loader in place for an
+// explicit --config file.
+func configFiles(workdir string) []kong.Option {
+	options := []kong.Option{}
+	for _, path := range config.Paths(os.Getenv, workdir) {
+		loader := kong.ConfigurationLoader(kongyaml.Loader)
+		if isRepoConfig(workdir, path) {
+			loader = withoutKey(kongyaml.Loader, "holder")
+		}
+		options = append(options, kong.Configuration(loader, path))
+	}
+
+	return append(options, kong.Configuration(kongyaml.Loader))
+}
+
+// isRepoConfig reports whether path is the .frit.yml beside the work,
+// however it is spelled: the loader reads a relative path against the
+// working directory, so a relative $FRIT_CONFIG can name that same
+// shared file.
+func isRepoConfig(workdir, path string) bool {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workdir, path)
+	}
+
+	return filepath.Clean(path) == filepath.Join(workdir, config.FileName)
+}
+
+// withoutKey wraps a configuration loader so the files it reads never
+// resolve the named flag.
+func withoutKey(load kong.ConfigurationLoader, name string) kong.ConfigurationLoader {
+	return func(r io.Reader) (kong.Resolver, error) {
+		inner, err := load(r)
+		if err != nil {
+			return nil, err
+		}
+
+		return droppedKey{Resolver: inner, name: name}, nil
+	}
+}
+
+// droppedKey is a resolver that answers nothing for one flag.
+type droppedKey struct {
+	kong.Resolver
+	name string
+}
+
+// Resolve answers nil for the dropped flag and defers for every other.
+func (d droppedKey) Resolve(
+	ctx *kong.Context, parent *kong.Path, flag *kong.Flag,
+) (any, error) {
+	if flag.Name == d.name {
+		return nil, nil
+	}
+
+	return d.Resolver.Resolve(ctx, parent, flag)
 }
 
 // envResolver reads a flag's `env:` names directly, so the

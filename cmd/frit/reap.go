@@ -202,7 +202,7 @@ func reapStranded(
 		}
 		opts := claim.LeaseOptions{
 			PlanID: lane.PlanID, Remote: remote, Base: base,
-			Holder: hostname(),
+			Holder: rt.holderName(),
 		}
 
 		for _, d := range reap.Decide(
@@ -375,7 +375,7 @@ func reapUnstaffed(
 
 		opts := claim.LeaseOptions{
 			PlanID: lane.PlanID, Remote: remote, Base: base,
-			Holder: hostname(),
+			Holder: rt.holderName(),
 		}
 		if !doGo {
 			rescue := ""
