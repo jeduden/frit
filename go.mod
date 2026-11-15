@@ -3,7 +3,7 @@ module github.com/jeduden/frit
 go 1.25.11
 
 require (
-	github.com/alecthomas/kong v1.16.1
+	github.com/alecthomas/kong v1.17.0
 	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/cucumber/godog v0.16.0
 	github.com/cucumber/messages/go/v34 v34.2.1
